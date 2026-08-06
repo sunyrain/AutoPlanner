@@ -99,7 +99,7 @@ def materialize_candidate(
     )
     if authorized_artifact.get("structured_path"):
         try:
-            return materialize_authorized_publisher_json(
+            structured_source = materialize_authorized_publisher_json(
                 candidate,
                 request=request,
                 source_ref=source_ref,
@@ -108,17 +108,39 @@ def materialize_candidate(
                 config=config,
                 artifact=authorized_artifact,
             )
+            return _attach_authorized_pdf_assets(
+                structured_source,
+                candidate=candidate,
+                request=request,
+                config=config,
+                source_dir=source_dir,
+                raw_cache_dir=raw_cache_dir,
+                source_ref=source_ref,
+                source_doi=source_doi,
+                artifact=authorized_artifact,
+            )
         except (OSError, RuntimeError, ValueError) as exc:
             structured_failure += f"|authorized_json:{type(exc).__name__}:{str(exc)[:300]}"
     if authorized_artifact.get("html_path"):
         try:
-            return materialize_authorized_publisher_html(
+            html_source = materialize_authorized_publisher_html(
                 candidate,
                 request=request,
                 source_ref=source_ref,
                 source_dir=source_dir,
                 fulltext_cache_dir=output_dir.parent / "_source_fulltext_cache" / slug,
                 config=config,
+                artifact=authorized_artifact,
+            )
+            return _attach_authorized_pdf_assets(
+                html_source,
+                candidate=candidate,
+                request=request,
+                config=config,
+                source_dir=source_dir,
+                raw_cache_dir=raw_cache_dir,
+                source_ref=source_ref,
+                source_doi=source_doi,
                 artifact=authorized_artifact,
             )
         except (OSError, RuntimeError, ValueError) as exc:
@@ -211,6 +233,90 @@ def materialize_candidate(
         focus_builder=rebuild_literature_pdf_page_focus,
         asset_extractor=extract_literature_pdf_assets,
     )
+
+
+def _attach_authorized_pdf_assets(
+    source: Mapping[str, Any],
+    *,
+    candidate: Mapping[str, Any],
+    request: Mapping[str, Any],
+    config: Any,
+    source_dir: Path,
+    raw_cache_dir: Path,
+    source_ref: str,
+    source_doi: str,
+    artifact: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep structured text authority while retaining downloaded SI figures."""
+
+    pdf_path = Path(str(artifact.get("pdf_path") or "")).expanduser().resolve()
+    if not pdf_path.is_file():
+        return dict(source)
+    try:
+        pdf_source = finalize_pdf_materialization(
+            candidate,
+            request=request,
+            config=config,
+            source_dir=source_dir / "supplementary-pdf",
+            raw_cache_dir=raw_cache_dir,
+            source_ref=source_ref,
+            source_doi=source_doi,
+            content=pdf_path.read_bytes(),
+            acquisition_method="authorized_publisher_supplementary_pdf",
+            acquisition_receipt={
+                "provider": str(artifact.get("provider") or "authorized_local_browser"),
+                "artifact_kind": str(artifact.get("artifact_kind") or ""),
+                "authorized_pdf_path": str(pdf_path),
+            },
+            structured_failure="",
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        row = dict(source)
+        receipt = dict(row.get("acquisition_receipt") or {})
+        receipt["supplementary_pdf_materialization"] = {
+            "status": "failed",
+            "reason": f"{type(exc).__name__}:{str(exc)[:500]}",
+        }
+        row["acquisition_receipt"] = receipt
+        return row
+    row = dict(source)
+    row.update(
+        source_pdf_sha256=str(pdf_source.get("source_pdf_sha256") or ""),
+        pdf_sha256=str(pdf_source.get("pdf_sha256") or ""),
+        source_pdf_path=str(pdf_source.get("source_pdf_path") or ""),
+        page_count=int(pdf_source.get("page_count") or 0),
+        visual_candidate_pages=list(pdf_source.get("visual_candidate_pages") or []),
+        focus_page_numbers=list(pdf_source.get("focus_page_numbers") or []),
+        target_focus=dict(pdf_source.get("target_focus") or {}),
+        target_alias_hit_page_count=int(
+            pdf_source.get("target_alias_hit_page_count") or 0
+        ),
+        acquisition_method=(
+            f"{str(source.get('acquisition_method') or 'authorized_publisher_source')}"
+            "_with_supplementary_pdf"
+        ),
+    )
+    # The structured source already owns text extraction.  Retain the SI only
+    # for hash-bound visual pages; duplicating its full text snippets here can
+    # overflow the bounded discovery observation before vision runs.
+    row["procedure_inventory"] = [
+        dict(value)
+        for value in source.get("procedure_inventory") or []
+        if isinstance(value, Mapping)
+    ]
+    receipt = dict(row.get("acquisition_receipt") or {})
+    receipt["supplementary_pdf_materialization"] = {
+        "status": "materialized",
+        "pdf_sha256": row["source_pdf_sha256"],
+        "visual_page_count": len(row["visual_candidate_pages"]),
+    }
+    row["acquisition_receipt"] = receipt
+    row["semantics"] = {
+        **dict(row.get("semantics") or {}),
+        "structured_text_and_supplementary_pdf_are_jointly_retained": True,
+        "supplementary_pdf_enables_visual_structure_binding": True,
+    }
+    return row
 
 
 __all__ = ["materialize_candidate"]

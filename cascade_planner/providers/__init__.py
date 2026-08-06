@@ -30,7 +30,6 @@ from cascade_planner.providers.stock import (
 )
 from cascade_planner.providers.builtins import (
     ChemEnzyProposalProvider,
-    CodexRetrosynthesisProvider,
     LiteratureEvidenceProvider,
     ReactionRouteVerifierProvider,
     build_default_provider_registry,
@@ -68,7 +67,6 @@ __all__ = [
     "VerifierProvider",
     "descriptor_from_dict",
     "validate_provider_result",
-    "CodexRetrosynthesisProvider",
     "ChemEnzyProposalProvider",
     "LiteratureEvidenceProvider",
     "ReactionRouteVerifierProvider",

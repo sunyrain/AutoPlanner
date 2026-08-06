@@ -14,11 +14,14 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
-from rdkit import Chem, DataStructs, RDLogger
-from rdkit.Chem import AllChem
+from rdkit import RDLogger
 from torch.utils.data import DataLoader, TensorDataset
 
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
+from cascade_planner.cascadeboard.skeleton_reranker_contract import (
+    SkeletonReranker,
+    skeleton_row_features as row_features,
+)
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -31,22 +34,6 @@ class SkeletonRerankerDataset:
     y: np.ndarray
     weights: np.ndarray
     feature_schema: dict[str, Any]
-
-
-class SkeletonReranker(nn.Module):
-    def __init__(self, in_dim: int, hidden: int = 192):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden),
-            nn.GELU(),
-            nn.Dropout(0.12),
-            nn.Linear(hidden, max(48, hidden // 2)),
-            nn.GELU(),
-            nn.Linear(max(48, hidden // 2), 1),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x).squeeze(-1)
 
 
 def train_skeleton_reranker(
@@ -337,53 +324,11 @@ def train_pairwise_epoch(
     return total / max(n_seen, 1), n_seen
 
 
-def row_features(row: dict[str, Any], schema: dict[str, Any]) -> np.ndarray:
-    n_bits = int(schema.get("n_bits") or 128)
-    target_fp = fp(row.get("target_smiles"), n_bits=n_bits)
-    max_steps = int(schema.get("max_steps") or 8)
-    types = [str(value or "NONE") for value in row.get("type_sequence") or []]
-    ec1s = [str(value or "NONE") for value in row.get("ec1_sequence") or []]
-    type_pos = position_one_hot(types, schema.get("type_vocab") or [], max_steps=max_steps)
-    ec_pos = position_one_hot(ec1s, schema.get("ec1_vocab") or [], max_steps=max_steps)
-    mol = Chem.MolFromSmiles(row.get("target_smiles") or "")
-    heavy = float(mol.GetNumHeavyAtoms()) if mol is not None else 0.0
-    depth = int(row.get("depth") or len(types) or 0)
-    ec_known = sum(1 for value in ec1s if value not in {"", "NONE", "0"})
-    scalar = np.asarray([
-        depth / max(max_steps, 1),
-        heavy / 100.0,
-        len(set(types)) / max(max_steps, 1),
-        ec_known / max(depth, 1),
-    ], dtype=np.float32)
-    return np.concatenate([target_fp, type_pos, ec_pos, scalar])
-
-
 def row_weight(row: dict[str, Any], *, positive: bool) -> float:
     base = 3.0 if positive else 1.0
     if row.get("source") == "benchmark_gt":
         base *= 1.5
     return base
-
-
-def fp(smiles: str | None, *, n_bits: int) -> np.ndarray:
-    arr = np.zeros(n_bits, dtype=np.float32)
-    mol = Chem.MolFromSmiles(smiles or "")
-    if mol is None:
-        return arr
-    bv = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=n_bits)
-    DataStructs.ConvertToNumpyArray(bv, arr)
-    return arr
-
-
-def position_one_hot(values: list[str], vocab_values: list[str], *, max_steps: int) -> np.ndarray:
-    index = {token: idx for idx, token in enumerate(vocab_values)}
-    arr = np.zeros(max_steps * len(vocab_values), dtype=np.float32)
-    for pos, value in enumerate(values[:max_steps]):
-        vocab_idx = index.get(value)
-        if vocab_idx is None:
-            continue
-        arr[pos * len(vocab_values) + vocab_idx] = 1.0
-    return arr
 
 
 def evaluate_model(model: SkeletonReranker, dataset: SkeletonRerankerDataset) -> dict[str, Any]:

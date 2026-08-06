@@ -1492,7 +1492,6 @@ def train_step_encoder_from_vnext_pack(
     ), batch_size=batch_size, shuffle=True)
     history = []
     best_state = None
-    best_metrics: dict[str, Any] | None = None
     best_val = float("inf")
     for epoch in range(max(1, epochs)):
         model.train()

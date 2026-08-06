@@ -144,8 +144,6 @@ def row_features(row: dict[str, Any], *, n_bits: int) -> np.ndarray:
     ]
     source = str(cand.get("source") or "").lower()
     source_features = [1.0 if source == value else 0.0 for value in SOURCE_VALUES]
-    ec = str(cand.get("ec") or "")
-    type_text = str(cand.get("type") or cand.get("reaction_type") or "")
     metadata_features = candidate_metadata_features(cand)
     return np.concatenate([
         product_fp,

@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.benchmark_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
@@ -90,6 +91,12 @@ data/*_cache.json
 
 # Legacy migration bundle
 archive/
+!archive/
+archive/*
+!archive/data/
+archive/data/*
+!archive/data/legacy_eval_202605/
+!archive/data/legacy_eval_202605/**
 docs/archive/
 scripts/archive/
 archive/migration_*/autoplanner_full_*.zip

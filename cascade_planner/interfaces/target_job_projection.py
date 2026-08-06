@@ -10,13 +10,13 @@ from uuid import uuid4
 
 def compact_solve_result(value: Mapping[str, Any]) -> dict[str, Any]:
     gates = dict(value.get("gates") or {})
+    claim = dict(value.get("claim") or {})
     return {
         "run_id": str(value.get("run_id") or ""),
         "report_path": str(value.get("report_path") or ""),
-        "accepted": dict(value.get("claim") or {}).get(
-            "accepted_under_configured_policy"
-        )
-        is True,
+        "accepted": claim.get("accepted_under_configured_policy") is True,
+        "objective_mode": str(claim.get("objective_mode") or "scientific_proof"),
+        "objective_achieved": claim.get("objective_achieved") is True,
         "highest_contiguous_gate": str(gates.get("highest_contiguous_gate") or "none"),
         "gates": dict(gates.get("gates") or {}),
         "counts": dict(gates.get("counts") or {}),
@@ -43,6 +43,7 @@ def job_projection(value: Mapping[str, Any]) -> dict[str, Any]:
             "finished_at",
             "updated_at",
             "elapsed_s",
+            "continuation_pass_count",
             "error",
             "result",
         )

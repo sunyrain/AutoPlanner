@@ -36,6 +36,10 @@ from cascade_planner.orchestration.global_campaign_director import (
     GlobalCampaignDirector,
 )
 from cascade_planner.orchestration import route_innovation_runtime
+from cascade_planner.orchestration import program_innovation_runtime
+from cascade_planner.orchestration.experimental_claim_admission_runtime import (
+    admit_route_experimental_claims,
+)
 from cascade_planner.orchestration.program_admission_runtime import (
     admit_program_projection,
     program_projection_read,
@@ -168,6 +172,23 @@ class RetrosynthesisCampaignService:
             material_events=material_events,
             evidence_observations=evidence_observations,
         )
+        return self.run_global_director_with_context(
+            context,
+            mode=mode,
+            force=force,
+            idempotency_key=idempotency_key,
+        )
+
+    def run_global_director_with_context(
+        self,
+        context: CampaignContext,
+        *,
+        mode: str,
+        force: bool = False,
+        idempotency_key: str,
+    ) -> DirectorOutcome:
+        """Run against an already frozen canonical context and merge by union."""
+
         outcome = self.director.run(context, mode=mode, force=force)
         self._previous_context = context
         if outcome.plan is not None and outcome.status == "accepted":
@@ -226,12 +247,52 @@ class RetrosynthesisCampaignService:
             mechanism_proposals=mechanism_proposals,
         )
 
+    def review_route_program_innovations(
+        self,
+        route_id: str,
+        *,
+        capabilities: Mapping[str, Any] | Iterable[Mapping[str, Any]],
+        mechanism_proposals: Iterable[Mapping[str, Any]] = (),
+        validations: Iterable[Mapping[str, Any]] = (),
+    ) -> dict[str, Any]:
+        return program_innovation_runtime.review_route_program_innovations(
+            self.graph_store.load(),
+            acceptance_spec=self.kernel.spec.acceptance,
+            route_id=route_id,
+            capabilities=capabilities,
+            mechanism_proposals=mechanism_proposals,
+            validations=validations,
+        )
+
+    def admit_route_experimental_claims(
+        self,
+        route_id: str,
+        *,
+        capabilities: Mapping[str, Any] | Iterable[Mapping[str, Any]],
+        mechanism_proposals: Iterable[Mapping[str, Any]] = (),
+        validations: Iterable[Mapping[str, Any]] = (),
+        enable_experimental_claim_admission: bool = False,
+    ) -> dict[str, Any]:
+        return admit_route_experimental_claims(
+            self.kernel,
+            self.graph_store,
+            acceptance_spec=self.kernel.spec.acceptance,
+            route_id=route_id,
+            capabilities=capabilities,
+            mechanism_proposals=mechanism_proposals,
+            validations=validations,
+            enable_experimental_claim_admission=(
+                enable_experimental_claim_admission
+            ),
+        )
+
     def execute_frontier_materialization(
         self,
         *,
         idempotency_key: str,
+        hypothesis_ids: Iterable[str] = (),
     ) -> dict[str, Any]:
-        commands = self.graph_store.frontier_materialization_commands()
+        commands = self.graph_store.frontier_materialization_commands(hypothesis_ids)
         results: list[WorkerResult] = []
         stopped_reasons: list[str] = []
         for command in commands:
@@ -319,6 +380,48 @@ class RetrosynthesisCampaignService:
             )
         return result
 
+    def publish_action_signals(
+        self,
+        signals: Iterable[Mapping[str, Any]],
+        *,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Publish operational events into the one canonical deficit frontier."""
+
+        return self.apply_batch(
+            CanonicalIngestionBatch(
+                action_signals=tuple(
+                    dict(value) for value in signals if isinstance(value, Mapping)
+                )
+            ),
+            idempotency_key=idempotency_key,
+        )
+
+    def resolve_action_signals(
+        self,
+        signal_ids: Iterable[str],
+        *,
+        resolution: Mapping[str, Any] | None = None,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        graph = self.graph_store.load()
+        rows = []
+        for signal_id in sorted({str(value) for value in signal_ids if str(value)}):
+            existing = dict(
+                dict(graph.get("action_signals") or {}).get(signal_id) or {}
+            )
+            if not existing or existing.get("status") == "resolved":
+                continue
+            existing.pop("content_sha256", None)
+            rows.append(
+                {
+                    **existing,
+                    "status": "resolved",
+                    "resolution": dict(resolution or {}),
+                }
+            )
+        return self.publish_action_signals(rows, idempotency_key=idempotency_key)
+
     def closeout(
         self,
         *,
@@ -350,6 +453,7 @@ class RetrosynthesisCampaignService:
             "attempt_count": state.attempt_count,
             "accepted_expansion_count": state.accepted_expansion_count,
             "model_totals": dict(state.model_totals),
+            "native_search": self.kernel.native_search_budget(),
             "frontier": list(state.deficits),
             "portfolio": portfolio,
             "stop_decision": self.kernel.decide_stop().to_dict(),

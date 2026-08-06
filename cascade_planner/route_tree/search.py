@@ -26,9 +26,9 @@ from cascade_planner.route_tree.condition_prior import (
     condition_prediction_from_prior,
 )
 from cascade_planner.route_tree.proposals import ProposalContext, RetroEngineProposalTool
-from cascade_planner.route_tree.cascade_oracle import cascade_oracle_runtime_from_env
 from cascade_planner.route_tree.runtime import RouteTreeEvaluation, RouteTreeRuntime, default_route_tree_runtime
 from cascade_planner.route_tree.schema import CandidateAction, RouteTreeState
+from cascade_planner.route_tree.source_gate import SourceGate
 from cascade_planner.route_tree.trace import RouteTreeTraceCollector
 from cascade_planner.route_tree.verifier import RouteVerifier
 from cascade_planner.vnext.schema import BOTTLENECK_LABELS
@@ -144,7 +144,13 @@ class NeuralGuidedAOSearch:
         skeletons: list[RouteSkeleton] | None = None,
         constraints: dict[str, Any] | None = None,
         controller: RouteTreeRuntime | None | object = _AUTO_CONTROLLER,
+        source_gate: SourceGate | None = None,
+        action_value_advisor: Any | None = None,
+        action_value_advisor_weight: float = 0.0,
         enzyme_sp_verifier: Any | None | object = _AUTO_ENZYME_SP_VERIFIER,
+        ccts_scorer: Any | None = None,
+        ccts_weight: float = 0.35,
+        proposal_candidate_appender: Callable[..., list[Any]] | None = None,
         trace_collector: RouteTreeTraceCollector | None = None,
     ):
         self.retro_engine = retro_engine
@@ -159,7 +165,11 @@ class NeuralGuidedAOSearch:
             self.max_depth = min(self.max_depth, self.target_depth)
         self.constraints = constraints or {}
         self.controller = default_route_tree_runtime() if controller is _AUTO_CONTROLLER else controller
-        self.proposals = RetroEngineProposalTool(retro_engine)
+        self.proposals = RetroEngineProposalTool(
+            retro_engine,
+            source_gate=source_gate,
+            candidate_appender=proposal_candidate_appender,
+        )
         self.verifier = RouteVerifier()
         self.enzyme_sp_verifier = (
             _enzyme_sp_verifier_v1_from_env()
@@ -167,8 +177,10 @@ class NeuralGuidedAOSearch:
             else enzyme_sp_verifier
         )
         self.trace_collector = trace_collector
-        self.cascade_oracle = cascade_oracle_runtime_from_env()
-        self.ccts_scorer = _ccts_runtime_from_env()
+        self.action_value_advisor = action_value_advisor
+        self.action_value_advisor_weight = float(action_value_advisor_weight)
+        self.ccts_scorer = ccts_scorer
+        self.ccts_weight = float(ccts_weight)
         self.judge_policy: JudgePolicy | None = judge_policy_from_constraints(self.constraints)
         self._compiled_judge_trace: list[dict[str, Any]] = []
         self._compiled_judge_trace_keys: set[tuple[str, str, str, str, int]] = set()
@@ -1273,7 +1285,7 @@ class NeuralGuidedAOSearch:
             reason = getattr(result, "reason", "unavailable")
             return [{**row, "ccts_active": False, "ccts_reason": reason} for row in rows]
         self.stats.ccts_active_calls += 1
-        weight = _env_float("AUTOPLANNER_ROUTE_TREE_CCTS_WEIGHT", 0.35)
+        weight = self.ccts_weight
         out: list[dict[str, Any]] = []
         detail_rows = list(getattr(result, "rows", []) or [])
         ccts_tag = "ccts_v3" if str(getattr(result, "reason", "")).startswith("ccts_v3") else "ccts_v0"
@@ -1317,14 +1329,14 @@ class NeuralGuidedAOSearch:
     ) -> dict[str, Any]:
         child_depth = state.depth + 1
         terminal_fraction = _terminal_fraction(action, lambda smi: self._is_terminal(smi, state=state, depth=child_depth))
-        oracle_match = self._oracle_match_for_action(state, leaf, action)
+        advisor_match = self._advisor_match_for_action(state, leaf, action)
         proposal_probability = _probability_from_score(action.raw_score)
-        oracle_probability = _oracle_probability(oracle_match)
+        advisor_probability = _advisor_probability(advisor_match)
         controller_probability = _controller_value_objective(eval_result)
         base_probability = max(
             proposal_probability,
             _bounded_probability(policy_probability),
-            oracle_probability,
+            advisor_probability,
             controller_probability or 0.0,
         )
         reaction_cost = _negative_log_probability(base_probability)
@@ -1354,7 +1366,10 @@ class NeuralGuidedAOSearch:
             "cost_model": "reaction_cost_and_or.v1",
             "proposal_probability": round(float(proposal_probability), 6),
             "policy_probability": round(float(_bounded_probability(policy_probability)), 6),
-            "oracle_probability": round(float(oracle_probability), 6),
+            "action_value_advisor_probability": round(
+                float(advisor_probability),
+                6,
+            ),
             "controller_probability": round(float(controller_probability), 6) if controller_probability is not None else None,
             "base_probability": round(float(base_probability), 6),
             "reaction_cost": round(float(reaction_cost), 6),
@@ -1368,7 +1383,9 @@ class NeuralGuidedAOSearch:
             "total_cost": round(float(total_cost), 6),
             "terminal_fraction": round(float(terminal_fraction), 6),
             "feasibility_diagnostics": feasibility_diagnostics,
-            "oracle_match": oracle_match.to_dict() if oracle_match is not None else None,
+            "action_value_advisor_match": (
+                advisor_match.to_dict() if advisor_match is not None else None
+            ),
             "next_open": list(next_open),
             "total": round(float(selection_score), 6),
         }
@@ -1476,13 +1493,22 @@ class NeuralGuidedAOSearch:
         atoms = max(1, _heavy_atoms(smiles))
         return math.log1p(float(atoms))
 
-    def _oracle_match_for_action(self, state: RouteTreeState, leaf: str, action: CandidateAction):
-        if not _oracle_action_value_enabled() or self.cascade_oracle is None:
+    def _advisor_match_for_action(self, state: RouteTreeState, leaf: str, action: CandidateAction):
+        if self.action_value_advisor_weight <= 0.0 or self.action_value_advisor is None:
             return None
-        return self.cascade_oracle.action_value(target=state.target, leaf=leaf, action=action)
+        return self.action_value_advisor.action_value(
+            target=state.target,
+            leaf=leaf,
+            action=action,
+        )
 
-    def _oracle_reserve_key(self, state: RouteTreeState, leaf: str, action: CandidateAction) -> tuple[int, float, float]:
-        match = self._oracle_match_for_action(state, leaf, action)
+    def _advisor_reserve_key(
+        self,
+        state: RouteTreeState,
+        leaf: str,
+        action: CandidateAction,
+    ) -> tuple[int, float, float]:
+        match = self._advisor_match_for_action(state, leaf, action)
         if match is None:
             return (0, 0.0, 0.0)
         if match.reaction_match:
@@ -1538,14 +1564,22 @@ class NeuralGuidedAOSearch:
         for item in ranked[:primary_quota]:
             add(item)
 
-        if _oracle_action_value_enabled() and self.cascade_oracle is not None:
-            oracle_candidate = max(
+        if self.action_value_advisor_weight > 0.0 and self.action_value_advisor is not None:
+            advisor_candidate = max(
                 ranked,
-                key=lambda item: self._oracle_reserve_key(state, item[2], item[3]),
+                key=lambda item: self._advisor_reserve_key(state, item[2], item[3]),
                 default=None,
             )
-            if oracle_candidate is not None and self._oracle_reserve_key(state, oracle_candidate[2], oracle_candidate[3])[0] > 0:
-                add(oracle_candidate)
+            if (
+                advisor_candidate is not None
+                and self._advisor_reserve_key(
+                    state,
+                    advisor_candidate[2],
+                    advisor_candidate[3],
+                )[0]
+                > 0
+            ):
+                add(advisor_candidate)
 
         if state.depth == 0:
             best_score = ranked[0][0] if ranked else 0.0
@@ -1807,7 +1841,9 @@ class NeuralGuidedAOSearch:
                 "route_tree_bottleneck_trajectory": list(state.search_metadata.get("bottleneck_trajectory") or []),
                 "route_tree_source_budgets": list(state.search_metadata.get("source_budgets") or []),
                 "route_tree_proposal_recall_diagnostics": list(state.search_metadata.get("proposal_recall_diagnostics") or []),
-                "cascade_oracle_enabled": bool(self.cascade_oracle is not None),
+                "action_value_advisor_enabled": bool(
+                    self.action_value_advisor is not None
+                ),
                 **self._compiled_judge_metadata(),
                 **self.stats.to_dict(),
             },
@@ -1922,7 +1958,13 @@ def plan_with_route_tree(
     skeletons: list[RouteSkeleton] | None = None,
     constraints: dict[str, Any] | None = None,
     controller: RouteTreeRuntime | None | object = _AUTO_CONTROLLER,
+    source_gate: SourceGate | None = None,
+    action_value_advisor: Any | None = None,
+    action_value_advisor_weight: float = 0.0,
     enzyme_sp_verifier: Any | None | object = _AUTO_ENZYME_SP_VERIFIER,
+    ccts_scorer: Any | None = None,
+    ccts_weight: float = 0.35,
+    proposal_candidate_appender: Callable[..., list[Any]] | None = None,
     trace_collector: RouteTreeTraceCollector | None = None,
 ) -> list[RouteResult]:
     planner = NeuralGuidedAOSearch(
@@ -1934,28 +1976,16 @@ def plan_with_route_tree(
         skeletons=skeletons,
         constraints=constraints,
         controller=controller,
+        source_gate=source_gate,
+        action_value_advisor=action_value_advisor,
+        action_value_advisor_weight=action_value_advisor_weight,
         enzyme_sp_verifier=enzyme_sp_verifier,
+        ccts_scorer=ccts_scorer,
+        ccts_weight=ccts_weight,
+        proposal_candidate_appender=proposal_candidate_appender,
         trace_collector=trace_collector,
     )
     return planner.search(target, n_results=n_results)
-
-
-def _ccts_runtime_from_env():
-    if os.environ.get("AUTOPLANNER_CCTS_V3_RUNTIME_MODEL"):
-        try:
-            from cascade_planner.route_tree.ccts_v3_runtime import ccts_v3_runtime_from_env
-
-            return ccts_v3_runtime_from_env()
-        except Exception:
-            return None
-    if not os.environ.get("AUTOPLANNER_CCTS_V0_MODEL"):
-        return None
-    try:
-        from cascade_planner.route_tree.ccts_v0 import ccts_v0_runtime_from_env
-
-        return ccts_v0_runtime_from_env()
-    except Exception:
-        return None
 
 
 def _enzyme_sp_verifier_v1_from_env():
@@ -2869,7 +2899,7 @@ def _negative_log_probability(probability: Any) -> float:
     return -math.log(max(1e-6, _bounded_probability(probability)))
 
 
-def _oracle_probability(match: Any) -> float:
+def _advisor_probability(match: Any) -> float:
     if match is None:
         return 0.0
     value = _bounded_probability(getattr(match, "value", 0.0))
@@ -2901,10 +2931,6 @@ def _controller_value_objective(eval_result: RouteTreeEvaluation) -> float | Non
         _bounded01(eval_result.progressive_prob),
     ]
     return sum(values) / max(len(values), 1)
-
-
-def _oracle_action_value_enabled() -> bool:
-    return _env_float("AUTOPLANNER_CASCADE_ORACLE_ACTION_WEIGHT", 0.0) > 0.0
 
 
 def _env_float(name: str, default: float) -> float:

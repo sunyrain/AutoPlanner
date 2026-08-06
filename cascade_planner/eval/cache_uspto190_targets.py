@@ -7,12 +7,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from cascade_planner.eval.build_external_reservoir_smokes import (
+from cascade_planner.eval.syntharena_uspto190 import (
     SYNTHARENA_TARGET,
     SYNTHARENA_USPTO_190,
-    _download,
-    _target_paths,
-    _uspto_pagination_pages,
+    download_url,
+    pagination_pages,
+    target_paths as discover_target_paths,
 )
 
 
@@ -36,25 +36,33 @@ def cache_uspto190_targets(
 
     if fetch and not index_html.exists():
         try:
-            _download(SYNTHARENA_USPTO_190, index_html, timeout=timeout)
+            download_url(SYNTHARENA_USPTO_190, index_html, timeout=timeout)
         except Exception as exc:
             errors.append({"stage": "index", "error": f"{type(exc).__name__}:{exc}"})
 
     target_paths: list[str] = []
     if index_html.exists():
         index_text = index_html.read_text(encoding="utf-8", errors="ignore")
-        target_paths.extend(_target_paths(index_text))
-        for page_no in _uspto_pagination_pages(index_text):
+        target_paths.extend(discover_target_paths(index_text))
+        for page_no in pagination_pages(index_text):
             if len(dict.fromkeys(target_paths)) >= requested:
                 break
             page_html = cache_dir / f"uspto190_page_{page_no}.html"
             if fetch and not page_html.exists():
                 try:
-                    _download(f"{SYNTHARENA_USPTO_190}?page={page_no}", page_html, timeout=timeout)
+                    download_url(
+                        f"{SYNTHARENA_USPTO_190}?page={page_no}",
+                        page_html,
+                        timeout=timeout,
+                    )
                 except Exception as exc:
                     errors.append({"stage": "page", "page": page_no, "error": f"{type(exc).__name__}:{exc}"})
             if page_html.exists():
-                target_paths.extend(_target_paths(page_html.read_text(encoding="utf-8", errors="ignore")))
+                target_paths.extend(
+                    discover_target_paths(
+                        page_html.read_text(encoding="utf-8", errors="ignore")
+                    )
+                )
 
     target_paths = list(dict.fromkeys(target_paths))
     selected = target_paths[offset:requested]
@@ -72,7 +80,11 @@ def cache_uspto190_targets(
             missing.append(target_path)
             continue
         try:
-            _download(SYNTHARENA_TARGET.format(target_path=target_path), html_path, timeout=timeout)
+            download_url(
+                SYNTHARENA_TARGET.format(target_path=target_path),
+                html_path,
+                timeout=timeout,
+            )
             fetched.append(str(html_path))
             if fetch_budget is not None:
                 fetch_budget -= 1

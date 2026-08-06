@@ -114,12 +114,6 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=7860)
     serve.add_argument("--server", choices=("auto", "waitress", "flask"), default="auto")
-    serve.add_argument(
-        "--surface",
-        choices=("v4", "combined"),
-        default="v4",
-        help="serve the isolated V4 mainline or the frozen combined compatibility UI",
-    )
     serve.add_argument("--threads", type=int, default=2)
     serve.add_argument("--debug", action="store_true")
     return parser
@@ -260,7 +254,6 @@ def _serve(args: argparse.Namespace) -> None:
     from cascade_planner.web.server import serve_web
 
     serve_web(
-        surface=args.surface,
         host=args.host,
         port=args.port,
         server=args.server,

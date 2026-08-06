@@ -62,7 +62,7 @@ def test_request_contains_bounded_current_edges_and_source_tasks() -> None:
                         {
                             "accepted": True,
                             "validator_version": (
-                                "autoplanner.reaction_step_verifier.v8"
+                                "autoplanner.reaction_step_verifier.v10"
                             ),
                         }
                     ],

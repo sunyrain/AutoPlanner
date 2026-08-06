@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from threading import Event
+from threading import Event, RLock
 import time
 
 from flask import Flask
@@ -19,6 +19,7 @@ from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.web.v4_api import create_v4_blueprint
 from cascade_planner.web.v4_app import create_v4_app
 from cascade_planner.web.v4_target_runtime import historical_job
+from cascade_planner.web.v4_target_runtime import run_target_job
 from cascade_planner.interfaces.target_delivery import delivery_projection
 
 
@@ -75,6 +76,33 @@ def _web_biocatalysis_validation(proposal: dict) -> dict:
     )
 
 
+def test_background_job_finishes_when_benchmark_objective_is_achieved(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "cascade_planner.web.v4_target_runtime.solve_target_request",
+        lambda _gateway, _payload: {
+            "run_id": "benchmark-objective",
+            "report_path": "report.json",
+            "claim": {
+                "accepted_under_configured_policy": False,
+                "objective_mode": "benchmark_search",
+                "objective_achieved": True,
+            },
+            "gates": {"gates": {"B4_stock_boundary": True}, "counts": {}},
+            "model_cost": {},
+            "stop_decision": {"decision": "completed", "terminal": True},
+        },
+    )
+    jobs = {"job-1": {"status": "queued"}}
+
+    run_target_job(lambda: object(), {}, "job-1", jobs, RLock())
+
+    assert jobs["job-1"]["status"] == "complete"
+    assert jobs["job-1"]["result"]["accepted"] is False
+    assert jobs["job-1"]["result"]["objective_achieved"] is True
+
+
 def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> None:
     gateway = _gateway(tmp_path)
     app = Flask(__name__)
@@ -120,13 +148,17 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert workspace.status_code == 200
     assert workspace.get_json()["backend"]["available"] is True
     assert workspace.get_json()["runs"][0]["run_id"] == "web-example"
+    assert workspace.get_json()["runs"][0]["workbench_pdf_url"].endswith(
+        "/web-example/workbench.pdf"
+    )
+    assert workspace.get_json()["runs"][0]["history_delete_url"].endswith(
+        "/web-example/history"
+    )
     assert workspace.get_json()["self_evolution"]["schema_version"] == (
         "autoplanner.self_evolution_catalog.v1"
     )
     assert "compiled_program_benchmarks" not in workspace.get_json()["self_evolution"]
-    assert (
-        workspace.get_json()["route_workbench"]["program_benchmarks"]["record_count"] >= 1
-    )
+    assert workspace.get_json()["route_workbench"]["program_benchmarks"]["record_count"] >= 1
     assert workspace.get_json()["route_workbench"]["semantics"][
         "program_benchmarks_are_not_self_evolution_memory"
     ]
@@ -166,16 +198,40 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert 'class="targetGroup"' in index.get_data(as_text=True)
     assert 'id="runFrame"' not in index.get_data(as_text=True)
     assert 'id="runDetail"' in index.get_data(as_text=True)
+    assert 'id="memoryDialog"' in index.get_data(as_text=True)
+    assert "enhanceMemoryRows" in index.get_data(as_text=True)
+    assert "reaction_smarts" in index.get_data(as_text=True)
+    assert 'id="inputTokens"' in index.get_data(as_text=True)
+    assert 'id="outputTokens"' in index.get_data(as_text=True)
+    assert 'id="modelWallMinutes"' in index.get_data(as_text=True)
+    assert "max_input_tokens:Number($('inputTokens').value)" in index.get_data(
+        as_text=True
+    )
+    assert "inputTokens:1200000" in index.get_data(as_text=True)
+    assert "outputTokens:200000" in index.get_data(as_text=True)
+    assert "modelWallMinutes:30" in index.get_data(as_text=True)
+    assert "chemTimeoutMinutes:60" in index.get_data(as_text=True)
     assert "'/api/v4/jobs'" in index.get_data(as_text=True)
+    assert 'id="downloadRoutePdf"' in index.get_data(as_text=True)
+    assert "删除队列记录" in index.get_data(as_text=True)
+    assert 'id="deleteRoute"' in index.get_data(as_text=True)
+    assert 'id="restoreDeletedRoutes"' in index.get_data(as_text=True)
+    assert 'id="restoreDeletedRuns"' in index.get_data(as_text=True)
+    assert "计算结束，但科学结论未收敛" in index.get_data(as_text=True)
+    assert "function mergeRunSnapshots" in index.get_data(as_text=True)
+    assert "hydratedRuns:new Set()" in index.get_data(as_text=True)
+    assert "state.jobs=mergeRunSnapshots(await jobsWithProgress())" in index.get_data(
+        as_text=True
+    )
     assert b"<!doctype html>" in rendered.data.lower()
+    assert rendered.get_data(as_text=True).count('id="dashboardReturn"') == 1
+    assert rendered.get_data(as_text=True).count('id="pdfExport"') == 1
+    assert 'aria-label="返回统一总控台"' in rendered.get_data(as_text=True)
 
     benchmark = next(
         row
-        for row in workspace.get_json()["route_workbench"]["program_benchmarks"][
-            "records"
-        ]
-        if row["target_name"] == "bufotalin"
-        and row["chemical_step_equivalent_count"] == 6
+        for row in workspace.get_json()["route_workbench"]["program_benchmarks"]["records"]
+        if row["target_name"] == "bufotalin" and row["chemical_step_equivalent_count"] == 6
     )
     assert benchmark["mechanism_hypothesis_count"] == 1
     materialized = client.post(benchmark["materialize_url"])
@@ -208,6 +264,159 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     )
     assert benchmark_run["surface_role"] == "route_example"
     assert benchmark_run["show_in_task_queue"] is False
+
+
+def test_v4_workbench_pdf_download_uses_print_renderer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    gateway = _gateway(tmp_path)
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    created = client.post(
+        "/api/v4/runs",
+        json={
+            "run_id": "pdf-example",
+            "target_name": "ethanol",
+            "target_smiles": "CCO",
+        },
+    )
+    assert created.status_code == 201
+    captured: dict[str, dict] = {}
+
+    def fake_pdf(snapshot: dict) -> bytes:
+        captured["snapshot"] = snapshot
+        return b"%PDF-1.7\nfixture"
+
+    monkeypatch.setattr(
+        "cascade_planner.web.v4_api.render_workbench_pdf",
+        fake_pdf,
+    )
+    response = client.get("/api/v4/runs/pdf-example/workbench.pdf")
+
+    assert response.status_code == 200
+    assert response.mimetype == "application/pdf"
+    assert response.data.startswith(b"%PDF-1.7")
+    assert "pdf-example-retrosynthesis-dossier.pdf" in response.headers[
+        "Content-Disposition"
+    ]
+    assert captured["snapshot"]["run_id"] == "pdf-example"
+
+
+def test_v4_history_delete_hides_queue_entry_but_preserves_run_directory(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path)
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    created = client.post(
+        "/api/v4/runs",
+        json={
+            "run_id": "history-example",
+            "target_name": "ethanol",
+            "target_smiles": "CCO",
+        },
+    ).get_json()
+    run_dir = Path(created["run_dir"])
+    assert run_dir.is_dir()
+
+    removed = client.delete("/api/v4/runs/history-example/history")
+
+    assert removed.status_code == 200
+    assert removed.get_json()["removed"] is True
+    assert removed.get_json()["scientific_artifacts_preserved"] is True
+    assert run_dir.is_dir()
+    assert all(
+        row["run_id"] != "history-example"
+        for row in client.get("/api/v4/runs").get_json()["runs"]
+    )
+
+
+def test_v4_workspace_route_and_queue_deletions_are_independent_and_recoverable(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path)
+    app = create_v4_app(lambda: gateway)
+    client = app.test_client()
+    created = client.post(
+        "/api/v4/runs",
+        json={
+            "run_id": "visibility-example",
+            "target_name": "ethanol",
+            "target_smiles": "CCO",
+        },
+    ).get_json()
+    run_dir = Path(created["run_dir"])
+
+    route_removed = client.delete(
+        "/api/v4/workspace/routes",
+        json={"route_id": "run:visibility-example"},
+    )
+    queue_removed = client.delete(
+        "/api/v4/jobs/solve%3Avisibility-example",
+        json={},
+    )
+
+    assert route_removed.status_code == 200
+    assert queue_removed.status_code == 200
+    assert route_removed.get_json()["scientific_artifacts_preserved"] is True
+    assert queue_removed.get_json()["scientific_artifacts_preserved"] is True
+    assert run_dir.is_dir()
+    workspace = client.get("/api/v4/workspace").get_json()
+    assert "run:visibility-example" in workspace["workspace_visibility"][
+        "hidden_route_ids"
+    ]
+    assert "visibility-example" in workspace["workspace_visibility"][
+        "hidden_queue_run_ids"
+    ]
+    job = next(
+        row
+        for row in client.get("/api/v4/jobs").get_json()["jobs"]
+        if row["run_id"] == "visibility-example"
+    )
+    assert job["show_in_route_catalog"] is False
+    assert job["show_in_task_queue"] is False
+
+    restored = client.post(
+        "/api/v4/workspace/visibility/restore",
+        json={"scope": "all"},
+    )
+
+    assert restored.status_code == 200
+    assert restored.get_json()["restored_count"] == 2
+    workspace = client.get("/api/v4/workspace").get_json()
+    assert workspace["workspace_visibility"]["hidden_route_ids"] == []
+    assert workspace["workspace_visibility"]["hidden_queue_run_ids"] == []
+
+    invalid = client.delete("/api/v4/workspace/routes", json={})
+    assert invalid.status_code == 400
+    assert invalid.is_json
+    assert invalid.get_json()["reason"] == "route_id_missing"
+
+
+def test_v4_active_job_cannot_be_deleted_from_queue(tmp_path: Path, monkeypatch) -> None:
+    gateway = _gateway(tmp_path)
+    release = __import__("threading").Event()
+
+    def blocked_job(*_args, **_kwargs):
+        release.wait(timeout=5)
+
+    monkeypatch.setattr("cascade_planner.web.v4_api._run_target_job", blocked_job)
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    job = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "active", "target_smiles": "CCO"},
+    ).get_json()
+
+    removed = client.delete(f"/api/v4/jobs/{job['job_id']}", json={})
+    release.set()
+
+    assert removed.status_code == 409
+    assert removed.get_json()["reason"] == "active_job_cannot_be_deleted"
 
 
 def test_v4_workbench_html_uses_a_human_readable_integrity_fallback() -> None:
@@ -688,10 +897,16 @@ def test_v4_proof_profile_keeps_depth_but_uses_a_returnable_search_width() -> No
     assert config.max_chemenzy_steps == 20
     assert config.max_chemenzy_iterations == 60
     assert config.chemenzy_expansion_topk == 120
-    assert config.chemenzy_timeout_s == 1200.0
+    assert config.chemenzy_timeout_s == 3600.0
+    assert config.chemenzy_pandarallel_workers == 8
+    assert config.max_director_wall_time_s == 1800.0
+    budget = captured["budget"]
+    assert budget.max_total_input_tokens == 1_200_000
+    assert budget.max_total_output_tokens == 200_000
+    assert budget.max_total_wall_time_s == 1800.0
 
 
-def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
+def test_v4_async_job_separates_execution_end_from_scientific_acceptance() -> None:
     class RecordingGateway:
         def solve_target(self, **kwargs):
             time.sleep(0.02)
@@ -724,7 +939,7 @@ def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
         current = client.get(f"/api/v4/jobs/{job['job_id']}")
         assert current.status_code == 200
         value = current.get_json()
-        if value["status"] == "complete":
+        if value["status"] == "unresolved":
             break
         time.sleep(0.01)
     else:
@@ -732,6 +947,49 @@ def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
 
     assert value["result"]["highest_contiguous_gate"] == "B1"
     assert value["result"]["model_cost"]["model_invocations"] == 1
+    assert value["progress"]["delivery"]["proof_closure_complete"] is False
+
+
+def test_v4_async_job_automatically_resumes_a_bounded_unaccepted_pass() -> None:
+    class RecordingGateway:
+        calls: list[bool] = []
+
+        def solve_target(self, **kwargs):
+            self.calls.append(bool(kwargs["resume"]))
+            accepted = len(self.calls) == 2
+            return {
+                "run_id": kwargs["run_id"],
+                "gates": {},
+                "claim": {"accepted_under_configured_policy": accepted},
+                "model_cost": {"model_invocations": len(self.calls)},
+                "stop_decision": {
+                    "decision": "completed" if accepted else "paused",
+                    "terminal": accepted,
+                },
+            }
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "auto continuation", "target_smiles": "CCO"},
+    ).get_json()
+
+    for _ in range(100):
+        value = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+        if value["status"] == "complete":
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("async V4 job did not automatically continue")
+
+    assert RecordingGateway.calls == [False, True]
+    assert value["continuation_pass_count"] == 1
+    assert value["result"]["accepted"] is True
 
 
 def test_v4_job_list_projects_the_live_checkpoint_stage(tmp_path: Path) -> None:
@@ -803,6 +1061,34 @@ def test_v4_delivery_projection_exposes_routes_before_proof_closure() -> None:
     assert delivery["proof_closure_complete"] is False
 
 
+def test_v4_delivery_projection_distinguishes_structure_binding_from_proof() -> None:
+    delivery = delivery_projection(
+        [
+            {"stage": "initial_workbench", "status": "completed"},
+            {
+                "stage": "evidence_acquisition",
+                "status": "structure_bound_unproven",
+            },
+        ],
+        job_status="running",
+    )
+
+    assert delivery["state"] == "proof_review_ready"
+    assert delivery["evidence_stage_complete"] is True
+    assert delivery["proof_closure_complete"] is False
+
+
+def test_v4_delivery_projection_marks_finished_unaccepted_job_unresolved() -> None:
+    delivery = delivery_projection(
+        [{"stage": "initial_workbench", "status": "completed"}],
+        job_status="unresolved",
+    )
+
+    assert delivery["state"] == "unresolved"
+    assert delivery["proof_closure_known"] is True
+    assert delivery["proof_closure_complete"] is False
+
+
 def test_historical_job_never_projects_archived_kernel_as_live_or_proven() -> None:
     job = historical_job(
         {
@@ -819,6 +1105,7 @@ def test_historical_job_never_projects_archived_kernel_as_live_or_proven() -> No
     assert job["phase"] == "historical_snapshot"
     assert job["progress"]["execution_active"] is False
     assert job["progress"]["campaign_status"] == "running"
+    assert job["progress"]["scientific_status"] == "accepted"
     delivery = job["progress"]["delivery"]
     assert delivery["state"] == "historical"
     assert delivery["route_candidates_available"] is True

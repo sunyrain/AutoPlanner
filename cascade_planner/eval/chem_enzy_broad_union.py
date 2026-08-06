@@ -9,6 +9,10 @@ from statistics import mean
 from typing import Any
 
 from cascade_planner.cascadeboard.route_recovery import target_recovery_metrics
+from cascade_planner.route_tree.native_route_selection import (
+    chem_route_stock_closed,
+    select_chem_routes,
+)
 
 
 def build_union_report(
@@ -531,7 +535,7 @@ def _select_payload_routes(
     if not routes:
         return []
     if _native_route_payload_format(routes):
-        return _select_chem_routes(routes, topk=topk, selection=selection)
+        return select_chem_routes(routes, topk=topk, selection=selection)
     annotated = []
     for rank, route in enumerate(routes, 1):
         item = copy.deepcopy(route)
@@ -588,7 +592,7 @@ def _payload_route_stock_closed(route: dict[str, Any]) -> bool:
             or metrics.get("strict_stock_solve_any")
             or broad.get("stock_closed")
         )
-    return _chem_route_stock_closed(route)
+    return chem_route_stock_closed(route)
 
 
 def _native_route_payload_format(routes: list[dict[str, Any]]) -> bool:
@@ -606,49 +610,6 @@ def _exported_route_payload_format(route: dict[str, Any]) -> bool:
         if "reaction_smiles" in step or "main_reactant" in step or "product" in step:
             return True
     return False
-
-
-def _chem_route_stock_closed(route: dict[str, Any]) -> bool:
-    products = {step.get("product_smiles") for step in route.get("steps") or [] if step.get("product_smiles")}
-    terminal_flags = []
-    for step in route.get("steps") or []:
-        status = step.get("stock_status") or {}
-        for smi in step.get("reactant_smiles") or []:
-            if smi and smi not in products:
-                terminal_flags.append(bool(status.get(smi)))
-    return bool(terminal_flags) and all(terminal_flags)
-
-
-def _select_chem_routes(
-    routes: list[dict[str, Any]],
-    *,
-    topk: int | None,
-    selection: str,
-) -> list[dict[str, Any]]:
-    annotated = []
-    for rank, route in enumerate(routes, 1):
-        item = dict(route)
-        item["_native_rank"] = rank
-        annotated.append(item)
-    if selection == "rank":
-        selected = annotated
-    elif selection == "stock_first":
-        selected = sorted(annotated, key=lambda route: (not _chem_route_stock_closed(route), route["_native_rank"]))
-    elif selection == "rank_plus_stock":
-        if topk is None:
-            selected = annotated
-        else:
-            k = max(0, int(topk))
-            selected = list(annotated[:k])
-            if k > 0 and not any(_chem_route_stock_closed(route) for route in selected):
-                stock_route = next((route for route in annotated if _chem_route_stock_closed(route)), None)
-                if stock_route is not None:
-                    selected = [*selected[: k - 1], stock_route]
-    else:
-        raise ValueError(f"unsupported native selection mode: {selection}")
-    if topk is None:
-        return selected
-    return selected[: max(0, int(topk))]
 
 
 def _target_index(rows: list[dict[str, Any]]) -> dict[str, Any]:

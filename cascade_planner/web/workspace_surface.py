@@ -17,8 +17,14 @@ from cascade_planner.application.reaction_template_store import (
     read_template_library,
 )
 from cascade_planner.application.retrosynthesis_run_contract import RetrosynthesisRunBudget
+from cascade_planner.harness.route_forest_delivery import render_route_forest_html
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.web.workspace_catalog import compile_showcase_catalog
+from cascade_planner.web.workspace_visibility import (
+    WORKSPACE_VISIBILITY_SCHEMA,
+    WorkspaceVisibilityError,
+    workspace_visibility_store,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -139,9 +145,7 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
                         "benchmark_id": benchmark_id,
                         "benchmark_run_id": benchmark_run_id,
                         "materialize_url": (
-                            "/api/v4/program-benchmarks/"
-                            + benchmark_id
-                            + "/materialize"
+                            "/api/v4/program-benchmarks/" + benchmark_id + "/materialize"
                         ),
                         "workbench_url": f"/api/v4/runs/{benchmark_run_id}/workbench.html",
                         "legacy_run_ids": [legacy_benchmark_run_id, legacy_host_run_id],
@@ -276,9 +280,7 @@ def compiled_program_overlay_attachments(run_id: str) -> tuple[dict[str, Any], .
         attachments.append(
             {
                 "schema_version": "route_program_attachment.v1",
-                "program_id": str(
-                    record.get("innovation_id") or record.get("candidate_id") or ""
-                ),
+                "program_id": str(record.get("innovation_id") or record.get("candidate_id") or ""),
                 "program_kind": "biocatalytic_superstep",
                 "host_route_id": str(host_route.get("route_id") or ""),
                 "host_step_evidence": [
@@ -289,18 +291,14 @@ def compiled_program_overlay_attachments(run_id: str) -> tuple[dict[str, Any], .
                             str(ref) for ref in value.get("source_refs") or [] if str(ref)
                         ],
                         "warning_codes": [
-                            str(code)
-                            for code in value.get("warning_codes") or []
-                            if str(code)
+                            str(code) for code in value.get("warning_codes") or [] if str(code)
                         ],
                     }
                     for value in host_route.get("steps") or []
                     if isinstance(value, dict) and str(value.get("edge_id") or "")
                 ],
                 "replaced_edge_ids": [
-                    str(value)
-                    for value in host_route.get("replaced_edge_ids") or []
-                    if str(value)
+                    str(value) for value in host_route.get("replaced_edge_ids") or [] if str(value)
                 ],
                 "boundary": dict(record.get("boundary") or {}),
                 "chemical_step_equivalent_count": int(
@@ -310,9 +308,7 @@ def compiled_program_overlay_attachments(run_id: str) -> tuple[dict[str, Any], .
                 "net_step_savings": int(record.get("net_step_savings") or 0),
                 "capability_id": str(record.get("capability_id") or ""),
                 "authority_scope": str(record.get("authority_scope") or "proposal_only"),
-                "validation_status": str(
-                    record.get("validation_status") or "experiment_required"
-                ),
+                "validation_status": str(record.get("validation_status") or "experiment_required"),
                 "warning_codes": [
                     str(value) for value in record.get("warning_codes") or [] if str(value)
                 ],
@@ -370,9 +366,7 @@ def compiled_mechanism_hypothesis_attachments(
                 str(value) for value in proposal.get("anchor_edge_ids") or [] if str(value)
             ]
             anchor_source_refs = [
-                str(value)
-                for value in proposal.get("anchor_source_refs") or []
-                if str(value)
+                str(value) for value in proposal.get("anchor_source_refs") or [] if str(value)
             ]
             checks = [
                 str(value) for value in proposal.get("falsifiable_checks") or [] if str(value)
@@ -401,17 +395,13 @@ def compiled_mechanism_hypothesis_attachments(
                     "anchor_edge_ids": anchor_edge_ids,
                     "precursor_smiles": precursor_smiles,
                     "proposed_product": {
-                        "label": str(
-                            proposal.get("product_label") or "proposed one-hop product"
-                        ),
+                        "label": str(proposal.get("product_label") or "proposed one-hop product"),
                         "smiles": product_smiles,
                     },
                     "proposal_depth": 1,
                     "mechanistic_rationale": rationale,
                     "elementary_steps": [
-                        str(value)
-                        for value in proposal.get("elementary_steps") or []
-                        if str(value)
+                        str(value) for value in proposal.get("elementary_steps") or [] if str(value)
                     ],
                     "falsifiable_checks": checks,
                     "anchor_source_refs": anchor_source_refs,
@@ -435,9 +425,7 @@ def compiled_mechanism_hypothesis_attachments(
                     },
                 }
             )
-    return tuple(
-        sorted(attachments, key=lambda value: str(value.get("hypothesis_id") or ""))
-    )
+    return tuple(sorted(attachments, key=lambda value: str(value.get("hypothesis_id") or "")))
 
 
 def materialize_compiled_program_benchmark(
@@ -535,9 +523,7 @@ def materialize_compiled_program_benchmark(
         "workbench_url": str(record["workbench_url"]),
         "host_route_id": str(record.get("route_id") or ""),
         "chemical_baseline_step_count": int(host_route.get("baseline_step_count") or 0),
-        "hypothetical_operation_count": int(
-            host_route.get("hypothetical_operation_count") or 0
-        ),
+        "hypothetical_operation_count": int(host_route.get("hypothetical_operation_count") or 0),
         "status": dict(created.get("status") or {}),
         "semantics": {
             "complete_canonical_host_route_materialized": True,
@@ -554,10 +540,13 @@ def _program_benchmark_run_id(
     target_name: str,
     chemical_steps: int,
 ) -> str:
-    slug = "".join(
-        value if value.isascii() and value.isalnum() else "-"
-        for value in target_name.casefold()
-    ).strip("-") or "target"
+    slug = (
+        "".join(
+            value if value.isascii() and value.isalnum() else "-"
+            for value in target_name.casefold()
+        ).strip("-")
+        or "target"
+    )
     digest = strict_canonical_json_sha256({"benchmark_id": benchmark_id})[:10]
     return f"program-benchmark-{slug[:24]}-{chemical_steps}to1-{digest}"
 
@@ -570,10 +559,13 @@ def _program_host_run_id(
     host_steps: int,
     materialization_contract: int = 2,
 ) -> str:
-    slug = "".join(
-        value if value.isascii() and value.isalnum() else "-"
-        for value in target_name.casefold()
-    ).strip("-") or "target"
+    slug = (
+        "".join(
+            value if value.isascii() and value.isalnum() else "-"
+            for value in target_name.casefold()
+        ).strip("-")
+        or "target"
+    )
     digest = strict_canonical_json_sha256(
         {
             "benchmark_id": benchmark_id,
@@ -623,15 +615,12 @@ def _matching_mechanism_proposals(
     matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
     target_key = str(target_name or "").casefold()
     for pack in packs:
-        if (
-            str(pack.get("target_name") or "").casefold() != target_key
-            or str(pack.get("host_route_id") or "") != str(host_route_id or "")
-        ):
+        if str(pack.get("target_name") or "").casefold() != target_key or str(
+            pack.get("host_route_id") or ""
+        ) != str(host_route_id or ""):
             continue
         matches.extend(
-            (pack, dict(value))
-            for value in pack.get("proposals") or []
-            if isinstance(value, dict)
+            (pack, dict(value)) for value in pack.get("proposals") or [] if isinstance(value, dict)
         )
     return matches
 
@@ -701,17 +690,54 @@ def self_evolution_catalog(gateway: Any) -> dict[str, Any]:
     for row in sorted(templates, key=lambda value: str(value.get("template_id") or "")):
         successes = len(row.get("successful_edge_digests") or [])
         failures = len(row.get("failed_edge_digests") or [])
+        examples = []
+        for example_id, raw_example in sorted(dict(row.get("examples") or {}).items()):
+            if not isinstance(raw_example, dict):
+                continue
+            example = dict(raw_example)
+            examples.append(
+                {
+                    "example_id": str(example_id),
+                    "record_id": str(example.get("record_id") or ""),
+                    "source_ref": str(example.get("source_ref") or ""),
+                    "claim_scope_id": str(example.get("claim_scope_id") or ""),
+                    "precursor_smiles": [
+                        str(value) for value in example.get("precursor_smiles") or [] if str(value)
+                    ],
+                    "product_smiles": str(example.get("product_smiles") or ""),
+                    "conditions": dict(example.get("conditions") or {}),
+                    "condition_completeness": dict(example.get("condition_completeness") or {}),
+                    "procedure_authority_scope": str(
+                        example.get("procedure_authority_scope") or ""
+                    ),
+                    "location_refs": [
+                        str(value) for value in example.get("location_refs") or [] if str(value)
+                    ],
+                    "edge_digest": str(example.get("edge_digest") or ""),
+                    "proof_digest": str(example.get("proof_digest") or ""),
+                }
+            )
         template_rows.append(
             {
                 "template_id": str(row.get("template_id") or ""),
                 "status": str(row.get("status") or "active"),
                 "maturity": str(row.get("maturity") or "single_source_observed"),
+                "authority_scope": str(row.get("authority_scope") or "proposal_memory_only"),
+                "reaction_smarts": str(row.get("reaction_smarts") or ""),
+                "radius": row.get("radius"),
+                "extractor_version": str(row.get("extractor_version") or ""),
                 "example_count": int(row.get("example_count") or 0),
                 "independent_source_group_count": len(row.get("independent_source_groups") or []),
+                "independent_source_groups": [
+                    str(value) for value in row.get("independent_source_groups") or [] if str(value)
+                ],
+                "source_refs": [str(value) for value in row.get("source_refs") or [] if str(value)],
                 "successful_reuse_count": successes,
                 "failed_reuse_count": failures,
                 "has_reuse_outcome": bool(successes or failures),
                 "replay_validated": row.get("maturity") == "reuse_validated",
+                "examples": examples,
+                "semantics": dict(row.get("semantics") or {}),
             }
         )
 
@@ -729,6 +755,13 @@ def self_evolution_catalog(gateway: Any) -> dict[str, Any]:
                 "observation_count": observation_count,
                 "counts": dict(row.get("counts") or {}),
                 "authority_scope": str(row.get("authority_scope") or "proposal_memory_only"),
+                "observations": [
+                    {**dict(observation), "observation_id": str(observation_id)}
+                    for observation_id, observation in sorted(
+                        dict(row.get("observations") or {}).items()
+                    )
+                    if isinstance(observation, dict)
+                ],
             }
         )
 
@@ -781,6 +814,20 @@ def self_evolution_catalog(gateway: Any) -> dict[str, Any]:
 
 
 def workspace_payload(gateway: Any) -> dict[str, Any]:
+    try:
+        visibility = workspace_visibility_store(gateway).snapshot()
+        visibility_error = ""
+    except WorkspaceVisibilityError as exc:
+        visibility = {
+            "schema_version": WORKSPACE_VISIBILITY_SCHEMA,
+            "revision": 0,
+            "updated_at": "",
+            "hidden_routes": {},
+            "hidden_queue_runs": {},
+        }
+        visibility_error = str(exc)
+    hidden_route_ids = set(dict(visibility.get("hidden_routes") or {}))
+    hidden_queue_run_ids = set(dict(visibility.get("hidden_queue_runs") or {}))
     program_benchmarks = compiled_program_benchmark_catalog()
     system_run_ids = sorted(
         {
@@ -813,26 +860,41 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
     system_run_id_set.update(
         str(row.get("run_id") or "")
         for row in runs
-        if str(row.get("run_id") or "").startswith(
-            ("program-host-", "program-benchmark-")
-        )
+        if str(row.get("run_id") or "").startswith(("program-host-", "program-benchmark-"))
     )
     system_run_ids = sorted(value for value in system_run_id_set if value)
     for row in runs:
         run_id = str(row.get("run_id") or "")
         row["workbench_url"] = f"/api/v4/runs/{run_id}/workbench.html" if run_id else ""
+        row["workbench_pdf_url"] = (
+            f"/api/v4/runs/{run_id}/workbench.pdf" if run_id else ""
+        )
         row["status_url"] = f"/api/v4/runs/{run_id}/status" if run_id else ""
+        row["history_delete_url"] = (
+            f"/api/v4/runs/{run_id}/history" if run_id else ""
+        )
         row["surface_role"] = "route_example" if run_id in system_run_id_set else "task"
-        row["show_in_task_queue"] = run_id not in system_run_id_set
-    backend["task_run_count"] = sum(
-        bool(row.get("show_in_task_queue")) for row in runs
-    )
+        row["show_in_route_catalog"] = f"run:{run_id}" not in hidden_route_ids
+        row["show_in_task_queue"] = (
+            run_id not in system_run_id_set and run_id not in hidden_queue_run_ids
+        )
+    backend["task_run_count"] = sum(bool(row.get("show_in_task_queue")) for row in runs)
     catalog = showcase_catalog()
     return {
         "schema_version": "autoplanner.workspace.v3",
         "ok": backend["available"] or catalog["ok"],
         "backend": backend,
         "backend_error": error,
+        "workspace_visibility": {
+            **visibility,
+            "error": visibility_error,
+            "hidden_route_ids": sorted(hidden_route_ids),
+            "hidden_queue_run_ids": sorted(hidden_queue_run_ids),
+            "semantics": {
+                "deletion_is_recoverable_projection_removal": True,
+                "scientific_artifacts_are_preserved": True,
+            },
+        },
         "entrypoints": {
             "primary_page": "/v4",
             "launch": "/v4#new-task",
@@ -868,6 +930,25 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
     }
 
 
+def _workspace_route_ids(gateway: Any) -> set[str]:
+    identities = {
+        f"run:{str(row.get('run_id') or '')}"
+        for row in gateway.list_runs(limit=1_000).get("runs") or []
+        if isinstance(row, dict) and str(row.get("run_id") or "")
+    }
+    identities.update(
+        f"program-host:{str(row.get('benchmark_id') or '')}"
+        for row in compiled_program_benchmark_catalog().get("records") or []
+        if isinstance(row, dict) and str(row.get("benchmark_id") or "")
+    )
+    identities.update(
+        str(row.get("case_id") or "")
+        for row in showcase_catalog().get("cases") or []
+        if isinstance(row, dict) and str(row.get("case_id") or "")
+    )
+    return identities
+
+
 def register_workspace_routes(blueprint: Blueprint, gateway_factory: Any) -> None:
     @blueprint.get("/v4")
     def v4_index() -> Response:
@@ -896,6 +977,50 @@ def register_workspace_routes(blueprint: Blueprint, gateway_factory: Any) -> Non
     @blueprint.get("/api/v4/workspace")
     def v4_workspace():
         return jsonify(workspace_payload(gateway_factory()))
+
+    def delete_workspace_route(route_id: str):
+        route_id = str(route_id or "").strip()
+        if not route_id:
+            return jsonify(
+                {"error": "workspace_route_delete_invalid", "reason": "route_id_missing"}
+            ), 400
+        gateway = gateway_factory()
+        if route_id not in _workspace_route_ids(gateway):
+            return jsonify(
+                {"error": "workspace_route_not_found", "route_id": route_id}
+            ), 404
+        try:
+            return jsonify(workspace_visibility_store(gateway).hide_route(route_id))
+        except WorkspaceVisibilityError as exc:
+            return jsonify(
+                {"error": "workspace_route_delete_failed", "reason": str(exc)}
+            ), 400
+
+    @blueprint.delete("/api/v4/workspace/routes")
+    def v4_delete_workspace_route():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            payload = {}
+        return delete_workspace_route(str(payload.get("route_id") or ""))
+
+    @blueprint.delete("/api/v4/workspace/routes/<path:route_id>")
+    def v4_delete_workspace_route_legacy(route_id: str):
+        return delete_workspace_route(route_id)
+
+    @blueprint.post("/api/v4/workspace/visibility/restore")
+    def v4_restore_workspace_visibility():
+        payload = request.get_json(silent=True) or {}
+        try:
+            return jsonify(
+                workspace_visibility_store(gateway_factory()).restore(
+                    scope=str(payload.get("scope") or "all"),
+                    identity=str(payload.get("identity") or ""),
+                )
+            )
+        except WorkspaceVisibilityError as exc:
+            return jsonify(
+                {"error": "workspace_visibility_restore_failed", "reason": str(exc)}
+            ), 400
 
     @blueprint.get("/api/v4/showcase")
     def v4_showcase_catalog():
@@ -941,11 +1066,15 @@ def result_file_response(relative_path: str, *, head_only: bool = False) -> Resp
         ".log": "text/plain; charset=utf-8",
         ".md": "text/markdown; charset=utf-8",
     }.get(candidate.suffix.casefold(), "application/octet-stream")
-    if head_only:
+    if head_only and candidate.suffix.casefold() in {".html", ".htm"}:
+        body = inject_workspace_return(_delivered_text_body(candidate))
+        response = Response(mimetype=mimetype)
+        response.content_length = len(body.encode("utf-8"))
+    elif head_only:
         response = Response(mimetype=mimetype)
         response.content_length = candidate.stat().st_size
     elif mimetype.startswith("text/") or "json" in mimetype or mimetype == "image/svg+xml":
-        body = candidate.read_text(encoding="utf-8", errors="replace")
+        body = _delivered_text_body(candidate)
         if candidate.suffix.casefold() in {".html", ".htm"}:
             body = inject_workspace_return(body)
         response = Response(body, mimetype=mimetype)
@@ -958,6 +1087,27 @@ def result_file_response(relative_path: str, *, head_only: bool = False) -> Resp
         )
         response.headers["Cache-Control"] = "no-store"
     return response
+
+
+def _delivered_text_body(candidate: Path) -> str:
+    """Render stored route forests with the current interaction client.
+
+    Showcase artifacts are immutable scientific snapshots, but their generated
+    HTML shell is not scientific authority.  Re-rendering a sibling forest JSON
+    at delivery time keeps historical routes clickable after UI fixes without
+    changing the stored route data or its digest-bound semantics.
+    """
+
+    if candidate.name == "route_forest.html":
+        forest_path = candidate.with_name("explored_route_forest.json")
+        if forest_path.is_file():
+            try:
+                forest = json.loads(forest_path.read_text(encoding="utf-8"))
+                if isinstance(forest, dict):
+                    return render_route_forest_html(forest)
+            except Exception:  # Preserve the stored historical client if re-rendering fails.
+                pass
+    return candidate.read_text(encoding="utf-8", errors="replace")
 
 
 def inject_workspace_return(value: str) -> str:

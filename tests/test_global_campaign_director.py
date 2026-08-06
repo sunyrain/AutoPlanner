@@ -3,7 +3,9 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -26,6 +28,7 @@ from cascade_planner.orchestration.global_campaign_director import (
     director_prompt,
     director_web_search_enabled,
     repair_global_campaign_plan_contract,
+    run_api_json_director_child,
     validate_global_campaign_plan,
 )
 from cascade_planner.runtime import AgentResult, AgentSpec, AgentState
@@ -150,6 +153,16 @@ def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str
                         "source_hints": ["amide coupling"],
                         "required_validation": ["identity", "element_balance"],
                         "hypothesis_only": True,
+                        "condition_predictions": [
+                            {
+                                "reagents": ["coupling reagent"],
+                                "solvent": "polar aprotic solvent",
+                                "temperature_c": 25,
+                                "time": "screen",
+                                "authority_scope": "model_predicted_condition",
+                                "not_reaction_proof": True,
+                            }
+                        ],
                     },
                     {
                         "step_id": "proposal:amide:2",
@@ -160,6 +173,16 @@ def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str
                         "source_hints": [],
                         "required_validation": ["identity", "precedent"],
                         "hypothesis_only": True,
+                        "condition_predictions": [
+                            {
+                                "reagents": ["carboxylation reagent"],
+                                "solvent": "aprotic solvent",
+                                "temperature_c": 25,
+                                "time": "screen",
+                                "authority_scope": "model_predicted_condition",
+                                "not_reaction_proof": True,
+                            }
+                        ],
                     },
                 ],
             },
@@ -177,6 +200,16 @@ def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str
                         "source_hints": [],
                         "required_validation": ["identity", "precedent"],
                         "hypothesis_only": True,
+                        "condition_predictions": [
+                            {
+                                "reagents": ["assembly reagent"],
+                                "solvent": "polar solvent",
+                                "temperature_c": 25,
+                                "time": "screen",
+                                "authority_scope": "model_predicted_condition",
+                                "not_reaction_proof": True,
+                            }
+                        ],
                     }
                 ],
             },
@@ -357,6 +390,21 @@ def test_director_coordinates_global_families_through_one_kernel_call_and_cache(
     assert kernel.state.attempt_count == 0
     assert kernel.state.model_totals["model_invocations"] == 1
     assert kernel.state.accepted_expansion_count == 0
+
+
+def test_director_rejects_an_operationally_empty_reaction_step(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    raw["multi_step_skeletons"][0]["steps"][0].pop("condition_predictions")
+
+    audits = validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+    step = next(row for row in audits if row["proposal_id"] == "proposal:amide:1")
+
+    assert step["accepted"] is False
+    assert "condition_predictions_missing" in step["reasons"]
 
 
 def test_event_replan_without_material_change_is_ignored_without_model(
@@ -581,6 +629,16 @@ def test_director_allows_shared_target_edge_when_upstream_program_diverges(
             "source_hints": [],
             "required_validation": ["identity", "precedent"],
             "hypothesis_only": True,
+            "condition_predictions": [
+                {
+                    "reagents": ["hydrolysis reagent"],
+                    "solvent": "aqueous solvent",
+                    "temperature_c": 25,
+                    "time": "screen",
+                    "authority_scope": "model_predicted_condition",
+                    "not_reaction_proof": True,
+                }
+            ],
         }
     )
 
@@ -755,6 +813,32 @@ def test_director_completes_chemenzy_metadata_for_codex_selected_non_root_step(
     assert validate_global_campaign_plan(repaired, context)
 
 
+def test_director_downgrades_campaign_target_provider_request_to_host_priority(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    priority = raw["frontier_priorities"][0]
+    priority["target_smiles"] = context.target["canonical_smiles"]
+    priority["provider_preferences"] = ["chemenzy"]
+    priority["retron_hints"] = ["preserve host scheduling intent"]
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    repaired_priority = repaired.frontier_priorities[0]
+    assert repaired_priority["target_smiles"] == context.target["canonical_smiles"]
+    assert repaired_priority["provider_preferences"] == []
+    assert repaired_priority["retron_hints"] == ["preserve host scheduling intent"]
+    assert any(
+        row["reason"] == "campaign_target_provider_downgraded_to_host_priority"
+        for row in repairs
+    )
+    assert validate_global_campaign_plan(repaired, context)
+
+
 def test_director_resolves_chemenzy_request_to_shared_intermediate(
     tmp_path: Path,
 ) -> None:
@@ -827,6 +911,72 @@ def test_replay_runner_is_model_free_and_schema_identical(tmp_path: Path) -> Non
     assert kernel.state.model_totals["model_invocations"] == 0
 
 
+def test_api_json_director_runner_uses_provider_neutral_tool_free_backend(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    spec = AgentSpec(
+        run_id=context.run_id,
+        agent_id="director:api-json",
+        role="global_campaign_director",
+        objective="Return a typed global campaign plan.",
+        idempotency_key="director:api-json:1",
+        context_hash=context.content_sha256,
+        metadata={"allowed_workdir": str(tmp_path)},
+    )
+    record = SimpleNamespace(
+        status="accepted_draft",
+        output_artifact={"payload": {"schema_version": "global_campaign_plan.v1"}},
+        usage={"input_tokens": 11, "output_tokens": 7},
+        elapsed_s=0.25,
+        metadata={},
+        backend="api_json",
+        stderr="",
+    )
+    with patch(
+        "cascade_planner.orchestration.global_campaign_director.run_codex_worker",
+        return_value=record,
+    ) as worker:
+        result = run_api_json_director_child(
+            spec,
+            context,
+            "initial_architecture",
+            DirectorConfig(model="local-openai-compatible-model"),
+        )
+
+    task = worker.call_args.args[0]
+    assert worker.call_args.kwargs == {"use_api_json": True}
+    assert task.allowed_tools == []
+    assert task.agent_mode == "single"
+    assert task.model == "local-openai-compatible-model"
+    assert task.budget.max_tool_calls == 0
+    assert result.state is AgentState.SUCCEEDED
+    assert result.metadata["backend"] == "api_json"
+
+
+def test_api_json_director_runner_rejects_unimplemented_tool_loop(tmp_path: Path) -> None:
+    context = _context(_kernel(tmp_path))
+    spec = AgentSpec(
+        run_id=context.run_id,
+        agent_id="director:api-json-tools",
+        role="global_campaign_director",
+        objective="Search and coordinate.",
+        idempotency_key="director:api-json-tools:1",
+        context_hash=context.content_sha256,
+    )
+
+    result = run_api_json_director_child(
+        spec,
+        context,
+        "event_replan",
+        DirectorConfig(enable_web_search=True),
+    )
+
+    assert result.state is AgentState.FAILED
+    assert result.error == "api_json_director_tool_loop_not_implemented"
+    assert result.metadata["tool_loop_supported"] is False
+
+
 def test_director_defers_web_tools_until_evidence_informed_replan(
     tmp_path: Path,
 ) -> None:
@@ -841,6 +991,21 @@ def test_director_defers_web_tools_until_evidence_informed_replan(
         config=config,
     )
     assert "Live search is enabled" in director_prompt(
+        context,
+        mode="event_replan",
+        config=config,
+    )
+    assert "do not wait for a supplied publication number" in director_prompt(
+        context,
+        mode="event_replan",
+        config=config,
+    )
+    assert "include condition_predictions" in director_prompt(
+        context,
+        mode="event_replan",
+        config=config,
+    )
+    assert "authority_scope=model_predicted_condition" in director_prompt(
         context,
         mode="event_replan",
         config=config,

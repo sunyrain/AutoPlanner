@@ -664,7 +664,7 @@ def _write_notes(path: Path, manifest: Mapping[str, Any]) -> None:
         "",
         "## 入口与演示顺序",
         "",
-        "- 启动：`python -m cascade_planner.web.app --host 127.0.0.1 --port 8879`",
+        "- 启动：`python scripts/legacy/serve_combined_web.py --host 127.0.0.1 --port 8879`",
         "- 打开：`http://127.0.0.1:8879/showcase`",
         "- 先展示蟾毒灵 20 步闭合基准，再点击文献 R 节点展开完整来源条件。",
         "- 切换奈玛特韦说明 L3 双信源闭合；切换阿托伐他汀说明低可信闭合路线仍保留但不冒充验证。",

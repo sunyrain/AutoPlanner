@@ -92,6 +92,45 @@ def test_run_index_tracks_artifacts_and_idempotent_tasks(tmp_path: Path) -> None
     assert tasks == [{**task, "status": "completed"}]
 
 
+def test_run_history_removal_only_deletes_rebuildable_projections(
+    tmp_path: Path,
+) -> None:
+    store = ArtifactStore(tmp_path / "objects")
+    ref = store.put_bytes(b"preserved evidence", logical_name="evidence.json")
+    index = RunIndex(tmp_path / "runs.sqlite3")
+    manifest = _manifest("history-run", revision=2)
+    index.upsert_run(manifest)
+    index.index_artifact(
+        run_id="history-run",
+        artifact_id="evidence",
+        ref=ref,
+        revision=2,
+    )
+    index.upsert_task(
+        {
+            "run_id": "history-run",
+            "task_id": "task-1",
+            "kind": "validation",
+            "status": "completed",
+            "idempotency_key": "validation:history-run",
+        }
+    )
+
+    removed = index.remove_run_projection("history-run")
+
+    assert removed["removed"] is True
+    assert removed["removed_artifact_projection_count"] == 1
+    assert removed["removed_task_projection_count"] == 1
+    assert removed["scientific_artifacts_preserved"] is True
+    assert index.get_run("history-run") is None
+    assert index.artifacts_for_run("history-run") == []
+    assert index.tasks_for_run("history-run") == []
+    assert store.read_bytes(ref) == b"preserved evidence"
+
+    index.upsert_run(manifest)
+    assert index.get_run("history-run") is not None
+
+
 def test_run_index_rebuild_does_not_touch_scientific_objects(
     tmp_path: Path,
 ) -> None:

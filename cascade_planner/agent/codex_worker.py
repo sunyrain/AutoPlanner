@@ -1295,7 +1295,9 @@ def _artifact_payload_instruction(artifact_type: str) -> str:
         return (
             "For payload, return schema_version=global_campaign_plan.v1 and a whole-campaign plan bound to the run_id, mode, context_sha256, and graph_revision in the objective. "
             "Include route_families, multi_step_skeletons, strategic_disconnections, shared_intermediates, critical_unknowns, source_plan, fallback_strategies, frontier_priorities, pivot_conditions, stop_conditions, portfolio_rationale, and limitations. "
-            "Every skeleton step must contain parseable product_smiles and precursor_smiles, transformation_hypothesis, required_validation, and hypothesis_only=true. "
+            "Every skeleton step must contain parseable product_smiles and precursor_smiles, transformation_hypothesis, required_validation, hypothesis_only=true, and one or two advisory condition_predictions. "
+            "Each condition prediction must use authority_scope=model_predicted_condition and not_reaction_proof=true; use empty strings or arrays only for inapplicable condition fields, and do not attach source authority to a model prediction. "
+            "Every source_plan entry must expose verified DOI, patent-publication, or primary-URL identifiers in source_refs, or an empty source_refs list when none was verified. "
             "Coordinate alternatives and shared intermediates globally. Never claim validation, proof, stock closure, completion, or solved status, and never emit reaction SMILES/SMARTS or '>>'."
         )
     if artifact_type == "LiteratureRouteSegmentCard":
@@ -1478,6 +1480,20 @@ def _global_campaign_plan_payload_json_schema(task: WorkerTask) -> dict[str, Any
         "risks": _string_array_schema(),
         "diversity_basis": {"type": "string"},
     })
+    condition_prediction = _strict_object_schema({
+        "reagents": _string_array_schema(),
+        "catalyst": {"type": "string"},
+        "base": {"type": "string"},
+        "solvent": {"type": "string"},
+        "temperature_c": {"type": "number"},
+        "time": {"type": "string"},
+        "atmosphere": {"type": "string"},
+        "authority_scope": {
+            "type": "string",
+            "enum": ["model_predicted_condition"],
+        },
+        "not_reaction_proof": {"type": "boolean", "enum": [True]},
+    })
     step = _strict_object_schema({
         "step_id": {"type": "string"},
         "product_smiles": {"type": "string"},
@@ -1487,6 +1503,12 @@ def _global_campaign_plan_payload_json_schema(task: WorkerTask) -> dict[str, Any
         "source_hints": _string_array_schema(),
         "required_validation": _string_array_schema(),
         "hypothesis_only": {"type": "boolean", "enum": [True]},
+        "condition_predictions": {
+            "type": "array",
+            "items": condition_prediction,
+            "minItems": 1,
+            "maxItems": 2,
+        },
     })
     skeleton = _strict_object_schema({
         "skeleton_id": {"type": "string"},
@@ -1520,6 +1542,7 @@ def _global_campaign_plan_payload_json_schema(task: WorkerTask) -> dict[str, Any
         "source_task_id": {"type": "string"},
         "query": {"type": "string"},
         "source_types": _string_array_schema(),
+        "source_refs": _string_array_schema(),
         "target_claims": _string_array_schema(),
         "affected_proposal_ids": _string_array_schema(),
         "priority": {"type": "number"},
@@ -1533,6 +1556,10 @@ def _global_campaign_plan_payload_json_schema(task: WorkerTask) -> dict[str, Any
     frontier = _strict_object_schema({
         "priority_id": {"type": "string"},
         "proposal_id": {"type": "string"},
+        "target_smiles": {"type": "string"},
+        "provider_preferences": _string_array_schema(),
+        "retron_hints": _string_array_schema(),
+        "route_family_ids": _string_array_schema(),
         "priority": {"type": "number"},
         "rationale": {"type": "string"},
         "expected_portfolio_gain": {"type": "string"},

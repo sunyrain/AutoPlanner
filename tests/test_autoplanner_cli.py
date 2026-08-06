@@ -149,27 +149,31 @@ def test_cli_exposes_bounded_replay_case_recovery_stages() -> None:
     assert args.stop_after == "evidence"
 
 
-def test_cli_exposes_case_compile_and_one_command_solve() -> None:
+def test_cli_exposes_case_compile_and_one_command_dossier_replay() -> None:
     compile_args = build_parser().parse_args(
         ["compile-case", "--dossier", "case.json", "--output", "pack.json"]
     )
-    solve_args = build_parser().parse_args(
-        ["solve-case", "--dossier", "case.json", "--output-dir", "showcase"]
+    replay_args = build_parser().parse_args(
+        ["replay-dossier", "--dossier", "case.json", "--output-dir", "showcase"]
     )
 
     assert compile_args.dossier == Path("case.json")
     assert compile_args.output == Path("pack.json")
-    assert solve_args.command == "solve-case"
-    assert solve_args.output_dir == "showcase"
+    assert replay_args.command == "replay-dossier"
+    assert replay_args.output_dir == "showcase"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["solve-case", "--dossier", "case.json", "--output-dir", "showcase"]
+        )
 
 
-def test_cli_serves_isolated_v4_by_default_with_explicit_compatibility_fallback() -> None:
+def test_cli_serves_only_the_isolated_v4_surface() -> None:
     mainline = build_parser().parse_args(["serve"])
-    compatibility = build_parser().parse_args(["serve", "--surface", "combined"])
 
-    assert mainline.surface == "v4"
     assert mainline.server == "auto"
-    assert compatibility.surface == "combined"
+    assert not hasattr(mainline, "surface")
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["serve", "--surface", "combined"])
 
 
 def test_auto_web_server_falls_back_to_flask_when_waitress_is_unavailable() -> None:
@@ -179,7 +183,6 @@ def test_auto_web_server_falls_back_to_flask_when_waitress_is_unavailable() -> N
         patch.dict(sys.modules, {"waitress": None}),
     ):
         serve_web(
-            surface="v4",
             host="127.0.0.1",
             port=8899,
             server="auto",

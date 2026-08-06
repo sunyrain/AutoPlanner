@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+import sqlite3
 from typing import Any, Mapping
 
 from cascade_planner.interfaces.live_stock import (
+    FrozenBenchmarkStockIndex,
     build_pubchem_vendor_catalog,
     load_versioned_inventory_snapshot,
 )
@@ -83,3 +86,48 @@ def test_versioned_inventory_loader_is_bounded_and_schema_typed(tmp_path: Path) 
     path.write_text(json.dumps(expected), encoding="utf-8")
 
     assert load_versioned_inventory_snapshot(path) == expected
+
+
+def test_frozen_benchmark_stock_index_is_hashed_read_only_membership(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "stock.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE stock (canonical_smiles TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.executemany(
+            "INSERT INTO metadata(key, value) VALUES (?, ?)",
+            [
+                ("schema_version", "frozen_benchmark_stock_index.v1"),
+                ("catalog_name", "unit-test-stock"),
+                ("source_sha256", "a" * 64),
+                ("member_count", "1"),
+                ("complete", "true"),
+                ("created_at", "2026-07-23T00:00:00Z"),
+                ("rdkit_version", "test"),
+            ],
+        )
+        connection.execute(
+            "INSERT INTO stock(canonical_smiles) VALUES (?)",
+            ("CCO",),
+        )
+    expected_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    builder = FrozenBenchmarkStockIndex(
+        path,
+        expected_sha256=expected_sha256,
+    )
+    catalog = builder(["OCC", "CCN"])
+
+    assert catalog["catalog_name"] == "unit-test-stock"
+    assert catalog["source"]["index_sha256"] == expected_sha256
+    assert catalog["source"]["immutable_content_addressed"] is True
+    assert [row["canonical_smiles"] for row in catalog["members"]] == ["CCO"]
+    assert catalog["members"][0]["membership_verified"] is True
+    assert len(catalog["members"][0]["membership_proof_sha256"]) == 64
+    assert [row["canonical_smiles"] for row in catalog["misses"]] == ["CCN"]
+    assert catalog["semantics"]["not_a_reaction_or_route_provider"] is True

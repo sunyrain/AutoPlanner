@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from html import escape
+import re
 from threading import RLock, Thread
 from typing import Any, Callable, Mapping
 
@@ -36,7 +37,16 @@ from cascade_planner.web.v4_program_overlay_reviews import (
 from cascade_planner.web.workspace_surface import (
     compiled_mechanism_hypothesis_attachments,
     compiled_program_overlay_attachments,
+    inject_workspace_return,
     register_workspace_routes,
+)
+from cascade_planner.web.workbench_pdf import (
+    WorkbenchPdfError,
+    render_workbench_pdf,
+)
+from cascade_planner.web.workspace_visibility import (
+    WorkspaceVisibilityError,
+    workspace_visibility_store,
 )
 
 
@@ -192,6 +202,7 @@ def create_v4_blueprint(
             if run_id and run_id not in known_run_ids:
                 rows.append(_historical_job(run))
         rows.sort(key=lambda value: str(value.get("created_at") or ""), reverse=True)
+        _apply_workspace_visibility(factory(), rows)
         return jsonify({"jobs": rows})
 
     @blueprint.get("/api/v4/jobs/<path:job_id>")
@@ -211,11 +222,83 @@ def create_v4_blueprint(
             if historical is None:
                 return jsonify({"error": "job_not_found", "job_id": job_id}), 404
             row = _historical_job(historical)
-        return jsonify(_job_with_live_progress(factory, row))
+        projected = _job_with_live_progress(factory, row)
+        _apply_workspace_visibility(factory(), [projected])
+        return jsonify(projected)
+
+    @blueprint.delete("/api/v4/jobs/<path:job_id>")
+    def delete_target_job(job_id: str):
+        run_id = str(job_id or "").removeprefix("solve:").strip()
+        if not run_id:
+            return jsonify(
+                {"error": "job_delete_invalid", "reason": "run_id_missing"}
+            ), 400
+        with jobs_lock:
+            matching = [
+                dict(value)
+                for value in jobs.values()
+                if str(value.get("run_id") or "") == run_id
+            ]
+            active = any(
+                str(value.get("status") or "") in {"queued", "running"}
+                for value in matching
+            )
+        if active:
+            return jsonify(
+                {
+                    "error": "job_delete_conflict",
+                    "reason": "active_job_cannot_be_deleted",
+                    "job_id": job_id,
+                    "run_id": run_id,
+                }
+            ), 409
+        known = bool(matching) or any(
+            isinstance(value, Mapping)
+            and str(value.get("run_id") or "") == run_id
+            for value in factory().list_runs(limit=1_000).get("runs") or []
+        )
+        if not known:
+            return jsonify(
+                {"error": "job_not_found", "job_id": job_id, "run_id": run_id}
+            ), 404
+        try:
+            result = workspace_visibility_store(factory()).hide_queue_run(run_id)
+        except WorkspaceVisibilityError as exc:
+            return jsonify(
+                {"error": "job_delete_failed", "reason": str(exc), "run_id": run_id}
+            ), 400
+        return jsonify({**result, "job_id": f"solve:{run_id}"})
 
     @blueprint.get("/api/v4/runs/<run_id>/status")
     def run_status(run_id: str):
         return jsonify(factory().status(run_id))
+
+    @blueprint.delete("/api/v4/runs/<run_id>/history")
+    def remove_run_history(run_id: str):
+        with jobs_lock:
+            active = any(
+                str(value.get("run_id") or "") == run_id
+                and str(value.get("status") or "") in {"queued", "running"}
+                for value in jobs.values()
+            )
+            if active:
+                return jsonify(
+                    {
+                        "error": "run_history_removal_conflict",
+                        "reason": "active_run_cannot_be_removed_from_history",
+                        "run_id": run_id,
+                    }
+                ), 409
+            stale_job_ids = [
+                job_id
+                for job_id, value in jobs.items()
+                if str(value.get("run_id") or "") == run_id
+            ]
+        result = factory().remove_run_from_history(run_id)
+        with jobs_lock:
+            for job_id in stale_job_ids:
+                jobs.pop(job_id, None)
+        return jsonify(result)
 
     @blueprint.post("/api/v4/runs/<run_id>/resume")
     def resume_run(run_id: str):
@@ -283,13 +366,14 @@ def create_v4_blueprint(
             reviews = collect_program_overlay_reviews(gateway, run_id, snapshot)
             attachments = compiled_program_overlay_attachments(run_id)
             mechanism_attachments = compiled_mechanism_hypothesis_attachments(run_id)
+            body = render_v4_route_workbench_html(
+                snapshot,
+                program_innovation_reviews=reviews,
+                program_overlay_attachments=attachments,
+                mechanism_hypothesis_attachments=mechanism_attachments,
+            )
             return Response(
-                render_v4_route_workbench_html(
-                    snapshot,
-                    program_innovation_reviews=reviews,
-                    program_overlay_attachments=attachments,
-                    mechanism_hypothesis_attachments=mechanism_attachments,
-                ),
+                inject_workspace_return(body),
                 mimetype="text/html",
             )
         except ValueError as exc:
@@ -301,6 +385,33 @@ def create_v4_blueprint(
                 status=422,
                 mimetype="text/html",
             )
+
+    @blueprint.get("/api/v4/runs/<run_id>/workbench.pdf")
+    def workbench_pdf(run_id: str) -> Response:
+        try:
+            snapshot = factory().workbench(run_id)["snapshot"]
+            pdf = render_workbench_pdf(snapshot)
+        except ValueError as exc:
+            return Response(
+                _workbench_error_html(run_id, str(exc)),
+                status=422,
+                mimetype="text/html",
+            )
+        except WorkbenchPdfError as exc:
+            return jsonify(
+                {
+                    "error": "workbench_pdf_unavailable",
+                    "reason": str(exc),
+                    "run_id": run_id,
+                }
+            ), 503
+        filename = re.sub(r"[^A-Za-z0-9._-]+", "-", run_id).strip(".-")
+        response = Response(pdf, mimetype="application/pdf")
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{filename or "route-workbench"}-retrosynthesis-dossier.pdf"'
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     return blueprint
 
@@ -329,6 +440,24 @@ def _job_with_live_progress(
     if str(job.get("status") or "") in {"queued", "running"}:
         row["phase"] = str(progress.get("phase") or row["phase"])
     return row
+
+
+def _apply_workspace_visibility(gateway: CampaignGateway, rows: list[dict[str, Any]]) -> None:
+    try:
+        visibility = workspace_visibility_store(gateway).snapshot()
+        hidden_routes = set(dict(visibility.get("hidden_routes") or {}))
+        hidden_queue_runs = set(dict(visibility.get("hidden_queue_runs") or {}))
+        visibility_error = ""
+    except WorkspaceVisibilityError as exc:
+        hidden_routes = set()
+        hidden_queue_runs = set()
+        visibility_error = str(exc)
+    for row in rows:
+        run_id = str(row.get("run_id") or "")
+        row["show_in_route_catalog"] = f"run:{run_id}" not in hidden_routes
+        row["show_in_task_queue"] = run_id not in hidden_queue_runs
+        if visibility_error:
+            row["workspace_visibility_error"] = visibility_error
 
 
 def _payload() -> dict[str, Any]:

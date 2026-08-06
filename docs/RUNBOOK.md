@@ -116,10 +116,10 @@ python scripts/browser_pdf_fetch.py \
 也可用 `--title-contains` 进一步过滤。每个请求使用新的 tab；下载结果仍须经过 PDF identity、
 hash、页面选择和来源绑定，成功下载本身不授予反应证明。
 
-## 3. 从精确来源案卷一键求解
+## 3. 从精确来源案卷一键重放
 
 ```bash
-python -m cascade_planner solve-case \
+python -m cascade_planner replay-dossier \
   --dossier config/examples/artemisinin_v4_case_dossier.json \
   --run-id artemisinin-showcase \
   --output-dir local-showcase/artemisinin
@@ -471,7 +471,7 @@ python -m cascade_planner serve --server flask --host 127.0.0.1 --port 8878
 仅在需要旧 Agent/Statin/RouteForest 综合界面时显式启动兼容 surface：
 
 ```bash
-python -m cascade_planner serve --surface combined
+python scripts/legacy/serve_combined_web.py
 ```
 
 该 surface 不是 Canonical V4 的科学权威，不能承载新产品逻辑。

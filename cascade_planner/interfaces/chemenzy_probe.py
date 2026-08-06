@@ -97,6 +97,7 @@ def run_chemenzy_proposal_stage(
     env_prefix: str | Path | None = None,
     vendor_root: str | Path | None = None,
     max_routes: int = 2,
+    max_host_routes: int | None = None,
     max_steps: int = 6,
     max_iterations: int = 10,
     expansion_topk: int = 20,
@@ -107,6 +108,8 @@ def run_chemenzy_proposal_stage(
     retron_hints: tuple[str, ...] = (),
     forbidden_smiles: tuple[str, ...] = (),
     search_preset: str = "standard",
+    stock_names: tuple[str, ...] = (),
+    stock_paths: Mapping[str, str] | None = None,
     enable_condition_prediction: bool = True,
     enable_enzyme_assignment: bool = True,
     enable_enzyme_coverage_sidecar: bool = True,
@@ -116,11 +119,24 @@ def run_chemenzy_proposal_stage(
 
     limits = {
         "max_routes": max(1, int(max_routes)),
+        "max_host_routes": max(
+            1,
+            min(
+                max(1, int(max_routes)),
+                int(max_host_routes or max_routes),
+            ),
+        ),
         "max_steps": max(1, int(max_steps)),
         "max_iterations": max(1, int(max_iterations)),
         "expansion_topk": max(1, int(expansion_topk)),
         "timeout_s": max(1.0, float(timeout_s)),
         "search_preset": str(search_preset or "standard"),
+        "stock_names": [str(value) for value in stock_names if str(value).strip()],
+        "stock_paths": {
+            str(name): str(path)
+            for name, path in dict(stock_paths or {}).items()
+            if str(name).strip() and str(path).strip()
+        },
         "enable_condition_prediction": bool(enable_condition_prediction),
         "enable_enzyme_assignment": bool(enable_enzyme_assignment),
         "enable_enzyme_coverage_sidecar": bool(enable_enzyme_coverage_sidecar),
@@ -180,8 +196,11 @@ def run_chemenzy_proposal_stage(
     eligible = [
         route for route in routes if route.get("proposal_eligible") is True
     ]
-    accepted = eligible[: limits["max_routes"]]
-    advisory = quarantined_routes[: limits["max_routes"]]
+    accepted = _select_host_route_portfolio(
+        eligible,
+        limit=limits["max_host_routes"],
+    )
+    advisory = quarantined_routes[: limits["max_host_routes"]]
     provider_envelope, provider_registration = _provider_admission(
         service,
         target_name=target_name,
@@ -194,16 +213,21 @@ def run_chemenzy_proposal_stage(
         accepted = []
     route_families: list[dict[str, Any]] = []
     hypotheses: list[dict[str, Any]] = []
+    route_alias_by_trace_id: dict[str, str] = {}
     selected_routes = [
         *((route, False) for route in accepted),
         *((route, True) for route in advisory),
     ]
     for route_index, (route, advisory_only) in enumerate(selected_routes, start=1):
         alias = f"chemenzy:{scope}:route:{route_index}"
+        trace_id = str(route.get("route_trace_id") or "")
+        if trace_id:
+            route_alias_by_trace_id[trace_id] = alias
         if not parent_route_family_ids:
             route_families.append(
                 {
                     "route_family_id": alias,
+                    "selected": not advisory_only,
                     "strategy": (
                         "quarantined ChemEnzy route retained for review"
                         if advisory_only
@@ -214,6 +238,7 @@ def run_chemenzy_proposal_stage(
         for step_index, step in enumerate(route.get("steps") or [], start=1):
             if step_index > limits["max_steps"]:
                 break
+            provider_metadata = _provider_reaction_metadata(step)
             hypothesis = {
                     "step_id": f"{alias}:step:{step_index}",
                     "proposal_id": f"{alias}:step:{step_index}",
@@ -231,7 +256,13 @@ def run_chemenzy_proposal_stage(
                     ),
                     "origin_kind": "chemenzy",
                     "origin_ref": f"{alias}:{step.get('source_model') or 'native'}",
-                    "transformation_hypothesis": "ChemEnzy one-step expansion",
+                    "transformation_hypothesis": (
+                        _chemenzy_transformation_hypothesis(
+                            step,
+                            provider_metadata=provider_metadata,
+                        )
+                    ),
+                    "provider_reaction_metadata": provider_metadata,
                     "advisory_only": advisory_only,
                     "provider_admission_reasons": list(
                         route.get("admission_reasons") or []
@@ -256,6 +287,61 @@ def run_chemenzy_proposal_stage(
             ),
             idempotency_key=f"solve-target:chemenzy:{scope}:proposal-ingestion",
         )
+    graph = service.graph_store.load()
+    canonical_route_id_by_alias = {
+        str(alias): str(route_id)
+        for route_id, route in dict(graph.get("route_families") or {}).items()
+        for alias in dict(route).get("aliases") or []
+        if str(alias)
+    }
+    accepted_trace_ids = {
+        str(route.get("route_trace_id") or "") for route in accepted
+    } - {""}
+    advisory_trace_ids = {
+        str(route.get("route_trace_id") or "") for route in advisory
+    } - {""}
+    all_trace_routes = [
+        *((route, False) for route in routes),
+        *((route, True) for route in quarantined_routes),
+    ]
+    route_lineage = []
+    for route, quarantined in all_trace_routes:
+        trace_id = str(route.get("route_trace_id") or "")
+        alias = route_alias_by_trace_id.get(trace_id, "")
+        if trace_id in accepted_trace_ids:
+            disposition = "host_portfolio_selected"
+        elif trace_id in advisory_trace_ids:
+            disposition = "quarantined_advisory"
+        elif quarantined:
+            disposition = "quarantined_advisory_budget_truncated"
+        elif route.get("proposal_eligible") is True:
+            disposition = "host_portfolio_budget_truncated"
+        else:
+            disposition = "host_search_rejected"
+        route_lineage.append(
+            {
+                "route_trace_id": trace_id,
+                "route_index": route.get("route_index"),
+                "raw_route_sha256": str(route.get("raw_route_sha256") or ""),
+                "normalized_route_sha256": str(
+                    route.get("normalized_route_sha256") or ""
+                ),
+                "proposal_eligible": route.get("proposal_eligible") is True,
+                "host_portfolio_selected": trace_id in accepted_trace_ids,
+                "preserved_as_advisory": trace_id in advisory_trace_ids,
+                "quarantined": quarantined,
+                "disposition": disposition,
+                "reasons": list(route.get("admission_reasons") or []),
+                "canonical_route_family_alias": alias,
+                "canonical_route_family_id": canonical_route_id_by_alias.get(alias, ""),
+                "step_proposal_ids": [
+                    f"{alias}:step:{index}"
+                    for index, _step in enumerate(route.get("steps") or [], start=1)
+                ]
+                if alias
+                else [],
+            }
+        )
     status = "completed" if hypotheses else str(raw.get("status") or "unresolved")
     return _result(
         status,
@@ -269,6 +355,16 @@ def run_chemenzy_proposal_stage(
         preserved_advisory_route_count=len(advisory),
         rejected_route_count=len(routes) - len(eligible) + len(quarantined_routes),
         budget_truncated_route_count=max(0, len(eligible) - len(accepted)),
+        provider_route_reserve=limits["max_routes"],
+        host_route_portfolio_limit=limits["max_host_routes"],
+        route_selection=[
+            {
+                "route_index": route.get("route_index"),
+                "host_portfolio_rank": rank,
+                "selection_features": _route_selection_features(route),
+            }
+            for rank, route in enumerate(accepted, start=1)
+        ],
         route_admission=[
             {
                 "route_index": route.get("route_index"),
@@ -286,6 +382,9 @@ def run_chemenzy_proposal_stage(
             }
             for route in quarantined_routes
         ],
+        request_sha256=_content_sha256(request.to_dict()),
+        raw_result_sha256=_content_sha256(raw),
+        route_lineage=route_lineage,
         proposal_count=len(hypotheses),
         changed=applied.get("changed") is True,
         provider_envelope=provider_envelope,
@@ -297,6 +396,9 @@ def run_chemenzy_proposal_stage(
         semantics={
             "provider_rejected_routes_are_retained_as_l0_advisory": True,
             "advisory_routes_never_grant_reaction_proof": True,
+            "provider_route_reserve_is_distinct_from_host_portfolio": True,
+            "provider_stock_status_is_ranking_only_not_stock_authority": True,
+            "route_lineage_is_digest_bound_across_ingestion_boundaries": True,
         },
     )
 
@@ -317,7 +419,10 @@ def run_chemenzy_guided_frontier_stage(
     expansion_topk: int = 10,
     timeout_s: float = 60.0,
     exclude_frontier_smiles: tuple[str, ...] = (),
+    include_frontier_smiles: tuple[str, ...] = (),
     search_preset: str = "thorough",
+    stock_names: tuple[str, ...] = (),
+    stock_paths: Mapping[str, str] | None = None,
     enable_condition_prediction: bool = True,
     enable_enzyme_assignment: bool = True,
     enable_enzyme_coverage_sidecar: bool = True,
@@ -327,11 +432,19 @@ def run_chemenzy_guided_frontier_stage(
 
     graph = service.graph_store.load()
     excluded = {str(value).strip() for value in exclude_frontier_smiles if str(value).strip()}
+    included = {str(value).strip() for value in include_frontier_smiles if str(value).strip()}
     items = [
         dict(item)
         for item in dict(graph.get("deficit_frontier") or {}).get("items") or []
         if isinstance(item, Mapping)
         and item.get("kind") == "expansion"
+        and dict(item.get("metadata") or {}).get("target_level_native_search")
+        is not True
+        and (
+            not included
+            or str(dict(item.get("metadata") or {}).get("frontier_smiles") or "")
+            in included
+        )
         and str(dict(item.get("metadata") or {}).get("frontier_smiles") or "")
         not in excluded
     ][: max(0, int(max_frontiers))]
@@ -398,6 +511,8 @@ def run_chemenzy_guided_frontier_stage(
                 retron_hints=retrons,
                 forbidden_smiles=(root_target_smiles,),
                 search_preset=search_preset,
+                stock_names=stock_names,
+                stock_paths=stock_paths,
                 enable_condition_prediction=enable_condition_prediction,
                 enable_enzyme_assignment=enable_enzyme_assignment,
                 enable_enzyme_coverage_sidecar=enable_enzyme_coverage_sidecar,
@@ -526,6 +641,10 @@ def _run_builtin_probe(
         "target_smiles": target_smiles,
         "planner_backend": "chem_enzy_native",
         "search_preset": str(limits.get("search_preset") or "standard"),
+        # Keep the native search exhaustive within its configured MCTS budget,
+        # but bound the expensive route annotation/materialization pass to the
+        # number of proposals the host can actually consume.
+        "max_routes": limits["max_routes"],
         "max_steps": limits["max_steps"],
         "chem_enzy_iterations": limits["max_iterations"],
         "chem_enzy_expansion_topk": limits["expansion_topk"],
@@ -540,6 +659,10 @@ def _run_builtin_probe(
             limits.get("enable_enzyme_coverage_sidecar", True)
         ),
     }
+    if limits.get("stock_names"):
+        request["stock_names"] = list(limits["stock_names"])
+    if limits.get("stock_paths"):
+        request["stock_paths"] = dict(limits["stock_paths"])
     if proposal_request.mode == "guided_frontier":
         request["chem_enzy_search_policy"] = _guided_native_search_policy(
             proposal_request,
@@ -679,6 +802,50 @@ def _normalized_routes(
     ]
 
 
+def compile_chemenzy_route_fingerprints(
+    value: Mapping[str, Any], *, target_smiles: str
+) -> dict[str, Any]:
+    """Compile provider-output fingerprints without granting route authority."""
+
+    routes = _normalized_routes(value, target_smiles=target_smiles)
+    quarantined = normalized_quarantined_routes(
+        value,
+        start_index=len(routes) + 1,
+        normalizer=_normalize_proposal_route,
+    )
+    rows = []
+    for route, is_quarantined in [
+        *((route, False) for route in routes),
+        *((route, True) for route in quarantined),
+    ]:
+        rows.append(
+            {
+                "route_index": route.get("route_index"),
+                "route_trace_id": str(route.get("route_trace_id") or ""),
+                "raw_route_sha256": str(route.get("raw_route_sha256") or ""),
+                "normalized_route_sha256": str(
+                    route.get("normalized_route_sha256") or ""
+                ),
+                "proposal_eligible": route.get("proposal_eligible") is True,
+                "quarantined": is_quarantined,
+                "reasons": list(route.get("admission_reasons") or []),
+                "step_count": len(route.get("steps") or []),
+            }
+        )
+    return {
+        "schema_version": "chemenzy_route_fingerprint_set.v1",
+        "target_smiles": str(target_smiles),
+        "raw_result_sha256": _content_sha256(value),
+        "route_count": len(routes),
+        "quarantined_route_count": len(quarantined),
+        "routes": rows,
+        "semantics": {
+            "proposal_only": True,
+            "fingerprints_grant_no_route_or_stock_authority": True,
+        },
+    }
+
+
 def _normalize_proposal_route(
     route: Mapping[str, Any], *, route_index: int
 ) -> dict[str, Any]:
@@ -728,7 +895,7 @@ def _normalize_proposal_route(
                     for value in step.get("catalyst_annotations") or []
                     if isinstance(value, Mapping)
                 ],
-                "raw_backend_metadata": dict(
+                "raw_backend_metadata": _json_safe_copy(
                     step.get("raw_backend_metadata") or {}
                 ),
                 "is_enzymatic": bool(
@@ -752,9 +919,16 @@ def _normalize_proposal_route(
         )
     if not normalized_steps:
         admission_reasons.add("missing_route_steps")
-    return {
+    normalized = {
         "route_index": route_index,
         "steps": normalized_steps,
+        "score": route.get("score", route.get("confidence")),
+        "stock_status": dict(route.get("stock_status") or {}),
+        "search_time_s": route.get("search_time_s"),
+        "route_rank": route.get("route_rank", route_index - 1),
+        "raw_backend_metadata": _json_safe_copy(
+            route.get("raw_backend_metadata") or {}
+        ),
         "proposal_eligible": bool(normalized_steps) and not admission_reasons,
         "admission_reasons": sorted(admission_reasons),
         "backend_route_status": {
@@ -768,6 +942,226 @@ def _normalize_proposal_route(
             "backend_solved_is_not_admission_authority": True,
         },
     }
+    normalized["raw_route_sha256"] = _content_sha256(route)
+    normalized["normalized_route_sha256"] = _content_sha256(normalized)
+    normalized["route_trace_id"] = (
+        f"chemenzy-route:{normalized['raw_route_sha256'][:24]}"
+    )
+    return normalized
+
+
+def _select_host_route_portfolio(
+    routes: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Select a bounded, diverse host portfolio from the provider reserve."""
+
+    remaining = sorted(
+        (dict(route) for route in routes),
+        key=_route_quality_key,
+    )
+    selected: list[dict[str, Any]] = []
+    while remaining and len(selected) < max(1, int(limit)):
+        ranked: list[tuple[Any, ...]] = []
+        for route in remaining:
+            signature = _route_edge_signature(route)
+            diversity = (
+                min(
+                    _signature_distance(signature, _route_edge_signature(other))
+                    for other in selected
+                )
+                if selected
+                else 1.0
+            )
+            root = next(iter(sorted(signature)), "")
+            root_novel = bool(
+                not selected
+                or all(
+                    root != next(iter(sorted(_route_edge_signature(other))), "")
+                    for other in selected
+                )
+            )
+            ranked.append(
+                (
+                    -diversity,
+                    -int(root_novel),
+                    _route_quality_key(route),
+                    int(route.get("route_index") or 0),
+                    route,
+                )
+            )
+        chosen = min(ranked)[-1]
+        selected.append(chosen)
+        remaining = [
+            route
+            for route in remaining
+            if route.get("route_index") != chosen.get("route_index")
+        ]
+    return selected
+
+
+def _route_selection_features(route: Mapping[str, Any]) -> dict[str, Any]:
+    steps = [
+        dict(step)
+        for step in route.get("steps") or []
+        if isinstance(step, Mapping)
+    ]
+    products = {str(step.get("product_smiles") or "") for step in steps}
+    leaves = {
+        str(value)
+        for step in steps
+        for value in step.get("reactant_smiles") or []
+        if str(value) and str(value) not in products
+    }
+    provider_stock = {
+        str(smiles): status
+        for step in steps
+        for smiles, status in dict(step.get("stock_status") or {}).items()
+        if str(smiles)
+    }
+    stock_hint_count = sum(provider_stock.get(smiles) is True for smiles in leaves)
+    template_step_count = sum(
+        bool(dict(step.get("raw_backend_metadata") or {}).get("template"))
+        for step in steps
+    )
+    reaction_smiles_count = sum(bool(step.get("rxn_smiles")) for step in steps)
+    scored = [
+        value
+        for step in steps
+        if (value := _finite_float(step.get("score"))) is not None
+    ]
+    route_score = _finite_float(route.get("score"))
+    return {
+        "step_count": len(steps),
+        "leaf_count": len(leaves),
+        "provider_stock_closed_leaf_hint_count": stock_hint_count,
+        "provider_stock_closed_leaf_hint_rate": (
+            round(stock_hint_count / len(leaves), 6) if leaves else 0.0
+        ),
+        "template_step_count": template_step_count,
+        "reaction_smiles_step_count": reaction_smiles_count,
+        "mean_step_score": (
+            round(sum(scored) / len(scored), 8) if scored else None
+        ),
+        "route_score": route_score,
+        "edge_signature": sorted(_route_edge_signature(route)),
+        "semantics": {
+            "provider_stock_is_non_authoritative_ranking_hint": True,
+            "template_presence_is_replayability_hint_not_reaction_proof": True,
+        },
+    }
+
+
+def _route_quality_key(route: Mapping[str, Any]) -> tuple[Any, ...]:
+    features = _route_selection_features(route)
+    mean_score = features["mean_step_score"]
+    route_score = features["route_score"]
+    return (
+        -float(features["provider_stock_closed_leaf_hint_rate"]),
+        -int(features["template_step_count"]),
+        -int(features["reaction_smiles_step_count"]),
+        -(float(route_score) if route_score is not None else -1.0),
+        -(float(mean_score) if mean_score is not None else -1.0),
+        int(features["step_count"]),
+        int(route.get("route_index") or 0),
+    )
+
+
+def _route_edge_signature(route: Mapping[str, Any]) -> frozenset[str]:
+    return frozenset(
+        str(dict(step.get("host_search_admission") or {}).get("edge_digest") or "")
+        for step in route.get("steps") or []
+        if isinstance(step, Mapping)
+        and str(dict(step.get("host_search_admission") or {}).get("edge_digest") or "")
+    )
+
+
+def _signature_distance(left: frozenset[str], right: frozenset[str]) -> float:
+    union = left | right
+    return 1.0 if not union else 1.0 - len(left & right) / len(union)
+
+
+def _finite_float(value: Any) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if numeric != numeric or numeric in {float("inf"), float("-inf")}:
+        return None
+    return numeric
+
+
+def _provider_reaction_metadata(step: Mapping[str, Any]) -> dict[str, Any]:
+    raw = _json_safe_copy(step.get("raw_backend_metadata") or {})
+    payload = {
+        "schema_version": "chemenzy_provider_reaction_metadata.v1",
+        "rxn_smiles": str(step.get("rxn_smiles") or ""),
+        "source_model": str(step.get("source_model") or "ChemEnzyRetroPlanner"),
+        "score": _finite_float(step.get("score")),
+        "stock_status": _json_safe_copy(step.get("stock_status") or {}),
+        "template": _json_safe_copy(raw.get("template")),
+        "raw_backend_metadata": raw,
+        "host_search_admission": _json_safe_copy(
+            step.get("host_search_admission") or {}
+        ),
+        "semantics": {
+            "provider_metadata_is_advisory": True,
+            "host_template_replay_required_for_reaction_proof": True,
+            "provider_stock_status_is_not_stock_authority": True,
+        },
+    }
+    payload["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+def _chemenzy_transformation_hypothesis(
+    step: Mapping[str, Any],
+    *,
+    provider_metadata: Mapping[str, Any],
+) -> str:
+    source = str(step.get("source_model") or "ChemEnzyRetroPlanner")
+    template = provider_metadata.get("template")
+    if template:
+        return (
+            f"{source} reaction proposal with provider template metadata "
+            f"{str(provider_metadata.get('content_sha256') or '')[:12]}"
+        )
+    if step.get("rxn_smiles"):
+        return f"{source} reaction proposal with retained reaction SMILES"
+    return f"{source} one-step retrosynthesis proposal"
+
+
+def _json_safe_copy(value: Any) -> Any:
+    return json.loads(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            allow_nan=False,
+            default=str,
+        )
+    )
+
+
+def _content_sha256(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _json_safe_copy(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _proposal_reactants(step: Mapping[str, Any]) -> list[str]:
@@ -807,6 +1201,7 @@ def _result(status: str, **values: Any) -> dict[str, Any]:
 __all__ = [
     "ChemenzyProposalProvider",
     "ChemEnzyProposalRequest",
+    "compile_chemenzy_route_fingerprints",
     "run_chemenzy_guided_frontier_stage",
     "run_chemenzy_proposal_stage",
 ]

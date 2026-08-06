@@ -11,7 +11,6 @@ import os
 import urllib.request
 from typing import Any
 
-from AUTOPLANNRELLM.deepseek_client import is_placeholder_deepseek_key, normalize_deepseek_key_value
 from rdkit import Chem
 
 from cascade_planner.agent.schemas import (
@@ -20,6 +19,10 @@ from cascade_planner.agent.schemas import (
     ReactionTypePrior,
     RouteModePrior,
     StrategicPrior,
+)
+from cascade_planner.agent.deepseek_credentials import (
+    is_placeholder_deepseek_key,
+    normalize_deepseek_key_value,
 )
 
 

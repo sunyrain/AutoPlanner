@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Mapping, TYPE_CHECKING
+from typing import Any, Callable, Iterable, Mapping, TYPE_CHECKING
 
 from cascade_planner.application.reaction_mapping import ReactionMapper
 from cascade_planner.application.retrosynthesis_workers import (
@@ -53,6 +53,8 @@ def ingest_structured_evidence_document(
     *,
     document: Mapping[str, Any],
     atom_mapper: ReactionMapper | None = None,
+    validation_runner: Callable[[Iterable[str]], Mapping[str, Any]] | None = None,
+    defer_validation: bool = False,
 ) -> dict[str, Any]:
     """Ingest a validated in-memory connector response through normal workers."""
 
@@ -132,7 +134,31 @@ def ingest_structured_evidence_document(
             commands,
             idempotency_key=f"import-evidence:{_digest(document)}",
         )
-    validation = validate_materialized_edges(service, atom_mapper=atom_mapper)
+    evidence_graph = service.graph_store.load()
+    evidence_bound_edge_ids = {
+        str(edge_id)
+        for edge_id, edge in evidence_graph["edges"].items()
+        if isinstance(edge, Mapping) and edge.get("exact_record_ids")
+    }
+    if defer_validation:
+        validation = {
+            "status": "deferred_to_campaign_action_frontier",
+            "accepted_edge_ids": [],
+            "rejected_edge_ids": [],
+            "deferred_edge_ids": sorted(evidence_bound_edge_ids),
+            "semantics": {
+                "canonical_validation_deficits_remain_authoritative": True,
+                "evidence_import_does_not_run_a_nested_scheduler": True,
+            },
+        }
+    elif validation_runner is not None:
+        validation = dict(validation_runner(evidence_bound_edge_ids))
+    else:
+        validation = validate_materialized_edges(
+            service,
+            atom_mapper=atom_mapper,
+            revalidate_edge_ids=evidence_bound_edge_ids,
+        )
     closeout = service.closeout(
         idempotency_key=f"import-evidence:closeout:{service.kernel.state.graph_revision}"
     )
@@ -148,6 +174,7 @@ def ingest_structured_evidence_document(
         "imported_artifact_refs": imported_refs,
         "execution": execution,
         "validation": validation,
+        "evidence_bound_revalidation_edge_count": len(evidence_bound_edge_ids),
         "exact_record_count": len(final_graph["exact_records"]),
         "source_binding_count": len(final_graph["source_bindings"]),
         "portfolio": closeout["portfolio"],
@@ -157,6 +184,7 @@ def ingest_structured_evidence_document(
             "source_pointer_is_not_exact_evidence": True,
             "only_trusted_structured_rows_are_imported": True,
             "import_does_not_generate_chemistry": True,
+            "validation_deferred_to_campaign_frontier": defer_validation,
         },
     }
 

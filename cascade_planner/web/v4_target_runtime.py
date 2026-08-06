@@ -26,7 +26,10 @@ from cascade_planner.interfaces.target_job_projection import (
     new_run_id,
     utc_now,
 )
-from cascade_planner.interfaces.target_runtime_dependencies import CHEMENZY_PROFILE_DEFAULTS, inventory_snapshot_builder
+from cascade_planner.interfaces.target_runtime_dependencies import (
+    TARGET_PROFILE_DEFAULTS,
+    inventory_snapshot_builder,
+)
 
 
 GatewayFactory = Callable[[], CampaignGateway]
@@ -35,7 +38,9 @@ GatewayFactory = Callable[[], CampaignGateway]
 def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any]:
     max_visual_invocations = _int(payload, "max_visual_invocations", 0)
     execution_profile = str(payload.get("execution_profile") or "standard")
-    chemenzy_defaults = CHEMENZY_PROFILE_DEFAULTS.get(execution_profile, CHEMENZY_PROFILE_DEFAULTS["standard"])
+    profile_defaults = TARGET_PROFILE_DEFAULTS.get(
+        execution_profile, TARGET_PROFILE_DEFAULTS["standard"]
+    )
     evidence_connector = _web_evidence_connector(gateway, payload)
     visual_provider = _web_visual_provider(
         gateway, payload, enabled=max_visual_invocations > 0
@@ -63,9 +68,18 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
                 "max_model_invocations",
                 3 if max_visual_invocations else 2,
             ),
-            max_total_input_tokens=_int(payload, "max_input_tokens", 90_000),
-            max_total_output_tokens=_int(payload, "max_output_tokens", 22_000),
-            max_total_wall_time_s=float(payload.get("max_model_wall_time_s", 900.0)),
+            max_total_input_tokens=_int(
+                payload, "max_input_tokens", profile_defaults["max_input_tokens"]
+            ),
+            max_total_output_tokens=_int(
+                payload, "max_output_tokens", profile_defaults["max_output_tokens"]
+            ),
+            max_total_wall_time_s=float(
+                payload.get(
+                    "max_model_wall_time_s",
+                    profile_defaults["max_model_wall_time_s"],
+                )
+            ),
             max_visual_invocations=max_visual_invocations,
             max_accepted_expansions=_int(payload, "max_accepted_expansions", 64),
             max_attempt_runs=_int(payload, "max_attempt_runs", 128),
@@ -77,6 +91,9 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             model=str(payload.get("model") or DEFAULT_TARGET_DIRECTOR_MODEL),
             reasoning_effort=str(payload.get("reasoning_effort") or "low"),
             execution_profile=execution_profile,
+            objective_mode=str(
+                payload.get("objective_mode") or "scientific_proof"
+            ),
             use_coordinator=_bool(payload, "use_coordinator", False),
             enable_web_search=_bool(payload, "enable_web_search", True),
             enable_initial_director_web_search=_bool(
@@ -122,17 +139,38 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_self_evo_template_candidates=_int(
                 payload, "max_self_evo_template_candidates", 12
             ),
-            max_chemenzy_routes=_int(payload, "max_chemenzy_routes", 2),
-            max_chemenzy_steps=_int(payload, "max_chemenzy_steps", chemenzy_defaults["steps"]),
-            max_chemenzy_iterations=_int(payload, "max_chemenzy_iterations", chemenzy_defaults["iterations"]),
-            chemenzy_expansion_topk=_int(payload, "chemenzy_expansion_topk", chemenzy_defaults["topk"]),
-            chemenzy_timeout_s=float(payload.get("chemenzy_timeout_s", chemenzy_defaults["timeout"])),
+            provider_route_reserve=_int(
+                payload, "provider_route_reserve", 16
+            ),
+            host_route_portfolio=_int(
+                payload, "host_route_portfolio", 8
+            ),
+            display_route_limit=_int(payload, "display_route_limit", 4),
+            max_chemenzy_routes=(
+                int(payload["max_chemenzy_routes"])
+                if payload.get("max_chemenzy_routes") is not None
+                else None
+            ),
+            max_chemenzy_steps=_int(
+                payload, "max_chemenzy_steps", profile_defaults["steps"]
+            ),
+            max_chemenzy_iterations=_int(
+                payload, "max_chemenzy_iterations", profile_defaults["iterations"]
+            ),
+            chemenzy_expansion_topk=_int(
+                payload, "chemenzy_expansion_topk", profile_defaults["topk"]
+            ),
+            chemenzy_timeout_s=float(
+                payload.get("chemenzy_timeout_s", profile_defaults["timeout"])
+            ),
             chemenzy_search_preset=str(
                 payload.get("chemenzy_search_preset")
                 or ("thorough" if execution_profile == "proof" else "standard")
             ),
             chemenzy_pandarallel_workers=_int(
-                payload, "chemenzy_pandarallel_workers", 2
+                payload,
+                "chemenzy_pandarallel_workers",
+                profile_defaults["workers"],
             ),
             max_guided_chemenzy_frontiers=_int(
                 payload, "max_guided_chemenzy_frontiers", 3
@@ -155,7 +193,7 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_director_wall_time_s=float(
                 payload.get(
                     "max_director_wall_time_s",
-                    1200.0 if execution_profile == "proof" else 600.0,
+                    profile_defaults["max_director_wall_time_s"],
                 )
             ),
         ),
@@ -205,6 +243,19 @@ def _web_evidence_connector(gateway: Any, payload: Mapping[str, Any]) -> Any:
                     max_visual_pages=_int(
                         dict(payload), "max_visual_evidence_pages", 6
                     ),
+                    auto_fetch_restricted_sources=_bool(
+                        dict(payload),
+                        "auto_fetch_restricted_literature",
+                        True,
+                    ),
+                    auto_fetch_timeout_s=float(
+                        _int(dict(payload), "literature_browser_timeout_s", 180)
+                    ),
+                    auto_fetch_max_items=_int(
+                        dict(payload),
+                        "max_literature_sources",
+                        4,
+                    ),
                 )
             )
         )
@@ -246,6 +297,7 @@ def run_target_job(
     lock: RLock,
 ) -> None:
     started = time.monotonic()
+    continuation_pass_count = 0
     with lock:
         jobs[job_id].update(
             status="running",
@@ -254,10 +306,34 @@ def run_target_job(
             updated_at=utc_now(),
         )
     try:
-        result = solve_target_request(factory(), payload)
-        compact = _compact_solve_result(result)
-        status, error = "complete", ""
-        phase = "complete" if compact.get("accepted") is True else "unresolved"
+        request_payload = dict(payload)
+        while True:
+            result = solve_target_request(factory(), request_payload)
+            compact = _compact_solve_result(result)
+            accepted = compact.get("accepted") is True
+            objective_achieved = bool(
+                compact.get("objective_achieved") is True or accepted
+            )
+            stop = dict(result.get("stop_decision") or {})
+            should_continue = bool(
+                not objective_achieved
+                and _bool(payload, "auto_continue", True)
+                and stop.get("decision") == "paused"
+                and stop.get("terminal") is not True
+            )
+            if not should_continue:
+                break
+            continuation_pass_count += 1
+            with lock:
+                jobs[job_id].update(
+                    phase="automatic_deficit_continuation",
+                    updated_at=utc_now(),
+                    result=compact,
+                    continuation_pass_count=continuation_pass_count,
+                )
+            request_payload = {**payload, "resume": True}
+        status, error = ("complete" if objective_achieved else "unresolved"), ""
+        phase = "complete" if objective_achieved else "unresolved"
     except Exception as exc:  # pragma: no cover - integration failure boundary
         compact, status, phase = {}, "failed", "failed"
         error = f"{type(exc).__name__}: {exc}"[:4_000]
@@ -271,6 +347,7 @@ def run_target_job(
             elapsed_s=elapsed,
             error=error,
             result=compact,
+            continuation_pass_count=continuation_pass_count,
         )
 
 
@@ -370,10 +447,62 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
                     pass
         except (OSError, json.JSONDecodeError):
             pass
-    result["delivery"] = _delivery_projection(
+    job_status = str(job.get("status") or "")
+    final_projection = job_status not in {"queued", "running"}
+    if final_projection:
+        accepted = dict(result.get("portfolio") or {}).get("accepted") is True
+        result["scientific_status"] = "accepted" if accepted else "unresolved"
+        try:
+            snapshot = dict(factory().workbench(run_id).get("snapshot") or {})
+            workbench_portfolio = dict(snapshot.get("portfolio") or {})
+            profile_counts = {
+                str(key): int(value or 0)
+                for key, value in dict(
+                    workbench_portfolio.get("acceptance_profile_counts") or {}
+                ).items()
+            }
+            result.update(
+                proof_profile_known=True,
+                achieved_profile=str(
+                    workbench_portfolio.get("achieved_profile") or "unresolved"
+                ),
+                acceptance_profile_counts=profile_counts,
+                condition_complete_route_count=int(
+                    profile_counts.get("condition_complete") or 0
+                ),
+                process_ready_route_count=int(profile_counts.get("process_ready") or 0),
+                closeout_reasons=list(
+                    dict(workbench_portfolio.get("closeout") or {}).get("reasons")
+                    or []
+                ),
+            )
+        except Exception:
+            result["proof_profile_known"] = False
+    delivery = _delivery_projection(
         list(result.get("stages") or []),
-        job_status=str(job.get("status") or ""),
+        job_status=job_status,
     )
+    if job_status == "historical":
+        accepted = result.get("scientific_status") == "accepted"
+        route_candidates = int(
+            dict(result.get("portfolio") or {}).get("route_count") or 0
+        ) > 0
+        delivery.update(
+            state="historical_accepted" if accepted else "historical_unresolved",
+            route_candidates_available=route_candidates,
+            workbench_available=route_candidates,
+            proof_closure_known=True,
+            proof_closure_complete=accepted,
+        )
+    delivery.update(
+        scientific_status=str(result.get("scientific_status") or ""),
+        achieved_profile=str(result.get("achieved_profile") or ""),
+        condition_complete_route_count=int(
+            result.get("condition_complete_route_count") or 0
+        ),
+        proof_profile_known=result.get("proof_profile_known") is True,
+    )
+    result["delivery"] = delivery
     return result
 
 
@@ -427,11 +556,14 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
     # the console phase makes an archived run look active, so preserve it as
     # provenance while projecting an explicit historical phase.
     campaign_status = str(run.get("status") or "unknown")
+    portfolio_accepted = run.get("accepted") is True
+    scientific_status = "accepted" if portfolio_accepted else "unresolved"
     route_candidates_available = int(graph.get("complete_route_count") or 0) > 0
     progress = {
         "phase": "historical_snapshot",
         "elapsed_s": float(costs.get("task_wall_time_s") or 0.0),
         "campaign_status": campaign_status,
+        "scientific_status": scientific_status,
         "execution_active": False,
         "graph_revision": int(run.get("revision") or 0),
         "model_cost": {
@@ -463,8 +595,10 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
             "semantics": {
                 "historical_projection_only": True,
                 "historical_campaign_status": campaign_status,
-                "portfolio_policy_accepted": run.get("accepted") is True,
+                "portfolio_policy_accepted": portfolio_accepted,
+                "scientific_status": scientific_status,
                 "route_candidates_do_not_imply_exact_evidence": True,
+                "execution_finished_does_not_imply_scientific_acceptance": True,
             },
         },
     }

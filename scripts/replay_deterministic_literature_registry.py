@@ -22,7 +22,7 @@ from cascade_planner.harness.deterministic_literature_registry import (  # noqa:
     PARSER_AUTHORITY_ID,
     compile_deterministic_literature_step_registry,
 )
-from cascade_planner.harness.source_detail_chain_builder import (  # noqa: E402
+from cascade_planner.research.source_detail_chain_builder import (  # noqa: E402
     materialize_source_detail_step_evidence,
 )
 

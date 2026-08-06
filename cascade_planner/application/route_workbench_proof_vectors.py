@@ -3,6 +3,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from cascade_planner.application.reaction_condition_records import (
+    audit_condition_completeness,
+    normalize_source_conditions,
+)
+
 PROOF_VECTOR_SCHEMA = "retrosynthesis_proof_vector.v1"
 
 
@@ -67,6 +72,33 @@ def edge_proof_vector(*, edge: Mapping[str, Any], proof: Mapping[str, Any], grap
         for value in source_observations
         if isinstance(value.get("conditions"), Mapping) and bool(value.get("conditions"))
     )
+    predictions = [
+        dict(value)
+        for value in (
+            edge.get("condition_predictions")
+            or dict(edge.get("metadata") or {}).get("condition_predictions")
+            or []
+        )
+        if isinstance(value, Mapping)
+    ]
+    source_condition_predictions = [
+        {
+            **value,
+            "conditions": (
+                dict(value.get("conditions") or {})
+                or normalize_source_conditions(value)
+            ),
+            "condition_completeness": (
+                dict(value.get("condition_completeness") or {})
+                or audit_condition_completeness(normalize_source_conditions(value))
+            ),
+        }
+        for value in predictions
+        if str(value.get("authority_scope") or "")
+        == "model_extracted_source_condition_candidate"
+        and str(value.get("source_ref") or "")
+    ]
+    unverified_conditions.extend(source_condition_predictions)
     complete_procedures = [
         value
         for value in exact_procedures
@@ -88,15 +120,12 @@ def edge_proof_vector(*, edge: Mapping[str, Any], proof: Mapping[str, Any], grap
         key=lambda values: (len(values), values),
         default=[],
     )
-    predicted = bool(
-        edge.get("condition_predictions")
-        or dict(edge.get("metadata") or {}).get("condition_predictions")
-    )
+    predicted = bool(predictions)
     condition_state = (
         "source_exact"
         if condition_records
         else "source_recorded_unverified"
-        if unverified_conditions
+        if unverified_conditions or source_condition_predictions
         else "model_predicted"
         if predicted
         else "missing"

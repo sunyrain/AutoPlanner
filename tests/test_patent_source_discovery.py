@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 from cascade_planner.interfaces.patent_source_discovery import (
     _patent_publications,
@@ -83,6 +84,71 @@ def test_europe_pmc_patent_fallback_resolves_kindless_wo_family(
     )
 
 
+def test_google_patent_free_text_query_sanitizes_chemical_punctuation(
+    monkeypatch,
+) -> None:
+    requested_urls: list[str] = []
+
+    def requester(url: str, **_kwargs):
+        requested_urls.append(url)
+        return _Response(
+            {
+                "results": {
+                    "cluster": [
+                        {
+                            "result": [
+                                {
+                                    "id": "patent/EP0955305A1/en",
+                                    "patent": {
+                                        "title": (
+                                            "Metallocene compound and process"
+                                        ),
+                                        "snippet": (
+                                            "cyclohexylidene cyclopentadienyl "
+                                            "di-tert-butylfluorenyl"
+                                        ),
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        )
+
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.patent_source_discovery.requests.get",
+        requester,
+    )
+    config = SimpleNamespace(
+        seed_publications=(),
+        timeout_s=2.0,
+        max_search_queries=1,
+        max_search_pages_per_query=1,
+        max_html_bytes=1_000_000,
+        max_patents=2,
+    )
+    provider = google_patent_candidate_provider(
+        config,
+        metadata_search=lambda _query, _limit: [],
+    )
+
+    rows = list(
+        provider(
+            [
+                '"1-cyclopentadienyl-1-(2,7-di-tert-'
+                'butylfluorenyl)cyclohexane" synthesis process'
+            ]
+        )
+    )
+
+    assert rows[0]["publication_number"] == "EP0955305A1"
+    decoded = unquote(requested_urls[0])
+    assert '"' not in decoded
+    assert "," not in decoded
+    assert "cyclopentadienyl+tert+butylfluorenyl+cyclohexane" in decoded
+
+
 def test_pubchem_hyphenated_publication_is_normalized() -> None:
     assert _patent_publications("WO-2011123232-A1") == ["WO2011123232A1"]
     assert _patent_publications("US4681893") == ["US4681893"]
@@ -99,9 +165,65 @@ def test_evidence_queries_are_bounded_and_deduplicated() -> None:
     }
 
     assert evidence_queries(request, limit=3) == [
+        "WO2021250648A1",
         "nirmatrelvir",
         "WO2021250648A1 synthesis",
-        '"Nirmatrelvir" synthesis process',
+    ]
+
+
+def test_director_patent_hint_survives_many_prose_source_tasks() -> None:
+    request = {
+        "target_name": "complex ligand",
+        "source_tasks": [
+            {"query": f"route query {index}", "source_types": ["patent"]}
+            for index in range(8)
+        ],
+        "source_hints": [
+            {
+                "source_ref": "patent:EP0955305A1",
+                "source_kind": "patent",
+            }
+        ],
+    }
+
+    assert evidence_queries(request, limit=4) == [
+        "EP0955305A1",
+        "route query 0",
+        "route query 1",
+        "route query 2",
+    ]
+
+
+def test_patent_hints_rank_by_target_linkage_and_independent_corroboration() -> None:
+    request = {
+        "source_hints": [
+            {
+                "source_ref": "patent:US1000001A1",
+                "source_kind": "patent",
+                "target_edge_occurrence_count": 1,
+                "corroborating_source_ref_count": 0,
+            },
+            {
+                "source_ref": "patent:US1000002A1",
+                "source_kind": "patent",
+                "target_edge_occurrence_count": 3,
+                "corroborating_source_ref_count": 1,
+            },
+            {
+                "source_ref": "patent:US1000003A1",
+                "source_kind": "patent",
+                "target_edge_occurrence_count": 3,
+                "corroborating_source_ref_count": 4,
+            },
+        ],
+        "source_tasks": [{"query": "exact target preparation"}],
+    }
+
+    assert evidence_queries(request, limit=4) == [
+        "US1000003A1",
+        "US1000002A1",
+        "US1000001A1",
+        "exact target preparation",
     ]
 
 
@@ -119,6 +241,56 @@ def test_route_specific_source_tasks_precede_structure_patent_fallbacks() -> Non
         '"Zavegepant" synthesis process',
         "WO-2012-079783-A1",
         "US-2012-0315304-A1",
+    ]
+
+
+def test_name_linked_patents_get_reserved_discovery_slots() -> None:
+    request = {
+        "target_name": "named target",
+        "target_identity": {
+            "patent_ids": [],
+            "name_linked_patent_ids": [
+                "EP-0955305-A1",
+                "EP-0955305-B1",
+                "US-6342568-B1",
+            ],
+        },
+        "source_tasks": [
+            {"query": "route query one"},
+            {"query": "route query two"},
+            {"query": "route query three"},
+            {"query": "route query four"},
+        ],
+    }
+
+    assert evidence_queries(request, limit=4) == [
+        "route query one",
+        "EP-0955305-A1",
+        "EP-0955305-B1",
+        "US-6342568-B1",
+    ]
+
+
+def test_route_linked_patents_are_not_displaced_by_identity_crossrefs() -> None:
+    request = {
+        "source_hints": [
+            {
+                "source_ref": f"patent:US200000{index}A1",
+                "source_kind": "patent",
+                "target_edge_occurrence_count": 5 - index,
+            }
+            for index in range(1, 5)
+        ],
+        "target_identity": {
+            "patent_ids": ["EP-100-A1", "EP-101-A1", "EP-102-A1"]
+        },
+    }
+
+    assert evidence_queries(request, limit=4) == [
+        "US2000001A1",
+        "US2000002A1",
+        "US2000003A1",
+        "EP-100-A1",
     ]
 
 

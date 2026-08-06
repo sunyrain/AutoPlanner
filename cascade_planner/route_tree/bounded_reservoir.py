@@ -9,7 +9,10 @@ from typing import Any, Callable
 from cascade_planner.cascadeboard import CascadeBoard, RouteExplanation, RouteResult
 from cascade_planner.cascadeboard.route_export import route_metrics
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
-from cascade_planner.eval.chem_enzy_broad_union import _chem_route_stock_closed, _select_chem_routes
+from cascade_planner.route_tree.native_route_selection import (
+    chem_route_stock_closed,
+    select_chem_routes,
+)
 
 
 StockChecker = Callable[[str], bool]
@@ -176,7 +179,7 @@ def _select_native_route_dicts(
 ) -> list[dict[str, Any]]:
     selection = os.environ.get("AUTOPLANNER_RESERVOIR_SELECTION") or "rank_plus_stock"
     if _native_route_format(routes):
-        selected = _select_chem_routes(routes, topk=topk, selection=selection)
+        selected = select_chem_routes(routes, topk=topk, selection=selection)
         return _prefer_runtime_stock_route(
             routes=routes,
             selected=selected,
@@ -216,7 +219,11 @@ def _prefer_runtime_stock_route(
         return selected
     if any(_route_runtime_stock_closed(route, target=target, stock_checker=stock_checker) for route in selected):
         return selected
-    ranked = _select_chem_routes(routes, topk=None, selection="rank") if _native_route_format(routes) else list(routes)
+    ranked = (
+        select_chem_routes(routes, topk=None, selection="rank")
+        if _native_route_format(routes)
+        else list(routes)
+    )
     stock_route = next(
         (
             route
@@ -355,7 +362,11 @@ def _route_dict_to_result(*, target: str, route: dict[str, Any], rank: int, topk
     if stock_overrides:
         board.set_global_constraint("stock_overrides", stock_overrides)
         board.set_global_constraint("stock_override_source", "native_chem_enzy")
-    stock_closed = _chem_route_stock_closed(route) if _native_route_format([route]) else _exported_route_stock_closed(route)
+    stock_closed = (
+        chem_route_stock_closed(route)
+        if _native_route_format([route])
+        else _exported_route_stock_closed(route)
+    )
     explanation = RouteExplanation(
         why_selected="Bounded native ChemEnzy reservoir safety route.",
         uncertainty_table={

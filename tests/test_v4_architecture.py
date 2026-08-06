@@ -11,11 +11,6 @@ from cascade_planner.application.compatibility_inventory import (
     compatibility_inventory,
     record_compatibility_use,
 )
-from cascade_planner.harness.tool_execution_policy import execute_registered_tool
-from cascade_planner.harness.tool_registry import (
-    LEGACY_LOCAL_TOOL_NAMES,
-    bind_legacy_tool_registry,
-)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +23,11 @@ V4_MODULES = (
     "cascade_planner/application/biocatalytic_program_store_replay.py",
     "cascade_planner/application/canonical_identity.py",
     "cascade_planner/application/canonical_hypergraph.py",
+    "cascade_planner/application/campaign_actions.py",
+    "cascade_planner/application/campaign_work_policy.py",
+    "cascade_planner/application/campaign_trajectory.py",
+    "cascade_planner/application/action_scheduler.py",
+    "cascade_planner/orchestration/unified_campaign_runtime.py",
     "cascade_planner/application/candidate_innovation_screen.py",
     "cascade_planner/application/candidate_programs.py",
     "cascade_planner/application/candidate_route_observations.py",
@@ -190,13 +190,8 @@ V4_MODULES = (
     "cascade_planner/interfaces/target_job_projection.py",
 )
 FORBIDDEN_V4_DEPENDENCIES = (
-    "cascade_planner.application.frontier_scheduler",
-    "cascade_planner.application.retrosynthesis_acceptance",
-    "cascade_planner.application.route_deficit_queue",
-    "cascade_planner.application.route_portfolio",
-    "cascade_planner.harness.agentic_blackboard_controller",
-    "cascade_planner.harness.route_forest",
-    "cascade_planner.orchestration.codex_retrosynthesis",
+    "cascade_planner.legacy",
+    "cascade_planner.research",
     "cascade_planner.web",
 )
 FOCUSED_LINE_BUDGETS = {
@@ -289,9 +284,6 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/application/route_workbench_planned_routes.py": 220,
     "cascade_planner/application/route_workbench_proof_vectors.py": 260,
     "cascade_planner/application/route_workbench_route_rows.py": 220,
-    "cascade_planner/harness/tool_execution_policy.py": 120,
-    "cascade_planner/harness/tool_registry.py": 120,
-    "cascade_planner/harness/v4_controller_adapter.py": 180,
     "cascade_planner/harness/v4_route_display.py": 300,
     "cascade_planner/harness/v4_route_branch.py": 180,
     "cascade_planner/harness/v4_route_condition_projection.py": 100,
@@ -430,6 +422,27 @@ def test_v4_modules_do_not_import_frozen_ownership_paths() -> None:
     assert violations == []
 
 
+def test_unified_action_core_has_no_dataset_specific_control_tokens() -> None:
+    protected = (
+        ROOT / "cascade_planner/application/campaign_actions.py",
+        ROOT / "cascade_planner/application/action_scheduler.py",
+    )
+    forbidden = (
+        "benchmark_search",
+        "retrostar",
+        "objective_mode",
+        "target_index",
+        "dataset_id",
+    )
+    violations = []
+    for path in protected:
+        text = path.read_text(encoding="utf-8").casefold()
+        for token in forbidden:
+            if token in text:
+                violations.append(f"{path.name}:{token}")
+    assert violations == []
+
+
 def test_new_focused_modules_stay_within_practical_line_budgets() -> None:
     observed = {
         relative: len((ROOT / relative).read_text(encoding="utf-8").splitlines())
@@ -464,15 +477,15 @@ def test_ruff_legacy_exceptions_cannot_cover_v4_or_tests() -> None:
 def test_v4_workbench_adapter_does_not_execute_legacy_route_forest_compiler() -> None:
     imports = _imports(ROOT / "cascade_planner/harness/v4_route_workbench.py")
 
-    assert "cascade_planner.harness.route_forest" not in imports
+    assert "cascade_planner.legacy.harness_runtime.route_forest" not in imports
     assert "cascade_planner.harness.route_forest_delivery" in imports
 
 
 def test_isolated_v4_web_surface_does_not_import_combined_compatibility_app() -> None:
     imports = _imports(ROOT / "cascade_planner/web/v4_app.py")
 
-    assert "cascade_planner.web.app" not in imports
-    assert "cascade_planner.harness.agentic_blackboard_controller" not in imports
+    assert "cascade_planner.legacy.web_runtime.app" not in imports
+    assert "cascade_planner.legacy.harness_runtime.agentic_blackboard_controller" not in imports
 
 
 def test_every_compatibility_shim_has_replacement_telemetry_and_milestone() -> None:
@@ -508,22 +521,3 @@ def test_compatibility_usage_is_digest_bound_and_non_authoritative(
     assert row["content_sha256"] == _digest(
         {key: value for key, value in row.items() if key != "content_sha256"}
     )
-
-
-def test_legacy_tool_registry_and_execution_policy_are_separate() -> None:
-    def handler(_state: object, payload: dict) -> dict:
-        return {"accepted": True, "echo": payload["value"]}
-
-    handlers = {name: handler for name in LEGACY_LOCAL_TOOL_NAMES}
-    registry = bind_legacy_tool_registry(handlers)
-    outcome = execute_registered_tool(
-        "run_chemenzy",
-        {"value": 7},
-        object(),
-        registry=registry,
-        exception_policy=lambda *_args: ("error", {"accepted": False}),
-    )
-
-    assert tuple(registry) == LEGACY_LOCAL_TOOL_NAMES
-    assert outcome.status == "accepted"
-    assert outcome.output["echo"] == 7

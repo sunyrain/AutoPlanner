@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import time
-from typing import Any
+from typing import Any, Callable
 
 from rdkit import Chem
 
@@ -80,11 +80,13 @@ class RetroEngineProposalTool:
         source_order: tuple[str, ...] = DEFAULT_SOURCE_ORDER,
         source_gate: SourceGate | None = None,
         proposal_rankers: SourceSpecificProposalRankers | None = None,
+        candidate_appender: Callable[..., list[CandidateAction]] | None = None,
     ):
         self.retro_engine = retro_engine or {}
         self.source_order = source_order
         self.source_gate = source_gate or default_source_gate()
         self.proposal_rankers = proposal_rankers if proposal_rankers is not None else default_proposal_rankers()
+        self.candidate_appender = candidate_appender
         self.last_diagnostics: dict[str, Any] = {}
 
     def propose(
@@ -114,7 +116,7 @@ class RetroEngineProposalTool:
                 "sources": {},
                 "empty_reason": "missing_engine",
             }
-            return self._maybe_append_autoplannrellm_candidate(product, [], context)
+            return self._append_extension_candidates(product, [], context)
         self.last_diagnostics = {
             "product": product,
             "top_k": int(top_k or 0),
@@ -166,11 +168,11 @@ class RetroEngineProposalTool:
                     )
             )
             actions = self._dedupe_and_record(actions)
-            actions = self._maybe_append_autoplannrellm_candidate(product, actions, context)
+            actions = self._append_extension_candidates(product, actions, context)
             self._observe_source_gate(product, context, allocation)
             return actions
         if allocation.fallback_budget <= 0:
-            return self._maybe_append_autoplannrellm_candidate(product, [], context)
+            return self._append_extension_candidates(product, [], context)
         fallback_sources = self._fallback_sources(
             allocation,
             context=context,
@@ -178,7 +180,7 @@ class RetroEngineProposalTool:
             product=product,
         )
         if not fallback_sources:
-            return self._maybe_append_autoplannrellm_candidate(product, [], context)
+            return self._append_extension_candidates(product, [], context)
         actions = self._dedupe_and_record(
             self._propose_from_sources(
                 product,
@@ -188,7 +190,7 @@ class RetroEngineProposalTool:
                 allocation=allocation,
             )
         )
-        actions = self._maybe_append_autoplannrellm_candidate(product, actions, context)
+        actions = self._append_extension_candidates(product, actions, context)
         self._observe_source_gate(product, context, allocation)
         return actions
 
@@ -258,22 +260,20 @@ class RetroEngineProposalTool:
                 )
                 actions = [*actions, *fallback_actions]
         actions = self._dedupe_and_record(actions)
-        actions = self._maybe_append_autoplannrellm_candidate(product, actions, context)
+        actions = self._append_extension_candidates(product, actions, context)
         self._observe_source_gate(product, context, allocation)
         return actions, allocation
 
-    def _maybe_append_autoplannrellm_candidate(
+    def _append_extension_candidates(
         self,
         product: str,
         actions: list[CandidateAction],
         context: ProposalContext,
     ) -> list[CandidateAction]:
-        if not _autoplannrellm_candidate_enabled():
+        if self.candidate_appender is None:
             return actions
         try:
-            from AUTOPLANNRELLM.proposals import append_llm_candidate
-
-            return append_llm_candidate(
+            return self.candidate_appender(
                 product=product,
                 actions=actions,
                 context=context,
@@ -562,7 +562,9 @@ class RetroEngineProposalTool:
                 return []
         if source == "v3_retrieval" and engine is None:
             try:
-                from cascade_planner.cascadeboard.enz_retrieval import retrieve_enzymatic_reactions
+                from cascade_planner.route_tree.enzymatic_retrieval import (
+                    retrieve_enzymatic_reactions,
+                )
 
                 return list(
                     retrieve_enzymatic_reactions(
@@ -1832,13 +1834,6 @@ def _retrieval_enabled() -> bool:
 
 def _enzyme_precedent_enabled() -> bool:
     return _env_truthy_default("AUTOPLANNER_ROUTE_TREE_ENZYME_PRECEDENT_RETRIEVAL", False)
-
-
-def _autoplannrellm_candidate_enabled() -> bool:
-    return _env_truthy("AUTOPLANNRELLM_ENABLE") and _env_truthy_default(
-        "AUTOPLANNRELLM_ADD_LLM_CANDIDATE",
-        True,
-    )
 
 
 def _env_truthy_default(name: str, default: bool) -> bool:

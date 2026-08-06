@@ -893,12 +893,12 @@ def validate_global_campaign_plan(
         ]
         if providers and not frontier_smiles:
             reasons.append("provider_frontier_target_missing")
-        if frontier_smiles:
+        if providers and frontier_smiles:
             if frontier_smiles == target:
                 reasons.append("provider_frontier_cannot_be_campaign_target")
             elif frontier_smiles not in skeleton_molecules:
                 reasons.append("provider_frontier_not_in_skeleton")
-            if providers and any(value not in {"chemenzy"} for value in providers):
+            if any(value not in {"chemenzy"} for value in providers):
                 reasons.append("provider_frontier_unknown_provider")
     if reasons:
         raise GlobalCampaignPlanValidationError(";".join(sorted(set(reasons))))
@@ -1230,6 +1230,43 @@ def _validate_step(value: Any, *, skeleton_id: str) -> dict[str, Any]:
         reasons.append("required_validation_missing")
     if row.get("hypothesis_only") is not True:
         reasons.append("hypothesis_only_marker_missing")
+    condition_predictions = row.get("condition_predictions")
+    if condition_predictions is None:
+        reasons.append("condition_predictions_missing")
+    else:
+        if (
+            not isinstance(condition_predictions, list)
+            or not 1 <= len(condition_predictions) <= 2
+            or any(
+            not isinstance(candidate, Mapping)
+            for candidate in condition_predictions
+            )
+        ):
+            reasons.append("condition_predictions_not_object_list")
+        else:
+            for candidate in condition_predictions:
+                if (
+                    str(candidate.get("authority_scope") or "")
+                    != "model_predicted_condition"
+                    or candidate.get("not_reaction_proof") is not True
+                ):
+                    reasons.append("condition_prediction_authority_invalid")
+                if candidate.get("source_ref") or candidate.get("source_exact") is True:
+                    reasons.append("condition_prediction_claimed_source_authority")
+                if not any(
+                    candidate.get(key) not in (None, "", [], {})
+                    for key in (
+                        "reagents",
+                        "reagent",
+                        "catalyst",
+                        "base",
+                        "solvent",
+                        "temperature",
+                        "temperature_c",
+                        "time",
+                    )
+                ):
+                    reasons.append("condition_prediction_operational_fields_missing")
     if _forbidden_authority_paths(row):
         reasons.append("step_claimed_scientific_authority")
     return {
@@ -1357,6 +1394,7 @@ def director_prompt(
     config: DirectorConfig,
 ) -> str:
     target = str(context.target.get("canonical_smiles") or "")
+    target_name = " ".join(str(context.target.get("name") or "").split())
     context_payload = _director_prompt_context(context, mode=mode)
     web_search_enabled = director_web_search_enabled(config, mode=mode)
     return "\n".join(
@@ -1367,6 +1405,7 @@ def director_prompt(
             "All molecules and reactions are hypothesis-only and must request host validation.",
             "Never claim proof, validation, stock closure, route completion, or solved status.",
             "Coordinate route families, multi-step skeletons, shared intermediates, evidence acquisition, fallbacks, pivots, and portfolio tradeoffs together.",
+            f"Exact campaign target name: {target_name or 'not supplied'}",
             f"Exact campaign target: {target}",
             "Every route_family.target_smiles must equal the exact campaign target; put disconnection precursors only in skeleton step precursor_smiles.",
             "Every declared route family must have at least one multi-step skeleton; omit an unexpanded family instead of returning metadata without chemistry.",
@@ -1379,7 +1418,7 @@ def director_prompt(
             "Be compact: use no more than two short entries in descriptive lists, avoid repeating rationale across sections, and keep ordinary prose fields below 180 characters.",
             "Source hints are acquisition hints only. Prefer real DOI, patent publication, or primary-source URL identifiers and explicitly expose uncertainty.",
             (
-                "Live search is enabled. Use it for the two highest-priority route families before finalizing the plan. In each source_plan row, put verified DOI, patent publication, or primary-source URL identifiers in source_refs; use an empty list and state the limitation when no identifier was verified. Never invent an identifier."
+                "Live search is enabled. Before finalizing route chemistry, autonomously search the exact target name plus distinctive named fragments for original synthesis patents or papers; do not wait for a supplied publication number. Then search the two highest-priority route families. Put every verified DOI, patent publication, or primary-source URL identifier in source_plan.source_refs and the matching skeleton step source_hints so the host can download the primary source. Use an empty list and state the limitation when no identifier was verified. Never invent an identifier."
                 if web_search_enabled
                 else (
                     "Live search is deferred from this first-route pass. Keep source_plan.source_refs empty unless an identifier already appears in CampaignContext; never invent an identifier. The evidence connector runs independently and any new source material may trigger an evidence-informed global replan."
@@ -1425,6 +1464,7 @@ def director_prompt(
                 else ""
             ),
             "Each skeleton step requires step_id, product_smiles, precursor_smiles, transformation_hypothesis, required_validation, and hypothesis_only=true.",
+            "For every step whose exact source procedure is not already present in CampaignContext, include condition_predictions with one or two concise, chemically plausible experimental-design candidates (reagents/catalyst/base/solvent/temperature/time as applicable). Every candidate must set authority_scope=model_predicted_condition and not_reaction_proof=true, must not include source_ref, and must never be described as literature fact. These candidates prevent an operationally empty step while the host continues autonomous primary-source retrieval; they grant no proof.",
             "A step may optionally carry route_innovation. For a genuine enzyme replacement use kind=biocatalytic_step or biocatalytic_superstep plus chemical_step_equivalent_count, replaced_step_ids, enzyme_classes or ec_numbers, selectivity_objective, substrate_scope_basis, precedent_refs, and validation_status=proposed. For a literature-anchored inference use kind=mechanism_extrapolation, hypothesis_depth=1, anchor_edge_ids or anchor_source_refs, mechanistic_rationale, and falsifiable_checks. These are low-confidence execution proposals only; never compress ordinary chemistry or claim that an enzyme/program is validated.",
             "Use frontier_priorities for both host step ordering and local-provider delegation. Select 1-3 nontrivial intermediates or leaves from a fully connected target-rooted skeleton for ChemEnzy by adding its exact step_id as proposal_id, target_smiles, provider_preferences=['chemenzy'], retron_hints, priority, and rationale. Never invent a provider-only proposal_id, never delegate a disconnected sketch or the campaign target itself; Codex owns target-level global strategy.",
             "CampaignContext:",
@@ -1712,6 +1752,75 @@ def run_codex_cli_director_child(
         model=config.model,
     )
     record = run_codex_worker(task, use_codex_cli=True)
+    return _director_agent_result(spec, mode=mode, record=record)
+
+
+def run_api_json_director_child(
+    spec: AgentSpec,
+    context: CampaignContext,
+    mode: str,
+    config: DirectorConfig,
+) -> AgentResult:
+    """Run a tool-free director pass through a structured, compatible API.
+
+    The generic API worker does not yet host a tool loop or a child-agent
+    coordinator.  Those modes are rejected explicitly instead of silently
+    changing the requested experiment.
+    """
+
+    if director_web_search_enabled(config, mode=mode) or config.use_coordinator:
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:result",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.FAILED,
+            output=None,
+            error="api_json_director_tool_loop_not_implemented",
+            usage={
+                "model_invocations": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "wall_time_s": 0.0,
+            },
+            metadata={
+                "backend": "api_json",
+                "worker_status": "capability_rejected",
+                "mode": mode,
+                "direct_child": True,
+                "tool_loop_supported": False,
+            },
+        )
+    task = WorkerTask(
+        task_id=spec.agent_id,
+        case_id=spec.run_id,
+        task_type="global_campaign_direction",
+        required_artifact_type="GlobalCampaignPlan",
+        input_refs=[context.content_sha256],
+        allowed_tools=[],
+        budget=WorkerBudget(
+            timeout_s=config.max_wall_time_s,
+            max_output_bytes=config.max_output_bytes,
+            max_tool_calls=0,
+            max_worker_runs=1,
+            reasoning_effort=config.reasoning_effort,
+        ),
+        objective=spec.objective,
+        allowed_workdir=str(spec.metadata.get("allowed_workdir") or Path.cwd()),
+        agent_mode="single",
+        codex_auth_mode="api_key",
+        model=config.model,
+    )
+    record = run_codex_worker(task, use_api_json=True)
+    return _director_agent_result(spec, mode=mode, record=record)
+
+
+def _director_agent_result(spec: AgentSpec, *, mode: str, record: Any) -> AgentResult:
     succeeded = record.status == "accepted_draft" and isinstance(
         record.output_artifact, Mapping
     )
@@ -1888,6 +1997,7 @@ __all__ = [
     "director_trigger_reasons",
     "normalize_director_usage",
     "proposal_ids",
+    "run_api_json_director_child",
     "run_codex_cli_director_child",
     "validate_global_campaign_plan",
 ]

@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import pickle
 import time
 from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-import numpy as np
 import yaml
 
 from cascade_planner.baselines.chem_enzy_adapter import (
@@ -24,20 +23,14 @@ from cascade_planner.baselines.chem_enzy_adapter import (
     ChemEnzyBackendAdapter,
 )
 from cascade_planner.baselines.route_contract import BaselineRunResult, RouteSearchConfig
-from cascade_planner.legacy_guard import LEGACY_RESEARCH_ENV, legacy_research_enabled
 from cascade_planner.cascade_search import (
     AiZynthFinderONNXProposalProvider,
     CascadeProgramSearch,
     CascadeSearchConfig,
     CascadeSearchController,
     HeuristicCascadeValueModel,
-    LearnedCascadePairScorer,
-    LearnedCascadeValueModel,
-    LoadedCascadeTransitionValueModel,
-    LoadedCascadeActionValueModel,
     LoadedLearnedVerifierValueModel,
     SubgoalHintActionScorer,
-    RuleCascadePairScorer,
     VerifierAugmentedCascadeValueModel,
     CascadeRetrievalProposalProvider,
     CascadeSubgoalEvidenceProvider,
@@ -70,6 +63,25 @@ from cascade_planner.eval.product_route_feasibility_audit import (
 )
 
 
+@dataclass(frozen=True)
+class BenchmarkRuntimeOverrides:
+    """Explicit runtime injection point for non-mainline benchmark adapters."""
+
+    value_model: Any | None = None
+    value_model_label: str | None = None
+    transition_model: Any | None = None
+    action_value_model: Any | None = None
+    pair_scorer: Any | None = None
+    final_reranker: Any | None = None
+    pair_reward_weight: float = 0.0
+    pair_reward_mode: str = "additive"
+    pair_reward_tie_epsilon: float = 0.0
+    chem_enzy_search_flags: dict[str, Any] = field(default_factory=dict)
+    chem_enzy_context_from_row: bool = False
+    chem_enzy_context_policy: str = "safe"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 def run_cascade_search_benchmark(
     *,
     benchmark_path: Path,
@@ -87,43 +99,28 @@ def run_cascade_search_benchmark(
     condition_model: str = "rcr",
     cascade_max_depth: int = 6,
     cascade_branch_factor: int = 12,
-    cascade_leaf_beam_size: int = 1,
-    cascade_diverse_leaf_reserve: int = 0,
+    cascade_leaf_beam_size: int = 2,
+    cascade_diverse_leaf_reserve: int = 2,
     cascade_proposal_topk: int | None = None,
     cascade_expansion_budget: int = 100,
     cascade_result_limit: int = 5,
     cascade_min_step_score: float = 0.05,
-    cascade_value_model_path: Path | None = None,
     use_rule_verifier_value: bool = False,
     learned_verifier_model_path: Path | None = None,
     cascade_verifier_weight: float = 0.35,
-    cascade_transition_model_path: Path | None = None,
-    cascade_action_value_model_path: Path | None = None,
     cascade_subgoal_provider_model_path: Path | None = None,
     cascade_subgoal_program_manifest: Path | None = None,
     use_cascade_subgoal_action_scorer: bool = False,
     cascade_subgoal_action_max_bonus: float = 0.20,
-    cascade_pair_scorer_path: Path | None = None,
-    use_rule_pair_scorer: bool = False,
-    cascade_pair_reward_weight: float = 0.0,
-    cascade_pair_reward_mode: str = "additive",
-    cascade_pair_reward_tie_epsilon: float = 0.0,
-    route_block_value_final_reranker_path: Path | None = None,
     use_product_audit_final_reranker: bool = False,
-    use_chem_enzy_cascade_cost: bool = False,
-    use_chem_enzy_cascade_source_policy: bool = False,
-    chem_enzy_cascade_context: dict[str, Any] | None = None,
-    chem_enzy_cascade_cost_model: dict[str, Any] | None = None,
-    chem_enzy_cascade_source_policy: dict[str, Any] | None = None,
-    chem_enzy_cascade_context_from_row: bool = False,
-    chem_enzy_cascade_context_policy: str = "safe",
+    runtime_overrides: BenchmarkRuntimeOverrides | None = None,
     reuse_planner: bool = True,
     dry_run: bool = False,
     num_shards: int = 1,
     shard_index: int = 0,
     trace_output_path: Path | None = None,
     chem_enzy_expansion_trace_output_path: Path | None = None,
-    use_chem_enzy_expansion_proposals: bool = False,
+    use_chem_enzy_expansion_proposals: bool = True,
     chem_enzy_expansion_proposal_topk_per_leaf: int | None = 50,
     use_cascade_retrieval_proposals: bool = False,
     cascade_retrieval_program_manifest: Path | None = None,
@@ -174,6 +171,7 @@ def run_cascade_search_benchmark(
     retroknn_index_cache_path: Path | None = None,
     include_route_outcomes: bool = False,
 ) -> dict[str, Any]:
+    runtime_overrides = runtime_overrides or BenchmarkRuntimeOverrides()
     rows = _read_rows(benchmark_path)
     if limit is not None:
         rows = rows[: int(limit)]
@@ -183,26 +181,9 @@ def run_cascade_search_benchmark(
         raise ValueError(f"shard_index must be in [0, {num_shards}), got {shard_index}")
     unsharded_count = len(rows)
     rows = rows[shard_index::num_shards]
-    _guard_legacy_benchmark_options(
-        cascade_value_model_path=cascade_value_model_path,
-        cascade_transition_model_path=cascade_transition_model_path,
-        cascade_action_value_model_path=cascade_action_value_model_path,
-        cascade_pair_scorer_path=cascade_pair_scorer_path,
-        use_rule_pair_scorer=use_rule_pair_scorer,
-        route_block_value_final_reranker_path=route_block_value_final_reranker_path,
-        use_chem_enzy_cascade_cost=use_chem_enzy_cascade_cost,
-        use_chem_enzy_cascade_source_policy=use_chem_enzy_cascade_source_policy,
-        chem_enzy_cascade_cost_model=chem_enzy_cascade_cost_model,
-        chem_enzy_cascade_source_policy=chem_enzy_cascade_source_policy,
-    )
     _validate_model_inputs(
-        cascade_value_model_path=cascade_value_model_path,
         learned_verifier_model_path=learned_verifier_model_path,
-        cascade_transition_model_path=cascade_transition_model_path,
-        cascade_action_value_model_path=cascade_action_value_model_path,
         cascade_subgoal_provider_model_path=cascade_subgoal_provider_model_path,
-        cascade_pair_scorer_path=cascade_pair_scorer_path,
-        route_block_value_final_reranker_path=route_block_value_final_reranker_path,
         chem_enzy_context_onmt_model_path=(
             chem_enzy_context_onmt_model_path if use_chem_enzy_context_onmt_proposals else None
         ),
@@ -214,8 +195,6 @@ def run_cascade_search_benchmark(
         aizynthfinder_config_path=(
             aizynthfinder_config_path if use_aizynthfinder_onnx_proposals else None
         ),
-        chem_enzy_cascade_cost_model=chem_enzy_cascade_cost_model,
-        chem_enzy_cascade_source_policy=chem_enzy_cascade_source_policy,
     )
     adapter = ChemEnzyBackendAdapter(
         vendor_root=vendor_root,
@@ -224,30 +203,11 @@ def run_cascade_search_benchmark(
         enable_enzyme_assignment=enable_enzyme_assignment,
     )
     _validate_stock_inputs(adapter.config_path, stock_names or DEFAULT_STOCKS)
-    base_chem_enzy_search_flags: dict[str, Any] = {"gpu": gpu, "condition_model": condition_model}
-    if (
-        use_chem_enzy_cascade_cost
-        or chem_enzy_cascade_cost_model
-    ):
-        base_chem_enzy_search_flags["use_cascade_cost_model"] = True
-        base_chem_enzy_search_flags["cascade_cost_model"] = dict(chem_enzy_cascade_cost_model or {"enabled": True})
-        base_chem_enzy_search_flags["cascade_cost_model"].setdefault("enabled", True)
-    if (
-        use_chem_enzy_cascade_cost
-        or use_chem_enzy_cascade_source_policy
-        or chem_enzy_cascade_context
-        or chem_enzy_cascade_cost_model
-        or chem_enzy_cascade_source_policy
-        or chem_enzy_cascade_context_from_row
-    ):
-        base_chem_enzy_search_flags["cascade_search_context"] = dict(chem_enzy_cascade_context or {"enabled": True})
-        base_chem_enzy_search_flags["cascade_search_context"].setdefault("enabled", True)
-    if use_chem_enzy_cascade_source_policy or chem_enzy_cascade_source_policy:
-        base_chem_enzy_search_flags["use_cascade_source_policy"] = True
-        base_chem_enzy_search_flags["cascade_source_policy"] = dict(
-            chem_enzy_cascade_source_policy or {"enabled": True}
-        )
-        base_chem_enzy_search_flags["cascade_source_policy"].setdefault("enabled", True)
+    base_chem_enzy_search_flags: dict[str, Any] = {
+        "gpu": gpu,
+        "condition_model": condition_model,
+        **runtime_overrides.chem_enzy_search_flags,
+    }
     if chem_enzy_expansion_trace_output_path is not None or use_chem_enzy_expansion_proposals:
         base_chem_enzy_search_flags["include_cascade_expansion_trace"] = True
 
@@ -262,8 +222,8 @@ def run_cascade_search_benchmark(
             search_flags=_chem_enzy_search_flags_for_row(
                 row,
                 base_chem_enzy_search_flags,
-                context_from_row=chem_enzy_cascade_context_from_row,
-                context_policy=chem_enzy_cascade_context_policy,
+                context_from_row=runtime_overrides.chem_enzy_context_from_row,
+                context_policy=runtime_overrides.chem_enzy_context_policy,
             ),
         )
         for row in rows
@@ -279,43 +239,24 @@ def run_cascade_search_benchmark(
             shard_index=shard_index,
         )
         _write_chem_enzy_expansion_trace(chem_results, chem_trace_path)
-    legacy_cascade_value_model = (
-        LearnedCascadeValueModel(cascade_value_model_path) if cascade_value_model_path else None
-    )
-    cascade_value_model: Any | None = legacy_cascade_value_model
+    cascade_value_model: Any | None = runtime_overrides.value_model
     if learned_verifier_model_path is not None:
         cascade_value_model = LoadedLearnedVerifierValueModel(
             learned_verifier_model_path,
-            base_model=legacy_cascade_value_model,
+            base_model=runtime_overrides.value_model,
             learned_weight=cascade_verifier_weight,
         )
     elif use_rule_verifier_value:
         cascade_value_model = VerifierAugmentedCascadeValueModel(
-            base_model=legacy_cascade_value_model,
+            base_model=runtime_overrides.value_model,
             verifier_weight=cascade_verifier_weight,
         )
-    cascade_transition_model = (
-        LoadedCascadeTransitionValueModel(cascade_transition_model_path)
-        if cascade_transition_model_path
-        else None
-    )
-    cascade_action_value_model: Any | None = (
-        LoadedCascadeActionValueModel(cascade_action_value_model_path)
-        if cascade_action_value_model_path
-        else None
-    )
+    cascade_transition_model = runtime_overrides.transition_model
+    cascade_action_value_model: Any | None = runtime_overrides.action_value_model
     if use_cascade_subgoal_action_scorer:
         cascade_action_value_model = SubgoalHintActionScorer(max_bonus=cascade_subgoal_action_max_bonus)
-    cascade_pair_scorer = None
-    if cascade_pair_scorer_path:
-        cascade_pair_scorer = LearnedCascadePairScorer(cascade_pair_scorer_path)
-    elif use_rule_pair_scorer:
-        cascade_pair_scorer = RuleCascadePairScorer()
-    route_block_value_final_reranker = (
-        RouteBlockValueFinalReranker(route_block_value_final_reranker_path)
-        if route_block_value_final_reranker_path
-        else None
-    )
+    cascade_pair_scorer = runtime_overrides.pair_scorer
+    route_block_value_final_reranker = runtime_overrides.final_reranker
     template_relevance_runtime_provider = None
     if use_template_relevance_proposals:
         template_relevance_runtime_provider = TopKProvider(
@@ -374,9 +315,10 @@ def run_cascade_search_benchmark(
                     proposal_top_k=cascade_proposal_topk,
                     expansion_budget=cascade_expansion_budget,
                     min_step_score=cascade_min_step_score,
-                    pair_reward_weight=cascade_pair_reward_weight,
-                    pair_reward_mode=cascade_pair_reward_mode,
-                    pair_reward_tie_epsilon=cascade_pair_reward_tie_epsilon,
+                    continue_after_result_limit=True,
+                    pair_reward_weight=runtime_overrides.pair_reward_weight,
+                    pair_reward_mode=runtime_overrides.pair_reward_mode,
+                    pair_reward_tie_epsilon=runtime_overrides.pair_reward_tie_epsilon,
                 ),
                 cascade_value_model=cascade_value_model,
                 cascade_transition_model=cascade_transition_model,
@@ -508,6 +450,12 @@ def run_cascade_search_benchmark(
         if trace_fh is not None:
             trace_fh.close()
 
+    runtime_chem_enzy_metadata = runtime_overrides.metadata.get("chem_enzy")
+    if not isinstance(runtime_chem_enzy_metadata, dict):
+        runtime_chem_enzy_metadata = {}
+    runtime_cascade_metadata = runtime_overrides.metadata.get("cascade_search")
+    if not isinstance(runtime_cascade_metadata, dict):
+        runtime_cascade_metadata = {}
     payload = {
         "metadata": {
             "runner": "cascade_search_benchmark",
@@ -533,13 +481,18 @@ def run_cascade_search_benchmark(
                     "enabled": bool(base_chem_enzy_search_flags.get("use_cascade_cost_model")),
                     "context": base_chem_enzy_search_flags.get("cascade_search_context"),
                     "cost_model": base_chem_enzy_search_flags.get("cascade_cost_model"),
-                    "context_from_row": chem_enzy_cascade_context_from_row,
-                    "context_policy": chem_enzy_cascade_context_policy if chem_enzy_cascade_context_from_row else None,
+                    "context_from_row": runtime_overrides.chem_enzy_context_from_row,
+                    "context_policy": (
+                        runtime_overrides.chem_enzy_context_policy
+                        if runtime_overrides.chem_enzy_context_from_row
+                        else None
+                    ),
                 },
                 "cascade_source_policy": {
                     "enabled": bool(base_chem_enzy_search_flags.get("use_cascade_source_policy")),
                     "policy": base_chem_enzy_search_flags.get("cascade_source_policy"),
                 },
+                **runtime_chem_enzy_metadata,
             },
             "cascade_search": {
                 "max_depth": cascade_max_depth,
@@ -547,22 +500,19 @@ def run_cascade_search_benchmark(
                 "proposal_top_k": cascade_proposal_topk,
                 "expansion_budget": cascade_expansion_budget,
                 "result_limit": cascade_result_limit,
+                "continue_after_result_limit": True,
                 "min_step_score": cascade_min_step_score,
                 "value_model": _cascade_value_model_label(
-                    cascade_value_model_path=cascade_value_model_path,
+                    base_model_label=runtime_overrides.value_model_label,
+                    has_base_model=runtime_overrides.value_model is not None,
                     use_rule_verifier_value=use_rule_verifier_value,
                     learned_verifier_model_path=learned_verifier_model_path,
                 ),
-                "legacy_cascade_value_model": str(cascade_value_model_path) if cascade_value_model_path else None,
                 "rule_verifier_value": bool(use_rule_verifier_value),
                 "learned_verifier_model": str(learned_verifier_model_path) if learned_verifier_model_path else None,
                 "cascade_verifier_weight": cascade_verifier_weight,
-                "transition_value_model": (
-                    str(cascade_transition_model_path) if cascade_transition_model_path else None
-                ),
-                "action_value_model": (
-                    str(cascade_action_value_model_path) if cascade_action_value_model_path else None
-                ),
+                "transition_value_model": type(cascade_transition_model).__name__ if cascade_transition_model else None,
+                "action_value_model": type(cascade_action_value_model).__name__ if cascade_action_value_model else None,
                 "subgoal_action_scorer": bool(use_cascade_subgoal_action_scorer),
                 "subgoal_action_max_bonus": cascade_subgoal_action_max_bonus,
                 "subgoal_provider_model": (
@@ -571,16 +521,14 @@ def run_cascade_search_benchmark(
                 "subgoal_program_manifest": (
                     str(cascade_subgoal_program_manifest) if cascade_subgoal_program_manifest else None
                 ),
-                "pair_scorer": (
-                    str(cascade_pair_scorer_path)
-                    if cascade_pair_scorer_path
-                    else ("rule" if use_rule_pair_scorer else None)
-                ),
-                "pair_reward_weight": cascade_pair_reward_weight,
-                "pair_reward_mode": cascade_pair_reward_mode,
-                "pair_reward_tie_epsilon": cascade_pair_reward_tie_epsilon,
-                "route_block_value_final_reranker": (
-                    str(route_block_value_final_reranker_path) if route_block_value_final_reranker_path else None
+                "pair_scorer": type(cascade_pair_scorer).__name__ if cascade_pair_scorer else None,
+                "pair_reward_weight": runtime_overrides.pair_reward_weight,
+                "pair_reward_mode": runtime_overrides.pair_reward_mode,
+                "pair_reward_tie_epsilon": runtime_overrides.pair_reward_tie_epsilon,
+                "final_reranker": (
+                    type(route_block_value_final_reranker).__name__
+                    if route_block_value_final_reranker
+                    else None
                 ),
                 "product_audit_final_reranker": bool(use_product_audit_final_reranker),
                 "include_route_outcomes": include_route_outcomes,
@@ -698,6 +646,7 @@ def run_cascade_search_benchmark(
                     if use_retroknn_proposals and retroknn_index_cache_path
                     else None
                 ),
+                **runtime_cascade_metadata,
             },
             "trace_output": str(trace_path) if trace_path is not None else None,
             "chem_enzy_expansion_trace_output": str(chem_trace_path) if chem_trace_path is not None else None,
@@ -710,101 +659,6 @@ def run_cascade_search_benchmark(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return payload
-
-
-class RouteBlockValueFinalReranker:
-    """Runtime final reranker for already generated CascadeProgramSearch results."""
-
-    def __init__(self, model_pickle: Path):
-        self.model_pickle = str(model_pickle)
-        with Path(model_pickle).open("rb") as fh:
-            payload = pickle.load(fh)
-        if not isinstance(payload, dict):
-            raise ValueError(f"expected route/block value model payload dict: {model_pickle}")
-        self.model = payload["model"]
-        self.feature_names = [str(name) for name in payload.get("feature_names") or []]
-        if not self.feature_names:
-            raise ValueError(f"route/block value final reranker has no feature_names: {model_pickle}")
-        self.mean = np.asarray(payload.get("mean"), dtype=np.float32)
-        self.std = np.asarray(payload.get("std"), dtype=np.float32)
-        if self.mean.shape[0] != len(self.feature_names) or self.std.shape[0] != len(self.feature_names):
-            raise ValueError(f"route/block value scaler shape does not match feature schema: {model_pickle}")
-        self.metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-
-    def rerank(self, results: list[Any], *, search_elapsed_s: float | None = None) -> tuple[list[Any], list[dict[str, Any]]]:
-        if not results:
-            return results, []
-        scored: list[tuple[float, float, int, Any, dict[str, Any]]] = []
-        for native_rank, result in enumerate(results):
-            row = self._row_from_result(result, native_rank=native_rank, search_elapsed_s=search_elapsed_s)
-            vector = np.asarray([_nested_feature(row, name) for name in self.feature_names], dtype=np.float32)
-            score = float(self.model.decision_function(((vector - self.mean) / self.std).reshape(1, -1))[0])
-            diagnostics = {
-                "original_rank": int(native_rank + 1),
-                "route_block_value_score": round(score, 6),
-                "feature_groups": row["feature_groups"],
-                "model_pickle": self.model_pickle,
-                "positive_task": self.metadata.get("positive_task"),
-                "negative_task": self.metadata.get("negative_task"),
-                "contract": "runtime final rerank of generated result programs; no expert labels",
-            }
-            scored.append((score, float(getattr(result, "score", 0.0) or 0.0), -native_rank, result, diagnostics))
-        scored.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
-        ordered = []
-        diagnostics = []
-        for new_index, (_score, _native_score, _tie, result, detail) in enumerate(scored, start=1):
-            result.diagnostics.setdefault("route_block_value_final_rerank", {})
-            result.diagnostics["route_block_value_final_rerank"] = {**detail, "new_rank": int(new_index)}
-            ordered.append(result)
-            diagnostics.append({**detail, "new_rank": int(new_index)})
-        return ordered, diagnostics
-
-    def _row_from_result(self, result: Any, *, native_rank: int, search_elapsed_s: float | None) -> dict[str, Any]:
-        state = getattr(result, "state", None)
-        steps = list(getattr(state, "step_annotations", []) or []) if state is not None else []
-        scores = [_float(getattr(step, "score", None)) for step in steps]
-        source_models = {str(getattr(step, "source_model", "") or "unknown") for step in steps}
-        reaction_types = {str(getattr(step, "reaction_type", "") or "unknown") for step in steps}
-        condition_scores = _runtime_condition_scores(steps)
-        enzyme_scores = _runtime_enzyme_scores(steps)
-        learned = _runtime_learned_ccts_features(state)
-        stock_closed = bool(getattr(state, "stock_closed", False)) if state is not None else False
-        feature_groups = {
-            "native": {
-                "native_rank": float(native_rank),
-                "native_inv_rank": 1.0 / float(native_rank + 1),
-                "native_score": _mean([value for value in scores if value is not None], default=_float(getattr(result, "score", 0.0))),
-                "n_steps": float(len(steps)),
-            },
-            "stock_route": {
-                "stock_closed": float(stock_closed),
-                "route_solved": float(bool(getattr(result, "solved", False))),
-                "strict_stock_solve": float(stock_closed),
-                "terminal_max_heavy_atoms": 0.0,
-                "terminal_similarity_to_product": 0.0,
-            },
-            "condition_enzyme": {
-                "condition_score_count": float(len(condition_scores)),
-                "condition_score_mean": _mean(condition_scores, default=0.0),
-                "condition_score_max": max(condition_scores) if condition_scores else 0.0,
-                "enzyme_confidence_count": float(len(enzyme_scores)),
-                "enzyme_confidence_mean": _mean(enzyme_scores, default=0.0),
-                "enzyme_confidence_max": max(enzyme_scores) if enzyme_scores else 0.0,
-            },
-            "learned_ccts": learned,
-            "route_context": {
-                "source_model_count": float(len(source_models)),
-                "reaction_type_count": float(len(reaction_types)),
-                "n_input_species": 0.0,
-                "n_output_species": 0.0,
-                "n_substrate_scope_entries": 0.0,
-                "overall_ee": 0.0,
-                "overall_yield": 0.0,
-                "search_time_s": float(search_elapsed_s or 0.0),
-                "total_reaction_time": 0.0,
-            },
-        }
-        return {"feature_groups": feature_groups}
 
 
 class ProductAuditFinalReranker:
@@ -1067,7 +921,6 @@ def _run_one_target(
         )
         expansion_proposal_count = sum(len(actions) for actions in expansion_proposals_by_leaf.values())
         proposals_by_leaf = _merge_proposal_caches(proposals_by_leaf, expansion_proposals_by_leaf)
-        proposals_by_leaf = _sort_proposal_cache(proposals_by_leaf)
     stock_map = _stock_map(chem_result, row)
     stock_checker = _stock_checker(stock_map)
     provider = StaticProposalProvider(proposals_by_leaf)
@@ -1490,65 +1343,6 @@ def _route_outcome_value(
     return round(value * (0.75 + 0.25 * rank_decay), 6)
 
 
-def _nested_feature(row: dict[str, Any], name: str) -> float:
-    group, key = str(name).split(".", 1)
-    values = (row.get("feature_groups") or {}).get(group) or {}
-    return _float(values.get(key))
-
-
-def _runtime_condition_scores(steps: list[Any]) -> list[float]:
-    values = []
-    for step in steps:
-        condition = getattr(step, "condition", None)
-        confidence = getattr(condition, "confidence", None) if condition is not None else None
-        if confidence is not None:
-            values.append(_float(confidence))
-        raw = getattr(step, "raw_metadata", {}) or {}
-        scores = raw.get("scores") if isinstance(raw.get("scores"), dict) else {}
-        if scores.get("condition") is not None:
-            values.append(_float(scores.get("condition")))
-        for item in raw.get("condition_predictions") or []:
-            if isinstance(item, dict):
-                values.append(_float(item.get("Score", item.get("score", item.get("confidence")))))
-    return values
-
-
-def _runtime_enzyme_scores(steps: list[Any]) -> list[float]:
-    values = []
-    for step in steps:
-        confidence = getattr(step, "evidence_confidence", None)
-        if confidence is not None:
-            values.append(_float(confidence))
-        raw = getattr(step, "raw_metadata", {}) or {}
-        scores = raw.get("scores") if isinstance(raw.get("scores"), dict) else {}
-        if scores.get("enzyme") is not None:
-            values.append(_float(scores.get("enzyme")))
-        for item in raw.get("enzyme_ec_annotations") or []:
-            if isinstance(item, dict):
-                values.append(_float(item.get("confidence", item.get("Confidence"))))
-    return values
-
-
-def _runtime_learned_ccts_features(state: Any | None) -> dict[str, float]:
-    values = []
-    if state is not None:
-        for key in ("cascade_pair_summary", "cascade_action_value_summary"):
-            summary = getattr(state, "raw_metadata", {}).get(key) if isinstance(getattr(state, "raw_metadata", {}), dict) else {}
-            if isinstance(summary, dict):
-                for name in ("mean_reward", "total_reward", "mean_score", "max_score"):
-                    if summary.get(name) is not None:
-                        values.append(_float(summary.get(name)))
-        for step in getattr(state, "step_annotations", []) or []:
-            raw = getattr(step, "raw_metadata", {}) or {}
-            for key in ("ccts_v3_runtime_model_max", "ccts_v3_runtime_model_mean"):
-                if raw.get(key) is not None:
-                    values.append(_float(raw.get(key)))
-    return {
-        "ccts_v3_runtime_model_max": max(values) if values else 0.0,
-        "ccts_v3_runtime_model_mean": _mean(values, default=0.0),
-    }
-
-
 def _proposal_cache_from_chem_enzy(result: BaselineRunResult) -> dict[str, list[Any]]:
     proposals: dict[str, list[Any]] = defaultdict(list)
     seen: set[tuple[str, str]] = set()
@@ -1589,19 +1383,35 @@ def _expansion_proposal_cache_from_chem_enzy(
 
 
 def _merge_proposal_caches(*caches: dict[str, list[Any]]) -> dict[str, list[Any]]:
-    merged: dict[str, list[Any]] = defaultdict(list)
-    seen: set[tuple[str, str]] = set()
-    for cache in caches:
-        for leaf, actions in cache.items():
-            for action in actions:
+    """Round-robin proposal sources before the provider-level top-k cutoff."""
+
+    ordered_leaves: list[str] = []
+    sorted_caches = [_sort_proposal_cache(cache) for cache in caches]
+    for cache in sorted_caches:
+        for leaf in cache:
+            if leaf not in ordered_leaves:
+                ordered_leaves.append(leaf)
+
+    merged: dict[str, list[Any]] = {}
+    for leaf in ordered_leaves:
+        groups = [list(cache.get(leaf) or []) for cache in sorted_caches]
+        seen: set[str] = set()
+        rows: list[Any] = []
+        max_len = max((len(group) for group in groups), default=0)
+        for index in range(max_len):
+            for group in groups:
+                if index >= len(group):
+                    continue
+                action = group[index]
                 step = getattr(action, "step", None)
                 rxn_smiles = getattr(step, "rxn_smiles", "") if step is not None else ""
-                key = (str(leaf), canonical_reaction(rxn_smiles) or rxn_smiles or json.dumps(str(action)))
+                key = canonical_reaction(rxn_smiles) or rxn_smiles or json.dumps(str(action))
                 if key in seen:
                     continue
                 seen.add(key)
-                merged[str(leaf)].append(action)
-    return dict(merged)
+                rows.append(action)
+        merged[leaf] = rows
+    return merged
 
 
 def _sort_proposal_cache(cache: dict[str, list[Any]]) -> dict[str, list[Any]]:
@@ -1828,6 +1638,14 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
             total += int(bool(value))
         return total / n
 
+    def result_program_rate(predicate: Callable[[list[dict[str, Any]]], bool]) -> float | None:
+        if not n:
+            return None
+        return sum(
+            int(bool(predicate((row.get("cascade_search") or {}).get("result_programs") or [])))
+            for row in rows
+        ) / n
+
     elapsed = [float(row["cascade_search"].get("elapsed_s") or 0.0) for row in rows]
     stages = [float(row["cascade_search"].get("stage_count") or 0.0) for row in rows if row["cascade_search"].get("stage_count")]
     return {
@@ -1854,6 +1672,21 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "result_exact_reaction_in_pool": rate(("recovery", "result_exact_reaction_in_pool")),
         "result_gt_reactant_in_pool": rate(("recovery", "result_gt_reactant_in_pool")),
+        "top_result_multistep_rate": result_program_rate(
+            lambda programs: len((programs[0] or {}).get("route_steps") or []) >= 2,
+        ),
+        "any_result_multistep_rate": result_program_rate(
+            lambda programs: any(len((program or {}).get("route_steps") or []) >= 2 for program in programs),
+        ),
+        "any_result_exact_gt_route_recovered_rate": result_program_rate(
+            lambda programs: any(bool((program or {}).get("exact_gt_route_recovered")) for program in programs),
+        ),
+        "avg_top_result_step_count": _avg(
+            len((programs[0] or {}).get("route_steps") or [])
+            for row in rows
+            for programs in [(row.get("cascade_search") or {}).get("result_programs") or []]
+            if programs
+        ),
         "avg_gt_step_overlap_fraction": _avg(
             row["recovery"].get("gt_step_overlap_fraction")
             for row in rows
@@ -1913,7 +1746,7 @@ def _read_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Run ChemEnzy-backed CascadeProgramSearch benchmark")
     ap.add_argument("--merge", nargs="*", default=None, help="Merge shard JSON outputs instead of running targets")
     ap.add_argument("--merge-traces", nargs="*", default=None, help="Merge shard trace JSONL outputs instead of running targets")
@@ -1921,7 +1754,11 @@ def main() -> None:
     ap.add_argument("--output", required=True)
     ap.add_argument("--trace-output", default=None)
     ap.add_argument("--chem-enzy-expansion-trace-output", default=None)
-    ap.add_argument("--use-chem-enzy-expansion-proposals", action="store_true")
+    ap.add_argument(
+        "--use-chem-enzy-expansion-proposals",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     ap.add_argument("--chem-enzy-expansion-proposal-topk-per-leaf", type=int, default=50)
     ap.add_argument("--use-cascade-retrieval-proposals", action="store_true")
     ap.add_argument("--cascade-retrieval-program-manifest", default=None)
@@ -2044,13 +1881,12 @@ def main() -> None:
     ap.add_argument("--enable-enzyme-assignment", action="store_true")
     ap.add_argument("--cascade-max-depth", type=int, default=6)
     ap.add_argument("--cascade-branch-factor", type=int, default=12)
-    ap.add_argument("--cascade-leaf-beam-size", type=int, default=1)
-    ap.add_argument("--cascade-diverse-leaf-reserve", type=int, default=0)
+    ap.add_argument("--cascade-leaf-beam-size", type=int, default=2)
+    ap.add_argument("--cascade-diverse-leaf-reserve", type=int, default=2)
     ap.add_argument("--cascade-proposal-topk", type=int, default=None)
     ap.add_argument("--cascade-expansion-budget", type=int, default=100)
     ap.add_argument("--cascade-result-limit", type=int, default=5)
     ap.add_argument("--cascade-min-step-score", type=float, default=0.05)
-    ap.add_argument("--cascade-value-model", default=None)
     ap.add_argument(
         "--rule-verifier-value",
         action="store_true",
@@ -2062,58 +1898,36 @@ def main() -> None:
         help="Joblib model from scripts/train_cascade_verifier_from_pack.py.",
     )
     ap.add_argument("--cascade-verifier-weight", type=float, default=0.35)
-    ap.add_argument("--cascade-transition-model", default=None)
-    ap.add_argument("--cascade-action-value-model", default=None)
     ap.add_argument("--cascade-subgoal-provider-model", default=None)
     ap.add_argument("--cascade-subgoal-program-manifest", default=None)
     ap.add_argument("--cascade-subgoal-action-scorer", action="store_true")
     ap.add_argument("--cascade-subgoal-action-max-bonus", type=float, default=0.20)
-    ap.add_argument("--cascade-pair-scorer", default=None)
-    ap.add_argument("--cascade-rule-pair-scorer", action="store_true")
-    ap.add_argument("--cascade-pair-reward-weight", type=float, default=0.0)
-    ap.add_argument(
-        "--cascade-pair-reward-mode",
-        default="additive",
-        choices=["additive", "guarded_tie_break"],
-        help="How pair scorer rewards are applied inside CascadeProgramSearch.",
-    )
-    ap.add_argument(
-        "--cascade-pair-reward-tie-epsilon",
-        type=float,
-        default=0.0,
-        help="Base-score tie window for guarded_tie_break pair reward mode.",
-    )
-    ap.add_argument(
-        "--route-block-value-final-reranker",
-        default=None,
-        help="Optional route_block_value_model.pkl used only to rerank generated result programs after search.",
-    )
     ap.add_argument(
         "--product-audit-final-reranker",
         action="store_true",
         help="Rerank generated result programs with a conservative no-label product-audit guard.",
     )
-    ap.add_argument("--chem-enzy-cascade-cost", action="store_true")
-    ap.add_argument("--chem-enzy-cascade-source-policy", action="store_true")
-    ap.add_argument("--chem-enzy-cascade-context-json", default=None)
-    ap.add_argument("--chem-enzy-cascade-cost-json", default=None)
-    ap.add_argument("--chem-enzy-cascade-source-policy-json", default=None)
-    ap.add_argument("--chem-enzy-cascade-context-from-row", action="store_true")
-    ap.add_argument("--chem-enzy-cascade-context-policy", default="safe", choices=["safe", "strict"])
     ap.add_argument("--no-reuse-planner", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--num-shards", type=int, default=1)
     ap.add_argument("--shard-index", type=int, default=0)
-    args = ap.parse_args()
+    return ap
+
+
+def run_from_args(
+    args: argparse.Namespace,
+    *,
+    runtime_overrides: BenchmarkRuntimeOverrides | None = None,
+) -> dict[str, Any]:
 
     if args.merge is not None:
         payload = merge_cascade_search_outputs([Path(path) for path in args.merge], Path(args.output))
         print(json.dumps(payload["summary"], indent=2, ensure_ascii=False))
-        return
+        return payload
     if args.merge_traces is not None:
         payload = merge_cascade_search_trace_outputs([Path(path) for path in args.merge_traces], Path(args.output))
         print(json.dumps(payload["metadata"], indent=2, ensure_ascii=False))
-        return
+        return payload
 
     payload = run_cascade_search_benchmark(
         benchmark_path=Path(args.benchmark),
@@ -2202,14 +2016,9 @@ def main() -> None:
         cascade_expansion_budget=args.cascade_expansion_budget,
         cascade_result_limit=args.cascade_result_limit,
         cascade_min_step_score=args.cascade_min_step_score,
-        cascade_value_model_path=Path(args.cascade_value_model) if args.cascade_value_model else None,
         use_rule_verifier_value=args.rule_verifier_value,
         learned_verifier_model_path=Path(args.learned_verifier_model) if args.learned_verifier_model else None,
         cascade_verifier_weight=args.cascade_verifier_weight,
-        cascade_transition_model_path=Path(args.cascade_transition_model) if args.cascade_transition_model else None,
-        cascade_action_value_model_path=(
-            Path(args.cascade_action_value_model) if args.cascade_action_value_model else None
-        ),
         cascade_subgoal_provider_model_path=(
             Path(args.cascade_subgoal_provider_model) if args.cascade_subgoal_provider_model else None
         ),
@@ -2218,22 +2027,8 @@ def main() -> None:
         ),
         use_cascade_subgoal_action_scorer=args.cascade_subgoal_action_scorer,
         cascade_subgoal_action_max_bonus=args.cascade_subgoal_action_max_bonus,
-        cascade_pair_scorer_path=Path(args.cascade_pair_scorer) if args.cascade_pair_scorer else None,
-        use_rule_pair_scorer=args.cascade_rule_pair_scorer,
-        cascade_pair_reward_weight=args.cascade_pair_reward_weight,
-        cascade_pair_reward_mode=args.cascade_pair_reward_mode,
-        cascade_pair_reward_tie_epsilon=args.cascade_pair_reward_tie_epsilon,
-        route_block_value_final_reranker_path=(
-            Path(args.route_block_value_final_reranker) if args.route_block_value_final_reranker else None
-        ),
         use_product_audit_final_reranker=args.product_audit_final_reranker,
-        use_chem_enzy_cascade_cost=args.chem_enzy_cascade_cost,
-        use_chem_enzy_cascade_source_policy=args.chem_enzy_cascade_source_policy,
-        chem_enzy_cascade_context=_json_mapping(args.chem_enzy_cascade_context_json),
-        chem_enzy_cascade_cost_model=_json_mapping(args.chem_enzy_cascade_cost_json),
-        chem_enzy_cascade_source_policy=_json_mapping(args.chem_enzy_cascade_source_policy_json),
-        chem_enzy_cascade_context_from_row=args.chem_enzy_cascade_context_from_row,
-        chem_enzy_cascade_context_policy=args.chem_enzy_cascade_context_policy,
+        runtime_overrides=runtime_overrides,
         reuse_planner=not args.no_reuse_planner,
         dry_run=args.dry_run,
         num_shards=args.num_shards,
@@ -2241,20 +2036,17 @@ def main() -> None:
         include_route_outcomes=args.include_route_outcomes,
     )
     print(json.dumps(payload["summary"], indent=2, ensure_ascii=False))
-
-
-def _json_mapping(value: str | None) -> dict[str, Any] | None:
-    if not value:
-        return None
-    payload = json.loads(value)
-    if not isinstance(payload, dict):
-        raise ValueError("JSON value must be an object")
     return payload
+
+
+def main() -> None:
+    run_from_args(build_parser().parse_args())
 
 
 def _cascade_value_model_label(
     *,
-    cascade_value_model_path: Path | None,
+    base_model_label: Any,
+    has_base_model: bool,
     use_rule_verifier_value: bool,
     learned_verifier_model_path: Path | None,
 ) -> str:
@@ -2262,75 +2054,27 @@ def _cascade_value_model_label(
         return "learned_verifier_augmented"
     if use_rule_verifier_value:
         return "rule_verifier_augmented"
-    if cascade_value_model_path is not None:
-        return "legacy_learned_cascade_value"
+    if base_model_label:
+        return str(base_model_label)
+    if has_base_model:
+        return "injected"
     return "heuristic"
-
-
-def _guard_legacy_benchmark_options(
-    *,
-    cascade_value_model_path: Path | None,
-    cascade_transition_model_path: Path | None,
-    cascade_action_value_model_path: Path | None,
-    cascade_pair_scorer_path: Path | None,
-    use_rule_pair_scorer: bool,
-    route_block_value_final_reranker_path: Path | None,
-    use_chem_enzy_cascade_cost: bool,
-    use_chem_enzy_cascade_source_policy: bool,
-    chem_enzy_cascade_cost_model: dict[str, Any] | None,
-    chem_enzy_cascade_source_policy: dict[str, Any] | None,
-) -> None:
-    requested = []
-    if cascade_value_model_path:
-        requested.append("cascade_value_model")
-    if cascade_transition_model_path:
-        requested.append("cascade_transition_model")
-    if cascade_action_value_model_path:
-        requested.append("cascade_action_value_model")
-    if cascade_pair_scorer_path:
-        requested.append("cascade_pair_scorer")
-    if use_rule_pair_scorer:
-        requested.append("cascade_rule_pair_scorer")
-    if route_block_value_final_reranker_path:
-        requested.append("route_block_value_final_reranker")
-    if use_chem_enzy_cascade_cost or chem_enzy_cascade_cost_model:
-        requested.append("chem_enzy_cascade_cost")
-    if use_chem_enzy_cascade_source_policy or chem_enzy_cascade_source_policy:
-        requested.append("chem_enzy_cascade_source_policy")
-    if requested and not legacy_research_enabled():
-        raise ValueError(
-            "legacy/frozen benchmark options requested: "
-            + ", ".join(requested)
-            + f". Set {LEGACY_RESEARCH_ENV}=1 only when reproducing old reports."
-        )
 
 
 def _validate_model_inputs(
     *,
-    cascade_value_model_path: Path | None = None,
     learned_verifier_model_path: Path | None = None,
-    cascade_transition_model_path: Path | None = None,
-    cascade_action_value_model_path: Path | None = None,
     cascade_subgoal_provider_model_path: Path | None = None,
-    cascade_pair_scorer_path: Path | None = None,
-    route_block_value_final_reranker_path: Path | None = None,
     chem_enzy_context_onmt_model_path: Path | None = None,
     chem_enzy_context_onmt_preference_scorer_path: Path | None = None,
     legal_corpus_paths: list[Path] | None = None,
     retroknn_corpus_paths: list[Path] | None = None,
     aizynthfinder_config_path: Path | None = None,
-    chem_enzy_cascade_cost_model: dict[str, Any] | None = None,
-    chem_enzy_cascade_source_policy: dict[str, Any] | None = None,
 ) -> None:
     """Fail before expensive ChemEnzy search when configured model files are missing."""
     explicit_paths = {
-        "cascade_value_model": cascade_value_model_path,
         "learned_verifier_model": learned_verifier_model_path,
-        "cascade_transition_model": cascade_transition_model_path,
-        "cascade_action_value_model": cascade_action_value_model_path,
         "cascade_subgoal_provider_model": cascade_subgoal_provider_model_path,
-        "cascade_pair_scorer": cascade_pair_scorer_path,
-        "route_block_value_final_reranker": route_block_value_final_reranker_path,
         "chem_enzy_context_onmt_model": chem_enzy_context_onmt_model_path,
         "chem_enzy_context_onmt_preference_scorer": chem_enzy_context_onmt_preference_scorer_path,
         "aizynthfinder_config": aizynthfinder_config_path,
@@ -2345,16 +2089,6 @@ def _validate_model_inputs(
         if not Path(path).is_file():
             raise FileNotFoundError(f"retroknn_corpus not found: {path}")
 
-    for label, payload in (
-        ("chem_enzy_cascade_cost_model", chem_enzy_cascade_cost_model),
-        ("chem_enzy_cascade_source_policy", chem_enzy_cascade_source_policy),
-    ):
-        if payload:
-            for dotted_key, value in _iter_configured_model_paths(payload):
-                path = Path(str(value))
-                if not path.is_file():
-                    raise FileNotFoundError(f"{label}.{dotted_key} not found: {path}")
-
 
 def _validate_stock_inputs(config_path: Path, stock_names: list[str]) -> None:
     if not config_path.is_file():
@@ -2367,29 +2101,6 @@ def _validate_stock_inputs(config_path: Path, stock_names: list[str]) -> None:
             "selected stock names not found in ChemEnzy config: "
             f"{missing}; available stocks: {sorted(available)}"
         )
-
-
-def _iter_configured_model_paths(payload: Any, prefix: str = ""):
-    model_path_keys = {
-        "action_value_model_path",
-        "source_value_model_path",
-        "transition_value_model_path",
-        "cascade_value_model_path",
-        "cascade_pair_scorer_path",
-        "pair_scorer_model_path",
-        "model_path",
-    }
-    if isinstance(payload, dict):
-        for key, value in payload.items():
-            dotted = f"{prefix}.{key}" if prefix else str(key)
-            if key in model_path_keys and value:
-                yield dotted, value
-            elif isinstance(value, (dict, list)):
-                yield from _iter_configured_model_paths(value, dotted)
-    elif isinstance(payload, list):
-        for idx, value in enumerate(payload):
-            if isinstance(value, (dict, list)):
-                yield from _iter_configured_model_paths(value, f"{prefix}[{idx}]")
 
 
 def _chem_enzy_search_flags_for_row(

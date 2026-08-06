@@ -4,8 +4,15 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-
 _EXPORTS = {
+    "CampaignActionRuntime": (
+        "cascade_planner.orchestration.unified_campaign_runtime",
+        "CampaignActionRuntime",
+    ),
+    "CampaignActionRuntimeError": (
+        "cascade_planner.orchestration.unified_campaign_runtime",
+        "CampaignActionRuntimeError",
+    ),
     "DIRECTOR_DISPOSITIONS": (
         "cascade_planner.orchestration.global_campaign_director",
         "DIRECTOR_DISPOSITIONS",
@@ -50,6 +57,10 @@ _EXPORTS = {
         "cascade_planner.orchestration.global_campaign_director",
         "ReplayDirectorRunner",
     ),
+    "run_api_json_director_child": (
+        "cascade_planner.orchestration.global_campaign_director",
+        "run_api_json_director_child",
+    ),
     "director_trigger_reasons": (
         "cascade_planner.orchestration.global_campaign_director",
         "director_trigger_reasons",
@@ -58,31 +69,6 @@ _EXPORTS = {
         "cascade_planner.orchestration.global_campaign_director",
         "validate_global_campaign_plan",
     ),
-    # Frozen V3 compatibility exports.
-    "CODEX_RETROSYNTHESIS_CAMPAIGN_SCHEMA": (
-        "cascade_planner.orchestration.codex_retrosynthesis",
-        "CODEX_RETROSYNTHESIS_CAMPAIGN_SCHEMA",
-    ),
-    "CODEX_RETROSYNTHESIS_TEAM_SCHEMA": (
-        "cascade_planner.orchestration.codex_retrosynthesis",
-        "CODEX_RETROSYNTHESIS_TEAM_SCHEMA",
-    ),
-    "DEFAULT_CHILD_ROLES": (
-        "cascade_planner.orchestration.codex_retrosynthesis",
-        "DEFAULT_CHILD_ROLES",
-    ),
-    "build_retrosynthesis_coordinator_task": (
-        "cascade_planner.orchestration.codex_retrosynthesis",
-        "build_retrosynthesis_coordinator_task",
-    ),
-    "run_codex_retrosynthesis_campaign": (
-        "cascade_planner.orchestration.codex_retrosynthesis",
-        "run_codex_retrosynthesis_campaign",
-    ),
-    "run_codex_retrosynthesis_team": (
-        "cascade_planner.orchestration.codex_retrosynthesis",
-        "run_codex_retrosynthesis_team",
-    ),
 }
 
 __all__ = list(_EXPORTS)
@@ -90,10 +76,11 @@ __all__ = list(_EXPORTS)
 
 def __getattr__(name: str) -> Any:
     target = _EXPORTS.get(name)
-    if target is None:
+    if target is not None:
+        module_name, attribute_name = target
+        value = getattr(import_module(module_name), attribute_name)
+    else:
         raise AttributeError(name)
-    module_name, attribute_name = target
-    value = getattr(import_module(module_name), attribute_name)
     globals()[name] = value
     return value
 

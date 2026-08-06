@@ -36,7 +36,7 @@ from cascade_planner.cascade_search.enzyme_coverage_sidecar import (
     build_enzyme_coverage_sidecar,
 )
 from cascade_planner.cascade_verifier import load_learned_verifier, predict_learned_verifier, verify_cascade_route
-from cascade_planner.legacy_guard import LEGACY_RESEARCH_ENV, legacy_research_enabled
+from cascade_planner.legacy.guard import LEGACY_RESEARCH_ENV, legacy_research_enabled
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -141,6 +141,33 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
         "legacy_cascade_hooks_requested": legacy_hooks_requested,
         "legacy_cascade_hooks_enabled": legacy_hooks_enabled,
     }
+    raw_stock_paths = payload.get("stock_paths")
+    if isinstance(raw_stock_paths, dict):
+        search_flags["stock_paths"] = {
+            str(name): str(Path(str(path)).expanduser().resolve())
+            for name, path in raw_stock_paths.items()
+            if str(name).strip() and str(path).strip()
+        }
+    max_output_routes = _optional_positive_int(payload.get("max_routes"), hi=100)
+    if max_output_routes is not None:
+        # Iteration/depth/top-k remain hard maxima, not work targets.  Stop
+        # MCTS once a bounded successful-route reserve exists, then host-audit
+        # that reserve before any serial condition/enzyme annotation.  The
+        # reserve prevents one verifier rejection from starving the requested
+        # output portfolio.
+        search_flags["max_output_routes"] = max_output_routes
+        search_flags["max_materialized_routes"] = _as_int(
+            payload.get("max_materialized_routes"),
+            max(16, max_output_routes * 8),
+            lo=max_output_routes,
+            hi=500,
+        )
+        search_flags["max_advisory_materialized_routes"] = _as_int(
+            payload.get("max_advisory_materialized_routes"),
+            max_output_routes,
+            lo=0,
+            hi=100,
+        )
     native_enzyme_plugin = _native_enzyme_plugin_from_payload(payload)
     if native_enzyme_plugin:
         search_flags["native_enzyme_plugin"] = native_enzyme_plugin
@@ -297,6 +324,22 @@ def _web_payload_from_result(
         raw_routes,
         enabled=verifier_gate,
     )
+    output_limit = _configured_output_route_limit(request_payload, config)
+    output_limit_report = {
+        "enabled": output_limit is not None,
+        "max_routes": output_limit,
+        "eligible_before_limit": len(routes),
+        "quarantined_before_limit": len(quarantined_routes),
+        "eligible_truncated": 0,
+        "quarantined_truncated": 0,
+    }
+    if output_limit is not None:
+        output_limit_report["eligible_truncated"] = max(0, len(routes) - output_limit)
+        output_limit_report["quarantined_truncated"] = max(
+            0, len(quarantined_routes) - output_limit
+        )
+        routes = routes[:output_limit]
+        quarantined_routes = quarantined_routes[:output_limit]
     strict_solved = any(bool((route.get("metrics") or {}).get("route_solved")) for route in routes)
     raw_solved = any(
         bool((route.get("raw_backend_metadata") or {}).get("raw_solved"))
@@ -353,6 +396,7 @@ def _web_payload_from_result(
             "route_materialization_admission": _route_materialization_admission_summary(
                 raw_routes
             ),
+            "output_limit": output_limit_report,
         },
         "ui_metadata": {
             "backend": "CascadePlanner",
@@ -412,6 +456,15 @@ def _web_payload_from_result(
             ),
             "native_raw_returned_routes": bool(native_raw_routes),
             "native_raw_n_routes": len(native_raw_routes),
+            "native_search_found_n_routes": int(
+                dict(
+                    (result.raw_backend_metadata or {}).get(
+                        "route_materialization_selection"
+                    )
+                    or {}
+                ).get("raw_route_count")
+                or len(native_raw_routes)
+            ),
             "semisynthesis_rescue_returned_routes": bool(rescue_routes),
             "semisynthesis_rescue_n_routes": len(rescue_routes),
             "best_depth": config.max_depth,
@@ -1080,7 +1133,12 @@ def _failure_analysis(
         return {"available": False, "diagnosis": [], "retry_suggestions": []}
     target = str(result.target_smiles or request_payload.get("target_smiles") or "")
     target_heavy = _heavy_atoms(target)
-    stock_membership = _target_stock_membership(target, config.stock_names, vendor_root=vendor_root)
+    stock_membership = _target_stock_membership(
+        target,
+        config.stock_names,
+        vendor_root=vendor_root,
+        stock_paths=dict(config.search_flags.get("stock_paths") or {}),
+    )
     categories = [str(row.get("category") or "") for row in failures]
     diagnosis: list[str] = []
     suggestions: list[str] = []
@@ -1132,15 +1190,25 @@ def _failure_analysis(
     }
 
 
-def _target_stock_membership(target_smiles: str, stock_names: list[str], *, vendor_root: Path | None) -> dict[str, Any]:
+def _target_stock_membership(
+    target_smiles: str,
+    stock_names: list[str],
+    *,
+    vendor_root: Path | None,
+    stock_paths: dict[str, str] | None = None,
+) -> dict[str, Any]:
     target_mol = Chem.MolFromSmiles(str(target_smiles or ""))
     if target_mol is None or vendor_root is None:
         return {"available": False, "target_in_selected_stock": False}
     canonical = Chem.MolToSmiles(target_mol, isomericSmiles=True)
-    stock_paths = _stock_paths(vendor_root, stock_names)
+    selected_paths = _stock_paths(
+        vendor_root,
+        stock_names,
+        stock_paths=stock_paths,
+    )
     hits: list[str] = []
     checked: list[str] = []
-    for stock_name, path in stock_paths.items():
+    for stock_name, path in selected_paths.items():
         if not path.exists() or not path.is_file():
             continue
         checked.append(stock_name)
@@ -1159,7 +1227,12 @@ def _target_stock_membership(target_smiles: str, stock_names: list[str], *, vend
     }
 
 
-def _stock_paths(vendor_root: Path, stock_names: list[str]) -> dict[str, Path]:
+def _stock_paths(
+    vendor_root: Path,
+    stock_names: list[str],
+    *,
+    stock_paths: dict[str, str] | None = None,
+) -> dict[str, Path]:
     config_path = vendor_root / "retro_planner" / "config" / "config.yaml"
     if not config_path.exists():
         return {}
@@ -1170,9 +1243,15 @@ def _stock_paths(vendor_root: Path, stock_names: list[str]) -> dict[str, Path]:
     stock_cfg = cfg.get("stocks") or {}
     base = vendor_root / "retro_planner"
     selected = set(stock_names or [])
-    out: dict[str, Path] = {}
+    out: dict[str, Path] = {
+        str(name): Path(str(path)).expanduser().resolve()
+        for name, path in dict(stock_paths or {}).items()
+        if (not selected or str(name) in selected) and str(path).strip()
+    }
     for name, rel in stock_cfg.items():
         if selected and name not in selected:
+            continue
+        if str(name) in out:
             continue
         path = Path(str(rel))
         out[str(name)] = path if path.is_absolute() else base / path
@@ -1201,6 +1280,28 @@ def _safe_float(value: Any, default: float | None = None) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _optional_positive_int(value: Any, *, hi: int) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        return None
+    if out <= 0:
+        return None
+    return min(out, hi)
+
+
+def _configured_output_route_limit(
+    request_payload: dict[str, Any],
+    config: RouteSearchConfig,
+) -> int | None:
+    configured = dict(config.search_flags or {}).get("max_output_routes")
+    if configured is None:
+        configured = request_payload.get("max_routes")
+    return _optional_positive_int(configured, hi=100)
 
 
 def _as_int(value: Any, default: int, *, lo: int, hi: int) -> int:

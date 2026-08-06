@@ -41,7 +41,8 @@ _BRANCH_KIND_RANK = {
     "direct_verified_route": 1,
     "proof_eligible_portfolio_route": 2,
     "reported_candidate_route": 3,
-    "validated_replacement_route": 4,
+    "exploratory_canonical_route": 4,
+    "validated_replacement_route": 5,
     "subgoal_verified_route": 5,
     "exact_literature": 5,
     "process_evidence": 6,
@@ -58,6 +59,7 @@ _BRANCH_KIND_LABEL = {
     "direct_verified_route": "已验证路线",
     "proof_eligible_portfolio_route": "Proof-eligible portfolio",
     "reported_candidate_route": "文献报道候选路线",
+    "exploratory_canonical_route": "探索中 canonical 路线",
     "validated_replacement_route": "后端重验替换路线",
     "subgoal_verified_route": "子目标闭合",
     "exact_literature": "精确文献路线",
@@ -69,12 +71,6 @@ _BRANCH_KIND_LABEL = {
     "broad_template": "通用模板",
     "diagnostic_failure": "诊断与未解决项",
 }
-
-
-def canonical_sha256(value: Any) -> str:
-    """Compatibility alias for the shared canonical JSON digest."""
-
-    return canonical_json_sha256(value)
 
 
 def build_dependency_layout_projection(
@@ -259,7 +255,7 @@ def build_dependency_layout_projection(
             "cycles": "condensed_before_layer_assignment",
         },
     }
-    projection["layout_sha256"] = canonical_sha256(projection)
+    projection["layout_sha256"] = canonical_json_sha256(projection)
     return projection
 
 
@@ -542,7 +538,7 @@ def build_branch_lane_projection(
             ),
         },
     }
-    projection["layout_sha256"] = canonical_sha256(projection)
+    projection["layout_sha256"] = canonical_json_sha256(projection)
     return projection
 
 
@@ -1370,7 +1366,7 @@ def _authority_edges_for_display_step(
     for authority_step_id in authority_step_ids:
         for row in edges_by_step_id.get(authority_step_id) or []:
             signature = str(row.get("exact_edge_signature") or "")
-            matches[signature or canonical_sha256(row)] = row
+            matches[signature or canonical_json_sha256(row)] = row
     edges_by_signature = stage_authority.get("edges_by_signature") or {}
     for signature in edge_signatures:
         for row in edges_by_signature.get(signature) or []:

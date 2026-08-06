@@ -1,15 +1,17 @@
 # Canonical V4 当前运行主线
 
-更新：2026-07-16
+更新：2026-08-06
 
 状态：这是当前已经实现的运行主干，不是下一代 GRIA 已完成声明。实现边界与迁移状态以
 [CURRENT_ARCHITECTURE_STATUS.md](architecture/CURRENT_ARCHITECTURE_STATUS.md) 为准；
 目标 program 级架构见
 [GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md](architecture/GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)。
 
-## 理想状态
+## 当前统一方向
 
-Codex 是 campaign 级全局 Director，而不是单步模板。一次调用读取有界的完整上下文：
+Codex 是 campaign 级全局 Director，而不是单步模板；ChemEnzy 是同一 campaign 中的原生路线
+producer，而不是 Codex 的从属实现。所有目标使用同一个 target-blind anytime 控制面。Codex 调用读取
+有界的完整上下文：
 目标、路线族、多步骨架、共享中间体、规范超图、来源/库存事实、冲突、失败、frontier、
 当前 Pareto 组合和剩余预算。它可以同时替换几条路线、合并共享上游、淘汰支配路线，
 或改变证据优先级；输出仍然只是 proposal。
@@ -17,26 +19,39 @@ Codex 是 campaign 级全局 Director，而不是单步模板。一次调用读�
 主机侧把全局策略升级为事实：
 
 ```text
-target + acceptance + hard budgets
-                |
-                v
-     Codex GlobalCampaignDirector
-   (initial / event replan / final)
-                | proposal only
-                v
- canonical admission + early chemistry gates
-                v
- materialize → validate → exact evidence → stock audit
-                |                         |
-                +--- one deficit frontier+
-                v
- proof stitcher → small diverse portfolio → acceptance
-                v
- bounded incremental workbench
+target + stock oracle + hard budgets
+                   |
+                   v
+              one RunKernel
+                   |
+        +----------+-----------+
+        |          |           |
+ ChemEnzy seed  Codex global  source prefetch
+ native search  architecture   / deterministic facts
+        |          |           |
+        +----------+-----------+
+                   | proposal only
+                   v
+ canonical admission + one hypergraph
+                   v
+ one deficit frontier → target-blind Action opportunities
+                   v
+ deterministic scheduler selects next highest-value action
+   | materialize | validate | stock | evidence | conditions |
+   | ChemEnzy expand | Codex replan | Program review         |
+                   v
+ recompute proof / stock / portfolio / B0-B5 snapshot
+                   v
+ budget, convergence or configured acceptance stops the run
 ```
 
 所有结果写回同一个 `RunKernel` 和 canonical hypergraph。CLI、API、Web、恢复和导出
 只是适配器，不持有化学状态。
+
+当前迁移状态：benchmark B4 专用提前结束和功能禁用已删除；旧 `objective_mode` 只保留兼容展示。
+ChemEnzy route lineage、统一 Action opportunity、target-blind scheduler decision 和 anytime trajectory
+已经进入主报告。现有 `target_solver` 的手写阶段顺序尚未全部替换为 scheduler 驱动事件循环，因此不能
+宣称统一 runtime 迁移已完成。
 
 ## 为什么 Blackboard 不再是核心
 
@@ -59,9 +74,16 @@ route completion 或 acceptance。
 
 ## 全局 Director 的硬边界
 
-- 默认每个 campaign 最多 1 次初始架构、2 次物质事件重规划、1 次最终组合总结；
+- runtime 契约最多容纳 1 次初始架构、2 次物质事件重规划、1 次最终组合总结；当前
+  target-only 生产编排进一步收紧为至多 1 次重规划；
 - 相同上下文和配置只执行一次，其余读取不可变缓存；
-- 只有关键拒绝、新精确证据、库存边界变化、共享瓶颈、新路线族或真实停滞可触发重规划；
+- 只有关键拒绝、新精确证据、未闭合库存边界、新增且经宿主验证的 provider 边、共享瓶颈或
+  新路线族可触发重规划；“路线尚未闭合/portfolio stagnation”本身只形成 deficit，不花第二次
+  模型调用；
+- 重规划前后的 molecule、edge 与 route-family ID 必须通过集合单调性审计；第二轮只能追加或
+  强化 proof，不能替换第一轮已有路线；
+- 每次实际执行的 replan 必须记录 gate/路线计数增量与模型调用、token、墙钟增量；`no_gain`
+  保留为回归信号，不倒推删除已有低可信路线；
 - 单边物化、验证、抽取和库存任务不得隐式调用 Codex；
 - 调用、token、上下文字节、墙钟时间和 attempts 全部计入同一 ledger；
 - 预算耗尽只能产生具名 `budget_exhausted`，不能放宽证明要求。
@@ -76,6 +98,10 @@ CLI 和 golden replay 默认模型预算为 0。
 4. 所有 proposal producer 共用规范入口，不拥有旁路路线图。
 5. 物质事件恢复同一 campaign，不创建第二个 expansion loop。
 6. 图按脏实体增量重算，并用 full-recompute oracle 校验。
+7. dataset ID、target index、target name 和旧 objective 标签不得进入 Action 排序。
+8. B4 是同一 trajectory 上的库存 milestone，不是 benchmark solver 的专用终态。
+9. Codex 指导只能追加候选和优先级，不能删除 ChemEnzy native frontier。
+10. 缺 evidence、conditions 或 Program validation 只开放对应 proof axis，不能擦除合法路线拓扑。
 
 专利来源遵循同一条不可逆降级链：官方完整 HTML → 未闭合边的 PDF 原生文本 →
 低文本页本地 OCR → 显式准入的视觉 L0 候选。上一级已闭合的边不会进入下一级；

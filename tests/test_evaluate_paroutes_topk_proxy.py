@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from cascade_planner.eval.evaluate_paroutes_topk_proxy import _target_metrics
-from cascade_planner.eval.rerank_native_routes_with_v4_value import (
-    _routes_for_target,
-)
+from cascade_planner.eval.native_route_pool_contract import routes_for_target
 
 
 def test_current_cascade_search_result_programs_are_exposed_as_routes() -> None:
@@ -24,7 +22,7 @@ def test_current_cascade_search_result_programs_are_exposed_as_routes() -> None:
         }
     }
 
-    routes = _routes_for_target(target)
+    routes = routes_for_target(target)
 
     assert routes[0]["steps"] == target["cascade_search"]["result_programs"][0][
         "route_steps"

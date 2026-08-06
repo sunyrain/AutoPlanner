@@ -9,7 +9,7 @@ configured acceptance report.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -39,6 +39,9 @@ RUN_REVISION_SCHEMA = "autoplanner_run_revision.v1"
 DEFICIT_SCHEMA = "autoplanner_deficit.v1"
 STOP_DECISION_SCHEMA = "autoplanner_stop_decision.v1"
 _TASK_KINDS = {"model", "evidence", "stock", "validation", "proposal", "other"}
+_NATIVE_SEARCH_RESOURCE_CLASSES = frozenset(
+    {"native_search_target", "native_search_frontier"}
+)
 _TERMINAL_STATUSES = {"completed", "unresolved", "budget_exhausted", "cancelled", "failed"}
 _STATUS_TRANSITIONS = {
     "created": {"running", "cancelled", "failed"},
@@ -331,6 +334,7 @@ class RunState:
     in_flight_tasks: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     accepted_expansion_ids: tuple[str, ...] = ()
     model_totals: Mapping[str, int | float] = field(default_factory=dict)
+    native_search_totals: Mapping[str, int] = field(default_factory=dict)
     graph_revision: int = 0
     evidence_revision: int = 0
     deficits: tuple[Mapping[str, Any], ...] = ()
@@ -356,6 +360,7 @@ class RunState:
         row["accepted_expansion_ids"] = list(self.accepted_expansion_ids)
         row["accepted_expansion_count"] = self.accepted_expansion_count
         row["model_totals"] = dict(self.model_totals)
+        row["native_search_totals"] = dict(self.native_search_totals)
         row["deficits"] = [dict(value) for value in self.deficits]
         row["acceptance_report"] = dict(self.acceptance_report)
         row["failure_reasons"] = list(self.failure_reasons)
@@ -364,6 +369,7 @@ class RunState:
             "state_is_rebuilt_from_events": True,
             "accepted_expansions_are_unique_ids": True,
             "attempt_count_is_settled_proposal_tasks": True,
+            "native_search_is_accounted_independently_from_proposal_tasks": True,
             "settled_task_count_includes_all_task_kinds": True,
             "queue_empty_is_not_completion": True,
         }
@@ -469,6 +475,11 @@ class RunKernel:
                 raise RunKernelError("run_spec_required_for_new_kernel")
             self.spec = spec
             _atomic_write_json(self.spec_path, spec.to_dict())
+        if self.events_path.is_file() and self.events_path.stat().st_size:
+            self.spec = _spec_with_replayed_budget_extensions(
+                self.spec,
+                self._read_events(),
+            )
         if not self.events_path.is_file() or self.events_path.stat().st_size == 0:
             self._append(
                 "run_created",
@@ -544,6 +555,66 @@ class RunKernel:
             },
         }
 
+    def native_search_budget(self) -> dict[str, Any]:
+        """Project the replayable target/frontier native-search envelope."""
+
+        return _native_search_budget_projection(
+            self.state,
+            self.spec.limits.model,
+        )
+
+    def release_native_target_reserve(
+        self,
+        *,
+        units: int,
+        reason: str,
+        idempotency_key: str,
+    ) -> RunEvent:
+        """Explicitly release unused protected target capacity for borrowing."""
+
+        amount = int(units)
+        normalized_reason = str(reason or "").strip()
+        if amount <= 0:
+            raise ValueError("native target reserve release units must be positive")
+        if not normalized_reason:
+            raise ValueError("native target reserve release reason is required")
+        existing = self._event_by_key(idempotency_key)
+        if existing is not None:
+            if (
+                existing.event_type != "native_target_reserve_released"
+                or int(existing.payload.get("units") or 0) != amount
+                or str(existing.payload.get("reason") or "") != normalized_reason
+            ):
+                raise RunKernelIdempotencyConflict(
+                    f"run_event_idempotency_conflict:{idempotency_key}"
+                )
+            return existing
+        projection = self.native_search_budget()
+        protected = int(
+            dict(projection.get("target") or {}).get("protected_remaining") or 0
+        )
+        if amount > protected:
+            raise RunKernelBudgetError(
+                "native_target_reserve_release_exceeds_protected_remaining"
+            )
+        return self._append(
+            "native_target_reserve_released",
+            idempotency_key,
+            {
+                "units": amount,
+                "reason": normalized_reason,
+                "budget_sha256": self.spec.limits.model.to_dict()[
+                    "content_sha256"
+                ],
+                "projection_before_sha256": projection["content_sha256"],
+                "semantics": {
+                    "hard_native_limit_is_unchanged": True,
+                    "release_only_changes_frontier_borrowability": True,
+                    "release_is_operator_or_runtime_audited": True,
+                },
+            },
+        )
+
     def start(self) -> RunEvent:
         return self.transition("running", idempotency_key="run:start")
 
@@ -552,6 +623,40 @@ class RunKernel:
 
     def resume(self, *, idempotency_key: str = "run:resume") -> RunEvent:
         return self.transition("running", idempotency_key=idempotency_key)
+
+    def extend_model_budget(
+        self,
+        budget: RetrosynthesisRunBudget,
+        *,
+        idempotency_key: str,
+    ) -> RunEvent | None:
+        """Durably apply an explicit, non-decreasing operator budget extension.
+
+        The original run spec remains the immutable creation contract.  Budget
+        extensions are append-only kernel events so a reopened process enforces
+        the same effective limits instead of silently falling back to the
+        creation-time envelope.
+        """
+
+        current = self.spec.limits.model
+        if budget == current:
+            return None
+        _assert_non_decreasing_model_budget(current, budget)
+        event = self._append(
+            "model_budget_extended",
+            idempotency_key,
+            {
+                "previous_budget_sha256": current.to_dict()["content_sha256"],
+                "budget": budget.to_dict(),
+                "semantics": {
+                    "explicit_operator_policy": True,
+                    "counters_are_not_reset": True,
+                    "workers_cannot_extend_limits": True,
+                },
+            },
+        )
+        self.spec = _spec_with_model_budget(self.spec, budget)
+        return event
 
     def cancel(
         self,
@@ -598,11 +703,20 @@ class RunKernel:
         uses_model: bool = False,
         visual: bool = False,
         prompt_context_bytes: int = 0,
+        resource_class: str = "",
+        resource_units: int = 0,
         metadata: Mapping[str, Any] | None = None,
     ) -> RunEvent:
         normalized_kind = str(kind)
         if normalized_kind not in _TASK_KINDS:
             raise ValueError(f"unsupported run task kind:{normalized_kind}")
+        normalized_resource_class = str(resource_class or "").strip()
+        normalized_resource_units = int(resource_units)
+        if normalized_resource_class in _NATIVE_SEARCH_RESOURCE_CLASSES:
+            if normalized_resource_units <= 0:
+                raise ValueError("native search resource units must be positive")
+        elif normalized_resource_units != 0:
+            raise ValueError("resource units require a native search resource class")
         payload = {
             "task_id": str(task_id),
             "kind": normalized_kind,
@@ -612,12 +726,23 @@ class RunKernel:
             "prompt_context_bytes": max(0, int(prompt_context_bytes)),
             "metadata": _safe_mapping(metadata),
         }
+        if normalized_resource_class in _NATIVE_SEARCH_RESOURCE_CLASSES:
+            payload.update(
+                {
+                    "resource_class": normalized_resource_class,
+                    "resource_units": normalized_resource_units,
+                }
+            )
         if visual and not uses_model:
             raise ValueError("visual task must use a model")
         if int(prompt_context_bytes) < 0:
             raise ValueError("prompt_context_bytes cannot be negative")
         existing = self._event_by_key(idempotency_key)
         if existing is not None:
+            if normalized_resource_class in _NATIVE_SEARCH_RESOURCE_CLASSES:
+                payload["resource_reservation"] = dict(
+                    existing.payload.get("resource_reservation") or {}
+                )
             return self._assert_idempotent_event(
                 existing,
                 event_type="task_reserved",
@@ -626,13 +751,17 @@ class RunKernel:
         state = self.state
         if state.status != "running":
             raise RunKernelError("non_running_run_cannot_reserve_task")
-        self._assert_task_budget(
+        resource_reservation = self._assert_task_budget(
             state,
             kind=normalized_kind,
             uses_model=uses_model,
             visual=visual,
             prompt_context_bytes=prompt_context_bytes,
+            resource_class=normalized_resource_class,
+            resource_units=normalized_resource_units,
         )
+        if resource_reservation:
+            payload["resource_reservation"] = resource_reservation
         return self._append(
             "task_reserved",
             idempotency_key,
@@ -919,13 +1048,17 @@ class RunKernel:
             task_id = str(payload.get("task_id") or "")
             if not task_id or task_id in state.in_flight_tasks:
                 raise RunKernelError(f"task_already_reserved:{task_id}")
-            self._assert_task_budget(
+            resource_reservation = self._assert_task_budget(
                 state,
                 kind=str(payload.get("kind") or "other"),
                 uses_model=payload.get("uses_model") is True,
                 visual=payload.get("visual") is True,
                 prompt_context_bytes=int(payload.get("prompt_context_bytes") or 0),
+                resource_class=str(payload.get("resource_class") or ""),
+                resource_units=int(payload.get("resource_units") or 0),
             )
+            if dict(payload.get("resource_reservation") or {}) != resource_reservation:
+                raise RunKernelError("task_resource_reservation_invalid")
         elif event_type == "task_settled":
             task_id = str(payload.get("task_id") or "")
             if task_id not in state.in_flight_tasks:
@@ -967,6 +1100,31 @@ class RunKernel:
                 raise RunKernelError(
                     f"run_status_transition_invalid:{state.status}->{target}"
                 )
+        elif event_type == "model_budget_extended":
+            _model_budget_from_dict(dict(payload.get("budget") or {}))
+        elif event_type == "native_target_reserve_released":
+            units = int(payload.get("units") or 0)
+            projection = _native_search_budget_projection(
+                state,
+                self.spec.limits.model,
+            )
+            protected = int(
+                dict(projection.get("target") or {}).get(
+                    "protected_remaining"
+                )
+                or 0
+            )
+            if units <= 0 or units > protected:
+                raise RunKernelBudgetError(
+                    "native_target_reserve_release_invalid"
+                )
+            if (
+                str(payload.get("budget_sha256") or "")
+                != self.spec.limits.model.to_dict()["content_sha256"]
+                or str(payload.get("projection_before_sha256") or "")
+                != projection["content_sha256"]
+            ):
+                raise RunKernelError("native_target_reserve_release_binding_invalid")
         elif event_type != "run_created":
             raise RunKernelError(f"run_event_type_unsupported:{event_type}")
 
@@ -998,7 +1156,9 @@ class RunKernel:
         uses_model: bool,
         visual: bool = False,
         prompt_context_bytes: int = 0,
-    ) -> None:
+        resource_class: str = "",
+        resource_units: int = 0,
+    ) -> dict[str, Any]:
         reasons: list[str] = []
         pending_count = len(state.in_flight_tasks)
         pending_proposal_attempts = sum(
@@ -1075,6 +1235,12 @@ class RunKernel:
                 reasons.append("prompt_context_byte_budget_exceeded")
         if reasons:
             raise RunKernelBudgetError(";".join(sorted(set(reasons))))
+        return _native_search_reservation(
+            state,
+            self.spec.limits.model,
+            resource_class=resource_class,
+            units=resource_units,
+        )
 
     def _budget_reasons(
         self,
@@ -1166,7 +1332,17 @@ class RunKernel:
                 "run_visual_invocation_budget_violated",
             ),
         )
-        return sorted(reason for observed, limit, reason in checks if observed > limit)
+        reasons = [reason for observed, limit, reason in checks if observed > limit]
+        native = _native_search_budget_projection(state, budget)
+        if int(native.get("committed_total") or 0) > int(
+            native.get("hard_total_limit") or 0
+        ):
+            reasons.append("run_native_search_budget_violated")
+        if int(native.get("released_target_reserve") or 0) > int(
+            native.get("target_minimum_service") or 0
+        ):
+            reasons.append("run_native_target_reserve_release_violated")
+        return sorted(reasons)
 
     def _persist_state(self, state: RunState) -> ArtifactRef:
         payload = state.to_dict()
@@ -1377,6 +1553,12 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
             "output_tokens": 0,
             "wall_time_s": 0.0,
         },
+        "native_search_totals": {
+            "target_settled": 0,
+            "frontier_settled": 0,
+            "frontier_borrowed_settled": 0,
+            "target_reserve_released": 0,
+        },
         "graph_revision": 0,
         "evidence_revision": 0,
         "deficits": [],
@@ -1422,6 +1604,17 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
                 + float(usage.get("wall_time_s") or 0.0),
                 6,
             )
+            resource = dict(reservation.get("resource_reservation") or {})
+            resource_class = str(resource.get("resource_class") or "")
+            resource_units = max(0, int(resource.get("units") or 0))
+            borrowed_units = max(0, int(resource.get("borrowed_units") or 0))
+            if resource_class == "native_search_target":
+                state["native_search_totals"]["target_settled"] += resource_units
+            elif resource_class == "native_search_frontier":
+                state["native_search_totals"]["frontier_settled"] += resource_units
+                state["native_search_totals"][
+                    "frontier_borrowed_settled"
+                ] += borrowed_units
         elif event.event_type == "graph_revision_published":
             graph_revision = int(payload.get("graph_revision") or 0)
             evidence_revision = int(payload.get("evidence_revision") or 0)
@@ -1462,6 +1655,26 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
         elif event.event_type == "run_created":
             if event.sequence != 1:
                 raise RunKernelCorruptionError("run_created_event_not_first")
+        elif event.event_type == "model_budget_extended":
+            # Limits are replayed into the effective RunSpec when the kernel is
+            # opened.  This event deliberately does not mutate scientific or
+            # operational counters.
+            _model_budget_from_dict(dict(payload.get("budget") or {}))
+        elif event.event_type == "native_target_reserve_released":
+            released_units = int(payload.get("units") or 0)
+            if released_units <= 0:
+                raise RunKernelCorruptionError(
+                    "replayed_native_target_reserve_release_invalid"
+                )
+            state["native_search_totals"][
+                "target_reserve_released"
+            ] += released_units
+            if state["native_search_totals"][
+                "target_reserve_released"
+            ] > int(spec.limits.model.min_target_native_search_invocations or 0):
+                raise RunKernelCorruptionError(
+                    "replayed_native_target_reserve_release_exceeded"
+                )
         else:
             raise RunKernelCorruptionError(
                 f"run_event_type_unsupported:{event.event_type}"
@@ -1483,6 +1696,7 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
         },
         accepted_expansion_ids=tuple(sorted(state["accepted_expansion_ids"])),
         model_totals=dict(state["model_totals"]),
+        native_search_totals=dict(state["native_search_totals"]),
         graph_revision=state["graph_revision"],
         evidence_revision=state["evidence_revision"],
         deficits=tuple(dict(row) for row in state["deficits"]),
@@ -1490,6 +1704,82 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
         failure_reasons=tuple(state["failure_reasons"]),
         updated_at=state["updated_at"],
     )
+
+
+_MODEL_BUDGET_LIMIT_FIELDS = (
+    "max_model_invocations",
+    "max_total_input_tokens",
+    "max_total_output_tokens",
+    "max_total_wall_time_s",
+    "max_visual_invocations",
+    "max_accepted_expansions",
+    "max_attempt_runs",
+    "max_native_search_invocations",
+    "min_target_native_search_invocations",
+    "max_frontier_native_search_invocations",
+    "max_prompt_context_bytes",
+)
+
+
+def _assert_non_decreasing_model_budget(
+    current: RetrosynthesisRunBudget,
+    incoming: RetrosynthesisRunBudget,
+) -> None:
+    decreased = [
+        field_name
+        for field_name in _MODEL_BUDGET_LIMIT_FIELDS
+        if getattr(incoming, field_name) < getattr(current, field_name)
+    ]
+    if incoming.automatic_budget_extension != current.automatic_budget_extension:
+        decreased.append("automatic_budget_extension")
+    if (
+        incoming.allow_frontier_native_search_borrowing
+        != current.allow_frontier_native_search_borrowing
+    ):
+        decreased.append("allow_frontier_native_search_borrowing")
+    if decreased:
+        raise RunKernelBudgetError(
+            "run_model_budget_extension_cannot_decrease_or_change_policy:"
+            + ",".join(sorted(decreased))
+        )
+
+
+def _model_budget_from_dict(value: Mapping[str, Any]) -> RetrosynthesisRunBudget:
+    row = dict(value)
+    supplied = str(row.pop("content_sha256", ""))
+    if not supplied or supplied != _digest(row):
+        raise RunKernelCorruptionError("model_budget_extension_digest_invalid")
+    row.pop("schema_version", None)
+    return RetrosynthesisRunBudget(**row)
+
+
+def _spec_with_model_budget(
+    spec: RunSpec,
+    budget: RetrosynthesisRunBudget,
+) -> RunSpec:
+    return replace(spec, limits=replace(spec.limits, model=budget))
+
+
+def _spec_with_replayed_budget_extensions(
+    spec: RunSpec,
+    events: Iterable[RunEvent],
+) -> RunSpec:
+    effective = spec
+    for event in events:
+        if event.event_type != "model_budget_extended":
+            continue
+        budget = _model_budget_from_dict(dict(event.payload.get("budget") or {}))
+        try:
+            _assert_non_decreasing_model_budget(effective.limits.model, budget)
+        except RunKernelBudgetError as exc:
+            raise RunKernelCorruptionError(
+                "model_budget_extension_decreased"
+            ) from exc
+        expected_previous = effective.limits.model.to_dict()["content_sha256"]
+        if str(event.payload.get("previous_budget_sha256") or "") != expected_previous:
+            raise RunKernelCorruptionError("model_budget_extension_chain_invalid")
+        effective = _spec_with_model_budget(effective, budget)
+    return effective
 
 
 def _state_from_dict(value: Mapping[str, Any]) -> RunState:
@@ -1514,6 +1804,7 @@ def _state_from_dict(value: Mapping[str, Any]) -> RunState:
             str(item) for item in row.get("accepted_expansion_ids") or []
         ),
         model_totals=dict(row.get("model_totals") or {}),
+        native_search_totals=dict(row.get("native_search_totals") or {}),
         graph_revision=int(row.get("graph_revision") or 0),
         evidence_revision=int(row.get("evidence_revision") or 0),
         deficits=tuple(
@@ -1527,6 +1818,139 @@ def _state_from_dict(value: Mapping[str, Any]) -> RunState:
         ),
         updated_at=str(row.get("updated_at") or ""),
     )
+
+
+def _native_search_budget_projection(
+    state: RunState,
+    budget: RetrosynthesisRunBudget,
+) -> dict[str, Any]:
+    totals = dict(state.native_search_totals or {})
+    target_settled = max(0, int(totals.get("target_settled") or 0))
+    frontier_settled = max(0, int(totals.get("frontier_settled") or 0))
+    borrowed_settled = max(
+        0,
+        int(totals.get("frontier_borrowed_settled") or 0),
+    )
+    released = max(0, int(totals.get("target_reserve_released") or 0))
+    target_reserved = 0
+    frontier_reserved = 0
+    borrowed_reserved = 0
+    for reservation in state.in_flight_tasks.values():
+        resource = dict(reservation.get("resource_reservation") or {})
+        resource_class = str(resource.get("resource_class") or "")
+        units = max(0, int(resource.get("units") or 0))
+        borrowed = max(0, int(resource.get("borrowed_units") or 0))
+        if resource_class == "native_search_target":
+            target_reserved += units
+        elif resource_class == "native_search_frontier":
+            frontier_reserved += units
+            borrowed_reserved += borrowed
+    hard_total = int(budget.max_native_search_invocations or 0)
+    target_minimum = int(budget.min_target_native_search_invocations or 0)
+    frontier_base_limit = int(
+        budget.max_frontier_native_search_invocations or 0
+    )
+    target_committed = target_settled + target_reserved
+    frontier_committed = frontier_settled + frontier_reserved
+    committed_total = target_committed + frontier_committed
+    hard_remaining = max(0, hard_total - committed_total)
+    effective_target_minimum = max(0, target_minimum - released)
+    protected_remaining = max(0, effective_target_minimum - target_committed)
+    frontier_base_remaining = max(0, frontier_base_limit - frontier_committed)
+    frontier_capacity = max(0, hard_remaining - protected_remaining)
+    borrowing_allowed = budget.allow_frontier_native_search_borrowing is True
+    row = {
+        "schema_version": "native_search_budget_projection.v1",
+        "hard_total_limit": hard_total,
+        "committed_total": committed_total,
+        "hard_remaining": hard_remaining,
+        "target_minimum_service": target_minimum,
+        "released_target_reserve": released,
+        "target": {
+            "settled": target_settled,
+            "reserved": target_reserved,
+            "committed": target_committed,
+            "protected_remaining": protected_remaining,
+            "minimum_service_satisfied": (
+                target_committed + released >= target_minimum
+            ),
+            "available": hard_remaining > 0,
+        },
+        "frontier": {
+            "settled": frontier_settled,
+            "reserved": frontier_reserved,
+            "committed": frontier_committed,
+            "base_limit": frontier_base_limit,
+            "base_remaining": frontier_base_remaining,
+            "borrowed_settled": borrowed_settled,
+            "borrowed_reserved": borrowed_reserved,
+            "borrowed_total": borrowed_settled + borrowed_reserved,
+            "capacity_without_target_reserve": frontier_capacity,
+            "borrowing_allowed": borrowing_allowed,
+            "available": bool(
+                frontier_capacity > 0
+                and (frontier_base_remaining > 0 or borrowing_allowed)
+            ),
+        },
+        "semantics": {
+            "target_reserve_is_protected_before_frontier_borrowing": True,
+            "native_search_is_independent_from_model_and_evidence": True,
+            "settled_and_in_flight_units_count_against_hard_limit": True,
+        },
+    }
+    row["content_sha256"] = _digest(row)
+    return row
+
+
+def _native_search_reservation(
+    state: RunState,
+    budget: RetrosynthesisRunBudget,
+    *,
+    resource_class: str,
+    units: int,
+) -> dict[str, Any]:
+    normalized_class = str(resource_class or "")
+    amount = int(units)
+    if normalized_class not in _NATIVE_SEARCH_RESOURCE_CLASSES:
+        return {}
+    if amount <= 0:
+        raise RunKernelBudgetError("run_native_search_reservation_units_invalid")
+    projection = _native_search_budget_projection(state, budget)
+    hard_remaining = int(projection.get("hard_remaining") or 0)
+    if amount > hard_remaining:
+        raise RunKernelBudgetError("run_native_search_budget_exhausted")
+    borrowed_units = 0
+    if normalized_class == "native_search_frontier":
+        frontier = dict(projection.get("frontier") or {})
+        capacity = int(frontier.get("capacity_without_target_reserve") or 0)
+        if amount > capacity:
+            raise RunKernelBudgetError("run_native_target_reserve_protected")
+        base_remaining = int(frontier.get("base_remaining") or 0)
+        borrowed_units = max(0, amount - min(amount, base_remaining))
+        if borrowed_units and frontier.get("borrowing_allowed") is not True:
+            raise RunKernelBudgetError(
+                "run_native_frontier_search_budget_exhausted"
+            )
+    decision = (
+        "borrow_granted"
+        if borrowed_units
+        else "target_service_reserved"
+        if normalized_class == "native_search_target"
+        else "frontier_base_reserved"
+    )
+    return {
+        "schema_version": "native_search_resource_reservation.v1",
+        "resource_class": normalized_class,
+        "units": amount,
+        "borrowed_units": borrowed_units,
+        "decision": decision,
+        "budget_sha256": budget.to_dict()["content_sha256"],
+        "projection_before_sha256": projection["content_sha256"],
+        "target_protected_before": int(
+            dict(projection.get("target") or {}).get("protected_remaining") or 0
+        ),
+        "hard_remaining_before": hard_remaining,
+    }
 
 
 def _normalized_model_usage(value: Mapping[str, Any] | None) -> dict[str, int | float]:

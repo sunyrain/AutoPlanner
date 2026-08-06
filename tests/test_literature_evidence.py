@@ -232,6 +232,35 @@ def test_director_literature_hints_become_candidates_without_search() -> None:
     ]
 
 
+def test_pinned_literature_candidates_retain_route_relevance_order() -> None:
+    request = _request()
+    request["source_hints"] = [
+        {
+            "source_kind": "paper_si",
+            "source_ref": "doi:10.1000/weak",
+            "target_edge_occurrence_count": 1,
+        },
+        {
+            "source_kind": "paper_si",
+            "source_ref": "doi:10.1000/strong",
+            "target_edge_occurrence_count": 4,
+            "corroborating_source_ref_count": 2,
+        },
+    ]
+    candidates = _request_source_candidates(request)
+
+    ranked = target_relevant_candidates(
+        candidates,
+        target_name="named target",
+        pinned_source_refs=[row["source_ref"] for row in candidates],
+    )
+
+    assert [row["source_ref"] for row in ranked] == [
+        "doi:10.1000/strong",
+        "doi:10.1000/weak",
+    ]
+
+
 def test_europe_pmc_open_access_resolver_reads_nested_si_pdf() -> None:
     nested_buffer = BytesIO()
     with zipfile.ZipFile(nested_buffer, "w") as nested:
@@ -954,6 +983,91 @@ def test_restricted_paper_is_queued_then_consumed_on_resume(
     assert resumed["discovery"]["sources"][0]["acquisition_status"] == "materialized"
 
 
+def test_restricted_paper_is_automatically_downloaded_and_rematerialized_same_call(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    proxy_root = tmp_path / "authorized-proxy"
+    downloaded = proxy_root / "paper.pdf"
+
+    def authorized_fetcher(**kwargs: Any) -> dict[str, Any]:
+        downloaded.parent.mkdir(parents=True, exist_ok=True)
+        downloaded.write_bytes(b"%PDF-1.7\nautomatic proxy fixture")
+        manifest = local_pdf_proxy_download_manifest_path(kwargs["proxy_root"])
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(
+            json.dumps(
+                {
+                    "accepted": True,
+                    "status": "downloaded",
+                    "doi": "10.1000/automatic-restricted",
+                    "source_ref": "doi:10.1000/automatic-restricted",
+                    "pdf_path": str(downloaded),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return {
+            "schema_version": "authorized_browser_autofetch.v1",
+            "status": "completed",
+            "processed_count": 1,
+            "downloaded_count": 1,
+        }
+
+    image = tmp_path / "page.png"
+    image.write_bytes(b"image")
+    image_sha = hashlib.sha256(image.read_bytes()).hexdigest()
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.literature_materialization.pdf_page_count",
+        lambda _path: 10,
+    )
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.literature_materialization.rebuild_literature_pdf_page_focus",
+        lambda *_args, **_kwargs: {"focus_page_numbers": [8]},
+    )
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.literature_materialization.extract_literature_pdf_assets",
+        lambda **_kwargs: {
+            "rendered_pages": [
+                {
+                    "page_number": 8,
+                    "image_path": str(image),
+                    "sha256": image_sha,
+                }
+            ],
+            "focus_page_numbers": [8],
+        },
+    )
+    connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            authorized_proxy_output_dir=proxy_root,
+            max_sources=1,
+            auto_fetch_restricted_sources=True,
+            auto_fetch_max_items=1,
+        ),
+        searcher=lambda _query, _limit: [
+            {
+                "doi": "10.1000/automatic-restricted",
+                "title": "Automatic restricted synthesis route for bufotalin",
+                "pdf_url": "https://publisher.test/restricted.pdf",
+            }
+        ],
+        fetcher=lambda _url, _timeout, _maximum: b"<html>institution login</html>",
+        authorized_fetcher=authorized_fetcher,
+    )
+
+    result = connector(_request())
+
+    assert result["receipt"]["accepted_source_count"] == 1
+    assert result["receipt"]["queued_source_count"] == 0
+    assert result["receipt"]["automatic_authorized_fetch"]["downloaded_count"] == 1
+    source = result["discovery"]["sources"][0]
+    assert source["acquisition_status"] == "materialized"
+    assert source["source_ref"] == "doi:10.1000/automatic-restricted"
+    assert source["visual_candidate_pages"][0]["page_number"] == 8
+
+
 def test_authorized_publisher_html_is_consumed_before_pdf(
     tmp_path: Path,
 ) -> None:
@@ -1070,6 +1184,154 @@ def test_legacy_publisher_structured_json_is_consumed_before_html_or_pdf(
     assert source["acquisition_method"] == "authorized_publisher_structured_json"
     assert source["procedure_inventory"][0]["source_artifact_kind"] == ("publisher_structured_json")
     assert Path(source["fulltext_json_path"]).is_file()
+
+
+def test_structured_publisher_source_retains_downloaded_si_visual_assets(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    proxy_root = tmp_path / "authorized-proxy"
+    structured = {
+        "metadata": {"doi": "10.1000/structured-with-si"},
+        "full_text": [
+            {
+                "title": "General procedure",
+                "text": (
+                    "Cyclopentadiene was added to the ketone, the reaction mixture "
+                    "was stirred, and the product was purified in 82 percent yield."
+                ),
+            }
+        ],
+    }
+    structured_path = proxy_root / "article-data.json"
+    pdf_path = proxy_root / "supporting-information.pdf"
+    structured_path.parent.mkdir(parents=True, exist_ok=True)
+    structured_path.write_text(json.dumps(structured), encoding="utf-8")
+    pdf_path.write_bytes(b"%PDF-1.7\nSI")
+    image = tmp_path / "scheme.png"
+    image.write_bytes(b"scheme")
+    image_sha = hashlib.sha256(image.read_bytes()).hexdigest()
+    manifest = local_pdf_proxy_download_manifest_path(proxy_root)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "accepted": True,
+                "status": "downloaded",
+                "doi": "10.1000/structured-with-si",
+                "source_ref": "doi:10.1000/structured-with-si",
+                "structured_path": str(structured_path),
+                "structured_sha256": hashlib.sha256(
+                    structured_path.read_bytes()
+                ).hexdigest(),
+                "pdf_path": str(pdf_path),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_pdf_materialization(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "source_pdf_sha256": "f" * 64,
+            "pdf_sha256": "f" * 64,
+            "source_pdf_path": str(pdf_path),
+            "page_count": 12,
+            "visual_candidate_pages": [
+                {
+                    "page_number": 7,
+                    "image_path": str(image),
+                    "image_sha256": image_sha,
+                }
+            ],
+            "focus_page_numbers": [7],
+            "procedure_inventory": [],
+        }
+
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.literature_materialization.finalize_pdf_materialization",
+        fake_pdf_materialization,
+    )
+    connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            authorized_proxy_output_dir=proxy_root,
+            max_sources=1,
+        ),
+        searcher=lambda _query, _limit: [
+            {
+                "doi": "10.1000/structured-with-si",
+                "title": "Bufotalin fulvene synthesis with supporting information",
+            }
+        ],
+        fetcher=lambda _url, _timeout, _maximum: b"<html>unavailable</html>",
+    )
+
+    source = connector(_request())["discovery"]["sources"][0]
+
+    assert source["source_fulltext_sha256"]
+    assert source["source_pdf_sha256"] == "f" * 64
+    assert source["visual_candidate_pages"][0]["page_number"] == 7
+    assert source["acquisition_receipt"]["supplementary_pdf_materialization"] == {
+        "status": "materialized",
+        "pdf_sha256": "f" * 64,
+        "visual_page_count": 1,
+    }
+
+
+def test_downloaded_unextractable_source_is_not_queued_or_downloaded_again(
+    tmp_path: Path,
+) -> None:
+    proxy_root = tmp_path / "authorized-proxy"
+    broken = proxy_root / "broken-article.json"
+    broken.parent.mkdir(parents=True, exist_ok=True)
+    broken.write_text('{"metadata":', encoding="utf-8")
+    manifest = local_pdf_proxy_download_manifest_path(proxy_root)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "accepted": True,
+                "status": "downloaded",
+                "doi": "10.1000/broken-source",
+                "source_ref": "doi:10.1000/broken-source",
+                "structured_path": str(broken),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    browser_calls = 0
+
+    def forbidden_browser_fetch(**_kwargs: Any) -> dict[str, Any]:
+        nonlocal browser_calls
+        browser_calls += 1
+        return {}
+
+    connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            authorized_proxy_output_dir=proxy_root,
+            max_sources=1,
+            auto_fetch_restricted_sources=True,
+        ),
+        searcher=lambda _query, _limit: [
+            {
+                "doi": "10.1000/broken-source",
+                "title": "Broken bufotalin synthesis source",
+            }
+        ],
+        fetcher=lambda _url, _timeout, _maximum: b"<html>unavailable</html>",
+        authorized_fetcher=forbidden_browser_fetch,
+    )
+
+    result = connector(_request())
+
+    assert browser_calls == 0
+    assert result["receipt"]["queued_source_count"] == 0
+    assert result["receipt"]["downloaded_unextractable_source_count"] == 1
+    source = result["discovery"]["sources"][0]
+    assert source["acquisition_status"] == "downloaded_unextractable"
+    assert source["semantics"]["resume_after_browser_download"] is False
 
 
 def test_publisher_experimental_section_splits_explicit_compound_procedures(

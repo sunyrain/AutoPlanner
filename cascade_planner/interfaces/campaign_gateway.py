@@ -261,6 +261,14 @@ class CampaignGateway(CampaignProgramGatewayMixin):
             "runs": rows,
         }
 
+    def remove_run_from_history(self, run_id: str) -> dict[str, Any]:
+        """Hide a finished run from the task queue without deleting evidence."""
+
+        identity = self._normalize_run_id(run_id)
+        if self.index.get_run(identity) is None:
+            raise CampaignGatewayError(f"run_not_found:{identity}")
+        return self.index.remove_run_projection(identity)
+
     def _open(
         self,
         run_id: str,

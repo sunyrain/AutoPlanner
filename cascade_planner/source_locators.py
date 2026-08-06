@@ -152,6 +152,38 @@ def canonical_traceable_source_refs(values: Iterable[Any]) -> list[str]:
     return sorted(aliases, key=source_ref_sort_key)
 
 
+def traceable_source_refs_in_text(value: Any) -> list[str]:
+    """Extract strict identifiers from one bounded descriptive source hint.
+
+    This is intentionally separate from ``canonical_traceable_source_ref``:
+    the canonicalizer remains strict for evidence records, while model-authored
+    acquisition hints may append a location such as ``Example 1`` after a real
+    patent publication.  Extracted tokens are locators only and grant no
+    evidence authority.
+    """
+
+    text = unquote(str(value or "").strip()).strip()
+    if not text or "\x00" in text or len(text) > 4_000:
+        return []
+    aliases: set[str] = set()
+    if canonical := canonical_traceable_source_ref(text):
+        aliases.add(canonical)
+    for match in re.finditer(
+        r"(?i)(?<![A-Z0-9])([A-Z]{2}[ -]?\d{6,14}[ -]?[A-Z]\d?)(?![A-Z0-9])",
+        text,
+    ):
+        if canonical := _canonical_patent_publication(match.group(1)):
+            aliases.add(canonical)
+    for match in re.finditer(
+        r"(?i)(?<![A-Z0-9])(?:DOI\s*:\s*)?"
+        r"(10\.\d{4,9}/[-._;()/:A-Z0-9]+)",
+        text,
+    ):
+        if canonical := _canonical_doi(match.group(1).rstrip(".,;")):
+            aliases.add(canonical)
+    return sorted(aliases, key=source_ref_sort_key)
+
+
 def source_ref_sort_key(value: str) -> tuple[int, str]:
     priorities = {
         "doi": 0,

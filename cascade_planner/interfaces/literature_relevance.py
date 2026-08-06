@@ -67,7 +67,12 @@ def target_relevant_candidates(
         re.fullmatch(r"target-[0-9a-f]{8}", target)
     )
     pinned = {str(value).strip().casefold() for value in pinned_source_refs}
-    ranked: list[tuple[tuple[int, int, int, int, str], dict[str, Any]]] = []
+    ranked: list[
+        tuple[
+            tuple[int, int, int, int, int, int, int, int, str],
+            dict[str, Any],
+        ]
+    ] = []
     for raw in rows:
         row = dict(raw)
         is_pinned = candidate_source_ref(row).casefold() in pinned
@@ -94,6 +99,10 @@ def target_relevant_candidates(
             (
                 (
                     -int(is_pinned),
+                    -int(row.get("target_edge_occurrence_count") or 0),
+                    -int(row.get("corroborating_source_ref_count") or 0),
+                    -int(row.get("occurrence_count") or 0),
+                    -int(row.get("route_skeleton_count") or 0),
                     -int(exact_route_phrase),
                     -(route_terms - noise_terms - derivative_terms),
                     derivative_terms,

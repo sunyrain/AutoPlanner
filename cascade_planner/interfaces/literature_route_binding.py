@@ -85,11 +85,16 @@ def bind_materialized_literature_source(
         )
 
     companion = _companion(row, path=path, procedures=procedures)
-    if not companion:
+    source_evidence = [
+        dict(value)
+        for value in row.get("source_evidence") or []
+        if isinstance(value, Mapping)
+    ]
+    if not companion and not source_evidence:
         return row, {}, _audit(
             "unresolved",
             proposal_count=len(proposals),
-            reason="replayable_fulltext_companion_missing",
+            reason="replayable_source_artifact_missing",
         )
     steps = [
         {
@@ -101,7 +106,8 @@ def bind_materialized_literature_source(
             ),
             "reactant_names": list(value.get("reactant_names") or []),
             "source_ref": str(row.get("source_ref") or ""),
-            "source_text_companions": [companion],
+            "source_evidence": source_evidence,
+            "source_text_companions": [companion] if companion else [],
         }
         for value in proposals
     ]
@@ -286,19 +292,35 @@ def _exact_rows_from_registry(
         )
         if not step_id or not product or not reactants:
             continue
+        location_kind = str(location.get("kind") or "")
+        if location_kind == "pdf_page":
+            location_ref = (
+                f"{source_ref}:pdf:page-{int(location.get('page_number') or 0)}"
+            )
+        else:
+            location_ref = (
+                f"{source_ref}:{location_kind or 'html'}:"
+                f"{location.get('start_element_id') or ''}"
+            )
         rows.append(
             {
                 "step_id": step_id,
                 "product_smiles": product,
                 "reactant_smiles": reactants,
                 "relation_type": "exact",
-                "location_ref": (
-                    f"{source_ref}:html:{location.get('start_element_id') or ''}"
-                ),
+                "location_ref": location_ref,
                 "evidence_refs": [
                     item
                     for item in (
-                        f"html_sha256:{artifact_sha256}" if artifact_sha256 else "",
+                        (
+                            f"pdf_sha256:{artifact_sha256}"
+                            if artifact_sha256 and location_kind == "pdf_page"
+                            else (
+                                f"html_sha256:{artifact_sha256}"
+                                if artifact_sha256
+                                else ""
+                            )
+                        ),
                         f"text_sha256:{text_sha256}" if text_sha256 else "",
                         (
                             f"procedure-text-sha256:{procedure_text_sha256}"

@@ -6,7 +6,7 @@ from pathlib import Path
 from cascade_planner.harness.deterministic_literature_registry import (
     PARSER_AUTHORITY_ID,
 )
-from cascade_planner.harness.real_patent_procedure_gate import (
+from cascade_planner.research.real_patent_procedure_gate import (
     SNAPSHOT_SCHEMA,
     compile_patent_procedure_gate_suite,
     content_digest,

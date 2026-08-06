@@ -9,6 +9,7 @@ from typing import Any
 
 import fitz
 from PIL import Image, ImageDraw
+import cascade_planner.interfaces.target_solver as target_solver_module
 
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
@@ -24,8 +25,12 @@ from cascade_planner.interfaces.target_solver import (
     _director_depth_replan_events,
     _director_topology_replan_events,
     _evidence_observations,
+    _material_replan_events,
     _planning_depth_requirement,
+    _replan_gain_audit,
+    _replan_retention_audit,
     _replan_reasons,
+    _replan_signal_gate,
     _should_retry_chemenzy_timeout,
 )
 from cascade_planner.interfaces.validation_fork import ValidationForkConfig
@@ -39,6 +44,139 @@ from cascade_planner.runtime.paths import RuntimePaths
 
 
 TARGET = "CCOC(C)=O"
+
+
+def test_target_solver_enables_target_level_chemenzy_seed_by_default() -> None:
+    assert TargetSolveConfig().enable_target_chemenzy_baseline is True
+
+
+def test_replan_signal_gate_rejects_a_route_deficit_without_new_information() -> None:
+    gate = _replan_signal_gate(
+        {"gates": {"B2_host_validated_routes": False, "B4_stock_boundary": True}},
+        material_events=("portfolio_stagnation", "stock_records_added"),
+        trigger_reasons=("host_validated_route_deficit",),
+    )
+
+    assert gate["accepted"] is False
+    assert gate["actionable_material_events"] == []
+    assert gate["ignored_material_events"] == [
+        "portfolio_stagnation",
+        "stock_records_added",
+    ]
+    assert gate["reasons"] == ["no_new_actionable_host_observation"]
+
+
+def test_material_replan_events_only_emit_observed_post_plan_changes() -> None:
+    assert _material_replan_events({}) == ()
+    assert _material_replan_events(
+        {
+            "accepted_validation_count": 2,
+            "rejected_validation_count": 1,
+            "material_events": ["guided_provider_proposals_added"],
+        }
+    ) == (
+        "critical_edge_rejected",
+        "guided_provider_proposals_added",
+        "host_validated_edges_added_after_initial_plan",
+    )
+
+
+def test_replan_signal_gate_accepts_new_validation_or_open_stock_observation() -> None:
+    validation = _replan_signal_gate(
+        {"gates": {"B2_host_validated_routes": False, "B4_stock_boundary": True}},
+        material_events=("critical_edge_rejected",),
+        trigger_reasons=("host_validated_route_deficit",),
+    )
+    stock = _replan_signal_gate(
+        {"gates": {"B2_host_validated_routes": False, "B4_stock_boundary": False}},
+        material_events=("stock_boundary_changed", "stock_records_added"),
+        trigger_reasons=("host_validated_route_deficit",),
+    )
+
+    assert validation["accepted"] is True
+    assert validation["actionable_material_events"] == ["critical_edge_rejected"]
+    assert stock["accepted"] is True
+    assert stock["actionable_material_events"] == [
+        "stock_boundary_changed",
+        "stock_records_added",
+    ]
+
+
+def test_replan_retention_audit_requires_graph_union_semantics() -> None:
+    before = {
+        "molecules": {"m1": {}},
+        "edges": {"e1": {}},
+        "route_families": {"r1": {}},
+    }
+    extended = {
+        "molecules": {"m1": {}, "m2": {}},
+        "edges": {"e1": {}, "e2": {}},
+        "route_families": {"r1": {}, "r2": {}},
+    }
+    replaced = {
+        "molecules": {"m2": {}},
+        "edges": {"e2": {}},
+        "route_families": {"r2": {}},
+    }
+
+    accepted = _replan_retention_audit(before, extended)
+    rejected = _replan_retention_audit(before, replaced)
+
+    assert accepted["accepted"] is True
+    assert accepted["counts"]["edges"] == {
+        "before": 1,
+        "after": 2,
+        "added": 1,
+        "missing": 0,
+    }
+    assert rejected["accepted"] is False
+    assert rejected["missing_ids"] == {
+        "molecules": ["m1"],
+        "edges": ["e1"],
+        "route_families": ["r1"],
+    }
+
+
+def test_replan_gain_audit_separates_scientific_delta_from_model_cost() -> None:
+    before = {
+        "gates": {"B1_global_multi_route": True, "B2_host_validated_routes": False},
+        "counts": {"reaction_validated_skeletons": 0, "materialized_skeletons": 2},
+    }
+    after = {
+        "gates": {"B1_global_multi_route": True, "B2_host_validated_routes": True},
+        "counts": {"reaction_validated_skeletons": 1, "materialized_skeletons": 3},
+    }
+
+    audit = _replan_gain_audit(
+        before,
+        after,
+        model_cost_before={
+            "model_invocations": 1,
+            "input_tokens": 10_000,
+            "output_tokens": 2_000,
+            "wall_time_s": 30.0,
+        },
+        model_cost_after={
+            "model_invocations": 2,
+            "input_tokens": 26_000,
+            "output_tokens": 5_000,
+            "wall_time_s": 75.5,
+        },
+    )
+
+    assert audit["disposition"] == "positive_gain"
+    assert audit["gained_gates"] == ["B2_host_validated_routes"]
+    assert audit["positive_count_deltas"] == {
+        "materialized_skeletons": 1,
+        "reaction_validated_skeletons": 1,
+    }
+    assert audit["model_cost_delta"] == {
+        "model_invocations": 1.0,
+        "input_tokens": 16_000.0,
+        "output_tokens": 3_000.0,
+        "wall_time_s": 45.5,
+    }
+    assert audit["semantics"]["observed_delta_is_not_a_cross_arm_causal_estimate"]
 
 
 def test_rejected_director_topology_triggers_one_replan_even_after_b2() -> None:
@@ -396,6 +534,16 @@ def _plan(context: Any, mode: str) -> dict[str, Any]:
                         "source_hints": [],
                         "required_validation": ["atom mapping", "stock audit"],
                         "hypothesis_only": True,
+                        "condition_predictions": [
+                            {
+                                "reagents": ["acylation catalyst or promoter"],
+                                "solvent": "screen appropriate solvent",
+                                "temperature_c": 25,
+                                "time": "screen",
+                                "authority_scope": "model_predicted_condition",
+                                "not_reaction_proof": True,
+                            }
+                        ],
                     }
                 ],
             }
@@ -955,19 +1103,25 @@ def test_proof_execution_profile_can_represent_long_route_skeletons(
     assert observed[0].max_output_tokens == 18_000
 
 
-def test_target_solver_ingests_bounded_chemenzy_proposals_before_codex(
+def test_target_solver_starts_chemenzy_and_codex_from_one_frozen_revision(
     tmp_path: Path,
 ) -> None:
     gateway = CampaignGateway(_paths(tmp_path))
     director_contexts: list[Any] = []
+    chemenzy_started = Event()
+    codex_started = Event()
 
     def recording_runner(
         spec: AgentSpec, context: Any, mode: str, config: Any
     ) -> AgentResult:
+        codex_started.set()
+        assert chemenzy_started.wait(timeout=2.0)
         director_contexts.append(context)
         return _runner(spec, context, mode, config)
 
     def chemenzy_provider(**_kwargs: Any) -> dict[str, Any]:
+        chemenzy_started.set()
+        assert codex_started.wait(timeout=2.0)
         return {
             "status": "completed",
             "routes": [
@@ -1022,16 +1176,26 @@ def test_target_solver_ingests_bounded_chemenzy_proposals_before_codex(
     assert stage["detail"]["provider_envelope"]["no_solved_claim"] is True
     assert stage["detail"]["provider_envelope"]["normalized_candidate_count"] == 1
     assert stage["detail"]["provider_registration"]["trust"]["trusted"] is True
-    chemenzy_observation = director_contexts[0].evidence[
-        "chemenzy_provider_observation"
-    ]
-    assert chemenzy_observation["selected_proposal_route_count"] == 1
-    assert chemenzy_observation["proposal_count"] == 1
-    assert chemenzy_observation["semantics"]["director_should_reason_over_seed_as_a_global_route"] is True
-    assert any(
+    lineage = stage["detail"]["route_lineage"]
+    assert len(lineage) == 1
+    assert lineage[0]["host_portfolio_selected"] is True
+    assert len(lineage[0]["raw_route_sha256"]) == 64
+    assert len(lineage[0]["normalized_route_sha256"]) == 64
+    assert lineage[0]["canonical_route_family_id"]
+    assert director_contexts[0].evidence["chemenzy_provider_observation"] == {}
+    assert not any(
         "chemenzy" in row.get("origin_kinds", [])
         for row in director_contexts[0].topology["hypotheses"].values()
     )
+    anytime_core = next(
+        value for value in result["stages"] if value["stage"] == "campaign_anytime_core"
+    )["detail"]
+    start_cohort = anytime_core["start_cohort"]
+    assert start_cohort["status"] == "completed"
+    assert start_cohort["max_in_flight_action_count"] == 2
+    assert start_cohort["semantics"][
+        "all_actions_bound_to_one_input_revision"
+    ] is True
     service = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))
     origins = {
         origin["origin_kind"]
@@ -1057,6 +1221,181 @@ def test_target_solver_ingests_bounded_chemenzy_proposals_before_codex(
     assert enzyme_option["kind"] == "biocatalytic_step"
     assert enzyme_option["enzyme"]["ec_numbers"] == ["3.1.1.-"]
     assert enzyme_option["not_reaction_proof"] is True
+    final_lineage = next(
+        value
+        for value in result["stages"]
+        if value["stage"] == "chemenzy_route_lineage"
+    )["detail"]
+    assert final_lineage["route_count"] == 1
+    assert final_lineage["routes"][0]["canonical_hypothesis_ids"]
+
+
+def test_legacy_benchmark_label_does_not_short_circuit_unified_campaign(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    director_modes: list[str] = []
+
+    def recording_director(
+        spec: AgentSpec, context: Any, mode: str, config: Any
+    ) -> AgentResult:
+        director_modes.append(mode)
+        return _runner(spec, context, mode, config)
+
+    def chemenzy_provider(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "completed",
+            "routes": [
+                {
+                    "score": score,
+                    "steps": [
+                        {
+                            "product_smiles": TARGET,
+                            "reactant_smiles": ["CCO", precursor],
+                            "rxn_smiles": f"CCO.{precursor}>>{TARGET}",
+                            "source_model": "fixture-chemenzy",
+                            "score": score,
+                            "stock_status": {"CCO": True, precursor: True},
+                            "raw_backend_metadata": {
+                                "template": {"template_id": f"fixture:{index}"}
+                            },
+                        }
+                    ],
+                }
+                for index, (precursor, score) in enumerate(
+                    (("CC(=O)Cl", 0.9), ("CC(=O)O", 0.8), ("CC(=O)Br", 0.7)),
+                    start=1,
+                )
+            ],
+        }
+
+    result = gateway.solve_target(
+        target_name="benchmark seed closure",
+        target_smiles=TARGET,
+        run_id="benchmark-seed-closure",
+        acceptance=RetrosynthesisAcceptanceSpec(
+            minimum_complete_routes=2,
+            minimum_edge_proof_level=2,
+            stock_boundary="benchmark_search",
+            minimum_independent_source_groups=2,
+        ),
+        config=TargetSolveConfig(
+            objective_mode="benchmark_search",
+            enable_target_identity=False,
+            enable_web_search=False,
+            enable_replan=True,
+            enable_builtin_patent_evidence=False,
+            enable_patent_self_evolution=True,
+            provider_route_reserve=16,
+            host_route_portfolio=8,
+            display_route_limit=4,
+        ),
+        director_runner=recording_director,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        chemenzy_provider=chemenzy_provider,
+    )
+
+    assert director_modes
+    assert director_modes[0] == "initial_architecture"
+    assert result["model_cost"]["model_invocations"] >= 1
+    assert result["gates"]["gates"]["B4_stock_boundary"] is True
+    configured_accepted = result["gates"]["gates"][
+        "B5_configured_portfolio_acceptance"
+    ]
+    assert result["claim"]["objective_achieved"] is configured_accepted
+    assert result["claim"]["benchmark_search_completed"] is True
+    assert result["claim"]["scientific_proof_accepted"] is configured_accepted
+    assert result["claim"]["semantics"][
+        "objective_mode_is_compatibility_metadata_only"
+    ] is True
+    assert result["current_disposition"]["state"] == (
+        "accepted" if configured_accepted else "stock_closed_proof_open"
+    )
+    stage_names = {stage["stage"] for stage in result["stages"]}
+    assert "chemenzy_seed_materialization" in stage_names
+    assert "chemenzy_seed_stock" in stage_names
+    assert "campaign_milestone" in stage_names
+    assert "global_campaign" in stage_names
+    assert "evidence_acquisition" in stage_names
+    service = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))
+    provider_origins = [
+        origin
+        for edge in service.graph_store.load()["edges"].values()
+        for origin in edge.get("origin_records") or []
+        if origin.get("origin_kind") == "chemenzy"
+    ]
+    assert provider_origins
+    assert all(origin["provider_reaction_metadata_digest_valid"] for origin in provider_origins)
+    assert all(
+        len(origin["provider_reaction_metadata_sha256"]) == 64
+        for origin in provider_origins
+    )
+
+
+def test_legacy_objective_labels_produce_the_same_campaign_trace(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+
+    def chemenzy_provider(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "completed",
+            "routes": [
+                {
+                    "score": 0.9,
+                    "steps": [
+                        {
+                            "product_smiles": TARGET,
+                            "reactant_smiles": ["CCO", "CC(=O)Cl"],
+                            "rxn_smiles": f"CCO.CC(=O)Cl>>{TARGET}",
+                            "source_model": "fixture-chemenzy",
+                            "score": 0.9,
+                        }
+                    ],
+                }
+            ],
+        }
+
+    def solve(label: str) -> dict[str, Any]:
+        return gateway.solve_target(
+            target_name="objective-blind target",
+            target_smiles=TARGET,
+            run_id=f"objective-blind-{label}",
+            config=TargetSolveConfig(
+                objective_mode=label,
+                enable_target_identity=False,
+                enable_web_search=False,
+                enable_replan=False,
+                enable_live_benchmark_stock=False,
+                enable_builtin_patent_evidence=False,
+                enable_patent_self_evolution=False,
+                enable_condition_enrichment=False,
+                enable_chemenzy_condition_prediction=False,
+            ),
+            director_runner=_runner,
+            atom_mapper=_mapper,
+            stock_catalog_builder=_catalog,
+            chemenzy_provider=chemenzy_provider,
+        )
+
+    benchmark = solve("benchmark_search")
+    scientific = solve("scientific_proof")
+
+    assert [row["stage"] for row in benchmark["stages"]] == [
+        row["stage"] for row in scientific["stages"]
+    ]
+    assert benchmark["gates"]["gates"] == scientific["gates"]["gates"]
+    assert benchmark["model_cost"] == scientific["model_cost"]
+    benchmark_lineage = next(
+        row for row in benchmark["stages"] if row["stage"] == "chemenzy_baseline"
+    )["detail"]["route_lineage"]
+    scientific_lineage = next(
+        row for row in scientific["stages"] if row["stage"] == "chemenzy_baseline"
+    )["detail"]["route_lineage"]
+    assert [row["normalized_route_sha256"] for row in benchmark_lineage] == [
+        row["normalized_route_sha256"] for row in scientific_lineage
+    ]
 
 
 def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
@@ -1098,6 +1437,7 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
             enable_web_search=False,
             enable_replan=False,
             enable_builtin_patent_evidence=False,
+            enable_target_chemenzy_baseline=False,
             chemenzy_expansion_topk=180,
             max_guided_chemenzy_iterations=60,
         ),
@@ -1317,6 +1657,31 @@ def test_target_solver_replans_globally_from_unbound_source_discovery(
         == ["evidence_deficit_with_new_source_material"]
         for stage in result["stages"]
     )
+    signal_gate = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "global_replan_signal_gate"
+    )
+    retention = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "replan_retention_audit"
+    )
+    gain = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "global_replan_gain_audit"
+    )
+    assert signal_gate["status"] == "accepted"
+    assert signal_gate["detail"]["actionable_material_events"] == [
+        "source_material_discovered"
+    ]
+    assert retention["status"] == "accepted"
+    assert retention["detail"]["missing_ids"] == {}
+    assert gain["detail"]["model_cost_delta"]["model_invocations"] == 1.0
+    assert gain["detail"]["semantics"][
+        "observed_delta_is_not_a_cross_arm_causal_estimate"
+    ]
     discovery_stage = next(
         stage
         for stage in result["stages"]
@@ -1324,6 +1689,107 @@ def test_target_solver_replans_globally_from_unbound_source_discovery(
     )
     assert discovery_stage["status"] == "discovered_unbound"
     assert discovery_stage["detail"]["exact_record_count"] == 0
+
+
+def test_completed_checkpoint_resume_can_run_a_third_director_outcome(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setattr(target_solver_module, "_MAX_DIRECTOR_OUTCOMES", 3)
+    observed_modes: list[str] = []
+
+    def runner(
+        spec: AgentSpec, context: Any, mode: str, config: Any
+    ) -> AgentResult:
+        observed_modes.append(mode)
+        return _runner(spec, context, mode, config)
+
+    gateway = CampaignGateway(_paths(tmp_path))
+    acceptance = RetrosynthesisAcceptanceSpec(
+        minimum_complete_routes=4,
+        minimum_edge_proof_level=2,
+        stock_boundary="benchmark_search",
+        minimum_independent_source_groups=2,
+    )
+    initial_budget = RetrosynthesisRunBudget(
+        max_model_invocations=3,
+        max_total_input_tokens=100_000,
+        max_total_output_tokens=40_000,
+        max_total_wall_time_s=720.0,
+        max_visual_invocations=0,
+        max_accepted_expansions=32,
+        max_attempt_runs=72,
+    )
+    extended_budget = RetrosynthesisRunBudget(
+        max_model_invocations=4,
+        max_total_input_tokens=100_000,
+        max_total_output_tokens=40_000,
+        max_total_wall_time_s=720.0,
+        max_visual_invocations=0,
+        max_accepted_expansions=32,
+        max_attempt_runs=72,
+    )
+    config = TargetSolveConfig(
+        use_coordinator=False,
+        enable_web_search=False,
+        enable_chemenzy=False,
+        enable_replan=True,
+    )
+
+    first = gateway.solve_target(
+        target_name="blind repeated replan target",
+        target_smiles=TARGET,
+        run_id="blind-target-repeated-replan",
+        acceptance=acceptance,
+        budget=initial_budget,
+        config=config,
+        director_runner=runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=_discovery_only_connector,
+    )
+    resumed = gateway.solve_target(
+        target_name="blind repeated replan target",
+        target_smiles=TARGET,
+        run_id="blind-target-repeated-replan",
+        acceptance=acceptance,
+        budget=extended_budget,
+        config=config,
+        resume=True,
+        director_runner=runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=_discovery_only_connector,
+    )
+
+    assert first["stop_decision"]["decision"] == "paused"
+    assert observed_modes == [
+        "initial_architecture",
+        "event_replan",
+        "event_replan",
+    ]
+    assert resumed["model_cost"]["model_invocations"] == 3
+    assert len(resumed["director_outcomes"]) == 3
+    assert resumed["stop_decision"]["decision"] == "unresolved"
+    outcome_limit = next(
+        stage
+        for stage in resumed["stages"]
+        if stage["stage"] == "director_outcome_limit"
+    )
+    assert outcome_limit["status"] == "exhausted"
+    assert outcome_limit["detail"]["observed_outcomes"] == 3
+    extension = next(
+        stage
+        for stage in resumed["stages"]
+        if stage["stage"] == "model_budget_extension"
+    )
+    assert extension["status"] == "accepted"
+    assert extension["detail"]["effective_budget"]["max_model_invocations"] == 4
+    assert (
+        gateway._open("blind-target-repeated-replan")
+        .kernel.spec.limits.model.max_model_invocations
+        == 4
+    )
 
 
 def test_target_solver_uses_one_budgeted_visual_candidate_in_global_replan(
@@ -1425,8 +1891,59 @@ def test_target_solver_uses_one_budgeted_visual_candidate_in_global_replan(
         for stage in result["stages"]
         if stage["stage"] == "evidence_acquisition"
     )
+    assert first_evidence["status"] == "structure_bound_unproven"
     assert first_evidence["detail"]["visual_evidence"]["status"] == "completed"
     assert first_evidence["detail"]["exact_record_count"] == 0
+    assert first_evidence["detail"]["exact_structure_binding_count"] == 1
+
+
+def test_target_solver_runs_program_discovery_without_implicit_store_admission(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    result = gateway.solve_target(
+        target_name="program discovery target",
+        target_smiles=TARGET,
+        run_id="program-discovery-action",
+        config=TargetSolveConfig(
+            enable_chemenzy=False,
+            enable_web_search=False,
+            enable_replan=False,
+            enable_condition_enrichment=False,
+            enable_builtin_patent_evidence=False,
+            enable_program_discovery=True,
+            enable_program_review=True,
+            enable_program_admission=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        program_capabilities=[
+            {
+                "capability_id": "fixture:generic-program-capability",
+                "enzyme": {"classes": ["ketoreductase"]},
+                "match": {
+                    "net_motif_delta": {"carbonyl": -1, "hydroxyl": 1},
+                    "min_window_steps": 1,
+                    "max_window_steps": 4,
+                },
+                "precedent_refs": ["doi:10.1000/program-fixture"],
+            }
+        ],
+    )
+
+    discovery = next(
+        row for row in result["stages"] if row["stage"] == "program_discovery"
+    )["detail"]
+    review = next(
+        row for row in result["stages"] if row["stage"] == "program_review"
+    )["detail"]
+
+    assert discovery["action_execution_count"] >= 1
+    assert discovery["semantics"]["target_names_are_not_matching_inputs"] is True
+    assert discovery["semantics"]["program_candidates_are_proposal_only"] is True
+    assert review["store"]["status"]["event_count"] == 0
+    assert not any(row["stage"] == "program_admission" for row in result["stages"])
 
 
 def test_target_solver_can_close_procurement_from_frozen_supplier_snapshot(

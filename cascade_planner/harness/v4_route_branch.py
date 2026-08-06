@@ -78,6 +78,8 @@ def route_branch(
             "reported_candidate_route"
             if reported_in_source and not process_ready
             else "proof_eligible_portfolio_route"
+            if complete
+            else "exploratory_canonical_route"
         ),
         "listed": True,
         "is_primary": primary,
@@ -103,6 +105,7 @@ def route_branch(
         "executable": process_ready,
         "process_ready": process_ready,
         "advisory_only": not process_ready,
+        "proof_eligible": complete,
         "reported_in_source": reported_in_source,
         "reported_step_count": paper_reported_step_count,
         "planner_hypothesis_step_count": planner_hypothesis_step_count,

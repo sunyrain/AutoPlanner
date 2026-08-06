@@ -123,6 +123,113 @@ def test_pubchem_name_is_rejected_when_structure_identity_does_not_match() -> No
     assert result["reason"] == "pubchem_exact_inchikey_match_missing"
 
 
+def test_named_lookup_requires_exact_inchikey_before_completing_identity() -> None:
+    calls: list[tuple[str, str]] = []
+
+    def requester(
+        method: str,
+        url: str,
+        **_kwargs: Any,
+    ) -> tuple[int, bytes]:
+        calls.append((method, url))
+        if "/compound/smiles/property/" in url:
+            return 200, _response(
+                {"PropertyTable": {"Properties": [{"CID": 0}]}}
+            )
+        if "/compound/name/Ethyl%20acetate/property/" in url:
+            return 200, _response(
+                {
+                    "PropertyTable": {
+                        "Properties": [
+                            {
+                                "CID": 8857,
+                                "Title": "Ethyl acetate",
+                                "InChIKey": "XEKOWRVHYACXOJ-UHFFFAOYSA-N",
+                            }
+                        ]
+                    }
+                }
+            )
+        if "/synonyms/" in url:
+            return 200, _response({"InformationList": {"Information": []}})
+        return 200, _response(
+            {
+                "InformationList": {
+                    "Information": [{"CID": 8857, "PatentID": ["EP-5-A1"]}]
+                }
+            }
+        )
+
+    result = resolve_target_identity(
+        TARGET,
+        target_name="Ethyl acetate",
+        requester=requester,
+    )
+
+    assert result["status"] == "completed"
+    assert result["identity"]["patent_ids"] == ["EP-5-A1"]
+    assert result["semantics"]["lookup_strategy"] == (
+        "name_verified_by_exact_inchikey"
+    )
+    assert calls[0][0] == "POST"
+    assert calls[1][0] == "GET"
+
+
+def test_named_structure_mismatch_keeps_patents_as_discovery_hints_only() -> None:
+    def requester(
+        _method: str,
+        url: str,
+        **_kwargs: Any,
+    ) -> tuple[int, bytes]:
+        if "/compound/smiles/property/" in url:
+            return 200, _response(
+                {"PropertyTable": {"Properties": [{"CID": 0}]}}
+            )
+        if "/compound/name/" in url:
+            return 200, _response(
+                {
+                    "PropertyTable": {
+                        "Properties": [
+                            {
+                                "CID": 131723104,
+                                "Title": "named record",
+                                "InChIKey": "A-DIFFERENT-INCHIKEY",
+                            }
+                        ]
+                    }
+                }
+            )
+        if "/synonyms/" in url:
+            return 200, _response({"InformationList": {"Information": []}})
+        return 200, _response(
+            {
+                "InformationList": {
+                    "Information": [
+                        {
+                            "CID": 131723104,
+                            "PatentID": ["EP-0955305-A1", "US-6342568-B1"],
+                        }
+                    ]
+                }
+            }
+        )
+
+    result = resolve_target_identity(
+        TARGET,
+        target_name="named record",
+        requester=requester,
+    )
+
+    assert result["status"] == "unresolved"
+    assert result["reason"] == "pubchem_named_inchikey_mismatch"
+    assert result["identity"]["patent_ids"] == []
+    assert result["identity"]["name_linked_patent_ids"] == [
+        "US-6342568-B1",
+        "EP-0955305-A1",
+    ]
+    assert result["semantics"]["host_structure_validation_required"] is True
+
+
 def test_smaller_pubchem_patent_view_recovers_when_bulk_xrefs_timeout() -> None:
     def requester(
         _method: str,

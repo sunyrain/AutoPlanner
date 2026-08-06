@@ -13,13 +13,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from cascade_planner.application.retrosynthesis_acceptance import (  # noqa: E402
+from cascade_planner.legacy.application_runtime.retrosynthesis_acceptance import (  # noqa: E402
     evaluate_retrosynthesis_acceptance,
 )
 from cascade_planner.application.retrosynthesis_run_contract import (  # noqa: E402
     RetrosynthesisAcceptanceSpec,
 )
-from cascade_planner.application.route_portfolio import solve_diverse_routes  # noqa: E402
+from cascade_planner.legacy.application_runtime.route_portfolio import solve_diverse_routes  # noqa: E402
 from cascade_planner.harness.deterministic_literature_registry import (  # noqa: E402
     PARSER_AUTHORITY_ID,
 )

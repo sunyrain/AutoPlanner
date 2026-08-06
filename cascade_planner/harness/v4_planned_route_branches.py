@@ -10,7 +10,7 @@ from cascade_planner.harness.v4_route_condition_projection import (
 )
 from cascade_planner.harness.v4_route_evidence_projection import (
     PROOF_TIER,
-    condition_summary,
+    condition_resolution,
     trust_vector,
 )
 from cascade_planner.harness.v4_route_graph_projection import (
@@ -245,6 +245,7 @@ def _planned_step(
     rendered_trust: dict[str, Any],
 ) -> dict[str, Any]:
     condition_status = str(inspector.get("condition_status") or "missing")
+    resolution = condition_resolution(condition_status, inspector)
     return {
         "step_id": reaction_step_id,
         "graph_step_id": canonical_edge_id or hypothesis_id,
@@ -281,7 +282,8 @@ def _planned_step(
         "conditions": rendered_conditions,
         "condition_status": condition_status,
         "condition_completeness": "missing",
-        "condition_summary": condition_summary(condition_status),
+        "condition_summary": str(resolution["summary"]),
+        "condition_resolution": resolution,
         "procedure_records": procedure_records,
         "proof_vector": dict(inspector.get("proof_vector") or {}),
         "proof_tier": tier,

@@ -654,30 +654,10 @@ _SOURCE_GATE_CACHE: dict[str, SourceGate] = {}
 
 
 def default_source_gate() -> SourceGate:
-    reservoir_path = os.environ.get("AUTOPLANNER_RESERVOIR_DISTILLED_CONTROLLER")
-    if reservoir_path:
-        cascade_path = os.environ.get("AUTOPLANNER_CASCADE_SOURCE_POLICY") or ""
-        legacy_path = os.environ.get("AUTOPLANNER_SOURCE_GATE") or ""
-        key = f"reservoir:{reservoir_path}::cascade={cascade_path}::legacy={legacy_path}"
-        cached = _SOURCE_GATE_CACHE.get(key)
-        if cached is not None:
-            return cached
-        delegate = _default_source_gate_without_reservoir()
-        try:
-            from cascade_planner.route_tree.reservoir_distilled import ReservoirDistilledControllerRuntime
-
-            gate: SourceGate = ReservoirDistilledControllerRuntime(reservoir_path, fallback_source_gate=delegate)
-        except Exception as exc:
-            from cascade_planner.route_tree.reservoir_distilled import UnavailableReservoirSourceGate
-
-            gate = UnavailableReservoirSourceGate(f"{type(exc).__name__}:load_failed", fallback_source_gate=delegate)
-        _SOURCE_GATE_CACHE[key] = gate
-        return _maybe_bridge_source_gate(gate)
-
-    return _maybe_bridge_source_gate(_default_source_gate_without_reservoir())
+    return _maybe_bridge_source_gate(_default_source_gate_from_policy())
 
 
-def _default_source_gate_without_reservoir() -> SourceGate:
+def _default_source_gate_from_policy() -> SourceGate:
     cascade_path = os.environ.get("AUTOPLANNER_CASCADE_SOURCE_POLICY")
     if cascade_path:
         key = f"cascade:{cascade_path}"

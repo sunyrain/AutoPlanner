@@ -19,7 +19,7 @@ from cascade_planner.harness.deterministic_literature_registry import (
     PARSER_AUTHORITY_ID,
     build_deterministic_literature_resolvers,
 )
-from cascade_planner.harness.real_patent_procedure_gate import (
+from cascade_planner.research.real_patent_procedure_gate import (
     SNAPSHOT_SCHEMA,
     canonical_smiles,
     compile_patent_procedure_gate_suite,

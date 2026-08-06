@@ -450,8 +450,12 @@ def write_report(payload: dict[str, Any], report_path: Path, output_path: Path, 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Train artifact-calibrated route value-function weights")
-    ap.add_argument("--input", action="append", default=None, help="Input JSON path or glob")
-    ap.add_argument("--training-pack", default=None, help="Training pack directory with route_value/candidate_ranking JSONL")
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--input", action="append", help="Input JSON path or glob; repeat for multiple inputs")
+    source.add_argument(
+        "--training-pack",
+        help="Training pack directory with route_value/candidate_ranking JSONL",
+    )
     ap.add_argument("--output", default="results/shared/value_function/weights.json")
     ap.add_argument("--report", default="results/shared/value_function/training_report.md")
     ap.add_argument("--epochs", type=int, default=120)
@@ -468,7 +472,7 @@ def main() -> None:
             l2=args.l2,
         )
     else:
-        paths = expand_inputs(args.input or ["results/v2/*.json"])
+        paths = expand_inputs(args.input)
         payload = train_value_models(paths, epochs=args.epochs, lr=args.lr, l2=args.l2)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

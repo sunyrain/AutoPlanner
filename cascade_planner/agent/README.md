@@ -37,7 +37,7 @@ Do not commit `.env` files or API keys.
 Benchmark integration:
 
 ```bash
-python -m cascade_planner.cascadeboard.prior_benchmark \
+python -m cascade_planner.research.autoplannrellm.prior_benchmark \
   --providers none deterministic deepseek \
   --limit 10 --n-results 5 --skeleton-samples 10 --check-stock
 ```

@@ -18,9 +18,9 @@
 
 | 发现 | 风险 | 审计判断 | 处理 |
 | --- | --- | --- | --- |
-| `web.app` 同时注册 V4 与旧 Agent/Statin/Blackboard API | 启动 V4 时装载旧 controller、RouteForest 和旧 campaign | 属于兼容面，不应继续作为默认主干 | 新增独立 `web.v4_app`；CLI 默认 `--surface v4`，旧界面以 `--surface combined` 保留 |
+| `web.app` 同时注册 V4 与旧 Agent/Statin/Blackboard API | 启动 V4 时装载旧 controller、RouteForest 和旧 campaign | 属于兼容面，不应继续作为默认主干 | 新增独立 `web.v4_app`；2026-07-26 已删除主 CLI combined surface，旧界面仅由 legacy 脚本启动 |
 | Web 安全门嵌在组合 App | 新增独立 App 时容易复制或漏掉写请求保护 | 可证明的公共横切逻辑 | 抽为 `web.security.install_web_security`，两个 surface 共用 |
-| V4 workbench authority 从 `route_forest_layout` 导入通用 SHA-256 | 名称和依赖方向暗示 V4 依赖旧显示布局 | 通用工具依赖泄漏 | 摘要函数移到 `runtime.canonical_json`；旧名称只保留兼容 alias |
+| V4 workbench authority 从 `route_forest_layout` 导入通用 SHA-256 | 名称和依赖方向暗示 V4 依赖旧显示布局 | 通用工具依赖泄漏 | 摘要函数移到 `runtime.canonical_json`；调用方已迁移，旧 alias 已删除 |
 | Repository audit 把 `TYPE_CHECKING` 导入报成 dead import | 清理工具会诱导删除正确类型依赖 | 审计误报 | 增加专用 AST helper；当前 dead-import candidate 为 0 |
 | Service/Gateway façade 已到行数预算上限 | 继续直接堆功能会形成新巨石 | 真实增长风险 | workbench publication、run identity 分拆为小模块后再接新能力 |
 | 旧 Blackboard/RouteForest/campaign 约 1.7 万行以上 | 维护面大、概念重复 | 当前树没有 compatibility telemetry，但外部 saved run 未审计 | 不删除；登记 shim、禁止新产品逻辑、只允许兼容/正确性/删除修改 |
@@ -42,7 +42,7 @@
 `codex_retrosynthesis` legacy campaign。旧综合展示仍可显式运行：
 
 ```bash
-python -m cascade_planner serve --surface combined
+python scripts/legacy/serve_combined_web.py
 ```
 
 ## 4. 第一块新功能：Program 只读基座

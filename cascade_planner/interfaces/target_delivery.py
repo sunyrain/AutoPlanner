@@ -28,12 +28,16 @@ def delivery_projection(
         "partial",
         "reused_or_empty",
         "unresolved",
+        "discovered_unbound",
+        "structure_bound_unproven",
     }
     normalized_job = str(job_status or "").casefold()
     if normalized_job == "failed":
         state = "failed"
     elif normalized_job == "complete":
         state = "complete"
+    elif normalized_job == "unresolved":
+        state = "unresolved"
     elif evidence_status == "running":
         state = "route_candidates_ready_evidence_running"
     elif route_candidates_available and not evidence_complete:
@@ -48,11 +52,13 @@ def delivery_projection(
         "state": state,
         "route_candidates_available": route_candidates_available,
         "proof_closure_complete": normalized_job == "complete",
+        "proof_closure_known": normalized_job in {"complete", "unresolved", "failed"},
         "evidence_stage_complete": evidence_complete,
         "workbench_available": route_candidates_available,
         "semantics": {
             "route_candidates_do_not_imply_exact_evidence": True,
             "proof_closure_may_continue_after_first_route_delivery": True,
+            "execution_finished_does_not_imply_scientific_acceptance": True,
         },
     }
 

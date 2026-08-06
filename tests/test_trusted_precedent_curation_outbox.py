@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cascade_planner.harness.source_detail_chain_builder import (
+from cascade_planner.research.source_detail_chain_builder import (
     build_trusted_precedent_curation_outbox,
 )
 

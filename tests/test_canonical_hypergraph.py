@@ -72,6 +72,67 @@ def test_empty_graph_includes_global_route_deficit_and_matches_oracle(
     assert graph["deficit_frontier"]["summary"]["by_kind"]["diversity"] == 1
 
 
+def test_action_signal_is_canonical_frontier_work_not_scientific_fact(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    initial = store.load()
+    target_id = str(initial["target_molecule_id"])
+    signal = {
+        "signal_id": "event-deficit:program-review:test",
+        "deficit_id": "event-deficit:program-review:test",
+        "kind": "program_review",
+        "status": "open",
+        "object_id": target_id,
+        "entity_ids": [target_id],
+        "route_family_ids": [],
+        "dependency_ids": [],
+        "deterministic": True,
+        "model_allowed": False,
+        "reason": "canonical_graph_requires_program_projection_review",
+        "score": {
+            "expected_portfolio_gain": 0.1,
+            "distance_to_closure": 0.1,
+            "evidence_gain": 0.1,
+            "route_diversity_gain": 0.2,
+            "cost_penalty": 0.05,
+            "failure_risk_penalty": 0.02,
+        },
+        "metadata": {"program_review": True},
+    }
+    opened = store.apply(
+        CanonicalIngestionBatch(action_signals=(signal,)),
+        idempotency_key="open-program-review-signal",
+    )["graph"]
+
+    operational = next(
+        row
+        for row in opened["deficit_frontier"]["items"]
+        if row["deficit_id"] == signal["deficit_id"]
+    )
+    assert operational["kind"] == "program_review"
+    assert operational["metadata"]["operational_signal"] is True
+    assert opened["scientific_sha256"] == initial["scientific_sha256"]
+
+    resolved_signal = {
+        **dict(opened["action_signals"][signal["signal_id"]]),
+        "status": "resolved",
+        "resolution": {"status": "completed"},
+    }
+    resolved_signal.pop("content_sha256", None)
+    resolved = store.apply(
+        CanonicalIngestionBatch(action_signals=(resolved_signal,)),
+        idempotency_key="resolve-program-review-signal",
+    )["graph"]
+
+    assert all(
+        row["deficit_id"] != signal["deficit_id"]
+        for row in resolved["deficit_frontier"]["items"]
+    )
+    assert resolved["scientific_sha256"] == initial["scientific_sha256"]
+
+
 def test_explicit_derived_projection_repair_restores_legacy_frontier(
     tmp_path: Path,
 ) -> None:

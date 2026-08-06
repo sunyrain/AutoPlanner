@@ -15,6 +15,9 @@ from typing import Any, Iterable, Mapping
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.application.condition_predictions import (
+    normalize_condition_predictions,
+)
 from cascade_planner.application.deficit_frontier import (
     compile_deficit_frontier,
     frontier_scientific_projection,
@@ -82,6 +85,7 @@ class CanonicalIngestionBatch:
     hypotheses: tuple[Mapping[str, Any], ...] = ()
     route_families: tuple[Mapping[str, Any], ...] = ()
     fact_lifecycle_events: tuple[Mapping[str, Any], ...] = ()
+    action_signals: tuple[Mapping[str, Any], ...] = ()
     prior_attempts: Mapping[str, int] = field(default_factory=dict)
     recompute_derived: bool = False
 
@@ -210,8 +214,14 @@ class CanonicalHypergraphStore:
             ancestor_smiles_by_product=ancestor_map,
         )
 
-    def frontier_materialization_commands(self) -> tuple[Any, ...]:
+    def frontier_materialization_commands(
+        self,
+        hypothesis_ids: Iterable[str] = (),
+    ) -> tuple[Any, ...]:
         graph = self.load()
+        selected_ids = {
+            str(value) for value in hypothesis_ids if str(value).strip()
+        }
         proposals: list[dict[str, Any]] = []
         hypotheses = sorted(
             graph["hypotheses"].values(),
@@ -222,6 +232,8 @@ class CanonicalHypergraphStore:
             ),
         )
         for hypothesis in hypotheses:
+            if selected_ids and str(hypothesis.get("hypothesis_id") or "") not in selected_ids:
+                continue
             if hypothesis.get("status") != "frontier_candidate":
                 continue
             origins = list(hypothesis.get("origin_records") or [{}])
@@ -263,6 +275,7 @@ def compile_canonical_hypergraph_revision(
     dirty: set[str] = set()
     rejected: list[dict[str, Any]] = []
     evidence_changed = False
+    operational_changed = False
     force_full_derived_recompute = False
 
     target_id = str(graph["target_molecule_id"])
@@ -294,11 +307,12 @@ def compile_canonical_hypergraph_revision(
         )
     worker_order = {
         "materialize_candidate": 0,
-        "discover_sources": 1,
-        "extract_exact_source": 2,
-        "validate_reaction": 3,
-        "audit_deep_leaf_stock": 4,
-        "detect_source_conflicts": 5,
+        "record_condition_predictions": 1,
+        "discover_sources": 2,
+        "extract_exact_source": 3,
+        "validate_reaction": 4,
+        "audit_deep_leaf_stock": 5,
+        "detect_source_conflicts": 6,
     }
     ordered_results = sorted(
         replayed_worker_results,
@@ -326,6 +340,16 @@ def compile_canonical_hypergraph_revision(
                 rejected=rejected,
             )
             or evidence_changed
+        )
+    for signal in sorted(batch.action_signals, key=_digest):
+        operational_changed = (
+            _ingest_action_signal(
+                graph,
+                signal,
+                dirty=dirty,
+                rejected=rejected,
+            )
+            or operational_changed
         )
 
     if not dirty and batch.recompute_derived:
@@ -385,7 +409,7 @@ def compile_canonical_hypergraph_revision(
         "rejected": rejected,
     }
     graph["scientific_sha256"] = _scientific_digest(graph)
-    if graph["scientific_sha256"] == old_scientific:
+    if graph["scientific_sha256"] == old_scientific and not operational_changed:
         return dict(previous), _report(
             previous,
             dirty=(),
@@ -469,6 +493,7 @@ def _empty_graph(kernel: RunKernel) -> dict[str, Any]:
         "route_families": {},
         "hypotheses": {},
         "conflicts": {},
+        "action_signals": {},
         "dependency_index": {"routes_by_entity": {}},
         "deficit_frontier": {},
         "portfolio_ranking": [],
@@ -747,11 +772,17 @@ def _ingest_hypothesis(
     origin = _origin_record(row, default_kind="codex_global_director")
     existing = dict(graph["hypotheses"].get(hypothesis_id) or {})
     edge_id = f"edge:{audit['edge_digest']}"
-    admission_accepted = audit.get("accepted") is True
+    advisory_only = row.get("advisory_only") is True
+    admission_accepted = audit.get("accepted") is True and not advisory_only
     admission_reasons = sorted(
         {
             *(str(reason) for reason in existing.get("admission_reasons") or []),
             *(str(reason) for reason in audit.get("reasons") or []),
+            *(
+                ["provider_route_quarantined_advisory_only"]
+                if advisory_only
+                else []
+            ),
         }
         - {""}
     )
@@ -1010,6 +1041,38 @@ def _ingest_worker_result(
         graph["edges"][edge_id] = _with_digest(edge)
         dirty.add(edge_id)
         return True
+    if result.worker_type == "record_condition_predictions":
+        edge_id = _edge_id_from_digest(graph, str(payload.get("edge_digest") or ""))
+        if not edge_id:
+            rejected.append(
+                {
+                    "kind": "condition_prediction",
+                    "proposal_id": result.command_id,
+                    "reasons": ["condition_prediction_edge_not_materialized"],
+                }
+            )
+            return False
+        edge = dict(graph["edges"][edge_id])
+        predictions = normalize_condition_predictions(
+            payload.get("condition_predictions"), max_candidates=2
+        )
+        if predictions:
+            edge["condition_predictions"] = normalize_condition_predictions(
+                [*(edge.get("condition_predictions") or []), *predictions],
+                max_candidates=2,
+            )
+        diagnostic = {
+            **dict(payload.get("diagnostics") or {}),
+            "command_id": result.command_id,
+            "status": result.status,
+        }
+        edge["condition_prediction_attempts"] = _merge_json_rows(
+            edge.get("condition_prediction_attempts"), [diagnostic]
+        )
+        graph["edges"][edge_id] = _with_digest(edge)
+        dirty.add(edge_id)
+        # Advisory predictions are graph annotations, not evidence revisions.
+        return False
     if result.worker_type in {"discover_sources", "extract_exact_source"}:
         for binding in _source_bindings_from_payload(payload):
             _ingest_source_binding(graph, binding, dirty=dirty, rejected=rejected)
@@ -1270,6 +1333,78 @@ def _ingest_fact_lifecycle_event(
     graph["fact_lifecycle_events"][event_id] = event
     dirty.update({event_id, subject_id})
     dirty.update(_lifecycle_affected_entities(graph, subject_kind, subject_id))
+    return True
+
+
+def _ingest_action_signal(
+    graph: dict[str, Any],
+    value: Mapping[str, Any],
+    *,
+    dirty: set[str],
+    rejected: list[dict[str, Any]],
+) -> bool:
+    row = _json_value(dict(value))
+    row.pop("content_sha256", None)
+    signal_id = str(row.get("signal_id") or row.get("deficit_id") or "").strip()
+    kind = str(row.get("kind") or "").strip()
+    status = str(row.get("status") or "open").strip()
+    reasons: list[str] = []
+    if not signal_id:
+        reasons.append("action_signal_identity_missing")
+    if kind not in {
+        "replan",
+        "program_discovery",
+        "program_review",
+        "program_admission",
+    }:
+        reasons.append("action_signal_kind_invalid")
+    if status not in {"open", "resolved"}:
+        reasons.append("action_signal_status_invalid")
+    if not str(row.get("object_id") or "").strip():
+        reasons.append("action_signal_object_missing")
+    if not str(row.get("reason") or "").strip():
+        reasons.append("action_signal_reason_missing")
+    existing = dict(graph.get("action_signals") or {}).get(signal_id)
+    if isinstance(existing, Mapping):
+        existing_row = dict(existing)
+        if (
+            str(existing_row.get("kind") or "") != kind
+            or str(existing_row.get("object_id") or "")
+            != str(row.get("object_id") or "")
+        ):
+            reasons.append("action_signal_identity_conflict")
+        if (
+            str(existing_row.get("status") or "open") == "resolved"
+            and status == "open"
+        ):
+            reasons.append("resolved_action_signal_cannot_reopen")
+    if reasons:
+        rejected.append(
+            {
+                "kind": "action_signal",
+                "proposal_id": signal_id,
+                "reasons": sorted(set(reasons)),
+            }
+        )
+        return False
+    normalized = _with_digest(
+        {
+            **row,
+            "signal_id": signal_id,
+            "deficit_id": str(row.get("deficit_id") or signal_id),
+            "status": status,
+            "metadata": _json_value(dict(row.get("metadata") or {})),
+        }
+    )
+    if isinstance(existing, Mapping) and dict(existing) == normalized:
+        return False
+    graph["action_signals"][signal_id] = normalized
+    dirty.add(signal_id)
+    dirty.update(
+        str(entity_id)
+        for entity_id in row.get("entity_ids") or []
+        if str(entity_id)
+    )
     return True
 
 
@@ -1757,6 +1892,17 @@ def _origin_record(value: Mapping[str, Any], *, default_kind: str) -> dict[str, 
             row.get("transformation_hypothesis") or ""
         ),
     }
+    provider_metadata = row.get("provider_reaction_metadata")
+    if isinstance(provider_metadata, Mapping):
+        metadata = dict(provider_metadata)
+        supplied_digest = str(metadata.pop("content_sha256", ""))
+        computed_digest = _digest(metadata)
+        metadata["content_sha256"] = computed_digest
+        record["provider_reaction_metadata"] = metadata
+        record["provider_reaction_metadata_sha256"] = computed_digest
+        record["provider_reaction_metadata_digest_valid"] = (
+            not supplied_digest or supplied_digest == computed_digest
+        )
     record["origin_sha256"] = _digest(record)
     return record
 
@@ -1859,6 +2005,7 @@ def _mutable_graph(value: Mapping[str, Any]) -> dict[str, Any]:
         "route_families",
         "hypotheses",
         "conflicts",
+        "action_signals",
         "entity_revisions",
     ):
         graph[key] = dict(graph.get(key) or {})
@@ -1948,6 +2095,7 @@ def _all_entity_ids(graph: Mapping[str, Any]) -> set[str]:
             "route_families",
             "hypotheses",
             "conflicts",
+            "action_signals",
         )
         for entity_id in dict(graph.get(key) or {})
     }

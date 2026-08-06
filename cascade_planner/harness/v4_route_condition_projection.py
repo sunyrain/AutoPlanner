@@ -13,7 +13,22 @@ def route_conditions(
         for value in inspector.get("condition_predictions") or []
         if isinstance(value, Mapping)
     ]
-    return source_conditions(records) or predicted_conditions(predictions), predictions
+    source_predictions = [
+        value
+        for value in predictions
+        if str(value.get("authority_scope") or "")
+        == "model_extracted_source_condition_candidate"
+        and str(value.get("source_ref") or "")
+    ]
+    model_predictions = [
+        value for value in predictions if value not in source_predictions
+    ]
+    conditions = (
+        source_conditions(records)
+        or source_conditions(source_predictions)
+        or predicted_conditions(source_predictions or model_predictions)
+    )
+    return conditions, model_predictions
 
 
 def source_conditions(records: list[Mapping[str, Any]]) -> list[dict[str, str]]:

@@ -9,6 +9,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 )
 from cascade_planner.application.run_kernel import RunLimits, RunSpec
 from cascade_planner.harness.source_route_extraction import (
+    _clean_ingredient_name,
     compile_deterministic_source_route_observation,
 )
 from cascade_planner.interfaces.target_solver_stages import (
@@ -29,6 +30,12 @@ def _digest(value: object) -> str:
             default=str,
         ).encode("utf-8")
     ).hexdigest()
+
+
+def test_source_ingredient_name_drops_numbered_preparation_qualifier() -> None:
+    assert _clean_ingredient_name(
+        "the cyclohexylfulvene as synthesized above (1)"
+    ) == "cyclohexylfulvene"
 
 
 def test_source_route_compiler_keeps_target_connected_branching_dag() -> None:

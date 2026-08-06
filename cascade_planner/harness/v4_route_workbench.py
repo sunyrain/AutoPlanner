@@ -134,6 +134,18 @@ def compile_v4_route_forest(
             condition_status = str(
                 inspector.get("condition_status") or edge.get("condition_status") or "missing"
             )
+            condition_resolution = _evidence.condition_resolution(
+                condition_status,
+                inspector,
+            )
+            source_condition_predictions = [
+                dict(value)
+                for value in inspector.get("condition_predictions") or []
+                if isinstance(value, Mapping)
+                and str(value.get("authority_scope") or "")
+                == "model_extracted_source_condition_candidate"
+                and str(value.get("source_ref") or "")
+            ]
             condition_completeness = str(proof_vector.get("condition_completeness") or "missing")
             route_innovations = [
                 dict(value)
@@ -194,7 +206,8 @@ def compile_v4_route_forest(
                 "condition_missing_required_groups": list(
                     inspector.get("condition_missing_required_groups") or []
                 ),
-                "condition_summary": _evidence.condition_summary(condition_status),
+                "condition_summary": str(condition_resolution["summary"]),
+                "condition_resolution": condition_resolution,
                 "procedure_records": procedure_records,
                 "source_observation_records": source_observation_records,
                 "inactive_fact_count": int(inspector.get("inactive_fact_count") or 0),
@@ -203,15 +216,29 @@ def compile_v4_route_forest(
                 "proof_tier": tier,
                 "proof_level": tier,
                 "source_refs": sorted(
-                    str(value.get("source_ref") or "")
-                    for value in source_bindings
-                    if str(value.get("source_ref") or "")
+                    {
+                        str(value.get("source_ref") or "")
+                        for value in [
+                            *source_bindings,
+                            *source_condition_predictions,
+                        ]
+                        if str(value.get("source_ref") or "")
+                    }
                 ),
                 "evidence_refs": sorted(
                     {
                         str(location)
-                        for value in (condition_records or exact_records)
-                        for location in (value.get("location_refs") or [value.get("location_ref")])
+                        for value in [
+                            *(condition_records or exact_records),
+                            *source_condition_predictions,
+                        ]
+                        for location in (
+                            value.get("location_refs")
+                            or [
+                                value.get("location_ref")
+                                or value.get("source_locator")
+                            ]
+                        )
                         if str(location or "")
                     }
                 ),

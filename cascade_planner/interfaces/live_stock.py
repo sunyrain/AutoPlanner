@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
+import sqlite3
 from typing import Any, Callable, Iterable, Mapping
 
 import requests
@@ -34,6 +36,169 @@ JsonRequester = Callable[..., tuple[int, bytes, Mapping[str, Any]]]
 
 class LiveStockAdapterError(RuntimeError):
     """The generic live catalog could not be frozen within its hard bounds."""
+
+
+class FrozenBenchmarkStockIndex:
+    """Resolve benchmark membership from a content-addressed SQLite index.
+
+    The index is shared read-only across isolated benchmark cases.  It supplies
+    only stock-boundary membership and cannot propose reactions or routes.
+    """
+
+    schema_version = "frozen_benchmark_stock_index.v1"
+    adapter_version = "autoplanner.frozen_benchmark_stock_index.v1"
+
+    def __init__(
+        self,
+        index_path: str | Path,
+        *,
+        expected_sha256: str,
+        catalog_name: str = "",
+    ) -> None:
+        path = Path(index_path).expanduser().resolve()
+        expected = str(expected_sha256 or "").strip().lower()
+        if not path.is_file():
+            raise LiveStockAdapterError("benchmark_stock_index_missing")
+        if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise LiveStockAdapterError("benchmark_stock_index_sha256_required")
+        actual = _file_sha256(path)
+        if actual != expected:
+            raise LiveStockAdapterError("benchmark_stock_index_sha256_mismatch")
+        metadata = self._read_metadata(path)
+        if metadata.get("schema_version") != self.schema_version:
+            raise LiveStockAdapterError("benchmark_stock_index_schema_invalid")
+        source_sha256 = str(metadata.get("source_sha256") or "").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", source_sha256):
+            raise LiveStockAdapterError("benchmark_stock_source_sha256_missing")
+        if (
+            metadata.get("complete") != "true"
+            or int(metadata.get("member_count") or 0) < 1
+        ):
+            raise LiveStockAdapterError("benchmark_stock_index_incomplete")
+        self.index_path = path
+        self.index_sha256 = actual
+        self.source_sha256 = source_sha256
+        self.catalog_name = (
+            str(catalog_name or "").strip()
+            or str(metadata.get("catalog_name") or "").strip()
+            or "frozen-benchmark-stock"
+        )
+        self.member_count = int(metadata.get("member_count") or 0)
+        self.created_at = str(metadata.get("created_at") or "")
+        self.rdkit_version = str(metadata.get("rdkit_version") or "")
+
+    def __call__(
+        self,
+        smiles_values: Iterable[str],
+        *,
+        max_molecules: int = 24,
+    ) -> dict[str, Any]:
+        if max_molecules < 1:
+            raise ValueError("benchmark stock lookup limit must be positive")
+        canonical_values = sorted(
+            {
+                canonical
+                for value in smiles_values
+                if (canonical := canonical_smiles(value))
+            }
+        )
+        truncated = len(canonical_values) > max_molecules
+        selected = canonical_values[:max_molecules]
+        found = self._lookup(selected)
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        members = [
+            {
+                "canonical_smiles": canonical,
+                "membership_verified": True,
+                "membership_proof_sha256": hashlib.sha256(
+                    f"{self.index_sha256}:{canonical}".encode("utf-8")
+                ).hexdigest(),
+                "catalog_uri": str(self.index_path),
+            }
+            for canonical in selected
+            if canonical in found
+        ]
+        misses = [
+            {
+                "canonical_smiles": canonical,
+                "reason": "molecule_not_in_frozen_benchmark_stock_index",
+            }
+            for canonical in selected
+            if canonical not in found
+        ]
+        body = {
+            "schema_version": VERSIONED_BENCHMARK_CATALOG_SCHEMA,
+            "adapter_version": self.adapter_version,
+            "catalog_name": self.catalog_name,
+            "catalog_version": self.index_sha256,
+            "retrieved_at": timestamp,
+            "source": {
+                "name": self.catalog_name,
+                "boundary": "benchmark_search",
+                "index_path": str(self.index_path),
+                "index_sha256": self.index_sha256,
+                "source_sha256": self.source_sha256,
+                "source_member_count": self.member_count,
+                "rdkit_version": self.rdkit_version,
+                "immutable_content_addressed": True,
+                "commercial_orderability_claimed": False,
+            },
+            "requested_molecule_count": len(canonical_values),
+            "queried_molecule_count": len(selected),
+            "truncated": truncated,
+            "members": members,
+            "misses": misses,
+            "semantics": {
+                "frozen_benchmark_membership_only": True,
+                "read_only_shared_index": True,
+                "not_a_reaction_or_route_provider": True,
+                "not_procurement_authority": True,
+            },
+        }
+        body["content_sha256"] = _digest(body)
+        return body
+
+    @classmethod
+    def _read_metadata(cls, path: Path) -> dict[str, str]:
+        try:
+            with cls._connect(path) as connection:
+                rows = connection.execute(
+                    "SELECT key, value FROM metadata ORDER BY key"
+                ).fetchall()
+                stock_table = connection.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'stock'"
+                ).fetchone()
+        except sqlite3.Error as exc:
+            raise LiveStockAdapterError("benchmark_stock_index_unreadable") from exc
+        if not stock_table:
+            raise LiveStockAdapterError("benchmark_stock_index_table_missing")
+        return {str(key): str(value) for key, value in rows}
+
+    @staticmethod
+    def _connect(path: Path) -> sqlite3.Connection:
+        connection = sqlite3.connect(
+            f"file:{path.as_posix()}?mode=ro",
+            uri=True,
+            timeout=30.0,
+        )
+        connection.execute("PRAGMA query_only = ON")
+        return connection
+
+    def _lookup(self, values: list[str]) -> set[str]:
+        if not values:
+            return set()
+        placeholders = ",".join("?" for _ in values)
+        try:
+            with self._connect(self.index_path) as connection:
+                rows = connection.execute(
+                    f"SELECT canonical_smiles FROM stock "
+                    f"WHERE canonical_smiles IN ({placeholders})",
+                    values,
+                ).fetchall()
+        except sqlite3.Error as exc:
+            raise LiveStockAdapterError("benchmark_stock_index_lookup_failed") from exc
+        return {str(row[0]) for row in rows}
 
 
 def load_versioned_inventory_snapshot(
@@ -248,7 +413,16 @@ def _digest(value: Any) -> str:
     ).hexdigest()
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 __all__ = [
+    "FrozenBenchmarkStockIndex",
     "LiveStockAdapterError",
     "PUBCHEM_VENDOR_ADAPTER_VERSION",
     "build_pubchem_vendor_catalog",

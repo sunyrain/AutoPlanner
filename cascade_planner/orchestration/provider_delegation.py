@@ -58,6 +58,46 @@ def complete_chemenzy_delegation(
             }
 
     repairs: list[dict[str, Any]] = []
+    for index, priority in enumerate(priorities):
+        providers = {
+            str(value).strip().lower()
+            for value in priority.get("provider_preferences") or []
+            if str(value).strip()
+        }
+        target = canonicalize(priority.get("target_smiles"))
+        if "chemenzy" not in providers or target != campaign_target:
+            continue
+        proposal_id = str(priority.get("proposal_id") or "")
+        candidate = candidates.get(proposal_id)
+        if candidate is not None:
+            priorities[index]["target_smiles"] = candidate["canonical_product"]
+            priorities[index]["route_family_ids"] = list(candidate["route_family_ids"])
+            reason = "campaign_target_provider_rebound_to_selected_non_root_candidate"
+            replacement = candidate["canonical_product"]
+        else:
+            priorities[index]["provider_preferences"] = [
+                value
+                for value in priority.get("provider_preferences") or []
+                if str(value).strip().lower() != "chemenzy"
+            ]
+            reason = "campaign_target_provider_downgraded_to_host_priority"
+            replacement = campaign_target
+        repairs.append(
+            {
+                "schema_version": "global_campaign_contract_repair.v1",
+                "field": "frontier_priorities.provider_delegation",
+                "priority_id": str(priority.get("priority_id") or ""),
+                "proposal_id": proposal_id,
+                "reason": reason,
+                "replacement_canonical_smiles": replacement,
+                "semantics": {
+                    "chemistry_unchanged": True,
+                    "host_priority_preserved": True,
+                    "campaign_target_not_delegated": candidate is None,
+                    "normal_validation_still_required": True,
+                },
+            }
+        )
     completed = sum(
         _is_complete_chemenzy_request(row, campaign_target, canonicalize)
         for row in priorities

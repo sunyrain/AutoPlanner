@@ -89,6 +89,30 @@ def test_target_cli_exposes_planning_depth_and_prompt_budget() -> None:
     assert args.max_prompt_context_bytes == 256000
 
 
+def test_target_cli_exposes_frozen_benchmark_stock_index() -> None:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command")
+    add_target_commands(commands)
+
+    args = parser.parse_args(
+        [
+            "solve-target",
+            "--target-smiles",
+            "CCO",
+            "--benchmark-stock-index",
+            "D:/bench/stock.sqlite3",
+            "--benchmark-stock-index-sha256",
+            "a" * 64,
+            "--benchmark-stock-name",
+            "retrostar-emolecules-23m",
+        ]
+    )
+
+    assert args.benchmark_stock_index == "D:/bench/stock.sqlite3"
+    assert args.benchmark_stock_index_sha256 == "a" * 64
+    assert args.benchmark_stock_name == "retrostar-emolecules-23m"
+
+
 def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command")
@@ -102,6 +126,10 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
             "CCO",
             "--chemenzy-env-prefix",
             "D:/isolated/chemenzy",
+            "--chemenzy-stock-name",
+            "RetroStar-stock",
+            "--chemenzy-stock-path",
+            "RetroStar-stock=D:/bench/origin_dict.csv",
             "--chemenzy-max-routes",
             "3",
             "--chemenzy-iterations",
@@ -112,10 +140,24 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
             "45",
         ]
     )
+    disabled = parser.parse_args(
+        [
+            "solve-target",
+            "--target-smiles",
+            "CCO",
+            "--no-target-chemenzy-baseline",
+        ]
+    )
 
     assert default.no_chemenzy is False
+    assert default.target_chemenzy_baseline is True
+    assert disabled.target_chemenzy_baseline is False
     assert default.chemenzy_iterations == 10
     assert configured.chemenzy_env_prefix == "D:/isolated/chemenzy"
+    assert configured.chemenzy_stock_name == ["RetroStar-stock"]
+    assert configured.chemenzy_stock_path == [
+        "RetroStar-stock=D:/bench/origin_dict.csv"
+    ]
     assert configured.chemenzy_max_routes == 3
     assert configured.chemenzy_iterations == 7
     assert configured.chemenzy_expansion_topk == 12

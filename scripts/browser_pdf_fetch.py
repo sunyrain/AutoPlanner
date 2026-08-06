@@ -296,7 +296,12 @@ def _ensure_browser(chrome: str, *, debug_port: int, profile_dir: str, headless:
     ]
     if headless:
         args.append("--headless=new")
-    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen(
+        args,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
         if _cdp_ready(debug_port):
@@ -329,6 +334,8 @@ def _fetch_one(
     candidates = _candidate_pdf_urls(url, doi)
     errors: list[str] = []
     landing_url = ""
+    landing_html = b""
+    landing_html_usable = False
     deadline = time.monotonic() + max(5.0, timeout_ms / 1000.0)
     if url:
         try:
@@ -372,15 +379,10 @@ def _fetch_one(
                     reason=landing_access_block,
                 )
             landing_html = _page_html_bytes(page)
-            if _is_usable_article_html(landing_html, doi=doi):
-                return _write_html_result(
-                    request,
-                    data=landing_html,
-                    html_dir=html_dir,
-                    started_at_utc=started,
-                    final_url=landing_url or url,
-                    content_type="text/html",
-                )
+            landing_html_usable = _is_usable_article_html(
+                landing_html,
+                doi=doi,
+            )
             landing_pii = _pii_from_url(landing_url)
             if landing_pii:
                 candidates = _dedupe(
@@ -456,6 +458,18 @@ def _fetch_one(
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{candidate_url}: navigation {type(exc).__name__}: {str(exc)[:300]}")
             continue
+    # A publisher page can expose both useful HTML and an authenticated main
+    # PDF link.  Prefer the PDF so legacy image-only articles can enter the
+    # visual extractor; retain HTML as the bounded fallback when no PDF works.
+    if landing_html_usable:
+        return _write_html_result(
+            request,
+            data=landing_html,
+            html_dir=html_dir,
+            started_at_utc=started,
+            final_url=landing_url or url,
+            content_type="text/html",
+        )
     return _manifest_row(
         request,
         status="failed",

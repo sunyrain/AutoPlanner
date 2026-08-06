@@ -12,16 +12,24 @@ through `scripts/run_chem_enzy_plan_for_web.py`.
 - rule / learned verifier value hooks
 - product-audit features
 - subgoal proposal experiments
-- search-time rerank/proposal ablations
+- provider-neutral model injection and proposal ablations
 
 ## Important Dependencies
 
-- `action_value.py` imports helpers from `cascade_planner.eval.train_cascade_action_value`.
-- `proposals.py` imports helpers from `cascade_planner.eval.train_cascade_subgoal_scorer`.
-- `v4_product_value.py` consumes product-audit features produced by
-  `cascade_planner.eval.product_route_feasibility_audit`.
-
-Do not archive these eval scripts while this package remains active.
+- `action_value.py` owns only the current evidence-supported subgoal hint
+  scorer. Historical action-value checkpoints, transition-value adapters, and
+  adjacent-step pair scorers live under
+  `cascade_planner.legacy.cascade_search_runtime`.
+- `value.py` owns the current heuristic and verifier-augmented value models.
+  The historical `LearnedCascadeValueModel` checkpoint adapter lives under
+  `cascade_planner.legacy.cascade_search_runtime.value`.
+  The obsolete `RuleCascadeValueModel` experiment alias is deleted.
+- `subgoal_evidence_contract.py` owns the evidence, fragment, fingerprint, and
+  serialized feature contract used by runtime subgoal hints and archived
+  trainers.
+- Historical V4 product-value route encoders and checkpoint loaders live under
+  `cascade_planner.legacy.cascade_search_runtime.v4_product_value`; this package
+  no longer exports them.
 
 ## Promotion Rule
 

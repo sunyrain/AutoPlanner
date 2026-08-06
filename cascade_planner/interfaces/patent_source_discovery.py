@@ -42,12 +42,32 @@ def evidence_queries(
         for value in identity.get("patent_ids") or []
         if str(value).strip()
     ]
+    name_linked_patents = [
+        str(value).strip()
+        for value in identity.get("name_linked_patent_ids") or []
+        if str(value).strip()
+    ]
     # Director source tasks express the actual transformation being audited.
     # PubChem's structure-linked patent list is useful only as a fallback: it
     # frequently contains formulation, medical-use and unrelated compound
     # families.  Putting those identifiers first used to consume the entire
     # bounded query budget before a precise process query was attempted.
-    values: list[str] = []
+    # A Director-verified publication token is strictly more actionable than
+    # a prose search query and must survive the bounded query limit.  It still
+    # grants no evidence authority; it only selects the primary document to
+    # download and replay.
+    patent_hints = [
+        dict(row)
+        for row in request.get("source_hints") or []
+        if isinstance(row, Mapping)
+        and str(row.get("source_kind") or "patent").casefold() == "patent"
+        and _patent_publications(str(row.get("source_ref") or ""))
+    ]
+    patent_hints.sort(key=_patent_hint_rank)
+    values: list[str] = [
+        str(row.get("source_ref") or "").removeprefix("patent:").strip()
+        for row in patent_hints
+    ]
     for row in request.get("source_tasks") or []:
         if not isinstance(row, Mapping) or (
             row.get("source_types")
@@ -67,15 +87,28 @@ def evidence_queries(
     target_name = str(request.get("target_name") or "").strip()
     if target_name:
         values.append(f'"{target_name}" synthesis process')
-    values.extend(
-        str(row.get("source_ref") or "").removeprefix("patent:").strip()
-        for row in request.get("source_hints") or []
-        if isinstance(row, Mapping)
-        and str(row.get("source_kind") or "patent").casefold() == "patent"
+    # Reserve bounded slots for direct structure/name-linked publications.
+    # Otherwise four Director prose queries can consume the full query budget
+    # before an authoritative PubChem patent cross-reference is attempted.
+    linked_patents = sorted(
+        [*structure_patents, *name_linked_patents],
+        key=_structure_patent_rank,
     )
-    # For long structure-bound lists, older publication numbers remain the
-    # least noisy fallback, but no longer outrank route-specific source work.
-    values.extend(sorted(structure_patents, key=_structure_patent_rank)[:3])
+    if linked_patents:
+        # Explicit route-linked publications are more specific than broad
+        # structure/name cross-references.  Preserve up to three of them and
+        # let identity-linked patents occupy only the remaining bounded slots.
+        protected_count = min(3, len(patent_hints), max(0, limit - 1))
+        protected = values[:protected_count]
+        remaining_slots = max(0, limit - len(protected))
+        reserved_count = min(3, len(linked_patents), remaining_slots)
+        prose_count = max(0, remaining_slots - reserved_count)
+        reserved = linked_patents[:reserved_count]
+        values = [
+            *protected,
+            *values[protected_count : protected_count + prose_count],
+            *reserved,
+        ]
     out: list[str] = []
     for value in values:
         compact = " ".join(value.split())[:800]
@@ -84,6 +117,18 @@ def evidence_queries(
         if len(out) >= limit:
             break
     return out
+
+
+def _patent_hint_rank(row: Mapping[str, Any]) -> tuple[int, int, int, int, str]:
+    """Prioritize independently corroborated target-edge hints."""
+
+    return (
+        -int(row.get("target_edge_occurrence_count") or 0),
+        -int(row.get("corroborating_source_ref_count") or 0),
+        -int(row.get("occurrence_count") or 0),
+        -int(row.get("route_skeleton_count") or 0),
+        str(row.get("source_ref") or ""),
+    )
 
 
 def _structure_patent_rank(value: str) -> tuple[int, int, str]:
@@ -185,7 +230,10 @@ def google_patent_candidate_provider(
                 break
             search_values = [*explicit, query]
             for search_value in search_values:
-                nested = f"q=({search_value})"
+                xhr_query = _google_patents_xhr_query(search_value)
+                if not xhr_query:
+                    continue
+                nested = f"q=({xhr_query})"
                 for page in range(config.max_search_pages_per_query):
                     nested_page = f"{nested}&page={page}" if page else nested
                     url = (
@@ -421,8 +469,14 @@ def _xhr_candidates(
     rows: list[dict[str, Any]] = []
     for cluster in dict(payload.get("results") or {}).get("cluster") or []:
         for result in dict(cluster).get("result") or []:
-            patent = dict(dict(result).get("patent") or {})
-            publication = _publication(patent.get("publication_number"))
+            result_row = dict(result)
+            patent = dict(result_row.get("patent") or {})
+            publication = _publication(
+                patent.get("publication_number")
+                or str(result_row.get("id") or "").removeprefix("patent/").split(
+                    "/", 1
+                )[0]
+            )
             pdf = str(patent.get("pdf") or "").strip("/")
             if not publication:
                 continue
@@ -452,6 +506,33 @@ def _xhr_candidates(
                 }
             )
     return rows
+
+
+def _google_patents_xhr_query(value: Any) -> str:
+    """Compile free chemical prose into Google Patents' bounded XHR syntax.
+
+    The endpoint rejects otherwise valid chemical names when punctuation such
+    as commas, parentheses, quotes, or hyphens is embedded directly inside a
+    ``q=(...)`` expression.  Publication identifiers take the direct resolver
+    path before this helper; free text is therefore reduced to stable lexical
+    terms and joined with the endpoint's explicit ``+`` separator.
+    """
+
+    tokens = [
+        token.casefold()
+        for token in re.findall(r"[A-Za-z0-9]+", html.unescape(str(value or "")))
+        if len(token) >= 3 and not token.isdigit()
+    ]
+    selected: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if token in seen:
+            continue
+        seen.add(token)
+        selected.append(token)
+        if len(selected) >= 16:
+            break
+    return "+".join(selected)
 
 
 def _direct_pdf_candidates(

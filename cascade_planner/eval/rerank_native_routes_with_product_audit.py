@@ -7,16 +7,16 @@ import time
 from pathlib import Path
 from typing import Any
 
-from cascade_planner.eval.product_route_feasibility_audit import build_product_route_feasibility_audit, product_audit_guard_key
-from cascade_planner.eval.rerank_native_routes_with_v4_value import (
-    _audit_delta,
-    _audit_summary,
-    _cap_native_run_for_audit,
-    _gt_recovery,
-    _ranked_product_metrics,
-    _read_rows,
-    _routes_for_target,
+from cascade_planner.eval.native_route_pool_contract import (
+    cap_native_run_for_audit,
+    ground_truth_recovery,
+    product_audit_delta,
+    ranked_product_metrics,
+    read_json_rows,
+    routes_for_target,
+    summarize_product_audit,
 )
+from cascade_planner.eval.product_route_feasibility_audit import build_product_route_feasibility_audit, product_audit_guard_key
 
 
 def rerank_native_routes_with_product_audit(
@@ -28,8 +28,8 @@ def rerank_native_routes_with_product_audit(
     top_k: int | None = None,
 ) -> dict[str, Any]:
     run = json.loads(Path(native_pool).read_text(encoding="utf-8"))
-    benchmark_rows = _read_rows(benchmark) if benchmark else None
-    capped_run = _cap_native_run_for_audit(run, top_k=top_k)
+    benchmark_rows = read_json_rows(benchmark) if benchmark else None
+    capped_run = cap_native_run_for_audit(run, top_k=top_k)
     native_audit = build_product_route_feasibility_audit(capped_run, benchmark_rows=benchmark_rows)
     rule_targets = []
     for target, audit_target in zip(capped_run.get("targets") or [], native_audit.get("targets") or []):
@@ -37,7 +37,7 @@ def rerank_native_routes_with_product_audit(
             audit_target.get("routes") or [],
             key=lambda row: (*product_audit_guard_key(row), int(row.get("rank") or 10**9)),
         )
-        original_routes = _routes_for_target(target)
+        original_routes = routes_for_target(target)
         ordered_routes = []
         for audit_route in route_audits:
             index = int(audit_route.get("rank") or 0) - 1
@@ -69,7 +69,7 @@ def rerank_native_routes_with_product_audit(
         },
         "summary": {
             "targets": len(rule_targets),
-            "total_routes": sum(len(_routes_for_target(target)) for target in rule_targets),
+            "total_routes": sum(len(routes_for_target(target)) for target in rule_targets),
         },
         "targets": rule_targets,
     }
@@ -86,13 +86,13 @@ def rerank_native_routes_with_product_audit(
             "top_k": top_k,
         },
         "summary": rule_run["summary"],
-        "native_audit_summary": _audit_summary(native_audit),
-        "rule_audit_summary": _audit_summary(rule_audit),
-        "native_ranked_product_metrics": _ranked_product_metrics(native_audit),
-        "rule_ranked_product_metrics": _ranked_product_metrics(rule_audit),
-        "native_gt_recovery": _gt_recovery(capped_run, benchmark_rows),
-        "rule_gt_recovery": _gt_recovery(rule_run, benchmark_rows),
-        "delta_rule_minus_native": _audit_delta(native_audit, rule_audit),
+        "native_audit_summary": summarize_product_audit(native_audit),
+        "rule_audit_summary": summarize_product_audit(rule_audit),
+        "native_ranked_product_metrics": ranked_product_metrics(native_audit),
+        "rule_ranked_product_metrics": ranked_product_metrics(rule_audit),
+        "native_gt_recovery": ground_truth_recovery(capped_run, benchmark_rows),
+        "rule_gt_recovery": ground_truth_recovery(rule_run, benchmark_rows),
+        "delta_rule_minus_native": product_audit_delta(native_audit, rule_audit),
     }
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")

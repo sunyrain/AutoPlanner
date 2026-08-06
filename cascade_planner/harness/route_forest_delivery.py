@@ -15,7 +15,6 @@ from typing import Any
 from cascade_planner.harness.route_forest_layout import (
     build_branch_lane_projection,
     build_dependency_layout_projection,
-    canonical_sha256,
 )
 from cascade_planner.harness.v4_program_overlay import (
     program_overlay_integrity_reasons,
@@ -23,6 +22,7 @@ from cascade_planner.harness.v4_program_overlay import (
 from cascade_planner.harness.v4_mechanism_hypothesis_overlay import (
     mechanism_hypothesis_overlay_integrity_reasons,
 )
+from cascade_planner.runtime.canonical_json import canonical_json_sha256
 
 
 DELIVERY_SCHEMA_VERSION = "route_forest_delivery.v1"
@@ -185,7 +185,7 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
     payload: dict[str, Any] = {
         "schema_version": DELIVERY_SCHEMA_VERSION,
         "source_schema_version": str(source.get("schema_version") or ""),
-        "source_forest_sha256": canonical_sha256(source),
+        "source_forest_sha256": canonical_json_sha256(source),
         "case_id": str(source.get("case_id") or ""),
         "target": _copy_mapping(source.get("target")),
         "counts": _copy_mapping(source.get("counts")),
@@ -262,7 +262,7 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
             "embedded_json_escaping": "less_than_u2028_u2029_as_json_unicode_escape",
         },
     }
-    payload["delivery_sha256"] = canonical_sha256(payload)
+    payload["delivery_sha256"] = canonical_json_sha256(payload)
     payload["embedded_json_sha256"] = _sha256_text(_serialize_delivery_json(payload))
     return payload
 
@@ -343,7 +343,7 @@ def route_forest_delivery_integrity_reasons(
     digest_payload.pop("embedded_json_sha256", None)
     delivery_mismatch = not _HEX_SHA256_PATTERN.fullmatch(expected_delivery)
     try:
-        delivery_mismatch = delivery_mismatch or expected_delivery != canonical_sha256(
+        delivery_mismatch = delivery_mismatch or expected_delivery != canonical_json_sha256(
             digest_payload
         )
     except (TypeError, ValueError):
@@ -375,7 +375,7 @@ def route_forest_delivery_integrity_reasons(
         expected_source = str(payload.get("source_forest_sha256") or "")
         source_mismatch = not _HEX_SHA256_PATTERN.fullmatch(expected_source)
         try:
-            source_mismatch = source_mismatch or expected_source != canonical_sha256(
+            source_mismatch = source_mismatch or expected_source != canonical_json_sha256(
                 source_forest
             )
         except (TypeError, ValueError):

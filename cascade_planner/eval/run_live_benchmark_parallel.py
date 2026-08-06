@@ -176,8 +176,8 @@ def _base_env(args: argparse.Namespace, gpu: str | None) -> dict[str, str]:
     if getattr(args, "proposal_ranker_dir", ""):
         env["AUTOPLANNER_ENABLE_PROPOSAL_RANKERS"] = "1"
         env["AUTOPLANNER_PROPOSAL_RANKER_DIR"] = args.proposal_ranker_dir
-    if getattr(args, "enable_v3_retrieval_proposals", False):
-        env["AUTOPLANNER_ENABLE_V3_RETRIEVAL_PROPOSALS"] = "1"
+    if getattr(args, "enable_route_tree_v3_retrieval", False):
+        env["AUTOPLANNER_ROUTE_TREE_V3_RETRIEVAL_ALL"] = "1"
     for item in args.extra_env or []:
         if "=" not in item:
             raise ValueError(f"--extra-env must be KEY=VALUE, got {item!r}")
@@ -190,7 +190,7 @@ def _benchmark_cmd(args: argparse.Namespace, out: Path, shard_index: int) -> lis
     cmd = [
         sys.executable,
         "-m",
-        "cascade_planner.cascadeboard.live_benchmark",
+        args.worker_module,
         "--bench",
         args.bench,
         "--output",
@@ -237,7 +237,7 @@ def _merge_cmd(args: argparse.Namespace, shard_paths: Sequence[Path]) -> list[st
     cmd = [
         sys.executable,
         "-m",
-        "cascade_planner.cascadeboard.live_benchmark",
+        args.worker_module,
         "--merge",
         *[str(path) for path in shard_paths],
         "--output",
@@ -434,10 +434,15 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--constraints-json", default=None)
     ap.add_argument("--target-log", default="brief", choices=["none", "brief", "json"])
     ap.add_argument("--trace-output", default=None, help="Merged route_tree trace JSONL output")
+    ap.add_argument(
+        "--worker-module",
+        default="cascade_planner.cascadeboard.live_benchmark",
+        help="Explicit benchmark worker module; research adapters may provide a wrapper.",
+    )
     ap.add_argument("--route-tree-policy", default=os.environ.get("AUTOPLANNER_ROUTE_TREE_POLICY", ""))
     ap.add_argument("--source-gate", default=os.environ.get("AUTOPLANNER_SOURCE_GATE", ""))
     ap.add_argument("--proposal-ranker-dir", default=os.environ.get("AUTOPLANNER_PROPOSAL_RANKER_DIR", ""))
-    ap.add_argument("--enable-v3-retrieval-proposals", action="store_true")
+    ap.add_argument("--enable-route-tree-v3-retrieval", action="store_true")
     ap.add_argument("--extra-env", action="append", default=[])
     ap.add_argument("--log-dir", default=None)
     ap.add_argument("--poll-seconds", type=float, default=30.0)

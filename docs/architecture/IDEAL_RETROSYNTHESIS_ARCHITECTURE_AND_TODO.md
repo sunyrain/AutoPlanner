@@ -336,8 +336,11 @@ digest；预测条件永不提升 exact-source 或 process-ready 权威。
 - [ ] Codex 可在一次响应中合并共享中间体、淘汰路线族和重排多条路线。
 - [ ] 编译 Codex precursor/retron 为真实 frontier candidates。
 - [ ] 把 guided ChemEnzy、模板 replay、文献 exact route 都实现为相同的 provider task。
-- [ ] 只有关键拒绝、新 exact procedure、库存变化、共享瓶颈或真实停滞可触发一次重规划。
-- [ ] 记录每次 Director 调用对 portfolio gate 的实际增益；无增益调用进入回归指标。
+- [x] 只有关键拒绝、新 exact procedure、未闭合库存变化、经宿主验证的新 provider/source/template
+  边或共享瓶颈可触发一次重规划；纯 `portfolio stagnation` 只记录 deficit。独立 signal gate 在
+  付费前审计事件，重规划后再证明 molecules/edges/route families 为原图超集。
+- [x] 记录每次 replan 对 portfolio gate/路线计数的实际增益与新增模型成本；`no_gain` 和
+  `regressed` 成为具名审计 disposition。该 within-run 差值不冒充跨 arm 因果估计。
 
 验收：一个复杂陌生目标使用至多两次 Codex 调用完成跨至少三个路线族的全局决策；局部
 ChemEnzy 扩展不会触发逐边 Codex；相同上下文不会重复付费。
@@ -727,7 +730,8 @@ run；target 07、10、19 的关键中间体已出现在跟踪文件 `data/stock
 
 最新协议的单目标四臂 smoke 已完整结束。baseline 的真实仓库扩展预检、provider/template 快照和
 case receipt 摘要绑定均通过；730.781 s 内运行 2 次模型、4 个 ChemEnzy 前沿，ChemEnzy 给出 13 个
-proposal，但没有一个进入 reaction validation，最终保留 4 条 target-rooted skeleton 并明确
+proposal，其中 guided/recovery 批次共有 5 条边通过 reaction validation，但没有组成完整的
+reaction-validated skeleton；最终保留 4 条 target-rooted skeleton 并明确
 `unresolved`，虚假闭合为 0。输入 78,366 token 超过 60k 门，ChemEnzy 147.434 s 也超过 120 s 门。
 
 三个相同 case/base-environment 的单变量 arm 均为可审计终态，因此“完成三组消融”工程门已通过，

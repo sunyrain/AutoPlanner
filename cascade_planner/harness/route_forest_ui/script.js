@@ -95,7 +95,13 @@
     codex_global_director: 'producer-codex', literature: 'producer-literature',
     literature_replay: 'producer-literature', self_evo_patent_template: 'producer-self-evo',
     template: 'producer-template', manual: 'producer-manual',
-    host_product_grounded_repair: 'producer-host'
+    host_product_grounded_repair: 'producer-host', planner: 'producer-codex'
+  };
+  const PRODUCER_COLOR = {
+    'producer-codex': '#0369a1', 'producer-chemenzy': '#7c3aed',
+    'producer-literature': '#0f766e', 'producer-self-evo': '#c2410c',
+    'producer-template': '#a16207', 'producer-manual': '#475569',
+    'producer-host': '#be123c', 'producer-unknown': '#64748b'
   };
   const graph = forest.dependency_graph || {};
   const layout = forest.dependency_layout || {};
@@ -132,6 +138,12 @@
   const layoutByNode = new Map((layout.nodes || []).map(row => [row.graph_node_id, row]));
   const persisted = loadState();
   const legacyChrome = loadState(LEGACY_STORAGE_KEY);
+  const sourceRevisionKey = String(
+    forest.source_revision_context?.revision_id
+      || forest.source_revision_context?.revision
+      || forest.campaign_projection?.revision
+      || ''
+  );
   const embeddedRoute = new URLSearchParams(location.search).get('embed') === '1';
   const allProofTiers = unique([
     ...(lanesProjection.lanes || []).map(row => row.proof_tier),
@@ -139,7 +151,10 @@
   ].filter(Boolean));
   const allKinds = unique((lanesProjection.lanes || []).map(row => row.kind).filter(Boolean));
   const defaultBranchId = chooseDefaultBranchId();
-  const initialBranchId = persisted.selectedBranchId && branches.has(persisted.selectedBranchId)
+  const persistedSelectionIsCurrent = !sourceRevisionKey
+    || persisted.sourceRevisionKey === sourceRevisionKey;
+  const initialBranchId = persisted.selectedBranchId
+    && persistedSelectionIsCurrent && branches.has(persisted.selectedBranchId)
     ? persisted.selectedBranchId : defaultBranchId;
 
   const state = {
@@ -185,6 +200,7 @@
     cameraMode: 'fit',
     showAllOverview: false,
     expandedGroups: new Set(),
+    expandedProgramIds: new Set((persisted.expandedProgramIds || []).map(String)),
     activeReplacement: null
   };
   let renderModel = null;
@@ -249,6 +265,7 @@
     const kindScore = {
       stitched_verified_route: 900, direct_verified_route: 860,
       proof_eligible_portfolio_route: 760, reported_candidate_route: 730,
+      exploratory_canonical_route: 180,
       exact_literature: 700,
       subgoal_verified_route: 640, process_evidence: 520,
       route_consensus_graph: 420, visual_chain: 360,
@@ -272,6 +289,12 @@
     const failedPenalty = /failed|diagnostic|rejected/i.test(`${lane?.title || ''} ${branch.summary || ''}`) ? 80 : 0;
     return kindScore + proofScore + stockScore + primaryScore + confidenceScore
       + stepScore + structureScore - failedPenalty;
+  }
+  function isPriorityBranch(branchId) {
+    const lane = laneByBranch.get(branchId) || {};
+    const declaredPrimaryId = String(forest.primary_branch_id || '');
+    return lane.is_primary === true
+      && (!declaredPrimaryId || String(branchId || '') === declaredPrimaryId);
   }
   function branchDisplayRank(lane) {
     const branch = branches.get(lane?.branch_id) || {};
@@ -340,6 +363,7 @@
   function persistState() {
     safeStorageSet(STORAGE_KEY, JSON.stringify({
       mode: state.mode, selectedBranchId: state.selectedBranchId, detailTab: state.detailTab,
+      sourceRevisionKey,
       stageFilter: state.stageFilter, branchFilter: state.branchFilter,
       proofFilters: [...state.proofFilters],
       kindFilters: [...state.kindFilters], edgeFilter: state.edgeFilter,
@@ -347,7 +371,8 @@
       routeDirection: state.routeDirection, showAuxiliary: state.showAuxiliary,
       labelMode: state.labelMode, layoutPreset: state.layoutPreset, theme: state.theme,
       navOpen: state.navOpen, inspectorOpen: state.inspectorOpen, ledgerOpen: state.ledgerOpen,
-      navWidth: state.navWidth, inspectorWidth: state.inspectorWidth
+      navWidth: state.navWidth, inspectorWidth: state.inspectorWidth,
+      expandedProgramIds: [...state.expandedProgramIds]
     }));
   }
   function preferredTheme() {
@@ -433,10 +458,23 @@
     if (!rows.length) return '';
     return `<details class="condition-group" ${open ? 'open' : ''}><summary><span>${esc(label)}</span><strong>${rows.length} 项</strong></summary><div class="condition-group-body">${conditionLinesHtml(rows)}</div></details>`;
   }
+  function conditionResolutionHtml(step) {
+    const resolution = step?.condition_resolution || {};
+    const label = resolution.label || '条件待取证';
+    const summary = resolution.summary || step?.condition_summary || '尚无可重放的来源条件。';
+    const nextAction = resolution.next_action || '系统继续主动检索并解析原始来源。';
+    return `<div class="condition-resolution" data-condition-stage="${esc(resolution.stage || 'unknown')}">
+      <strong>${esc(label)}</strong><span>${esc(summary)}</span><small>下一步：${esc(nextAction)}</small>
+    </div>`;
+  }
   function modelConditionPredictionsHtml(step) {
     const predictions = Array.isArray(step?.condition_predictions) ? step.condition_predictions : [];
     if (!predictions.length) return '';
-    const ignored = new Set(['authority scope', 'not reaction proof', 'null1', 'null2']);
+    const ignored = new Set([
+      'authority scope', 'not reaction proof', 'not source evidence',
+      'schema version', 'prediction producer', 'condition model', 'rank',
+      'condition prediction issues', 'null1', 'null2'
+    ]);
     const aliases = {
       reagent: 'reagents', reagents: 'reagents', 'reagent smiles': 'reagents',
       catalyst: 'catalyst', catalysts: 'catalyst',
@@ -464,6 +502,9 @@
   }
   function producerClass(step) {
     return PRODUCER_CLASS[(step?.producer_kinds || [])[0]] || 'producer-unknown';
+  }
+  function producerColor(step) {
+    return PRODUCER_COLOR[producerClass(step)] || PRODUCER_COLOR['producer-unknown'];
   }
   function visibleEdges(values) {
     return state.showAuxiliary ? values : values.filter(row => row.visual_role !== 'auxiliary');
@@ -895,7 +936,7 @@
       button.setAttribute('aria-label', `${button.textContent.trim()}，${count} 条路线`);
       button.dataset.stageCount = String(count);
       if (stage === 'expanded') {
-        button.title = `${count} 条全路径完成展开；${partialExpandedCount} 条仅部分展开，不计入本阶段`;
+        button.title = `${count} 条全路径完成展开；${partialExpandedCount} 条仅部分展开，不计入本阶段；数量不代表完整路线数`;
       }
     });
     const partialSummary = element('partialExpandedSummary');
@@ -1063,7 +1104,7 @@
       data-branch-id="${esc(lane.branch_id)}" aria-current="${selected ? 'true' : 'false'}" tabindex="-1">
       <span class="branch-card-title">${esc(lane.title || lane.branch_id)}</span>
       <span class="branch-card-meta">${esc((lane.step_ids || []).length)} 步 · ${esc(proofMix)} · ${esc(lane.condition_label || '条件状态未知')}</span>
-      <span class="branch-card-badges">${lane.is_primary ? `<span class="branch-badge">${forest.primary_selection?.display_tiebreak_only ? '展示锚点' : '主分支'}</span>` : ''}<span class="branch-badge">${esc(stateLabel)}</span>${partialBadge}<span class="branch-badge">${esc(synthesisLabel(branch.synthesis_class))}</span></span>
+      <span class="branch-card-badges">${isPriorityBranch(lane.branch_id) ? `<span class="branch-badge">${forest.primary_selection?.display_tiebreak_only ? '展示锚点' : '重点分支'}</span>` : ''}<span class="branch-badge">${esc(stateLabel)}</span>${partialBadge}<span class="branch-badge">${esc(synthesisLabel(branch.synthesis_class))}</span></span>
     </button>`;
   }
 
@@ -1105,6 +1146,7 @@
       mobile: matchMedia('(max-width: 639px)').matches,
       density: state.density,
       showAll: state.showAllOverview,
+      expandedPrograms: [...state.expandedProgramIds].sort(),
       replacement: state.activeReplacement?.replacement_id || ''
     });
     const cached = graphModelCache.get(cacheKey);
@@ -1188,6 +1230,79 @@
     return finaliseModel('shared', instances, edges.map(edge => ({ ...edge, sourceInstanceId: edge.source_graph_node_id, targetInstanceId: edge.target_graph_node_id })), positions, []);
   }
 
+  function programIsExpanded(programId) {
+    return state.expandedProgramIds.has(String(programId || ''));
+  }
+
+  function collapsedProgramProjection(lane, rawEdges, rawRows) {
+    const overlays = state.mode === 'current'
+      ? (programOverlaysByBranch.get(lane.branch_id) || [])
+      : [];
+    if (!overlays.length) return { edges: rawEdges, rows: rawRows };
+
+    const rawLayerByNode = new Map(rawRows.map(row => [
+      row.graph_node_id,
+      Number(row.layer || 0)
+    ]));
+    const hiddenGraphNodeIds = new Set();
+    const intervals = [];
+    for (const overlay of overlays) {
+      const boundaryMoleculeIds = new Set([
+        ...(overlay.input_molecule_node_ids || []),
+        ...(overlay.output_molecule_node_ids || [])
+      ]);
+      for (const stepId of overlay.replaced_step_ids || []) {
+        const reactionGraphId = reactionGraphNodeIdByStep.get(stepId);
+        if (reactionGraphId) hiddenGraphNodeIds.add(reactionGraphId);
+        const step = steps.get(stepId) || {};
+        const participatingMoleculeIds = unique([
+          ...(step.from_node_ids || []),
+          ...(step.main_from_node_ids || []),
+          ...(step.auxiliary_from_node_ids || []),
+          ...(step.to_node_ids || [])
+        ]);
+        for (const moleculeId of participatingMoleculeIds) {
+          if (boundaryMoleculeIds.has(moleculeId)) continue;
+          const graphNodeId = graphNodeIdByMolecule.get(moleculeId);
+          if (graphNodeId) hiddenGraphNodeIds.add(graphNodeId);
+        }
+      }
+      const inputGraphId = graphNodeIdByMolecule.get(overlay.input_molecule_node_ids?.[0]);
+      const outputGraphId = graphNodeIdByMolecule.get(overlay.output_molecule_node_ids?.[0]);
+      const inputLayer = rawLayerByNode.get(inputGraphId);
+      const outputLayer = rawLayerByNode.get(outputGraphId);
+      if (Number.isFinite(inputLayer) && Number.isFinite(outputLayer)) {
+        intervals.push({
+          start: Math.min(inputLayer, outputLayer),
+          end: Math.max(inputLayer, outputLayer)
+        });
+      }
+    }
+    intervals.sort((left, right) => left.start - right.start || left.end - right.end);
+
+    const compactLayer = rawLayer => {
+      let removedLayers = 0;
+      for (const interval of intervals) {
+        const reduction = Math.max(0, interval.end - interval.start - 2);
+        if (rawLayer >= interval.end) {
+          removedLayers += reduction;
+          continue;
+        }
+        if (rawLayer > interval.start) return interval.start - removedLayers + 1;
+        break;
+      }
+      return rawLayer - removedLayers;
+    };
+    return {
+      edges: rawEdges.filter(edge => !hiddenGraphNodeIds.has(edge.source_graph_node_id)
+        && !hiddenGraphNodeIds.has(edge.target_graph_node_id)),
+      rows: rawRows.filter(row => !hiddenGraphNodeIds.has(row.graph_node_id)).map(row => ({
+        ...row,
+        layout_layer: compactLayer(Number(row.layer || 0))
+      }))
+    };
+  }
+
   function buildLaneModel(rawLanes) {
     const lanes = effectiveLaneRows(rawLanes);
     const metrics = densityMetrics();
@@ -1197,30 +1312,37 @@
     const renderedEdges = [];
     const decorations = [];
     const tiles = lanes.map(lane => {
-      const hasProgramOverlay = state.mode === 'current'
-        && (programOverlaysByBranch.get(lane.branch_id) || []).length > 0;
+      const lanePrograms = state.mode === 'current'
+        ? (programOverlaysByBranch.get(lane.branch_id) || []) : [];
+      const expandedProgram = lanePrograms.find(overlay =>
+        programIsExpanded(overlay.program_id));
+      const programDrawerInset = expandedProgram
+        ? (orientation === 'vertical' ? 470 : 208) : 0;
       const mechanismCount = state.mode === 'current'
         ? Math.min(3, (mechanismHypothesesByBranch.get(lane.branch_id) || []).length)
         : 0;
-      const programInset = (hasProgramOverlay ? 112 : mechanismCount ? 14 : 0)
-        + mechanismCount * 46;
-      const localEdges = visibleEdges((lane.edge_ids || []).map(edgeId => edgeById.get(edgeId)).filter(Boolean));
-      const visibleNodeIds = new Set(localEdges.flatMap(edge => [edge.source_graph_node_id, edge.target_graph_node_id]));
-      const localRows = (lane.node_layout || []).filter(row => visibleNodeIds.has(row.graph_node_id)).slice().sort((a, b) => Number(a.layer) - Number(b.layer)
+      const programInset = (mechanismCount ? 14 : 0) + mechanismCount * 46;
+      const rawEdges = visibleEdges((lane.edge_ids || []).map(edgeId => edgeById.get(edgeId)).filter(Boolean));
+      const visibleNodeIds = new Set(rawEdges.flatMap(edge => [edge.source_graph_node_id, edge.target_graph_node_id]));
+      const rawRows = (lane.node_layout || []).filter(row => visibleNodeIds.has(row.graph_node_id));
+      const projection = collapsedProgramProjection(lane, rawEdges, rawRows);
+      const localEdges = projection.edges;
+      const localRows = projection.rows.slice().sort((a, b) => Number(a.layout_layer ?? a.layer) - Number(b.layout_layer ?? b.layer)
         || Number(a.order) - Number(b.order) || stableTextCompare(a.graph_node_id, b.graph_node_id));
       const byLayer = new Map();
       for (const row of localRows) {
-        if (!byLayer.has(Number(row.layer || 0))) byLayer.set(Number(row.layer || 0), []);
-        byLayer.get(Number(row.layer || 0)).push(row);
+        const layoutLayer = Number(row.layout_layer ?? row.layer ?? 0);
+        if (!byLayer.has(layoutLayer)) byLayer.set(layoutLayer, []);
+        byLayer.get(layoutLayer).push(row);
       }
       const maxLayerRows = Math.max(1, ...[...byLayer.values()].map(rows => rows.length));
       const maximumNode = nodeSize({ node_type: 'molecule' }, metrics.nodeScale);
-      const maximumLayer = Math.max(0, ...localRows.map(row => Number(row.layer || 0)));
+      const maximumLayer = Math.max(0, ...localRows.map(row => Number(row.layout_layer ?? row.layer ?? 0)));
       const wrapsLongLinearRoute = state.mode === 'current'
         && orientation === 'horizontal'
         && maxLayerRows === 1
         && maximumLayer >= 12;
-      const layerByNode = new Map(localRows.map(row => [row.graph_node_id, Number(row.layer || 0)]));
+      const layerByNode = new Map(localRows.map(row => [row.graph_node_id, Number(row.layout_layer ?? row.layer ?? 0)]));
       const layerEdgeCounts = new Map();
       for (const edge of localEdges) {
         const sourceLayer = layerByNode.get(edge.source_graph_node_id);
@@ -1242,18 +1364,31 @@
       const wrapRows = wrapsLongLinearRoute
         ? Math.ceil((maximumLayer + 1) / wrapColumns)
         : 0;
+      const expandedBoundaryLayers = expandedProgram ? [
+        graphNodeIdByMolecule.get(expandedProgram.input_molecule_node_ids?.[0]),
+        graphNodeIdByMolecule.get(expandedProgram.output_molecule_node_ids?.[0])
+      ].map(graphNodeId => layerByNode.get(graphNodeId)).filter(Number.isFinite) : [];
+      const expandedBoundaryDisplayLayers = expandedBoundaryLayers.map(layer =>
+        isRetrosynthesis() ? maximumLayer - layer : layer);
+      const drawerAfterWrapRow = wrapsLongLinearRoute && expandedBoundaryDisplayLayers.length
+        ? Math.max(...expandedBoundaryDisplayLayers.map(layer => Math.floor(layer / wrapColumns)))
+        : 0;
+      const drawerAfterDisplayLayer = expandedBoundaryDisplayLayers.length
+        ? Math.max(...expandedBoundaryDisplayLayers) : 0;
       const wrapColumnGap = Math.max(routedLayerGap, maximumNode.w + 24);
       const wrapRowGap = Math.max(metrics.rowGap + 52, 196);
-      const tileWidth = wrapsLongLinearRoute
+      const naturalTileWidth = wrapsLongLinearRoute
         ? 92 + (wrapColumns - 1) * wrapColumnGap + maximumNode.w
         : orientation === 'vertical'
         ? 40 + (maxLayerRows - 1) * metrics.rowGap + maximumNode.w
         : 92 + maximumLayer * routedLayerGap + maximumNode.w;
+      const tileWidth = orientation === 'vertical' && expandedProgram
+        ? Math.max(360, naturalTileWidth) : naturalTileWidth;
       const tileHeight = wrapsLongLinearRoute
-        ? 86 + programInset + (wrapRows - 1) * wrapRowGap + maximumNode.h
+        ? 86 + programInset + (wrapRows - 1) * wrapRowGap + maximumNode.h + programDrawerInset
         : orientation === 'vertical'
-        ? 76 + programInset + maximumLayer * routedLayerGap + maximumNode.h
-        : 76 + programInset + (maxLayerRows - 1) * metrics.rowGap + maximumNode.h;
+        ? 76 + programInset + maximumLayer * routedLayerGap + maximumNode.h + programDrawerInset
+        : 76 + programInset + (maxLayerRows - 1) * metrics.rowGap + maximumNode.h + programDrawerInset;
       const relativePositions = new Map();
       for (const [layerIndex, rows] of byLayer) {
         rows.sort((a, b) => Number(a.order || 0) - Number(b.order || 0) || stableTextCompare(a.graph_node_id, b.graph_node_id));
@@ -1272,14 +1407,19 @@
           const wrapColumn = wrapsLongLinearRoute && wrapRow % 2 === 1
             ? wrapColumns - 1 - wrapOffset
             : wrapOffset;
+          const drawerShift = !programDrawerInset ? 0
+            : wrapsLongLinearRoute
+              ? (wrapRow > drawerAfterWrapRow ? programDrawerInset : 0)
+              : orientation === 'vertical' && displayLayer > drawerAfterDisplayLayer
+                ? programDrawerInset : 0;
           const position = wrapsLongLinearRoute
             ? {
                 x: 52 + wrapColumn * wrapColumnGap,
-                y: 52 + programInset + wrapRow * wrapRowGap,
+                y: 52 + programInset + wrapRow * wrapRowGap + drawerShift,
                 ...size
               }
             : orientation === 'vertical'
-            ? { x: 20 + rowIndex * metrics.rowGap, y: 52 + programInset + displayLayer * routedLayerGap, ...size }
+            ? { x: 20 + rowIndex * metrics.rowGap, y: 52 + programInset + displayLayer * routedLayerGap + drawerShift, ...size }
             : { x: 52 + displayLayer * routedLayerGap, y: 52 + programInset + rowIndex * metrics.rowGap, ...size };
           relativePositions.set(instanceId, position);
         });
@@ -1345,43 +1485,93 @@
     return rows.map(overlay => {
       const inputGraphId = graphNodeIdByMolecule.get(overlay.input_molecule_node_ids?.[0]);
       const outputGraphId = graphNodeIdByMolecule.get(overlay.output_molecule_node_ids?.[0]);
+      const input = model.positions.get(`${overlay.branch_id}::${inputGraphId}`);
+      const output = model.positions.get(`${overlay.branch_id}::${outputGraphId}`);
       const sourceGraphId = isRetrosynthesis() ? outputGraphId : inputGraphId;
       const targetGraphId = isRetrosynthesis() ? inputGraphId : outputGraphId;
       const source = model.positions.get(`${overlay.branch_id}::${sourceGraphId}`);
       const target = model.positions.get(`${overlay.branch_id}::${targetGraphId}`);
-      if (!source || !target) return null;
-      const fallbackBoxes = (overlay.replaced_step_ids || []).map(stepId =>
-        model.positions.get(`${overlay.branch_id}::${reactionGraphNodeIdByStep.get(stepId)}`)
-      ).filter(Boolean);
-      const regionBoxes = [source, target, ...fallbackBoxes];
-      const regionLeft = Math.min(...regionBoxes.map(value => value.x)) - 16;
-      const regionTop = Math.min(...regionBoxes.map(value => value.y)) - 16;
-      const regionRight = Math.max(...regionBoxes.map(value => value.x + value.w)) + 16;
-      const regionBottom = Math.max(...regionBoxes.map(value => value.y + value.h)) + 16;
-      const fallbackRegion = {
-        x: regionLeft,
-        y: regionTop,
-        w: regionRight - regionLeft,
-        h: regionBottom - regionTop
-      };
-      const card = effectiveOrientation() === 'vertical'
-        ? {
-            x: decoration.x + 20,
-            y: decoration.y + 42,
-            w: Math.min(260, Math.max(210, decoration.w - 40)),
-            h: 78
-          }
-        : {
-            x: clamp(
-              fallbackRegion.x + fallbackRegion.w / 2 - 136,
-              decoration.x + 24,
-              Math.max(decoration.x + 24, decoration.x + decoration.w - 296)
-            ),
-            y: decoration.y + 42,
-            w: 272,
-            h: 78
+      if (!input || !output || !source || !target) return null;
+      const expanded = programIsExpanded(overlay.program_id);
+      let card;
+      const sourceCenter = { x: source.x + source.w / 2, y: source.y + source.h / 2 };
+      const targetCenter = { x: target.x + target.w / 2, y: target.y + target.h / 2 };
+      const horizontal = Math.abs(sourceCenter.y - targetCenter.y)
+        <= Math.max(source.h, target.h) * .7;
+      if (horizontal) {
+        const left = sourceCenter.x <= targetCenter.x ? source : target;
+        const right = left === source ? target : source;
+        const gap = Math.max(0, right.x - (left.x + left.w));
+        const cardWidth = clamp(gap - 18, 224, 292);
+        card = {
+          x: left.x + left.w + (gap - cardWidth) / 2,
+          y: (sourceCenter.y + targetCenter.y) / 2 - 53,
+          w: cardWidth,
+          h: 106
+        };
+      } else {
+        const top = sourceCenter.y <= targetCenter.y ? source : target;
+        const bottom = top === source ? target : source;
+        const gap = Math.max(0, bottom.y - (top.y + top.h));
+        const cardWidth = Math.min(284, Math.max(224, decoration.w - 48));
+        card = {
+          x: clamp(
+            (sourceCenter.x + targetCenter.x) / 2 - cardWidth / 2,
+            decoration.x + 24,
+            Math.max(decoration.x + 24, decoration.x + decoration.w - cardWidth - 24)
+          ),
+          y: top.y + top.h + (gap - 106) / 2,
+          w: cardWidth,
+          h: 106
+        };
+      }
+      const comparisonLane = expanded ? {
+        x: card.x - 12,
+        y: card.y - 10,
+        w: card.w + 24,
+        h: card.h + 20
+      } : null;
+      let fallbackDrawer = null;
+      let fallbackCards = [];
+      if (expanded) {
+        const stepIds = overlay.replaced_step_ids || [];
+        const columns = effectiveOrientation() === 'vertical'
+          ? 1 : Math.min(3, Math.max(1, stepIds.length));
+        const drawerWidth = effectiveOrientation() === 'vertical'
+          ? Math.max(214, decoration.w - 48)
+          : Math.min(760, Math.max(460, decoration.w - 48));
+        const drawerRows = Math.max(1, Math.ceil(stepIds.length / columns));
+        const drawerHeight = 54 + drawerRows * 62 + 12;
+        fallbackDrawer = {
+          x: clamp(
+            card.x + card.w / 2 - drawerWidth / 2,
+            decoration.x + 24,
+            Math.max(decoration.x + 24, decoration.x + decoration.w - drawerWidth - 24)
+          ),
+          y: Math.max(source.y + source.h, target.y + target.h, card.y + card.h) + 18,
+          w: drawerWidth,
+          h: drawerHeight
+        };
+        const gap = 10;
+        const stepCardWidth = (fallbackDrawer.w - 32 - (columns - 1) * gap) / columns;
+        fallbackCards = stepIds.map((stepId, index) => {
+          const drawerRow = Math.floor(index / columns);
+          const offset = index % columns;
+          const drawerColumn = drawerRow % 2 === 1 ? columns - 1 - offset : offset;
+          return {
+            stepId,
+            index,
+            x: fallbackDrawer.x + 16 + drawerColumn * (stepCardWidth + gap),
+            y: fallbackDrawer.y + 45 + drawerRow * 62,
+            w: stepCardWidth,
+            h: 52
           };
-      return { overlay, source, target, card, fallbackRegion };
+        });
+      }
+      return {
+        overlay, input, output, source, target, card,
+        comparisonLane, fallbackDrawer, fallbackCards, expanded
+      };
     }).filter(Boolean);
   }
 
@@ -1392,6 +1582,16 @@
     }
     const middle = (from.x + to.x) / 2;
     return `M ${from.x} ${from.y} C ${middle} ${from.y}, ${middle} ${to.y}, ${to.x} ${to.y}`;
+  }
+
+  function boxPortToward(box, toward) {
+    const center = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+    const dx = toward.x - center.x;
+    const dy = toward.y - center.y;
+    if (Math.abs(dx) / Math.max(box.w, 1) >= Math.abs(dy) / Math.max(box.h, 1)) {
+      return { x: dx >= 0 ? box.x + box.w : box.x, y: center.y };
+    }
+    return { x: center.x, y: dy >= 0 ? box.y + box.h : box.y };
   }
 
   function layoutMechanismHypotheses(model) {
@@ -1429,43 +1629,102 @@
     </g>`;
   }
 
+  function programFallbackDrawerSvg(row) {
+    const { overlay, card, fallbackDrawer, fallbackCards, expanded } = row;
+    if (!expanded || !fallbackDrawer) return '';
+    const connectors = fallbackCards.slice(1).map((current, index) => {
+      const previous = fallbackCards[index];
+      if (Math.abs(previous.y - current.y) < 1) {
+        const forward = current.x > previous.x;
+        const x1 = forward ? previous.x + previous.w : previous.x;
+        const x2 = forward ? current.x : current.x + current.w;
+        const y = previous.y + previous.h / 2;
+        return `<path class="program-fallback-connector" d="M ${x1} ${y} H ${x2}" marker-end="url(#arrow-neutral)"></path>`;
+      }
+      const x1 = previous.x + previous.w / 2;
+      const x2 = current.x + current.w / 2;
+      const y1 = previous.y + previous.h;
+      const y2 = current.y;
+      const middle = (y1 + y2) / 2;
+      return `<path class="program-fallback-connector" d="M ${x1} ${y1} V ${middle} H ${x2} V ${y2}" marker-end="url(#arrow-neutral)"></path>`;
+    }).join('');
+    const cards = fallbackCards.map(value => {
+      const step = steps.get(value.stepId) || {};
+      const selected = state.selectedStepId === value.stepId;
+      const title = middleEllipsis(routeStepDisplayLabel(step), 29);
+      const detail = middleEllipsis(
+        step.reaction_class || step.label || step.condition_summary || '化学反应步骤',
+        31
+      );
+      return `<g class="program-fallback-compact${selected ? ' is-selected' : ''}" data-program-fallback-step="${esc(value.stepId)}" data-program-owner-id="${esc(overlay.program_id)}" data-branch-id="${esc(overlay.branch_id)}" role="button" tabindex="${selected ? '0' : '-1'}" aria-label="化学基线第 ${value.index + 1} 步：${esc(title)}">
+        <rect x="${value.x}" y="${value.y}" width="${value.w}" height="${value.h}" rx="11"></rect>
+        <circle cx="${value.x + 18}" cy="${value.y + 18}" r="10"></circle>
+        <text class="program-fallback-number" x="${value.x + 18}" y="${value.y + 21}" text-anchor="middle">${value.index + 1}</text>
+        <text class="program-fallback-title" x="${value.x + 34}" y="${value.y + 18}">${esc(title)}</text>
+        <text class="program-fallback-detail" x="${value.x + 34}" y="${value.y + 36}">${esc(detail)}</text>
+        <text class="program-fallback-proof" x="${value.x + value.w - 10}" y="${value.y + 36}" text-anchor="end">${esc(tierLabel(tierOfStep(step)))}</text>
+      </g>`;
+    }).join('');
+    const tetherX = clamp(card.x + card.w / 2, fallbackDrawer.x + 24, fallbackDrawer.x + fallbackDrawer.w - 24);
+    return `<g class="program-fallback-drawer-layer" aria-label="展开的 canonical 化学基线">
+      <path class="program-fallback-drawer-tether" d="M ${card.x + card.w / 2} ${card.y + card.h} V ${fallbackDrawer.y - 8} H ${tetherX} V ${fallbackDrawer.y}"></path>
+      <rect class="program-fallback-drawer" x="${fallbackDrawer.x}" y="${fallbackDrawer.y}" width="${fallbackDrawer.w}" height="${fallbackDrawer.h}" rx="16"></rect>
+      <text class="program-fallback-drawer-title" x="${fallbackDrawer.x + 16}" y="${fallbackDrawer.y + 22}">化学基线 · ${fallbackCards.length} 步局部对照</text>
+      <text class="program-fallback-drawer-meta" x="${fallbackDrawer.x + 16}" y="${fallbackDrawer.y + 38}">CANONICAL · 条件与证据完整保留 · 点击步骤检查</text>
+      <rect class="program-fallback-authority" x="${fallbackDrawer.x + fallbackDrawer.w - 82}" y="${fallbackDrawer.y + 12}" width="68" height="20" rx="10"></rect>
+      <text class="program-fallback-authority-label" x="${fallbackDrawer.x + fallbackDrawer.w - 48}" y="${fallbackDrawer.y + 26}" text-anchor="middle">权威基线</text>
+      ${connectors}${cards}
+    </g>`;
+  }
+
   function programOverlaySvg(row) {
-    const { overlay, source, target, card, fallbackRegion } = row;
-    const vertical = effectiveOrientation() === 'vertical'
-      || renderModel?.packing?.algorithm === 'serpentine_long_route.v1';
-    const sourcePoint = vertical
-      ? { x: source.x + source.w / 2, y: source.y }
-      : { x: source.x + source.w / 2, y: source.y };
-    const targetPoint = vertical
-      ? { x: target.x + target.w / 2, y: target.y }
-      : { x: target.x + target.w / 2, y: target.y };
-    const cardInput = vertical
-      ? { x: card.x + card.w * .34, y: card.y + card.h }
-      : { x: card.x, y: card.y + card.h * .55 };
-    const cardOutput = vertical
-      ? { x: card.x + card.w * .66, y: card.y + card.h }
-      : { x: card.x + card.w, y: card.y + card.h * .55 };
+    const {
+      overlay, input, output, source, target, card,
+      comparisonLane, expanded
+    } = row;
+    const cardCenter = { x: card.x + card.w / 2, y: card.y + card.h / 2 };
+    const sourceCenter = { x: source.x + source.w / 2, y: source.y + source.h / 2 };
+    const targetCenter = { x: target.x + target.w / 2, y: target.y + target.h / 2 };
+    const sourcePoint = boxPortToward(source, cardCenter);
+    const targetPoint = boxPortToward(target, cardCenter);
+    const cardInput = boxPortToward(card, sourceCenter);
+    const cardOutput = boxPortToward(card, targetCenter);
+    const vertical = Math.abs(sourceCenter.y - targetCenter.y)
+      > Math.abs(sourceCenter.x - targetCenter.x) * .6;
     const first = programOverlayPath(sourcePoint, cardInput, { vertical });
     const second = programOverlayPath(cardOutput, targetPoint, { vertical });
     const selected = state.selectedProgramId === overlay.program_id;
     const equivalent = Number(overlay.chemical_step_equivalent_count || overlay.replaced_step_ids?.length || 0);
     const enzymeLabel = (overlay.candidate_enzyme_ids || []).join(' · ')
       || (overlay.enzyme_classes || []).join(' · ') || '候选酶待筛选';
-    const warning = overlay.validation_status === 'experiment_required' ? '待实验 · 未准入' : overlay.validation_status;
-    return `<g class="program-overlay${selected ? ' is-selected' : ''}" data-program-id="${esc(overlay.program_id)}" data-branch-id="${esc(overlay.branch_id)}" tabindex="${selected ? '0' : '-1'}" role="button" aria-label="酶 Program：${equivalent} 步化学路线压缩为 1 步，${esc(warning)}">
-      <rect class="program-fallback-region" x="${fallbackRegion.x}" y="${fallbackRegion.y}" width="${fallbackRegion.w}" height="${fallbackRegion.h}" rx="20"></rect>
-      <text class="program-fallback-region-label" x="${fallbackRegion.x + fallbackRegion.w - 12}" y="${fallbackRegion.y + 17}" text-anchor="end">CANONICAL FALLBACK · ${equivalent} STEPS RETAINED</text>
+    const warning = overlay.validation_status === 'experiment_required' ? '待实验' : overlay.validation_status;
+    const inputLabelX = input.x + input.w / 2;
+    const outputLabelX = output.x + output.w / 2;
+    const toggleLabel = expanded
+      ? `化学基线 ${equivalent} 步已展开 · 收起对照`
+      : `化学基线 ${equivalent} 步完整保留 · 展开对照`;
+    const fallbackDrawer = programFallbackDrawerSvg(row);
+    return `<g class="program-overlay${selected ? ' is-selected' : ''}${expanded ? ' is-expanded' : ' is-collapsed'}" data-program-id="${esc(overlay.program_id)}" data-branch-id="${esc(overlay.branch_id)}" data-program-view="${expanded ? 'comparison' : 'replacement'}" tabindex="${selected ? '0' : '-1'}" role="button" aria-label="候选酶 Program：${equivalent} 步化学路线建议压缩为 1 步，${esc(warning)}，化学基线${expanded ? '已展开' : '已折叠'}">
+      ${expanded ? `<rect class="program-comparison-lane" x="${comparisonLane.x}" y="${comparisonLane.y}" width="${comparisonLane.w}" height="${comparisonLane.h}" rx="18"></rect>
+      <text class="program-comparison-lane-label" x="${comparisonLane.x + 12}" y="${comparisonLane.y + 16}">候选酶路径 · 不授予路线权威</text>` : ''}
       <path class="program-overlay-path program-overlay-path--input" d="${first}"></path>
       <path class="program-overlay-path program-overlay-path--output" d="${second}" marker-end="url(#arrow-program)"></path>
       <circle class="program-overlay-port" cx="${sourcePoint.x}" cy="${sourcePoint.y}" r="4"></circle>
       <circle class="program-overlay-port" cx="${targetPoint.x}" cy="${targetPoint.y}" r="4"></circle>
+      <g class="program-boundary-label program-boundary-label--input"><rect x="${inputLabelX - 34}" y="${input.y - 23}" width="68" height="17" rx="8.5"></rect><text x="${inputLabelX}" y="${input.y - 11}" text-anchor="middle">PROGRAM 输入</text></g>
+      <g class="program-boundary-label program-boundary-label--output"><rect x="${outputLabelX - 34}" y="${output.y - 23}" width="68" height="17" rx="8.5"></rect><text x="${outputLabelX}" y="${output.y - 11}" text-anchor="middle">PROGRAM 输出</text></g>
       <rect class="program-overlay-card" x="${card.x}" y="${card.y}" width="${card.w}" height="${card.h}" rx="15"></rect>
       <rect class="program-overlay-warning-stripe" x="${card.x}" y="${card.y + 8}" width="5" height="${card.h - 16}" rx="2.5"></rect>
-      <text class="program-overlay-kicker" x="${card.x + 16}" y="${card.y + 20}">ENZYME PROGRAM · SHADOW</text>
+      <text class="program-overlay-kicker" x="${card.x + 16}" y="${card.y + 19}">候选酶替代 · 未验证</text>
       <text class="program-overlay-title" x="${card.x + 16}" y="${card.y + 42}">${equivalent} 个化学步骤 → 1 个酶操作</text>
-      <text class="program-overlay-meta" x="${card.x + 16}" y="${card.y + 62}">净节省 ${Number(overlay.net_step_savings || 0)} 步 · ${esc(middleEllipsis(enzymeLabel, 28))}</text>
-      <rect class="program-overlay-status" x="${card.x + card.w - 88}" y="${card.y + 10}" width="76" height="20" rx="10"></rect>
-      <text class="program-overlay-status-label" x="${card.x + card.w - 50}" y="${card.y + 24}" text-anchor="middle">${esc(warning)}</text>
+      <text class="program-overlay-meta" x="${card.x + 16}" y="${card.y + 61}">净节省 ${Number(overlay.net_step_savings || 0)} 步 · ${esc(middleEllipsis(enzymeLabel, 25))}</text>
+      <rect class="program-overlay-status" x="${card.x + card.w - 72}" y="${card.y + 9}" width="60" height="20" rx="10"></rect>
+      <text class="program-overlay-status-label" x="${card.x + card.w - 42}" y="${card.y + 23}" text-anchor="middle">${esc(warning)}</text>
+      <g class="program-baseline-toggle" data-program-toggle="${esc(overlay.program_id)}" role="button" tabindex="0" aria-expanded="${expanded}" aria-label="${esc(toggleLabel)}">
+        <rect x="${card.x + 11}" y="${card.y + card.h - 30}" width="${card.w - 22}" height="22" rx="11"></rect>
+        <text x="${card.x + card.w / 2}" y="${card.y + card.h - 15}" text-anchor="middle">${esc(toggleLabel)} ${expanded ? '⌃' : '⌄'}</text>
+      </g>
+      ${fallbackDrawer}
     </g>`;
   }
 
@@ -1528,12 +1787,20 @@
       const tier = PROOF_ORDER.find(value => tierClass(value) === cssClass);
       return marker(`arrow-${cssClass}`, TIER_COLOR[tier] || '#64748b');
     }).join('')
+      + Object.entries(PRODUCER_COLOR).map(([producer, color]) =>
+        marker(`arrow-${producer}`, color)
+      ).join('')
       + marker('arrow-neutral', '#94a3b8')
       + marker('arrow-program', '#7c3aed');
-    const decorations = renderModel.decorations.map(row => `<g class="graph-lane-decoration${row.branchId === state.selectedBranchId ? ' is-selected' : ''}" data-lane-branch-id="${esc(row.branchId)}" role="button" tabindex="0" aria-label="在重点分支中查看 ${esc(row.label)}">
-      <rect x="${row.x}" y="${row.y}" width="${row.w}" height="${row.h}" rx="16"></rect>
-      <text x="${row.x + 16}" y="${row.y + 24}">${esc(middleEllipsis(row.label, 46))}</text>
-      <text class="graph-lane-open-label" x="${row.x + row.w - 14}" y="${row.y + 24}" text-anchor="end">查看重点分支</text></g>`).join('');
+    const decorations = renderModel.decorations.map(row => {
+      const priority = state.mode === 'clusters' && isPriorityBranch(row.branchId);
+      const actionLabel = priority ? '查看重点分支' : '查看路线';
+      return `<g class="graph-lane-decoration${row.branchId === state.selectedBranchId ? ' is-selected' : ''}${priority ? ' is-priority' : ''}" data-lane-branch-id="${esc(row.branchId)}" role="button" tabindex="0" aria-label="${actionLabel} ${esc(row.label)}">
+        <rect x="${row.x}" y="${row.y}" width="${row.w}" height="${row.h}" rx="16"></rect>
+        ${priority ? `<text class="graph-lane-priority-label" x="${row.x + 16}" y="${row.y + 24}">重点分支</text>` : ''}
+        <text x="${row.x + (priority ? 82 : 16)}" y="${row.y + 24}">${esc(middleEllipsis(row.label, priority ? 36 : 46))}</text>
+        <text class="graph-lane-open-label" x="${row.x + row.w - 14}" y="${row.y + 24}" text-anchor="end">${actionLabel}</text></g>`;
+    }).join('');
     const edgeRoutingPlan = buildEdgeRoutingPlan(
       renderModel.edges,
       renderModel.positions,
@@ -1549,14 +1816,23 @@
       renderModel.positions.get(instance.instanceId),
       edgeRoutingPlan.portsByInstance.get(instance.instanceId) || []
     )).join('');
+    const laneOpenControls = renderModel.decorations.map(row => {
+      const priority = state.mode === 'clusters' && isPriorityBranch(row.branchId);
+      const actionLabel = priority ? '查看重点分支' : '查看路线';
+      const controlWidth = Math.min(138, Math.max(84, row.w - 28));
+      const controlX = row.x + row.w - controlWidth - 12;
+      return `<g class="graph-lane-open-control${priority ? ' is-priority' : ''}" data-lane-branch-id="${esc(row.branchId)}" role="button" tabindex="0" aria-label="${actionLabel} ${esc(row.label)}">
+        <rect x="${controlX}" y="${row.y + 7}" width="${controlWidth}" height="26" rx="13"></rect>
+        <text x="${controlX + controlWidth / 2}" y="${row.y + 24}" text-anchor="middle">${actionLabel}</text></g>`;
+    }).join('');
     const programOverlayRows = (renderModel.programOverlays || []).map(programOverlaySvg).join('');
     const mechanismRows = (renderModel.mechanismHypotheses || []).map(mechanismHypothesisSvg).join('');
     element('mainRoute').innerHTML = `<svg class="graph-svg dependency-svg" data-layout-packing="${esc(renderModel.packing?.algorithm || 'shared_component_layers.v1')}" data-maximum-edge-tracks="${edgeRoutingPlan.maximumTrackCount}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="graphTitle graphSubtitle">
-      <defs>${markers}</defs><g class="graph-world">${decorations}${edges}${programOverlayRows}${nodes}${mechanismRows}</g></svg>`;
+      <defs>${markers}</defs><g class="graph-world">${decorations}${edges}${programOverlayRows}${nodes}${mechanismRows}${laneOpenControls}</g></svg>`;
     indexRenderedObjects();
     renderPerformance.lastGraphUpdateMs = performance.now() - updateStartedAt;
     const visibleBranches = new Set(renderModel.instances.map(row => row.branchId).filter(Boolean));
-    element('graphVisibleCount').textContent = `${visibleBranches.size || (state.mode === 'shared' ? Math.min(filteredLanes().length, portfolioDisplayLimit()) : 0)}/${filteredLanes().length} 探索视图 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边${renderModel.programOverlays?.length ? ` · ${renderModel.programOverlays.length} 个影子 Program` : ''}`;
+    element('graphVisibleCount').textContent = `${visibleBranches.size || (state.mode === 'shared' ? Math.min(filteredLanes().length, portfolioDisplayLimit()) : 0)}/${filteredLanes().length} 探索视图 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边${renderModel.programOverlays?.length ? ` · ${renderModel.programOverlays.length} 个候选酶 Program` : ''}`;
     if (renderModel.mechanismHypotheses?.length) element('graphVisibleCount').textContent += ` · ${renderModel.mechanismHypotheses.length} 个机理假设`;
     const replacementPreview = state.activeReplacement && state.mode === 'current';
     const overviewToggle = element('overviewToggle');
@@ -1569,14 +1845,14 @@
     element('graphTitle').textContent = replacementPreview ? '完整替换路线预览 · 后端已重验'
       : state.mode === 'clusters' ? `路线全景 · ${visibleBranches.size}/${filteredCount} 个探索视图`
         : state.mode === 'shared' ? '共享骨架 · 规范分子–反应图'
-          : `重点分支 · ${middleEllipsis(currentLane.title || state.selectedBranchId, 48)}`;
+          : `当前路线 · ${middleEllipsis(currentLane.title || state.selectedBranchId, 48)}`;
     element('graphSubtitle').textContent = replacementPreview
       ? '当前画布是完整的后端 AND/OR 重验分支；它不是单步拼接，也不建立父路线证明。'
       : state.mode === 'clusters'
-        ? '默认按闭合度与可信度展示高价值 Top-K；其余探索视图可按需展开，数量不代表完整路线数。'
+        ? '默认按闭合度与可信度展示高价值 Top-K；只有主分支标为重点分支。反应框线、左色条、连接线与箭头均表示方案生产者；虚实、线宽和 L 等级文字表示证明。'
         : state.mode === 'shared'
-          ? '相同规范分子合并显示；线宽表达支持，颜色仅表达反应证明层级。'
-          : `${(currentLane.step_ids || []).length} 步 · ${routeProofMixLabel(currentLane)} · ${(currentLane.source_refs || []).length} 个来源引用；路线闭合与证明等级独立，颜色只用于反应和依赖边。`;
+          ? '相同规范分子合并显示；框线、左色条、连接线与箭头表示生产者，虚实、线宽和 L 等级文字表示证明。'
+          : `${(currentLane.step_ids || []).length} 步 · ${routeProofMixLabel(currentLane)} · ${(currentLane.source_refs || []).length} 个来源引用；框线、左色条、连接线与箭头表示生产者，虚实、线宽和 L 等级文字表示证明。`;
     renderMinimap();
     if (fit) fitGraph({ readable: preferReadableFocus() }); else applyViewportTransform();
     applyGraphSelection();
@@ -1754,9 +2030,10 @@
     const step = steps.get(edge.reaction_step_id);
     const tier = edge.trust_vector?.proof_tier || tierOfStep(step);
     const visual = edge.visual_encoding || step?.visual_encoding || step?.trust_vector?.visual_encoding || {};
+    const originClass = producerClass(step);
     const simple = state.edgeStyle === 'simple';
     const contrast = state.edgeStyle === 'contrast';
-    const color = simple ? '#94a3b8' : (visual.color || TIER_COLOR[tier] || '#64748b');
+    const color = simple ? '#94a3b8' : producerColor(step);
     const width = contrast ? Math.max(2.4, Number(visual.width || 1.5)) : (simple ? 1.25 : Number(visual.width || 1.5));
     const opacity = contrast ? .92 : (simple ? .48 : Number(visual.opacity || .62));
     const dash = simple ? '' : String(visual.dash_pattern || '');
@@ -1769,9 +2046,9 @@
       targetPortOffset: routingPlan.targetPortOffset,
       channelX: routingPlan.channelX
     });
-    const markerId = simple ? 'arrow-neutral' : `arrow-${tierClass(tier)}`;
+    const markerId = simple ? 'arrow-neutral' : `arrow-${originClass}`;
     const routing = forceOrthogonal ? 'fixed-port-channels.v3' : 'side-port-curves.v4';
-    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}${edge.visual_role === 'auxiliary' ? ' is-auxiliary' : ''}" data-edge-id="${esc(edge.edge_id)}" data-edge-routing="${routing}" data-edge-track="${Number(routingPlan.trackIndex || 1)}/${Number(routingPlan.trackCount || 1)}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.visual_role === 'auxiliary' ? '辅助投入' : edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
+    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)} ${originClass}${edge.visual_role === 'auxiliary' ? ' is-auxiliary' : ''}" data-edge-id="${esc(edge.edge_id)}" data-edge-color="${esc(color)}" data-edge-routing="${routing}" data-edge-track="${Number(routingPlan.trackIndex || 1)}/${Number(routingPlan.trackCount || 1)}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" style="--edge-color:${esc(color)};--edge-width:${width}px" stroke-width="${width}" opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${step?.producer_label || '来源未标记'} · ${tierLabel(tier)} · ${edge.visual_role === 'auxiliary' ? '辅助投入' : edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
   }
 
   function edgePath(source, target, {
@@ -1835,9 +2112,10 @@
     const selected = node.graph_node_id === state.selectedGraphNodeId || (reaction && node.reaction_step_id === state.selectedStepId);
     const semanticLabel = reaction ? tierLabel(tier) : (node.role || '分子中间体');
     const originClass = reaction ? producerClass(step) : '';
-    const reactionMeta = reaction
-      ? middleEllipsis(`${step?.producer_label || '来源未标记'} · ${tierLabel(tier)}`, 25)
+    const producerMeta = reaction
+      ? middleEllipsis(step?.producer_label || '来源未标记', 16)
       : '';
+    const proofMeta = reaction ? middleEllipsis(tierLabel(tier), 12) : '';
     const conditionMeta = reaction ? inlineConditionText(step) : '';
     const conditionClass = step?.condition_status === 'source_exact'
       ? 'is-source-exact'
@@ -1851,12 +2129,15 @@
       ? ' is-program-fallback' : '';
     const titleText = reaction ? `${fullLabel}\n${conditionMeta}` : fullLabel;
     const portDots = reaction ? ports.map(port => `<circle class="graph-node-port" cx="${port.x}" cy="${port.y}" r="3.4"></circle>`).join('') : '';
-    return `<g class="graph-node dependency-${reaction ? 'reaction graph-node--reaction' : 'molecule graph-node--molecule'} ${nodeTierClass} ${originClass}${selected ? ' is-selected' : ''}${programFallbackClass}" data-graph-node-id="${esc(node.graph_node_id)}" data-node-type="${esc(node.node_type)}" data-node-role="${esc(node.role || '')}" data-branch-id="${esc(instance.branchId)}" data-instance-id="${esc(instance.instanceId)}" ${reaction ? `data-route-step="${esc(node.reaction_step_id)}"` : ''} tabindex="${selected ? '0' : '-1'}" role="button" aria-label="${esc(`${reaction ? '反应' : '分子'}：${fullLabel}，${semanticLabel}`)}">
+    const producerKind = reaction ? String((step?.producer_kinds || [])[0] || 'unknown') : '';
+    const originColor = reaction ? producerColor(step) : '';
+    return `<g class="graph-node dependency-${reaction ? 'reaction graph-node--reaction' : 'molecule graph-node--molecule'} ${nodeTierClass} ${originClass}${selected ? ' is-selected' : ''}${programFallbackClass}" data-graph-node-id="${esc(node.graph_node_id)}" data-node-type="${esc(node.node_type)}" data-node-role="${esc(node.role || '')}" data-producer-kind="${esc(producerKind)}"${reaction ? ` data-producer-color="${esc(originColor)}" style="--origin-color:${esc(originColor)}"` : ''} data-branch-id="${esc(instance.branchId)}" data-instance-id="${esc(instance.instanceId)}" ${reaction ? `data-route-step="${esc(node.reaction_step_id)}"` : ''} tabindex="${selected ? '0' : '-1'}" role="button" aria-label="${esc(`${reaction ? '反应' : '分子'}：${fullLabel}，${semanticLabel}`)}">
       <title>${esc(titleText)}</title>${reaction ? `<rect class="reaction-hit-target" x="${position.x - 5}" y="${position.y - 5}" width="${position.w + 10}" height="${position.h + 10}" rx="16"></rect>` : ''}<rect class="node-surface" x="${position.x}" y="${position.y}" width="${position.w}" height="${position.h}" rx="${reaction ? 12 : 24}"></rect>
       ${reaction ? `<rect class="reaction-origin-stripe" x="${position.x}" y="${position.y + 6}" width="5" height="${position.h - 12}" rx="2.5"></rect>` : ''}
+      ${reaction ? `<rect class="reaction-proof-marker" x="${position.x + position.w - 28}" y="${position.y + 7}" width="16" height="4" rx="2"></rect>` : ''}
       ${structureSvg ? `<foreignObject class="node-depiction" x="${position.x + 7}" y="${position.y + 7}" width="${position.w - 14}" height="${position.h - 39}"><div xmlns="http://www.w3.org/1999/xhtml" class="node-depiction-frame">${structureSvg}</div></foreignObject>` : ''}
       <text class="node-label" x="${textX}" y="${textY}">${svgTextLines(lines, textX, textY)}</text>
-      ${reaction && state.labelMode !== 'minimal' ? `<text class="graph-node-tier node-meta" x="${textX}" y="${position.y + position.h - 24}">${esc(reactionMeta)}</text><text class="reaction-condition-meta ${conditionClass}" x="${textX}" y="${position.y + position.h - 9}">${esc(conditionMeta)}</text>` : ''}
+      ${reaction && state.labelMode !== 'minimal' ? `<text class="reaction-producer-meta node-meta" x="${textX}" y="${position.y + position.h - 24}">${esc(producerMeta)}</text><text class="graph-node-tier node-meta" x="${position.x + position.w - 12}" y="${position.y + position.h - 24}" text-anchor="end">${esc(proofMeta)}</text><text class="reaction-condition-meta ${conditionClass}" x="${textX}" y="${position.y + position.h - 9}">${esc(conditionMeta)}</text>` : ''}
       ${portDots}</g>`;
   }
 
@@ -1897,6 +2178,11 @@
       const selected = row.dataset.programId === state.selectedProgramId;
       row.classList.toggle('is-selected', selected);
       row.tabIndex = selected ? 0 : -1;
+    });
+    document.querySelectorAll('[data-program-fallback-step]').forEach(row => {
+      const selected = row.dataset.programFallbackStep === state.selectedStepId;
+      row.classList.toggle('is-selected', selected);
+      if (row.classList.contains('program-fallback-compact')) row.tabIndex = selected ? 0 : -1;
     });
     document.querySelectorAll('[data-mechanism-id]').forEach(row => {
       const selected = row.dataset.mechanismId === state.selectedMechanismId;
@@ -2172,7 +2458,7 @@
     state.selectedProgramId = '';
     state.selectedMechanismId = '';
     rerenderForControls();
-    announce(`已在重点分支中打开路线 ${branches.get(branchId)?.title || branchId}`);
+    announce(`已在当前路线中打开 ${isPriorityBranch(branchId) ? '重点分支' : '路线'} ${branches.get(branchId)?.title || branchId}`);
     if (focusGraph) requestAnimationFrame(() => {
       document.querySelector('.graph-node:not(.is-dimmed)')?.focus();
     });
@@ -2228,6 +2514,24 @@
     if (focus && !isInspectorOverlayLayout()) {
       document.querySelector(`[data-program-id="${CSS.escape(programId)}"]`)?.focus();
     }
+  }
+
+  function toggleProgramFallback(programId, { expanded = null, focus = false } = {}) {
+    const program = programOverlays.get(programId);
+    if (!program) return;
+    const nextExpanded = expanded === null ? !programIsExpanded(programId) : Boolean(expanded);
+    if (nextExpanded) state.expandedProgramIds.add(programId);
+    else state.expandedProgramIds.delete(programId);
+    graphModelCache.clear();
+    renderGraph();
+    if (state.selectedProgramId === programId) renderDetail();
+    persistState();
+    announce(nextExpanded
+      ? `已展开 ${program.chemical_step_equivalent_count} 步 canonical 化学基线，与候选酶路径对照显示`
+      : `已收起化学基线，恢复 ${program.chemical_step_equivalent_count} 步到 1 个候选酶操作的内嵌视图`);
+    if (focus) requestAnimationFrame(() => {
+      document.querySelector(`[data-program-toggle="${CSS.escape(programId)}"]`)?.focus();
+    });
   }
 
   function selectMechanism(hypothesisId, { focus = false } = {}) {
@@ -2336,7 +2640,7 @@
     const outputs = (program.output_molecule_node_ids || []).map(id => boundaryCard(id, '精确输出边界')).join('');
     const fallbackRows = (program.replaced_step_ids || []).map((stepId, index) => {
       const step = steps.get(stepId) || {};
-      return `<button class="program-fallback-row" type="button" data-program-fallback-step="${esc(stepId)}" data-branch-id="${esc(program.branch_id)}"><span>${index + 1}</span><strong>${esc(routeStepDisplayLabel(step))}</strong><small>${esc(tierLabel(tierOfStep(step)))}</small></button>`;
+      return `<button class="program-fallback-row" type="button" data-program-fallback-step="${esc(stepId)}" data-program-owner-id="${esc(program.program_id)}" data-branch-id="${esc(program.branch_id)}"><span>${index + 1}</span><strong>${esc(routeStepDisplayLabel(step))}</strong><small>${esc(tierLabel(tierOfStep(step)))}</small></button>`;
     }).join('');
     const enzymeIds = (program.candidate_enzyme_ids || []).map(value => `<code>${esc(value)}</code>`).join('');
     const enzymeClasses = (program.enzyme_classes || []).map(value => `<div class="trace-row"><span>${esc(value)}</span></div>`).join('');
@@ -2346,13 +2650,13 @@
       .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(' / ') : value}`).join(' · ');
     const regenerations = Object.entries(program.cofactor_and_carrier_ledger?.regenerations || {})
       .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(' / ') : value}`).join(' · ');
-    return `<article class="program-detail"><header><p class="detail-kind">影子替代层 · ${esc(program.status || 'proposal_only')}</p><h3 class="detail-title">${equivalent} 步化学路线 → 1 个酶 Program</h3></header>
+    return `<article class="program-detail"><header><p class="detail-kind">候选替代模块 · ${esc(program.status || 'proposal_only')}</p><h3 class="detail-title">${equivalent} 步化学路线 → 1 个酶 Program</h3></header>
       <div class="notice program-warning-notice"><strong>待实验，尚未准入</strong><span>这是跨越精确边界的可证伪提案，不是文献已证实路线，也不会继承下方化学步骤的证明。</span>${warnings ? `<div class="reason-code-list">${warnings}</div>` : ''}</div>
       <section class="program-stat-grid"><div><strong>${equivalent}→1</strong><span>物理步骤压缩</span></div><div><strong>+${Number(program.net_step_savings || 0)}</strong><span>净节省步骤</span></div><div><strong>${esc(program.validation_status || 'experiment_required')}</strong><span>验证状态</span></div></section>
       <section class="detail-section"><h3>精确 Program 边界</h3><div class="program-boundary-grid">${inputs}${outputs}</div><div class="kv"><span class="k">能力</span><span class="v"><code>${esc(program.source_capability_id || '未记录')}</code></span></div></section>
       <section class="detail-section"><h3>候选酶与选择性</h3><div class="reason-code-list">${enzymeIds || '<span class="empty">候选酶待筛选</span>'}</div><div class="trace-list">${enzymeClasses}</div><div class="kv"><span class="k">选择性目标</span><span class="v">${esc((program.selectivity_constraints || []).join(' · ') || '待定义')}</span></div></section>
       <section class="detail-section"><h3>辅因子闭环</h3><div class="kv"><span class="k">需求</span><span class="v">${esc(requirements || '未记录')}</span></div><div class="kv"><span class="k">再生筛选</span><span class="v">${esc(regenerations || '未记录')}</span></div></section>
-      <section class="detail-section program-fallback-section"><h3>原 ${equivalent} 步化学 fallback <span class="section-count">完整保留</span></h3><p class="v">点击任一步可回到 canonical 化学路线检查条件与证据。</p><div class="program-fallback-list">${fallbackRows}</div></section>
+      <section class="detail-section program-fallback-section"><h3>canonical 化学基线 <span class="section-count">${equivalent} 步完整保留</span></h3><p class="v">候选酶模块不会覆盖这些步骤；展开后可在画布中作双路径对照。</p><button class="detail-action program-detail-toggle" type="button" data-program-toggle="${esc(program.program_id)}" aria-expanded="${programIsExpanded(program.program_id)}">${programIsExpanded(program.program_id) ? '收起画布中的化学基线' : `在画布中展开 ${equivalent} 步化学基线`}</button><details class="program-fallback-details"><summary>查看 ${equivalent} 步条件与证据入口</summary><div class="program-fallback-list">${fallbackRows}</div></details></section>
       <section class="detail-section"><h3>可证伪验证任务</h3><div class="trace-list">${assays || '<div class="empty">尚无验证任务</div>'}</div></section>
       <section class="detail-section"><h3>先例边界</h3><div class="kv"><span class="k">依据</span><span class="v">${program.analogy_only ? '类似底物先例；非当前底物精确证据' : '已绑定精确底物证据'}</span></div><div class="trace-list">${(program.precedent_refs || []).map(ref => `<div class="trace-row"><code>${esc(ref)}</code></div>`).join('') || '<div class="empty">未记录先例</div>'}</div></section>
       <div class="notice"><strong>权威边界</strong><span>Program 仅在专项验证通过后才可能进入影子优化器；当前 canonical 路线、闭合状态与证明均保持不变。</span></div></article>`;
@@ -2429,9 +2733,9 @@
       <section class="detail-section"><h3>来源分解</h3><div class="kv"><span class="k">方案生产者</span><span class="v">${esc(step.producer_label || '来源未标记')}</span></div><div class="kv"><span class="k">证据载体</span><span class="v">${esc(step.evidence_label || '无精确证据')}</span></div><div class="kv"><span class="k">主机验证</span><span class="v">${esc(tierLabel(tierOfStep(step)))}</span></div></section>
       ${innovationSectionHtml(step)}
       <section class="detail-section"><h3>反应连接</h3><p class="v">${esc(nodeNames(step.main_from_node_ids || step.from_node_ids))} → ${esc(nodeNames(step.to_node_ids))}</p>${(step.auxiliary_from_node_ids || []).length ? `<div class="kv"><span class="k">辅助试剂/小分子</span><span class="v">${esc(nodeNames(step.auxiliary_from_node_ids))}</span></div>` : ''}</section>
-      <section class="detail-section condition-section"><h3>反应条件 <span class="section-count">${conditionRows.length} 项</span></h3><div class="condition-list">${conditions || `<div class="empty">${esc(step.condition_summary || '条件未记录')}</div>`}</div></section>
+      <section class="detail-section condition-section"><h3>反应条件 <span class="section-count">${conditionRows.length ? `${conditionRows.length} 个字段${procedures.length ? ` · ${procedures.length} 组来源方案` : ''}` : '待取证'}</span></h3><div class="condition-list">${conditions || conditionResolutionHtml(step)}</div></section>
       ${modelConditionPredictionsHtml(step)}
-      <section class="detail-section"><h3>来源过程 <span class="section-count">${sourceObservations.length + procedures.length} 条</span></h3><div class="kv"><span class="k">哈希绑定过程</span><span class="v">${procedures.length}</span></div><div class="kv"><span class="k">来源观察</span><span class="v">${sourceObservations.length}</span></div><div class="kv"><span class="k">条件缺失组</span><span class="v">${esc(missingGroups.join('、') || '无')}</span></div><div class="source-observation-list">${observationRows}</div><div class="trace-list">${procedureRows || (!observationRows ? `<div class="empty">${esc(step.condition_gap || '尚无可重放的来源过程')}</div>` : '')}</div></section>
+      <section class="detail-section"><h3>来源过程 <span class="section-count">${sourceObservations.length + procedures.length} 条</span></h3><div class="kv"><span class="k">哈希绑定过程</span><span class="v">${procedures.length}</span></div><div class="kv"><span class="k">来源观察</span><span class="v">${sourceObservations.length}</span></div><div class="kv"><span class="k">条件缺失组</span><span class="v">${esc(missingGroups.join('、') || '无')}</span></div><div class="source-observation-list">${observationRows}</div><div class="trace-list">${procedureRows || (!observationRows ? conditionResolutionHtml(step) : '')}</div></section>
       ${(validationRows || reasonRows) ? `<section class="detail-section evidence-gap-section"><h3>证据缺口与补证动作</h3><div class="trace-list">${validationRows || '<div class="empty">尚无结构化验证发现</div>'}</div>${reasonRows ? `<div class="reason-code-list">${reasonRows}</div>` : ''}</section>` : ''}
       ${lifecycleSection}
       <section class="detail-section"><h3>科学 Proof vector</h3>${proofVectorHtml(step.proof_vector)}</section>
@@ -2700,11 +3004,23 @@
 
   function bindEvents() {
     document.addEventListener('click', event => {
-      const target = event.target.closest('button, [data-program-id], [data-mechanism-id], [data-graph-node-id], [data-lane-branch-id], .graph-minimap');
+      const target = event.target.closest('button, [data-program-toggle], [data-program-fallback-step], [data-program-id], [data-mechanism-id], [data-graph-node-id], [data-lane-branch-id], .graph-minimap');
       if (!target) return;
       if (target.dataset.replacementPreview !== undefined) { previewReplacement(target); return; }
       if (target.dataset.replacementReset !== undefined) { restoreReplacementPreview(); return; }
+      if (target.dataset.programToggle) {
+        toggleProgramFallback(target.dataset.programToggle, { focus: target.tagName.toLowerCase() !== 'button' });
+        return;
+      }
       if (target.dataset.programFallbackStep) {
+        const owner = programOverlays.get(target.dataset.programOwnerId)
+          || [...programOverlays.values()].find(row =>
+            (row.replaced_step_ids || []).includes(target.dataset.programFallbackStep));
+        if (owner && !programIsExpanded(owner.program_id)) {
+          state.expandedProgramIds.add(owner.program_id);
+          graphModelCache.clear();
+          renderGraph();
+        }
         const graphNode = [...graphNodes.values()].find(row => row.node_type === 'reaction'
           && row.reaction_step_id === target.dataset.programFallbackStep);
         if (graphNode) selectGraphNode(graphNode.graph_node_id, {
@@ -2756,6 +3072,14 @@
       if (target.id === 'ledgerToggle' || target.id === 'closureDismiss') {
         state.ledgerOpen = target.id === 'closureDismiss' ? false : !state.ledgerOpen;
         applyPersistentChromeState(); persistState();
+        return;
+      }
+      if (target.id === 'pdfExport') {
+        const pdfPath = location.pathname.endsWith('/workbench.html')
+          ? location.pathname.replace(/\/workbench\.html$/, '/workbench.pdf')
+          : '';
+        if (pdfPath) location.assign(pdfPath);
+        else window.print();
         return;
       }
       if (target.dataset.detailTab) { state.detailTab = target.dataset.detailTab; renderDetail(); persistState(); return; }
@@ -2944,6 +3268,24 @@
     const graphNode = event.target.closest?.('[data-graph-node-id]');
     if (graphNode && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault(); selectGraphNode(graphNode.dataset.graphNodeId, { focus: true, branchId: graphNode.dataset.branchId || '', instanceId: graphNode.dataset.instanceId || '' }); return;
+    }
+    const programToggle = event.target.closest?.('[data-program-toggle]');
+    if (programToggle && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      toggleProgramFallback(programToggle.dataset.programToggle, { focus: true });
+      return;
+    }
+    const fallbackStep = event.target.closest?.('[data-program-fallback-step]');
+    if (fallbackStep && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      const graphNode = [...graphNodes.values()].find(row => row.node_type === 'reaction'
+        && row.reaction_step_id === fallbackStep.dataset.programFallbackStep);
+      if (graphNode) selectGraphNode(graphNode.graph_node_id, {
+        focus: true,
+        branchId: fallbackStep.dataset.branchId || '',
+        instanceId: `${fallbackStep.dataset.branchId || ''}::${graphNode.graph_node_id}`
+      });
+      return;
     }
     const programNode = event.target.closest?.('[data-program-id]');
     if (programNode && (event.key === 'Enter' || event.key === ' ')) {
@@ -3178,7 +3520,46 @@
           && Boolean(element('detail').querySelector('.procedure-excerpt')));
       state.mode = 'clusters';
       renderGraph();
-      const overviewLane = document.querySelector('[data-lane-branch-id]');
+      const renderedEdges = [...document.querySelectorAll('.graph-edge[data-edge-color]')];
+      checks.edgeProducerColorConsistent = renderedEdges.every(edge => {
+        const markerMatch = String(edge.getAttribute('marker-end') || '').match(/^url\(#([^)]+)\)$/);
+        const markerPath = markerMatch
+          ? document.getElementById(markerMatch[1])?.querySelector('path')
+          : null;
+        return edge.dataset.edgeColor === edge.style.getPropertyValue('--edge-color').trim()
+          && Boolean(markerPath)
+          && getComputedStyle(edge).stroke === getComputedStyle(markerPath).fill;
+      });
+      const renderedReactionNodes = [...document.querySelectorAll(
+        '.graph-node--reaction[data-producer-color][data-route-step]'
+      )];
+      const reactionColorRows = renderedReactionNodes.map(node => {
+        const surface = node.querySelector('.node-surface');
+        const stripe = node.querySelector('.reaction-origin-stripe');
+        const ports = [...node.querySelectorAll('.graph-node-port')];
+        const stepEdges = renderedEdges.filter(edge => edge.dataset.reactionStepId === node.dataset.routeStep);
+        const nodeStroke = surface ? getComputedStyle(surface).stroke : '';
+        return {
+          token: node.dataset.producerColor === node.style.getPropertyValue('--origin-color').trim(),
+          surface: Boolean(stripe) && nodeStroke === getComputedStyle(stripe).fill,
+          ports: ports.every(port => getComputedStyle(port).stroke === nodeStroke),
+          edges: stepEdges.every(edge => getComputedStyle(edge).stroke === nodeStroke)
+        };
+      });
+      checks.reactionProducerTokenConsistent = reactionColorRows.every(row => row.token);
+      checks.reactionProducerSurfaceConsistent = reactionColorRows.every(row => row.surface);
+      checks.reactionProducerPortsConsistent = reactionColorRows.every(row => row.ports);
+      checks.reactionProducerEdgesConsistent = reactionColorRows.every(row => row.edges);
+      const renderedPriorityBranches = renderModel.decorations
+        .filter(row => isPriorityBranch(row.branchId))
+        .map(row => row.branchId);
+      const priorityMarkers = [...document.querySelectorAll(
+        '.graph-lane-decoration.is-priority[data-lane-branch-id]'
+      )].map(row => row.dataset.laneBranchId);
+      checks.overviewPriorityMarkerExclusive = priorityMarkers.length === renderedPriorityBranches.length
+        && priorityMarkers.length <= 1
+        && priorityMarkers.every(branchId => isPriorityBranch(branchId));
+      const overviewLane = document.querySelector('.graph-lane-open-control[data-lane-branch-id]');
       const overviewBranchId = overviewLane?.dataset.laneBranchId || '';
       overviewLane?.dispatchEvent(new MouseEvent('click', {
         bubbles: true,

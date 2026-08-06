@@ -205,6 +205,58 @@ def test_host_reapplied_isothiocyanate_amine_addition_reaches_l2() -> None:
     )
 
 
+def test_host_reapplied_fluorenyl_addition_to_fulvene_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": (
+                "CC(C)(C)c1ccc2c(c1)C(C1(C3C=CC=C3)CCCCC1)"
+                "c1cc(C(C)(C)C)ccc1-2"
+            ),
+            "reactant_smiles": [
+                "C1=CC(=C2CCCCC2)C=C1",
+                "CC(C)(C)c1ccc2c(c1)Cc1cc(C(C)(C)C)ccc1-2",
+            ],
+            "atom_mapped_reaction_smiles": (
+                "[C:12]1(=[C:13]2[CH:14]=[CH:15][CH:16]=[CH:17]2)"
+                "[CH2:18][CH2:19][CH2:20][CH2:21][CH2:22]1."
+                "[CH3:1][C:2]([CH3:3])([CH3:4])[c:5]1[cH:6][cH:7]"
+                "[c:8]2[c:9]([cH:10]1)[CH2:11][c:23]1[cH:24][c:25]"
+                "([C:26]([CH3:27])([CH3:28])[CH3:29])[cH:30][cH:31]"
+                "[c:32]1-2>>[CH3:1][C:2]([CH3:3])([CH3:4])[c:5]1"
+                "[cH:6][cH:7][c:8]2[c:9]([cH:10]1)[CH:11]([C:12]1"
+                "([CH:13]3[CH:14]=[CH:15][CH:16]=[CH:17]3)[CH2:18]"
+                "[CH2:19][CH2:20][CH2:21][CH2:22]1)[c:23]1[cH:24]"
+                "[c:25]([C:26]([CH3:27])([CH3:28])[CH3:29])[cH:30]"
+                "[cH:31][c:32]1-2"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L2_reaction_validated"
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "carbon_nucleophile_addition_to_carbon_carbon_double_bond"
+    )
+
+
+def test_unrelated_alkene_reduction_and_fragment_join_is_not_recognized() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": "CC.CC",
+            "reactant_smiles": ["C=C", "C", "C"],
+            "atom_mapped_reaction_smiles": (
+                "[CH2:1]=[CH2:2].[CH4:3].[CH4:4]>>"
+                "[CH3:1][CH3:2].[CH3:3][CH3:4]"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is False
+    assert proof["deterministic_transform_audit"]["transform_family"] == ""
+
+
 def test_symmetry_tolerant_thiohydantoin_n_arylation_reaches_l2() -> None:
     proof = verify_reaction_step(
         {
@@ -563,7 +615,11 @@ def test_arbitrary_digest_cannot_forge_trusted_precedent() -> None:
     assert proof["checks"]["trusted_precedent_bound"] is False
 
 
-def _canonical_exact_record(*, product: str = "CCO") -> dict:
+def _canonical_exact_record(
+    *,
+    product: str = "CCO",
+    reactants: list[str] | None = None,
+) -> dict:
     row = {
         "schema_version": "exact_source_reaction_record.v1",
         "record_id": "exact:ethanol-source-row",
@@ -575,7 +631,7 @@ def _canonical_exact_record(*, product: str = "CCO") -> dict:
         "source_binding_id": "source:ethanol-paper",
         "source_ref": "doi:10.1000/exact-ethanol-row",
         "product_smiles": product,
-        "reactant_smiles": ["CC", "O"],
+        "reactant_smiles": list(reactants or ["CC", "O"]),
         "extraction_artifact_sha256": "b" * 64,
         "location_refs": ["paper:page:3", f"pdf_sha256:{'c' * 64}"],
         "extractor": {
@@ -608,6 +664,121 @@ def test_hash_bound_exact_source_row_and_mapping_reach_l3() -> None:
     assert proof["trusted_precedent_binding"]["binding_id"] == (
         "exact:ethanol-source-row"
     )
+
+
+def test_exact_precedent_can_support_edit_set_above_screening_budget() -> None:
+    product = "C1=CC(=C2CCCCC2)C=C1"
+    reactants = ["C1=CCC=C1", "O=C1CCCCC1"]
+    mapped = (
+        "[CH:1]1=[CH:11][CH2:10][CH:3]=[CH:2]1."
+        "O=[C:4]1[CH2:5][CH2:6][CH2:7][CH2:8][CH2:9]1>>"
+        "[CH:1]1=[CH:2][C:3](=[C:4]2[CH2:5][CH2:6][CH2:7]"
+        "[CH2:8][CH2:9]2)[CH:10]=[CH:11]1"
+    )
+    step = {
+        "product_smiles": product,
+        "reactant_smiles": reactants,
+        "mapped_reaction_smiles": mapped,
+    }
+
+    unbound = verify_reaction_step(step)
+    supported = verify_reaction_step(
+        step,
+        exact_source_records=[
+            _canonical_exact_record(product=product, reactants=reactants)
+        ],
+    )
+
+    assert unbound["accepted"] is False
+    assert unbound["bond_change_audit"]["bond_edit_count"] > (
+        unbound["bond_change_audit"]["max_bond_edit_count"]
+    )
+    assert supported["accepted"] is True
+    assert supported["proof_level"] == "L3_precedent_supported"
+    assert supported["checks"]["reaction_edit_budget_plausible"] is False
+    assert supported["checks"]["reaction_edit_budget_source_supported"] is True
+
+
+def test_separate_hash_bound_procedure_record_can_authorize_exact_row() -> None:
+    exact = _canonical_exact_record()
+    exact["procedure_authority_scope"] = ""
+    exact["procedure_record_ids"] = ["procedure:ethanol-source-row"]
+    # Native PDF materializers commonly use ``page-3`` while registries often
+    # use ``page:3``.  Both are page-bound evidence, not different authorities.
+    exact["location_refs"] = ["paper:pdf:page-3"]
+    exact["evidence_refs"] = [
+        f"pdf_sha256:{'c' * 64}",
+        f"procedure-text-sha256:{'d' * 64}",
+    ]
+    exact.pop("content_sha256")
+    exact["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            exact,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    procedure = {
+        "schema_version": "source_reaction_procedure_record.v1",
+        "procedure_record_id": "procedure:ethanol-source-row",
+        "exact_record_id": "exact:ethanol-source-row",
+        "edge_digest": "a" * 64,
+        "source_binding_id": "source:ethanol-paper",
+        "source_ref": "doi:10.1000/exact-ethanol-row",
+        "procedure_authority_scope": "source_exact_reaction_procedure",
+        "source_fragment": {
+            "procedure_text_sha256": "d" * 64,
+            "source_artifact_sha256": "c" * 64,
+            "evidence_refs": list(exact["evidence_refs"]),
+        },
+    }
+    procedure["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            procedure,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    source_binding = {
+        "schema_version": "normalized_source_binding.v1",
+        "source_binding_id": "source:canonical-ethanol-paper",
+        "external_binding_id": "source:ethanol-paper",
+        "source_ref": "doi:10.1000/exact-ethanol-row",
+        "artifact_sha256": "c" * 64,
+        "acquisition_status": "materialized",
+        "usable_for_extraction": True,
+    }
+    source_binding["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            source_binding,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+    proof = verify_reaction_step(
+        _mapped_ethanol_step(),
+        exact_source_records=[exact],
+        source_procedure_records=[procedure],
+        source_bindings=[source_binding],
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L3_precedent_supported"
+    tampered = {**procedure, "source_ref": "doi:10.1000/tampered"}
+    rejected = verify_reaction_step(
+        _mapped_ethanol_step(),
+        exact_source_records=[exact],
+        source_procedure_records=[tampered],
+        source_bindings=[source_binding],
+    )
+    assert rejected["checks"]["trusted_precedent_bound"] is False
 
 
 def test_tampered_or_structure_mismatched_exact_row_cannot_grant_l3() -> None:

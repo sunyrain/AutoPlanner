@@ -598,6 +598,46 @@ def test_source_observed_conditions_display_without_granting_exact_identity() ->
     }
 
 
+def test_visual_source_conditions_are_not_displayed_as_model_predictions() -> None:
+    graph = _graph()
+    graph["edges"]["edge:ester"]["condition_predictions"] = [
+        {
+            "authority_scope": "model_extracted_source_condition_candidate",
+            "source_ref": "doi:10.1000/visual-source",
+            "source_locator": "page 3, scheme 1",
+            "conditions": {
+                "reagents": ["cyclopentadiene"],
+                "catalyst": "pyrrolidine",
+                "solvent": "methanol",
+            },
+            "condition_completeness": {
+                "complete": False,
+                "missing_required_groups": ["temperature", "time"],
+            },
+            "not_reaction_proof": True,
+        }
+    ]
+    portfolio = _portfolio(route_count=1)
+
+    projection = compile_route_workbench(graph, portfolio)
+    vector = projection["edges"]["edge:ester"]["proof_vector"]
+    forest = compile_v4_route_forest(projection)
+    step = forest["steps"][0]
+
+    assert vector["conditions"] == "source_recorded_unverified"
+    assert vector["condition_record_count"] == 1
+    assert vector["condition_completeness"] == "partial"
+    assert step["condition_status"] == "source_recorded_unverified"
+    assert step["condition_predictions"] == []
+    assert "doi:10.1000/visual-source" in step["source_refs"]
+    assert "page 3, scheme 1" in step["evidence_refs"]
+    assert {row["label"] for row in step["conditions"]} >= {
+        "reagents",
+        "catalyst",
+        "solvent",
+    }
+
+
 def test_process_ready_requires_procurement_exact_sources_and_complete_procedure() -> None:
     graph = deepcopy(_graph())
     graph["procedure_records"] = {
@@ -797,7 +837,7 @@ def test_lifecycle_invalidations_are_visible_and_remove_source_authority() -> No
     branch = next(
         value
         for value in forest["branches"]
-        if value.get("kind") == "proof_eligible_portfolio_route"
+        if value.get("kind") == "exploratory_canonical_route"
     )
     assert step["inactive_facts"][0]["lifecycle_event_id"] == (
         "lifecycle:source-revoked"
@@ -893,6 +933,33 @@ def test_v4_workbench_adapter_renders_bounded_routes_and_separate_hypotheses() -
     assert "DECLARED ROUTE GRAPH" in html
     assert "any_declared_route_graph_closed" in html
     assert "translate3d" not in html
+
+
+def test_incomplete_canonical_route_is_exploratory_and_condition_gap_is_system_owned() -> None:
+    portfolio = _portfolio(route_count=1)
+    portfolio["selected_routes"][0]["complete"] = False
+    portfolio["selected_routes"][0]["leaf_molecule_ids"] = []
+    portfolio["edge_proofs"]["edge:ester"].update(
+        {
+            "exact_source_bound": False,
+            "source_binding_ids": [],
+            "exact_record_ids": [],
+        }
+    )
+    graph = _graph()
+    graph["source_bindings"] = {}
+    graph["exact_records"] = {}
+
+    forest = compile_v4_route_forest(compile_route_workbench(graph, portfolio))
+    branch = next(row for row in forest["branches"] if row["branch_id"] == "route:0")
+    step = next(row for row in forest["steps"] if row["branch_id"] == "route:0")
+
+    assert branch["kind"] == "exploratory_canonical_route"
+    assert branch["proof_eligible"] is False
+    assert step["condition_resolution"]["stage"] == "exact_reaction_source_search_pending"
+    assert step["condition_resolution"]["acquisition_owner"] == "autoplanner"
+    assert step["condition_resolution"]["user_input_required"] is False
+    assert "不会编造条件" in step["condition_resolution"]["next_action"]
 
 
 def test_workbench_keeps_full_planner_skeleton_with_rejected_step_advisory() -> None:

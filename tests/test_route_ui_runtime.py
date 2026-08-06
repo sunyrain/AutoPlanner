@@ -100,6 +100,10 @@ def test_camera_transform_is_the_only_composited_graph_layer() -> None:
 
 def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
+    template = Path("cascade_planner/harness/route_forest_ui/template.html").read_text(
+        encoding="utf-8"
+    )
+    styles = STYLES.read_text(encoding="utf-8")
 
     assert "function preferReadableFocus()" in script
     assert "if (embeddedRoute) return (lane.step_ids || []).length > 4" in script
@@ -115,7 +119,37 @@ def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     assert "serpentineRowTurn" in script
     assert "function openBranchInFocus(branchId" in script
     assert "data-lane-branch-id" in script
+    assert "graph-lane-open-control" in script
+    assert "${mechanismRows}${laneOpenControls}" in script
     assert "overviewOpensFocusedBranch" in script
+    assert 'data-graph-mode="current" aria-pressed="true">当前路线</button>' in template
+    assert "function isPriorityBranch(branchId)" in script
+    assert "state.mode === 'clusters' && isPriorityBranch(row.branchId)" in script
+    assert "priority ? '查看重点分支' : '查看路线'" in script
+    assert "当前路线 · ${middleEllipsis" in script
+    assert ".graph-lane-decoration.is-priority rect" in styles
+    assert ".graph-lane-priority-label" in styles
+
+
+def test_enzyme_program_is_inline_and_keeps_expandable_canonical_baseline() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+
+    assert "function collapsedProgramProjection(" in script
+    assert "expandedProgramIds: new Set" in script
+    assert "hiddenGraphNodeIds.add(reactionGraphId)" in script
+    assert "layout_layer: compactLayer" in script
+    assert "function programFallbackDrawerSvg(" in script
+    assert "programDrawerInset" in script
+    assert "data-program-view=\"${expanded ? 'comparison' : 'replacement'}\"" in script
+    assert "PROGRAM 输入" in script
+    assert "PROGRAM 输出" in script
+    assert "化学基线 ${equivalent} 步完整保留 · 展开对照" in script
+    assert "toggleProgramFallback(" in script
+    assert "program-baseline-toggle" in styles
+    assert "program-comparison-lane" in styles
+    assert "program-fallback-drawer" in styles
+    assert "program-fallback-compact" in styles
 
 
 def test_current_route_edges_use_curves_with_physical_side_ports() -> None:
@@ -170,6 +204,7 @@ def test_mixed_proof_route_labels_use_edge_distribution_not_weakest_only() -> No
 def test_reaction_nodes_expose_condition_source_without_opening_inspector() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
     styles = STYLES.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
 
     assert "function inlineConditionText(step)" in script
     assert "来源条件已绑定 · 字段待展开" in script
@@ -177,7 +212,31 @@ def test_reaction_nodes_expose_condition_source_without_opening_inspector() -> N
     assert "条件待取证" in script
     assert "normalizedConditionRows(step)" in script
     assert "modelConditionPredictionsHtml(step)" in script
+    assert "persisted.sourceRevisionKey === sourceRevisionKey" in script
+    assert "sourceRevisionKey," in script
     assert "source_observation_records" in script
+    assert 'data-producer-kind="${esc(producerKind)}"' in script
+    assert 'data-producer-color="${esc(originColor)}" style="--origin-color:${esc(originColor)}"' in script
+    assert "reaction-producer-meta node-meta" in script
+    assert "reaction-proof-marker" in script
+    assert "反应框线、左色条、连接线与箭头均表示方案生产者" in script
+    assert "const color = simple ? '#94a3b8' : producerColor(step)" in script
+    assert "const markerId = simple ? 'arrow-neutral' : `arrow-${originClass}`" in script
+    assert 'data-edge-color="${esc(color)}"' in script
+    assert 'style="--edge-color:${esc(color)};--edge-width:${width}px"' in script
+    assert 'opacity="${opacity}"' in script
+    assert 'stroke-opacity="${opacity}"' not in script
+    assert "producer_label || '来源未标记'" in script
+    assert "stroke: var(--edge-color, var(--text-faint));" in styles
+    assert "stroke: var(--tier-color, var(--text-faint));" not in styles
+    assert "filter: drop-shadow(0 0 3px var(--edge-color, var(--accent)));" in styles
+    assert "stroke: var(--origin-color, var(--border-strong));" in styles
+    assert ".graph-node--reaction.producer-codex { --origin-color: #0369a1; }" in styles
+    assert ".graph-node--reaction.producer-chemenzy { --origin-color: #7c3aed; }" in styles
+    assert ".reaction-proof-marker" in styles
+    assert ".graph-node--reaction:hover .node-surface" in styles
+    assert ".graph-node--reaction.is-selected .node-surface" in styles
+    assert "stroke: var(--origin-color, var(--border-strong));" in styles
     assert 'class="reaction-hit-target"' in script
     hit_target_index = script.index('class="reaction-hit-target"')
     assert hit_target_index < script.index('class="node-surface"', hit_target_index)
@@ -196,12 +255,16 @@ def test_reaction_inspector_groups_full_conditions_and_source_procedure_text() -
     styles = STYLES.read_text(encoding="utf-8")
 
     assert "function conditionGroupHtml" in script
+    assert "function conditionResolutionHtml" in script
+    assert "data-condition-stage" in script
+    assert "系统继续主动检索并解析原始来源" in script
     assert "核心反应条件" in script
     assert "加料、后处理与纯化" in script
     assert "source-procedure-observation" in script
     assert "procedure_excerpt" in script
     assert "来源观察" in script
     assert ".condition-group" in styles
+    assert ".condition-resolution" in styles
     assert ".source-procedure-observation" in styles
     assert "white-space: pre-wrap" in styles
 
@@ -282,6 +345,12 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
         "reactionInspector": True,
         "fullConditionGroups": True,
         "sourceProcedure": True,
+        "edgeProducerColorConsistent": True,
+        "reactionProducerTokenConsistent": True,
+        "reactionProducerSurfaceConsistent": True,
+        "reactionProducerPortsConsistent": True,
+        "reactionProducerEdgesConsistent": True,
+        "overviewPriorityMarkerExclusive": True,
         "overviewOpensFocusedBranch": True,
         "minimap": True,
         "largeGraphCulling": True,

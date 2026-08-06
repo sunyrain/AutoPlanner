@@ -233,9 +233,10 @@ Purpose: preserve Codex's distinctive global reasoning while bounding cost.
 - [x] Implement `GlobalCampaignDirector` as a direct Codex child-agent boundary.
 - [x] Support three bounded modes: initial architecture, event-driven replan,
   and final portfolio synthesis.
-- [x] Trigger replanning only for material evidence, critical edge rejection,
-  portfolio stagnation, new route family, shared bottleneck, or stock-boundary
-  changes.
+- [x] Trigger replanning only after a new actionable host observation: material
+  evidence, contract/topology/depth rejection, an open stock-boundary change,
+  or a provider/template/source edge that passed host validation. Portfolio
+  stagnation alone remains a deficit and does not spend a model call.
 - [x] Prevent identical context/config revisions from invoking Codex twice.
 - [x] Enforce structured output, route-family count, context bytes, calls,
   tokens, and wall-time at the host boundary.
@@ -262,6 +263,9 @@ Observed P3 host-boundary acceptance:
   runner exactly once and reused the immutable cached plan thereafter;
 - a critical-edge rejection triggered an event replan, while unchanged context
   caused no invocation;
+- the target-only orchestrator records a separate replan signal gate and audits
+  molecule/edge/route-family ID retention after the call, so a replan is a
+  canonical-graph union rather than replacement of the initial portfolio;
 - invalid molecular identities were rejected as frontier candidates, and any
   attempted solved/proof/stock-closure authority invalidated the whole plan;
 - deterministic replay runs with a zero model-call budget and the same plan

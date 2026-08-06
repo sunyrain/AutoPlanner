@@ -10,6 +10,7 @@ source-document cache.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -116,6 +117,102 @@ def _usable_fulltext_html(artifacts: list[dict[str, Any]], *, doi: str) -> bool:
     return False
 
 
+def _legacy_main_pdf_required(
+    artifacts: list[dict[str, Any]],
+    *,
+    doi: str,
+) -> bool:
+    """Identify legacy ACS landing pages whose scientific body is PDF-only."""
+
+    if any(row.get("suffix") == ".pdf" for row in artifacts):
+        return False
+    for artifact in artifacts:
+        if artifact.get("suffix") != ".html":
+            continue
+        try:
+            content = Path(str(artifact.get("path") or "")).read_text(
+                encoding="utf-8",
+                errors="ignore",
+            ).casefold()
+        except OSError:
+            continue
+        if (
+            "article_header-acslegacyarchive" in content
+            and f"/doi/pdf/{doi}".casefold() in content
+        ):
+            return True
+    return False
+
+
+def _download_authenticated_main_pdf(
+    driver: Any,
+    *,
+    doi: str,
+    publisher: str,
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Fetch a main PDF inside the authenticated Selenium page origin."""
+
+    urls: list[str] = []
+    if publisher == "ACS":
+        urls.extend(
+            [
+                f"https://pubs.acs.org/doi/pdf/{doi}?ref=article_openPDF",
+                f"https://pubs.acs.org/doi/epdf/{doi}",
+            ]
+        )
+    if not urls:
+        return {"status": "not_supported", "reason": "main_pdf_endpoint_unknown"}
+    script = r"""
+        const url = arguments[0];
+        const done = arguments[arguments.length - 1];
+        fetch(url, {credentials: 'include', redirect: 'follow'})
+          .then(async (response) => {
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            let binary = '';
+            const chunk = 0x8000;
+            for (let i = 0; i < bytes.length; i += chunk) {
+              binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+            }
+            done({
+              ok: response.ok,
+              status: response.status,
+              contentType: response.headers.get('content-type') || '',
+              bodyBase64: btoa(binary)
+            });
+          })
+          .catch((error) => done({ok: false, status: 0, error: String(error)}));
+    """
+    failures: list[str] = []
+    for url in urls:
+        try:
+            result = dict(driver.execute_async_script(script, url) or {})
+            payload = base64.b64decode(str(result.get("bodyBase64") or ""))
+        except Exception as exc:
+            failures.append(f"{url}:{type(exc).__name__}:{str(exc)[:300]}")
+            continue
+        if payload[:1024].lstrip().startswith(b"%PDF-") and len(payload) <= 30_000_000:
+            digest = hashlib.sha256(payload).hexdigest()
+            path = output_dir / f"main-article-{digest[:16]}.pdf"
+            if not path.exists():
+                path.write_bytes(payload)
+            return {
+                "status": "downloaded",
+                "pdf_path": str(path.resolve()),
+                "pdf_sha256": digest,
+                "byte_count": len(payload),
+                "url": url,
+            }
+        failures.append(
+            f"{url}:status={int(result.get('status') or 0)}:"
+            f"content_type={str(result.get('contentType') or '')}:bytes={len(payload)}"
+        )
+    return {
+        "status": "failed",
+        "reason": "; ".join(failures)[:2000] or "main_pdf_fetch_failed",
+    }
+
+
 def _install_tolerant_navigation(driver: Any, *, doi: str) -> None:
     """Continue after a load-event timeout when the DOI page is already usable."""
 
@@ -184,9 +281,10 @@ def main() -> int:
 
 
     existing_artifacts = _artifacts(output_dir)
-    if not args.force_refetch and _usable_fulltext_html(
-        existing_artifacts,
-        doi=args.doi,
+    if (
+        not args.force_refetch
+        and _usable_fulltext_html(existing_artifacts, doi=args.doi)
+        and not _legacy_main_pdf_required(existing_artifacts, doi=args.doi)
     ):
         receipt = {
             "schema_version": "authorized_literature_fetch.v1",
@@ -262,6 +360,10 @@ def main() -> int:
     success = False
     page_status = "not_started"
     reason = ""
+    main_pdf_receipt: dict[str, Any] = {
+        "status": "not_attempted",
+        "reason": "publisher_spider_not_started",
+    }
     try:
         from literature_datamining import config as ldm_config
         from literature_datamining.core.utils import initialize_webdriver
@@ -296,6 +398,12 @@ def main() -> int:
         )
         raw_data, success, page_status = spider.run()
         article_data = dict(raw_data or {})
+        main_pdf_receipt = _download_authenticated_main_pdf(
+            driver,
+            doi=args.doi,
+            publisher=publisher,
+            output_dir=article_dir,
+        )
         if article_data:
             (article_dir / "article-data.json").write_text(
                 json.dumps(article_data, ensure_ascii=False, indent=2, sort_keys=True)
@@ -329,12 +437,14 @@ def main() -> int:
             "full_text_section_count": len(article_data.get("full_text") or []),
             "figure_count": len(article_data.get("figures") or []),
             "supplementary_count": len(article_data.get("supplementary_materials") or []),
+            "main_pdf": main_pdf_receipt,
         },
         "semantics": {
             "publisher_spider_code_reused": True,
             "prior_source_documents_not_reused": True,
             "all_mutable_state_isolated_under_output_dir": True,
             "source_artifacts_require_host_hash_binding_and_extraction": True,
+            "authenticated_main_pdf_attempted_after_spider": True,
             "content_verified_after_legacy_status_mismatch": bool(
                 content_verified and not success
             ),

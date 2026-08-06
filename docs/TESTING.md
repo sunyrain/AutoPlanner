@@ -23,55 +23,50 @@ not for the deterministic contract suite.
 ## Fast architecture contracts
 
 This layer exercises the current route graph, source fusion, proof boundary,
-provider registry, stock snapshots, persistent frontier scheduler, route
-portfolio, campaign recovery, runtime atomicity, and generic hardcoding guard.
+provider registry, stock snapshots, campaign recovery, and runtime atomicity.
 Run this selection before committing architecture changes:
 
 ```bash
 python -m pytest -q -p no:cacheprovider \
   tests/test_child_agent_runtime_contracts.py \
-  tests/test_generic_hardcoding_guards.py \
   tests/test_route_consensus.py \
-  tests/test_route_consensus_graph.py \
-  tests/test_route_source_adapters.py \
   tests/test_route_verifier.py \
   tests/test_reaction_step_verifier.py \
   tests/test_builtin_providers.py \
-  tests/test_chem_enzy_runtime_preflight.py \
-  tests/test_portfolio_controller_integration.py \
   tests/test_provider_registry.py \
   tests/test_stock_provider.py \
-  tests/test_frontier_scheduler.py \
-  tests/test_frontier_ledger.py \
-  tests/test_codex_edge_verification.py \
-  tests/test_blackboard_events.py \
-  tests/test_admitted_hyperedges.py \
-  tests/test_action_evidence_loop.py \
-  tests/test_evidence_capability_queue.py \
-  tests/test_codex_retrosynthesis_team.py \
-  tests/test_child_candidate_quarantine_v3.py \
-  tests/test_reaction_family_authority.py \
-  tests/test_codex_team_source_lifecycle.py \
-  tests/test_codex_team_controller_integration.py \
-  tests/test_evidence_first_controller_integration.py \
-  tests/test_literature_source_documents.py \
-  tests/test_compound_label_bindings.py \
-  tests/test_route_portfolio.py \
-  tests/test_portfolio_supplemental_bindings.py \
   tests/test_route_admission.py \
-  tests/test_chem_enzy_guidance.py \
-  tests/test_chem_enzy_budget_resolution.py \
-  tests/test_route_forest.py \
-  tests/test_route_forest_edge_evidence.py \
   tests/test_route_forest_layout.py \
   tests/test_route_forest_delivery.py \
-  tests/test_edge_evidence_binding_set.py \
-  tests/test_trusted_precedent_curation_outbox.py \
-  tests/test_audit_architecture_v2.py
+  tests/test_research_namespace.py \
+  tests/test_trusted_precedent_curation_outbox.py
 ```
 
 PowerShell accepts the same paths; either put the command on one line or use
 PowerShell backticks instead of shell backslashes.
+
+## Mainline and frozen compatibility coverage
+
+The complete suite still includes frozen V3 compatibility coverage. To inspect
+the isolation boundary without changing the default suite, run the two views
+explicitly:
+
+```bash
+python -m pytest -q -p no:cacheprovider -m "not legacy"
+python -m pytest -q -p no:cacheprovider -m legacy
+```
+
+Tests under `tests/legacy/` protect saved-run and combined-Web compatibility;
+they are not evidence that those modules belong to the V4 mainline. V4
+architecture changes should also run `tests/test_legacy_namespace.py`, which
+checks that default package exports and fresh V4 imports stay isolated.
+
+The frozen proposal, Codex edge-verification, parent-proof/objective, and
+agentic-run evaluation tests also live under `tests/legacy/`; they are covered
+by the `-m legacy` partition rather than the fast mainline architecture set.
+
+Legacy visual structure-chain and source-local compound-label binding tests are
+also isolated there; current V4 visual evidence uses the interfaces pipeline.
 
 ## Complete offline suite
 
@@ -219,7 +214,8 @@ Also run `git diff --check`, inspect `git status --short`, and verify that
 direct push is allowed only after the local targeted and complete offline tests
 have passed.
 
-`tests/test_generic_hardcoding_guards.py` is the fast molecule-hardcoding gate.
+`tests/legacy/test_generic_hardcoding_guards.py` is the frozen V3
+molecule-hardcoding gate.
 New planner behavior should be driven by structure, typed evidence, provider
 contracts, or caller policy. A target-name branch or molecule-specific rescue
 must not be added to the generic mainline.

@@ -80,6 +80,7 @@ def source_name_resolution_candidates(
     if expanded and expanded.casefold() != name.casefold():
         candidates.extend(_systematic_alias_candidates(name, expanded))
         candidates.append(expanded)
+    candidates.extend(_source_ocr_name_candidates(name))
     candidates.append(name)
     return _dedupe(candidates)
 
@@ -102,6 +103,36 @@ def _systematic_alias_candidates(alias: str, expanded: str) -> list[str]:
     ):
         return ["methyl 3-(2,2-dimethylbutanoylthio)propanoate"]
     return []
+
+
+def _source_ocr_name_candidates(name: str) -> list[str]:
+    """Return conservative repairs for common native-PDF font substitutions."""
+
+    value = " ".join(str(name or "").split()).strip(" .,:;")
+    if not value:
+        return []
+    # Journal product headings commonly carry a citation such as ``7a``
+    # directly after the name.  It is not part of the chemical identity.
+    without_reference = re.sub(
+        r"(?i)(?<=[A-Za-z])\d{1,2}[A-Za-z]$",
+        "",
+        value,
+    ).strip()
+    candidates = [without_reference] if without_reference != value else []
+    # In older embedded fonts ``m`` is often extracted as ``tn`` and lowercase
+    # ``l`` as uppercase ``I``.  Keep both repairs as resolver candidates; the
+    # source text itself remains unchanged and the structure resolver must
+    # still independently reconstruct a valid molecule.
+    repaired = re.sub(r"(?<=[a-z])I(?=[a-z])", "l", without_reference)
+    repaired = re.sub(r"(?i)(?<=[a-z])tn(?=[a-z])", "m", repaired)
+    if repaired and repaired != without_reference:
+        candidates.append(repaired)
+    # Native PDF line wrapping may insert whitespace after the systematic
+    # nomenclature prefix ``cyclo`` (for example ``cyclo pentadiene``).
+    joined_prefix = re.sub(r"(?i)\bcyclo\s+(?=[a-z])", "cyclo", repaired)
+    if joined_prefix and joined_prefix not in {without_reference, repaired}:
+        candidates.append(joined_prefix)
+    return candidates
 
 
 def _dedupe(values: Any) -> list[str]:

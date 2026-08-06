@@ -1,7 +1,6 @@
 """Built-in adapters that expose mainline services through the provider SPI."""
 from __future__ import annotations
 
-from pathlib import Path
 from dataclasses import replace
 from typing import Any, Mapping
 
@@ -10,7 +9,6 @@ from cascade_planner.providers.contracts import (
     ProviderDescriptor,
     ProviderKind,
     ProviderResultEnvelope,
-    StockProvider,
 )
 from cascade_planner.providers.registry import ProviderRegistry
 from cascade_planner.providers.stock import SnapshotStockProvider
@@ -32,11 +30,6 @@ _HOST_BUILTIN_TRUST_POLICY: dict[str, dict[str, Any]] = {
         "kind": ProviderKind.VERIFIER,
         "correlation_group": "deterministic_reaction_verifier",
         "deterministic": True,
-    },
-    "autoplanner.codex_retrosynthesis": {
-        "kind": ProviderKind.AGENT_BACKEND,
-        "correlation_group": "codex_model",
-        "deterministic": False,
     },
     "autoplanner.chemenzy_proposals": {
         "kind": ProviderKind.PROPOSAL,
@@ -141,104 +134,6 @@ class ReactionRouteVerifierProvider:
             accepted=proof.get("accepted") is True,
             payload=proof,
             reasons=tuple(sorted(provider_reasons)),
-        )
-
-
-class CodexRetrosynthesisProvider:
-    """Replaceable backend around direct Codex coordinator/child-agent teams."""
-
-    descriptor = ProviderDescriptor(
-        provider_id="autoplanner.codex_retrosynthesis",
-        kind=ProviderKind.AGENT_BACKEND,
-        version="1.0.0",
-        input_schemas=("codex_retrosynthesis_campaign_request.v1",),
-        output_schemas=("codex_retrosynthesis_team_run.v1",),
-        correlation_group="codex_model",
-        capabilities=(
-            "direct_child_agent_spawn",
-            "multi_role_retrosynthesis",
-            "recursive_frontier_expansion",
-        ),
-        network_access=True,
-        estimated_cost_units=1.0,
-    )
-
-    def __init__(
-        self,
-        *,
-        run_dir: str | Path,
-        repository_root: str | Path,
-        config: Any = None,
-        runner: Any = None,
-        stock_provider: StockProvider | None = None,
-    ) -> None:
-        self.run_dir = Path(run_dir).resolve()
-        self.repository_root = Path(repository_root).resolve()
-        self.config = config
-        self.runner = runner
-        self.stock_provider = stock_provider
-
-    def invoke(
-        self,
-        request: Mapping[str, Any],
-        *,
-        context: ProviderContext,
-    ) -> ProviderResultEnvelope:
-        from cascade_planner.orchestration.codex_retrosynthesis import (
-            RetrosynthesisTeamConfig,
-            run_codex_retrosynthesis_campaign,
-        )
-
-        effective_config = self.config or RetrosynthesisTeamConfig()
-        config_updates: dict[str, Any] = {}
-        if isinstance(request.get("reaction_proofs"), Mapping):
-            config_updates["reaction_proofs"] = {
-                str(key): dict(value)
-                for key, value in request["reaction_proofs"].items()
-                if isinstance(value, Mapping)
-            }
-        if isinstance(request.get("reaction_proof_reports"), list):
-            config_updates["reaction_proof_reports"] = [
-                dict(row)
-                for row in request["reaction_proof_reports"]
-                if isinstance(row, Mapping)
-            ]
-        if config_updates:
-            effective_config = replace(effective_config, **config_updates)
-
-        report = run_codex_retrosynthesis_campaign(
-            case_id=str(request.get("case_id") or context.case_id),
-            target_name=str(request.get("target_name") or ""),
-            target_smiles=str(request.get("target_smiles") or context.target_smiles),
-            run_dir=self.run_dir,
-            repository_root=self.repository_root,
-            blackboard_context=dict(request.get("blackboard_context") or {}),
-            literature_sources=[
-                dict(row)
-                for row in request.get("literature_sources") or []
-                if isinstance(row, Mapping)
-            ],
-            config=effective_config,
-            runner=self.runner,
-            stock_provider=self.stock_provider,
-        )
-        return ProviderResultEnvelope(
-            provider_id=self.descriptor.provider_id,
-            provider_version=self.descriptor.version,
-            provider_kind=self.descriptor.kind,
-            correlation_group=self.descriptor.correlation_group,
-            output_schema="codex_retrosynthesis_team_run.v1",
-            accepted=report.get("accepted") is True,
-            payload=report,
-            reasons=tuple(str(item) for item in report.get("reasons") or []),
-            source_refs=tuple(
-                str(item)
-                for item in (report.get("route_consensus") or {}).get("source_refs") or []
-            ),
-            evidence_refs=tuple(
-                str(item)
-                for item in (report.get("route_consensus") or {}).get("evidence_refs") or []
-            ),
         )
 
 
@@ -361,7 +256,6 @@ def _payload_has_solved_claim(value: Mapping[str, Any]) -> bool:
 
 def build_default_provider_registry(
     *,
-    include_codex: CodexRetrosynthesisProvider | None = None,
     include_chemenzy: ChemEnzyProposalProvider | None = None,
     include_literature: LiteratureEvidenceProvider | None = None,
     include_manual_experiment_executor: bool = False,
@@ -379,12 +273,6 @@ def build_default_provider_registry(
         trusted_descriptor=_host_trusted_builtin_descriptor(verifier),
         authority="autoplanner_host_builtin_allowlist.v1",
     )
-    if include_codex is not None:
-        registry.register(
-            include_codex,
-            trusted_descriptor=_host_trusted_builtin_descriptor(include_codex),
-            authority="autoplanner_host_builtin_allowlist.v1",
-        )
     for provider in (include_chemenzy, include_literature):
         if provider is None:
             continue

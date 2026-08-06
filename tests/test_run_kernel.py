@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,9 @@ def _spec(
     model_invocations: int = 3,
     output_tokens: int = 200_000,
     total_tasks: int = 256,
+    native_total: int | None = None,
+    target_native_minimum: int | None = None,
+    frontier_native_limit: int | None = None,
 ) -> RunSpec:
     return RunSpec(
         run_id=run_id,
@@ -43,6 +47,9 @@ def _spec(
                 max_total_output_tokens=output_tokens,
                 max_accepted_expansions=accepted_expansions,
                 max_attempt_runs=attempts,
+                max_native_search_invocations=native_total,
+                min_target_native_search_invocations=target_native_minimum,
+                max_frontier_native_search_invocations=frontier_native_limit,
             ),
             max_total_tasks=total_tasks,
         ),
@@ -55,6 +62,75 @@ def _kernel(tmp_path: Path, **kwargs) -> RunKernel:
         tmp_path / "run",
         spec=_spec(**kwargs),
     )
+
+
+def test_explicit_model_budget_extension_is_durable_and_preserves_usage(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path, model_invocations=1)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="model-1",
+        kind="model",
+        idempotency_key="reserve-model-1",
+        input_revision=0,
+        uses_model=True,
+    )
+    kernel.settle_task(
+        task_id="model-1",
+        idempotency_key="settle-model-1",
+        status="completed",
+        model_usage={"model_invocations": 1, "input_tokens": 50},
+    )
+    with pytest.raises(
+        RunKernelBudgetError,
+        match="run_model_invocation_budget_exhausted",
+    ):
+        kernel.reserve_task(
+            task_id="model-2",
+            kind="model",
+            idempotency_key="reserve-model-2-before-extension",
+            input_revision=0,
+            uses_model=True,
+        )
+
+    extended = replace(kernel.spec.limits.model, max_model_invocations=2)
+    event = kernel.extend_model_budget(
+        extended,
+        idempotency_key="operator-extends-model-budget-to-2",
+    )
+
+    assert event is not None
+    assert event.event_type == "model_budget_extended"
+    assert kernel.spec.limits.model.max_model_invocations == 2
+    assert kernel.state.model_totals["model_invocations"] == 1
+    kernel.reserve_task(
+        task_id="model-2",
+        kind="model",
+        idempotency_key="reserve-model-2",
+        input_revision=0,
+        uses_model=True,
+    )
+
+    reopened = RunKernel(tmp_path / "runtime", tmp_path / "run")
+    assert reopened.spec.limits.model.max_model_invocations == 2
+    assert reopened.state.model_totals["model_invocations"] == 1
+    assert reopened.task_lifecycle("model-2")["status"] == "in_flight"
+
+
+def test_model_budget_extension_cannot_reduce_existing_limits(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path, model_invocations=2)
+
+    with pytest.raises(
+        RunKernelBudgetError,
+        match="run_model_budget_extension_cannot_decrease_or_change_policy",
+    ):
+        kernel.extend_model_budget(
+            replace(kernel.spec.limits.model, max_model_invocations=1),
+            idempotency_key="invalid-budget-reduction",
+        )
 
 
 def test_kernel_retries_transient_windows_atomic_replace_lock(
@@ -354,6 +430,85 @@ def test_attempt_cap_does_not_stop_remaining_non_proposal_work(tmp_path: Path) -
 
     assert decision.decision == "continue"
     assert decision.terminal is False
+
+
+def test_native_target_reserve_is_protected_released_and_replayable(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(
+        tmp_path,
+        native_total=3,
+        target_native_minimum=2,
+        frontier_native_limit=1,
+    )
+    kernel.start()
+    kernel.reserve_task(
+        task_id="frontier-1",
+        kind="other",
+        idempotency_key="reserve-frontier-1",
+        input_revision=0,
+        resource_class="native_search_frontier",
+        resource_units=1,
+    )
+    kernel.settle_task(
+        task_id="frontier-1",
+        idempotency_key="settle-frontier-1",
+        status="completed",
+    )
+    with pytest.raises(
+        RunKernelBudgetError,
+        match="run_native_target_reserve_protected",
+    ):
+        kernel.reserve_task(
+            task_id="frontier-protected",
+            kind="other",
+            idempotency_key="reserve-frontier-protected",
+            input_revision=0,
+            resource_class="native_search_frontier",
+            resource_units=1,
+        )
+    kernel.reserve_task(
+        task_id="target-1",
+        kind="other",
+        idempotency_key="reserve-target-1",
+        input_revision=0,
+        resource_class="native_search_target",
+        resource_units=1,
+    )
+    kernel.settle_task(
+        task_id="target-1",
+        idempotency_key="settle-target-1",
+        status="completed",
+    )
+    kernel.release_native_target_reserve(
+        units=1,
+        reason="target_native_search_terminal",
+        idempotency_key="release-unused-target-native",
+    )
+    borrowed = kernel.reserve_task(
+        task_id="frontier-borrowed",
+        kind="other",
+        idempotency_key="reserve-frontier-borrowed",
+        input_revision=0,
+        resource_class="native_search_frontier",
+        resource_units=1,
+    )
+    assert borrowed.payload["resource_reservation"]["decision"] == "borrow_granted"
+    assert borrowed.payload["resource_reservation"]["borrowed_units"] == 1
+    kernel.settle_task(
+        task_id="frontier-borrowed",
+        idempotency_key="settle-frontier-borrowed",
+        status="completed",
+    )
+
+    projection = kernel.native_search_budget()
+    assert projection["committed_total"] == 3
+    assert projection["hard_remaining"] == 0
+    assert projection["target"]["minimum_service_satisfied"] is True
+    assert projection["frontier"]["borrowed_total"] == 1
+
+    reopened = RunKernel(tmp_path / "runtime", tmp_path / "run")
+    assert reopened.native_search_budget() == projection
 
 
 def test_stop_decision_requires_bound_acceptance_report(tmp_path: Path) -> None:

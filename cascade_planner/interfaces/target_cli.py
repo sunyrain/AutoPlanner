@@ -13,7 +13,10 @@ from cascade_planner.interfaces.live_evidence import (
     build_http_evidence_connector,
     compose_evidence_connectors,
 )
-from cascade_planner.interfaces.live_stock import load_versioned_inventory_snapshot
+from cascade_planner.interfaces.live_stock import (
+    FrozenBenchmarkStockIndex,
+    load_versioned_inventory_snapshot,
+)
 from cascade_planner.interfaces.target_solver import (
     DEFAULT_TARGET_DIRECTOR_MODEL,
     TargetSolveConfig,
@@ -74,6 +77,15 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
             "for long-route dossiers"
         ),
     )
+    solve.add_argument(
+        "--objective-mode",
+        choices=("benchmark_search", "scientific_proof", "procurement_delivery"),
+        default="scientific_proof",
+        help=(
+            "deprecated compatibility view only; all values run the same "
+            "target-blind campaign and differ only in downstream presentation"
+        ),
+    )
     agent_mode = solve.add_mutually_exclusive_group()
     agent_mode.add_argument(
         "--coordinator",
@@ -99,14 +111,33 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--no-replan", action="store_true")
     solve.add_argument("--no-live-benchmark-stock", action="store_true")
     solve.add_argument(
+        "--benchmark-stock-index",
+        default="",
+        help=(
+            "content-addressed frozen SQLite benchmark-stock index; this "
+            "replaces the default PubChem benchmark-search lookup"
+        ),
+    )
+    solve.add_argument(
+        "--benchmark-stock-index-sha256",
+        default="",
+        help="required expected SHA-256 for --benchmark-stock-index",
+    )
+    solve.add_argument(
+        "--benchmark-stock-name",
+        default="",
+        help="optional public benchmark stock label recorded in audit artifacts",
+    )
+    solve.add_argument(
         "--no-chemenzy",
         action="store_true",
         help="disable guided ChemEnzy local expansion",
     )
     solve.add_argument(
         "--target-chemenzy-baseline",
-        action="store_true",
-        help="diagnostic only: also run ChemEnzy on the final target before Codex",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="run ChemEnzy on the final target before Codex; use --no-target-chemenzy-baseline for ablation",
     )
     solve.add_argument(
         "--chemenzy-env-prefix",
@@ -116,7 +147,47 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
             "CHEMENZY_ENV_PREFIX, repository default, then bounded Conda discovery"
         ),
     )
-    solve.add_argument("--chemenzy-max-routes", type=int, choices=range(1, 5), default=2)
+    solve.add_argument(
+        "--chemenzy-stock-name",
+        action="append",
+        default=[],
+        help=(
+            "explicit ChemEnzy stock name(s) from the vendor config; useful "
+            "for benchmark-aligned searches such as RetroStar-stock"
+        ),
+    )
+    solve.add_argument(
+        "--chemenzy-stock-path",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+        help="override a selected ChemEnzy vendor stock with an explicit CSV path",
+    )
+    solve.add_argument(
+        "--chemenzy-provider-route-reserve",
+        type=int,
+        choices=range(1, 33),
+        default=16,
+    )
+    solve.add_argument(
+        "--chemenzy-host-route-portfolio",
+        type=int,
+        choices=range(1, 17),
+        default=8,
+    )
+    solve.add_argument(
+        "--display-route-limit",
+        type=int,
+        choices=range(1, 13),
+        default=4,
+    )
+    solve.add_argument(
+        "--chemenzy-max-routes",
+        type=int,
+        choices=range(1, 33),
+        default=None,
+        help="deprecated compatibility alias for --chemenzy-provider-route-reserve",
+    )
     solve.add_argument("--chemenzy-max-steps", type=int, default=6)
     solve.add_argument("--chemenzy-iterations", type=int, default=10)
     solve.add_argument("--chemenzy-expansion-topk", type=int, default=20)
@@ -312,6 +383,8 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                         ),
                         seed_dois=tuple(args.literature_doi),
                         max_sources=args.max_literature_sources,
+                        auto_fetch_restricted_sources=True,
+                        auto_fetch_max_items=args.max_literature_sources,
                     )
                 )
             )
@@ -402,6 +475,8 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                         seed_pdfs=tuple(args.literature_pdf),
                         max_sources=args.max_literature_sources,
                         max_visual_pages=args.max_visual_pages,
+                        auto_fetch_restricted_sources=True,
+                        auto_fetch_max_items=args.max_literature_sources,
                     )
                 )
             )
@@ -411,6 +486,24 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                 if len(builtin_connectors) == 1
                 else compose_evidence_connectors(*builtin_connectors)
             )
+    stock_catalog_builder = None
+    if args.benchmark_stock_index:
+        if args.no_live_benchmark_stock:
+            raise ValueError(
+                "benchmark_stock_index_conflicts_with_no_live_benchmark_stock"
+            )
+        if args.stock_boundary != "benchmark_search":
+            raise ValueError(
+                "benchmark_stock_index_requires_benchmark_search_boundary"
+            )
+        stock_catalog_builder = FrozenBenchmarkStockIndex(
+            args.benchmark_stock_index,
+            expected_sha256=args.benchmark_stock_index_sha256,
+            catalog_name=args.benchmark_stock_name,
+        )
+    elif args.benchmark_stock_index_sha256 or args.benchmark_stock_name:
+        raise ValueError("benchmark_stock_index_path_required")
+
     inventory_snapshot_builder = None
     if args.inventory_snapshot:
         if args.stock_boundary != "procurement":
@@ -445,6 +538,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         resume=args.resume,
         evidence_connector=evidence_connector,
         visual_evidence_provider=visual_evidence_provider,
+        stock_catalog_builder=stock_catalog_builder,
         inventory_snapshot_builder=inventory_snapshot_builder,
         acceptance=RetrosynthesisAcceptanceSpec(
             minimum_complete_routes=args.minimum_complete_routes,
@@ -466,6 +560,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             model=args.model,
             reasoning_effort=args.reasoning_effort,
             execution_profile=args.execution_profile,
+            objective_mode=args.objective_mode,
             use_coordinator=args.coordinator and not args.single_agent,
             enable_web_search=not args.no_web_search,
             enable_initial_director_web_search=(
@@ -480,6 +575,12 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             enable_target_chemenzy_baseline=args.target_chemenzy_baseline,
             enable_guided_chemenzy=not args.no_guided_chemenzy,
             chemenzy_env_prefix=args.chemenzy_env_prefix,
+            chemenzy_stock_names=tuple(
+                str(value) for value in args.chemenzy_stock_name if str(value).strip()
+            ),
+            chemenzy_stock_paths=_parse_chemenzy_stock_paths(
+                args.chemenzy_stock_path
+            ),
             enable_patent_self_evolution=not args.no_patent_self_evo,
             self_evo_library_path=args.self_evo_library,
             enable_builtin_patent_evidence=(
@@ -489,6 +590,9 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_live_stock_molecules=args.max_stock_molecules,
             max_patent_sources=args.max_patent_sources,
             max_self_evo_template_candidates=args.max_self_evo_candidates,
+            provider_route_reserve=args.chemenzy_provider_route_reserve,
+            host_route_portfolio=args.chemenzy_host_route_portfolio,
+            display_route_limit=args.display_route_limit,
             max_chemenzy_routes=args.chemenzy_max_routes,
             max_chemenzy_steps=args.chemenzy_max_steps,
             max_chemenzy_iterations=args.chemenzy_iterations,
@@ -502,6 +606,22 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         ),
     )
     return result if args.full_output else _compact_target_result(result)
+
+
+def _parse_chemenzy_stock_paths(values: list[str] | tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    parsed: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for raw in values:
+        name, separator, path = str(raw).partition("=")
+        name = name.strip()
+        path = path.strip()
+        if not separator or not name or not path:
+            raise ValueError("chemenzy_stock_path_must_be_NAME_EQUALS_PATH")
+        if name in seen:
+            raise ValueError(f"duplicate_chemenzy_stock_path:{name}")
+        seen.add(name)
+        parsed.append((name, path))
+    return tuple(parsed)
 
 
 def _compact_target_result(result: Any) -> dict[str, Any]:

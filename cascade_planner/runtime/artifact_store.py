@@ -304,6 +304,7 @@ class ArtifactStore:
         metadata: Mapping[str, Any] | None = None,
     ) -> Path:
         pointer_path = self._pointer_path(name)
+        pointer_path.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, Any] = {
             "schema_version": ARTIFACT_POINTER_SCHEMA,
             "name": name,

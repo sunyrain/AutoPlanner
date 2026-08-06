@@ -17,15 +17,15 @@ from typing import Any
 
 from rdkit import RDLogger
 
-RDLogger.DisableLog("rdApp.*")
-logging.disable(logging.CRITICAL)
-
 from cascade_planner.cascadeboard.live_benchmark import _build_stock_checker, _load_benchmark_entries
 from cascade_planner.cascadeboard.live_retro import build_live_retro_engine
 from cascade_planner.cascadeboard.route_export import route_results_payload
 from cascade_planner.route_tree.runtime import default_route_tree_runtime
 from cascade_planner.route_tree.search import plan_with_route_tree
 from cascade_planner.route_tree.trace import RouteTreeTraceCollector
+
+RDLogger.DisableLog("rdApp.*")
+logging.disable(logging.CRITICAL)
 
 
 TRACE_SCHEMA_VERSION = "route_tree_trace.v1"

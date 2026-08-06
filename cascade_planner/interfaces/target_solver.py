@@ -10,11 +10,12 @@ import math
 from pathlib import Path
 import re
 import time
-from typing import Any, Iterable, Mapping, TYPE_CHECKING
+from typing import Any, Callable, Iterable, Literal, Mapping, TYPE_CHECKING
 
 from cascade_planner.application.blind_acceptance import (
     compile_blind_acceptance_report,
 )
+from cascade_planner.application.action_scheduler import schedule_next_action
 from cascade_planner.application.blind_benchmark_contract import (
     BLIND_CASE_SCHEMA,
     BlindBenchmarkError,
@@ -27,12 +28,30 @@ from cascade_planner.application.canonical_hypergraph import (
     CanonicalIngestionBatch,
     molecule_identity,
 )
+from cascade_planner.application.campaign_actions import (
+    CampaignAction,
+    CampaignActionKind,
+    compile_action_opportunities,
+)
+from cascade_planner.application.campaign_trajectory import (
+    compile_campaign_snapshot,
+    compile_campaign_trajectory,
+    snapshots_from_stages,
+)
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
 )
+from cascade_planner.application.route_innovation_discovery import (
+    canonical_innovation_batch,
+)
+from cascade_planner.application.run_kernel import RunKernelBudgetError
 from cascade_planner.application.reaction_mapping import ReactionMapper
-from cascade_planner.application.proof_portfolio import compile_proof_portfolio
+from cascade_planner.application.proof_portfolio import (
+    PortfolioConfig,
+    compile_proof_portfolio,
+)
+from cascade_planner.cascade_search.proposals import local_condition_predictor
 from cascade_planner.interfaces.evidence_import import (
     ingest_structured_evidence_document,
 )
@@ -56,6 +75,7 @@ from cascade_planner.interfaces.target_solver_stages import (
     audit_authoritative_inventory_stock,
     audit_live_benchmark_stock,
     discover_director_source_hints,
+    enrich_materialized_edge_conditions,
     ingest_source_discovery_observation,
     materialize_discovered_source_routes,
     repair_rejected_precursor_typos,
@@ -69,6 +89,7 @@ from cascade_planner.interfaces.visual_evidence import (
     VisualEvidenceProvider,
     acquire_visual_evidence_candidates,
     materialize_visual_evidence_candidates,
+    rebind_visual_evidence_observation,
 )
 from cascade_planner.orchestration.global_campaign_director import (
     DirectorConfig,
@@ -76,6 +97,9 @@ from cascade_planner.orchestration.global_campaign_director import (
     DirectorRunner,
     GlobalCampaignDirectorError,
     director_prompt,
+)
+from cascade_planner.orchestration.unified_campaign_runtime import (
+    CampaignActionRuntime,
 )
 
 
@@ -94,6 +118,29 @@ _DIRECTOR_TOPOLOGY_REASONS = frozenset(
         "skeleton_requires_exactly_one_target_root",
     }
 )
+_REPLAN_ACTIONABLE_EVENTS = frozenset(
+    {
+        "critical_edge_rejected",
+        "director_contract_rejected",
+        "director_depth_deficit",
+        "director_topology_rejected",
+        "exact_rows_added",
+        "host_validated_edges_added_after_initial_plan",
+        "host_validated_source_route_added",
+        "material_evidence_added",
+        "source_material_discovered",
+        "source_procedure_records_added",
+        "stock_boundary_changed",
+        "stock_records_added",
+        "visual_source_candidates_added",
+    }
+)
+_MAX_DIRECTOR_OUTCOMES = 10
+TargetObjectiveMode = Literal[
+    "benchmark_search",
+    "scientific_proof",
+    "procurement_delivery",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +148,7 @@ class TargetSolveConfig:
     model: str = DEFAULT_TARGET_DIRECTOR_MODEL
     reasoning_effort: str = "low"
     execution_profile: str = "standard"
+    objective_mode: TargetObjectiveMode = "scientific_proof"
     use_coordinator: bool = False
     enable_web_search: bool = True
     enable_initial_director_web_search: bool = False
@@ -109,21 +157,36 @@ class TargetSolveConfig:
     enable_builtin_patent_evidence: bool = False
     enable_patent_self_evolution: bool = True
     enable_chemenzy: bool = True
-    enable_target_chemenzy_baseline: bool = False
+    enable_target_chemenzy_baseline: bool = True
     enable_guided_chemenzy: bool = True
     enable_chemenzy_condition_prediction: bool = True
+    enable_condition_enrichment: bool = True
     enable_chemenzy_enzyme_assignment: bool = True
     enable_enzyme_coverage_sidecar: bool = True
+    enable_program_review: bool = True
+    enable_program_admission: bool = False
+    enable_program_discovery: bool = True
+    enable_program_validation: bool = True
+    enable_experimental_claim_admission: bool = False
     enable_target_identity: bool = True
     resolve_named_target_identity: bool = False
     blind_audit_root: str = ""
     chemenzy_env_prefix: str = ""
+    chemenzy_stock_names: tuple[str, ...] = ()
+    chemenzy_stock_paths: tuple[tuple[str, str], ...] = ()
     self_evo_library_path: str = ""
+    program_capability_catalog_path: str = ""
     max_atom_mapping_reactions: int = 48
+    max_condition_prediction_reactions: int = 48
+    condition_prediction_topk: int = 2
     max_live_stock_molecules: int = 24
     max_patent_sources: int = 3
     max_self_evo_template_candidates: int = 12
-    max_chemenzy_routes: int = 2
+    max_program_routes: int = 4
+    provider_route_reserve: int = 16
+    host_route_portfolio: int = 8
+    display_route_limit: int = 4
+    max_chemenzy_routes: int | None = None
     max_chemenzy_steps: int = 6
     max_chemenzy_iterations: int = 10
     chemenzy_expansion_topk: int = 20
@@ -145,16 +208,36 @@ class TargetSolveConfig:
             raise ValueError("target solver reasoning effort is invalid")
         if self.execution_profile not in {"fast", "standard", "proof"}:
             raise ValueError("target solver execution profile is invalid")
+        if self.objective_mode not in {
+            "benchmark_search",
+            "scientific_proof",
+            "procurement_delivery",
+        }:
+            raise ValueError("target solver objective mode is invalid")
         if self.max_atom_mapping_reactions < 1 or self.max_live_stock_molecules < 1:
             raise ValueError("target solver deterministic limits must be positive")
+        if self.max_condition_prediction_reactions < 1:
+            raise ValueError("target solver condition prediction limit must be positive")
+        if not 1 <= self.condition_prediction_topk <= 2:
+            raise ValueError("target solver condition prediction top-k is invalid")
         if not 1 <= self.max_patent_sources <= 8:
             raise ValueError("target solver patent source limit is invalid")
         if not 1 <= self.max_visual_evidence_pages <= 12:
             raise ValueError("target solver visual evidence page limit is invalid")
         if not 1 <= self.max_self_evo_template_candidates <= 64:
             raise ValueError("target solver self-evolution candidate limit is invalid")
-        if not 1 <= self.max_chemenzy_routes <= 4:
-            raise ValueError("target solver ChemEnzy route limit is invalid")
+        if not 1 <= self.max_program_routes <= 8:
+            raise ValueError("target solver Program route limit is invalid")
+        if not 1 <= self.provider_route_reserve <= 32:
+            raise ValueError("target solver ChemEnzy provider reserve is invalid")
+        if not 1 <= self.host_route_portfolio <= 16:
+            raise ValueError("target solver ChemEnzy host portfolio is invalid")
+        if not 1 <= self.display_route_limit <= 12:
+            raise ValueError("target solver route display limit is invalid")
+        if self.max_chemenzy_routes is not None and not (
+            1 <= self.max_chemenzy_routes <= 32
+        ):
+            raise ValueError("target solver legacy ChemEnzy route limit is invalid")
         if min(
             self.max_chemenzy_steps,
             self.max_chemenzy_iterations,
@@ -186,6 +269,19 @@ class TargetSolveConfig:
         ):
             raise ValueError("target solver minimum planning route depth is invalid")
 
+    @property
+    def effective_provider_route_reserve(self) -> int:
+        """Resolve the deprecated one-knob route limit without losing compatibility."""
+
+        return int(self.max_chemenzy_routes or self.provider_route_reserve)
+
+    @property
+    def effective_host_route_portfolio(self) -> int:
+        return min(
+            int(self.host_route_portfolio),
+            self.effective_provider_route_reserve,
+        )
+
 
 def solve_target(
     gateway: "CampaignGateway",
@@ -206,6 +302,10 @@ def solve_target(
     evidence_connector: EvidenceConnector | None = None,
     visual_evidence_provider: VisualEvidenceProvider | None = None,
     chemenzy_provider: ChemenzyProposalProvider | None = None,
+    condition_predictor: Any | None = None,
+    program_capabilities: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None = None,
+    mechanism_proposals: Iterable[Mapping[str, Any]] = (),
+    program_validation_feedback: Iterable[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Run or resume the real SMILES-only campaign path through one V4 kernel."""
 
@@ -351,7 +451,7 @@ def solve_target(
         ),
         max_tool_calls=director_profile["max_tool_calls"],
         max_initial_architecture_calls=1,
-        max_event_replan_calls=1,
+        max_event_replan_calls=_MAX_DIRECTOR_OUTCOMES - 1,
         max_final_portfolio_synthesis_calls=1,
         model=active.model,
         reasoning_effort=active.reasoning_effort,
@@ -365,10 +465,37 @@ def solve_target(
         director_runner=director_runner,
         director_config=director_config,
     )
+    budget_extension_event = None
+    if resume and service.kernel.spec.limits.model != resolved_budget:
+        budget_sha256 = str(resolved_budget.to_dict()["content_sha256"])
+        budget_extension_event = service.kernel.extend_model_budget(
+            resolved_budget,
+            idempotency_key=f"solve-target:model-budget:{budget_sha256[:24]}",
+        )
     if resume and service.kernel.state.status == "paused":
         service.kernel.resume(
             idempotency_key=f"solve-target:resume:{service.kernel.state.revision}"
         )
+    if (
+        service.kernel.state.status == "running"
+        and not (
+            active.enable_chemenzy
+            and active.enable_target_chemenzy_baseline
+        )
+    ):
+        native_projection = service.kernel.native_search_budget()
+        protected_units = int(
+            dict(native_projection.get("target") or {}).get(
+                "protected_remaining"
+            )
+            or 0
+        )
+        if protected_units:
+            service.kernel.release_native_target_reserve(
+                units=protected_units,
+                reason="target_native_search_not_registered",
+                idempotency_key="solve-target:native-target-reserve:unregistered",
+            )
     service.apply_batch(
         CanonicalIngestionBatch(recompute_derived=True),
         idempotency_key=f"solve-target:derived-projection:{service.kernel.state.graph_revision}",
@@ -401,6 +528,532 @@ def solve_target(
         )
     stages = list(checkpoint.get("stages") or [])
     outcomes = list(checkpoint.get("director_outcomes") or [])
+    resolved_condition_predictor = condition_predictor
+    condition_predictor_error = ""
+    if (
+        resolved_condition_predictor is None
+        and active.enable_condition_enrichment
+    ):
+        try:
+            resolved_condition_predictor = local_condition_predictor(
+                _chemenzy_vendor_root(gateway.paths.vendor_root), "rcr"
+            )
+        except Exception as exc:
+            condition_predictor_error = f"{type(exc).__name__}:{exc}"
+    resolved_program_capabilities, program_capability_error = (
+        _resolve_program_capabilities(
+            program_capabilities,
+            configured_path=active.program_capability_catalog_path,
+            repository_root=gateway.paths.repository_root,
+        )
+        if active.enable_program_discovery
+        else ((), "")
+    )
+    resolved_mechanism_proposals = tuple(
+        dict(value) for value in mechanism_proposals if isinstance(value, Mapping)
+    )
+    resolved_program_validation_feedback = tuple(
+        dict(value)
+        for value in program_validation_feedback
+        if isinstance(value, Mapping)
+    )
+    initial_director_context: Any | None = None
+
+    def append_condition_stage(stage_name: str) -> dict[str, Any]:
+        if not active.enable_condition_enrichment:
+            detail = {
+                "stage": "condition_enrichment",
+                "status": "skipped",
+                "reason": "condition_enrichment_disabled",
+                "semantics": {"scheduler_owned_execution": True},
+            }
+        else:
+            condition_executions = project_action_results(
+                stage_name,
+                condition_action_runtime,
+                max_actions=active.max_condition_prediction_reactions + 2,
+            )
+            detail = _aggregate_condition_action_results(condition_executions)
+        if condition_predictor_error:
+            detail["predictor_load_error"] = condition_predictor_error
+        stages.append(_stage(stage_name, detail["status"], detail))
+        return detail
+
+    def scheduler_resources() -> dict[str, bool]:
+        model_totals = dict(service.kernel.state.model_totals)
+        native_search = service.kernel.native_search_budget()
+        target_native = dict(native_search.get("target") or {})
+        frontier_native = dict(native_search.get("frontier") or {})
+        return {
+            "deterministic": True,
+            "validation": True,
+            "stock": True,
+            "evidence": resolved_evidence_connector is not None,
+            "condition": bool(
+                active.enable_condition_enrichment
+                and resolved_condition_predictor is not None
+            ),
+            "program": True,
+            "model": int(model_totals.get("model_invocations") or 0)
+            < resolved_budget.max_model_invocations,
+            "native_search_target": bool(
+                active.enable_chemenzy
+                and active.enable_target_chemenzy_baseline
+                and target_native.get("available") is True
+            ),
+            "native_search_frontier": bool(
+                active.enable_chemenzy
+                and active.enable_guided_chemenzy
+                and frontier_native.get("available") is True
+            ),
+            "native_search": bool(
+                active.enable_chemenzy
+                and (
+                    target_native.get("available") is True
+                    or frontier_native.get("available") is True
+                )
+            ),
+        }
+
+    def current_campaign_gates() -> dict[str, Any]:
+        graph = service.graph_store.load()
+        portfolio = compile_proof_portfolio(
+            graph,
+            acceptance_spec=resolved_acceptance,
+            config=_portfolio_config(active, resolved_acceptance),
+        )
+        return compile_blind_acceptance_report(
+            preflight=preflight,
+            director_outcomes=outcomes,
+            graph=graph,
+            portfolio=portfolio,
+        )
+
+    def handle_materialize(action: CampaignAction) -> dict[str, Any]:
+        return service.execute_frontier_materialization(
+            idempotency_key=f"{action.idempotency_key}:handler",
+            hypothesis_ids=action.subject_ids,
+        )
+
+    def handle_validation(action: CampaignAction) -> dict[str, Any]:
+        force_revalidation = action.metadata.get("force_revalidation") is True
+        return validate_materialized_edges(
+            service,
+            atom_mapper=atom_mapper,
+            max_reactions=active.max_atom_mapping_reactions,
+            edge_ids=action.subject_ids,
+            revalidate_edge_ids=(action.subject_ids if force_revalidation else ()),
+        )
+
+    def handle_stock(_action: CampaignAction) -> dict[str, Any]:
+        return _audit_stock_stage(
+            service,
+            acceptance=resolved_acceptance,
+            config=active,
+            catalog_builder=stock_catalog_builder,
+            inventory_builder=inventory_snapshot_builder,
+        )
+
+    def handle_condition(action: CampaignAction) -> dict[str, Any]:
+        return enrich_materialized_edge_conditions(
+            service,
+            predictor=resolved_condition_predictor,
+            enabled=active.enable_condition_enrichment,
+            max_reactions=active.max_condition_prediction_reactions,
+            top_k=active.condition_prediction_topk,
+            condition_model="rcr",
+            edge_ids=action.subject_ids,
+        )
+
+    def handle_target_chemenzy(action: CampaignAction) -> dict[str, Any]:
+        if action.metadata.get("target_level_native_search") is not True:
+            return {
+                "status": "failed",
+                "reasons": ["chemenzy_target_action_scope_invalid"],
+            }
+        return run_chemenzy_proposal_stage(
+            service,
+            target_name=case.target_name,
+            target_smiles=canonical,
+            enabled=(
+                active.enable_chemenzy and active.enable_target_chemenzy_baseline
+            ),
+            provider=chemenzy_provider,
+            env_prefix=active.chemenzy_env_prefix or None,
+            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
+            max_routes=active.effective_provider_route_reserve,
+            max_host_routes=active.effective_host_route_portfolio,
+            max_steps=active.max_chemenzy_steps,
+            max_iterations=active.max_chemenzy_iterations,
+            expansion_topk=active.chemenzy_expansion_topk,
+            timeout_s=active.chemenzy_timeout_s,
+            search_preset=active.chemenzy_search_preset,
+            stock_names=active.chemenzy_stock_names,
+            stock_paths=dict(active.chemenzy_stock_paths),
+            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
+            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
+            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
+            pandarallel_workers=active.chemenzy_pandarallel_workers,
+        )
+
+    def handle_guided_chemenzy(action: CampaignAction) -> dict[str, Any]:
+        frontier_smiles = str(action.metadata.get("frontier_smiles") or "")
+        if (
+            action.metadata.get("target_level_native_search") is True
+            or not frontier_smiles
+        ):
+            return {
+                "status": "failed",
+                "reasons": ["chemenzy_frontier_action_scope_invalid"],
+            }
+        return run_chemenzy_guided_frontier_stage(
+            service,
+            target_name=case.target_name,
+            root_target_smiles=canonical,
+            enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
+            provider=chemenzy_provider,
+            env_prefix=active.chemenzy_env_prefix or None,
+            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
+            max_frontiers=1,
+            max_routes=1,
+            max_steps=active.max_chemenzy_steps,
+            max_iterations=min(24, active.max_guided_chemenzy_iterations),
+            expansion_topk=min(80, active.chemenzy_expansion_topk),
+            timeout_s=active.guided_chemenzy_timeout_s,
+            include_frontier_smiles=(frontier_smiles,),
+            search_preset="thorough",
+            stock_names=active.chemenzy_stock_names,
+            stock_paths=dict(active.chemenzy_stock_paths),
+            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
+            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
+            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
+            pandarallel_workers=active.chemenzy_pandarallel_workers,
+        )
+
+    def handle_global_architecture(action: CampaignAction) -> dict[str, Any]:
+        if action.metadata.get("global_architecture") is not True:
+            return {
+                "status": "failed",
+                "reasons": ["codex_global_architecture_action_scope_invalid"],
+            }
+        return _run_director_safely(
+            service,
+            mode="initial_architecture",
+            evidence_observations={
+                **dict(initial_template_observation),
+                "target_identity": target_identity,
+                "chemenzy_provider_observation": chemenzy_observation,
+            },
+            context=initial_director_context,
+            idempotency_key="solve-target:director:initial",
+        )
+
+    def handle_program_review(_action: CampaignAction) -> dict[str, Any]:
+        projection = service.program_projection()
+        return {
+            "status": "completed",
+            "projection": projection,
+            "store": service.program_store(),
+            "semantics": {
+                "program_review_is_read_only": True,
+                "program_projection_grants_no_canonical_authority": True,
+            },
+        }
+
+    def handle_program_discovery(action: CampaignAction) -> dict[str, Any]:
+        route_id = str(action.metadata.get("route_id") or "")
+        if not route_id:
+            return {
+                "status": "failed",
+                "reasons": ["program_discovery_route_id_missing"],
+            }
+        program_review = service.review_route_program_innovations(
+            route_id,
+            capabilities=resolved_program_capabilities,
+            mechanism_proposals=resolved_mechanism_proposals,
+        )
+        discovery = dict(program_review.get("discovery") or {})
+        innovation_batch = canonical_innovation_batch(discovery)
+        hypotheses = tuple(
+            dict(value)
+            for value in innovation_batch.get("hypotheses") or []
+            if isinstance(value, Mapping)
+        )
+        ingestion = (
+            service.apply_batch(
+                CanonicalIngestionBatch(hypotheses=hypotheses),
+                idempotency_key=f"program-discovery:{action.execution_id}",
+            )
+            if hypotheses
+            else {"changed": False}
+        )
+        return {
+            "status": (
+                "completed"
+                if int(discovery.get("candidate_count") or 0)
+                else "reused_or_empty"
+            ),
+            "route_id": route_id,
+            "candidate_count": int(discovery.get("candidate_count") or 0),
+            "program_draft_candidate_ids": list(
+                discovery.get("program_draft_candidate_ids") or []
+            ),
+            "execution_program_draft_candidate_ids": list(
+                discovery.get("execution_program_draft_candidate_ids") or []
+            ),
+            "mechanism_hypothesis_count": len(hypotheses),
+            "discovery": discovery,
+            "program_review": program_review,
+            "experimental_work_frontier": dict(
+                program_review.get("experimental_work_frontier") or {}
+            ),
+            "canonical_ingestion": ingestion,
+            "semantics": {
+                "program_candidates_are_proposal_only": True,
+                "mechanism_hypotheses_use_canonical_ingestion": True,
+                "enzyme_windows_do_not_masquerade_as_reaction_edges": True,
+            },
+        }
+
+    def handle_program_validation(action: CampaignAction) -> dict[str, Any]:
+        work_item = dict(action.metadata.get("work_item") or {})
+        execution_request = dict(work_item.get("execution_request") or {})
+        if (
+            work_item.get("schema_version") != "experimental_work_item.v1"
+            or not str(work_item.get("content_sha256") or "")
+            or not str(execution_request.get("request_id") or "")
+        ):
+            return {
+                "status": "failed",
+                "reasons": ["program_validation_work_item_binding_invalid"],
+            }
+        return {
+            "status": "awaiting_external_result",
+            "changed": False,
+            "route_id": str(action.metadata.get("route_id") or ""),
+            "program_id": str(work_item.get("program_id") or ""),
+            "work_item_id": str(work_item.get("work_item_id") or ""),
+            "execution_request": execution_request,
+            "semantics": {
+                "request_is_dispatch_candidate_only": True,
+                "no_validation_claim_has_been_granted": True,
+                "canonical_graph_is_not_mutated": True,
+                "external_result_requires_feedback_action": True,
+            },
+        }
+
+    def handle_experiment_feedback(action: CampaignAction) -> dict[str, Any]:
+        route_id = str(action.metadata.get("route_id") or "")
+        validation = dict(action.metadata.get("validation") or {})
+        if not route_id or not validation:
+            return {
+                "status": "failed",
+                "reasons": ["experiment_feedback_binding_missing"],
+            }
+        program_review = service.review_route_program_innovations(
+            route_id,
+            capabilities=resolved_program_capabilities,
+            mechanism_proposals=resolved_mechanism_proposals,
+            validations=(validation,),
+        )
+        claim_oracle = dict(program_review.get("experimental_claims_oracle") or {})
+        if claim_oracle.get("accepted") is not True:
+            return {
+                "status": "failed",
+                "reasons": ["experiment_feedback_claim_projection_rejected"],
+                "claim_oracle": claim_oracle,
+            }
+        shadow_admission = (
+            service.admit_route_experimental_claims(
+                route_id,
+                capabilities=resolved_program_capabilities,
+                mechanism_proposals=resolved_mechanism_proposals,
+                validations=(validation,),
+                enable_experimental_claim_admission=True,
+            )
+            if active.enable_experimental_claim_admission
+            else {
+                "status": "skipped",
+                "reason": "experimental_claim_admission_not_explicitly_enabled",
+            }
+        )
+        program_id = str(validation.get("program_id") or "")
+        pending_signal_ids = sorted(
+            str(signal_id)
+            for signal_id, raw_signal in dict(
+                service.graph_store.load().get("action_signals") or {}
+            ).items()
+            if isinstance(raw_signal, Mapping)
+            and str(raw_signal.get("kind") or "") == "program_validation"
+            and str(
+                dict(dict(raw_signal.get("metadata") or {}).get("work_item") or {}).get(
+                    "program_id"
+                )
+                or ""
+            )
+            == program_id
+        )
+        return {
+            "status": "completed",
+            "changed": False,
+            "route_id": route_id,
+            "program_id": program_id,
+            "validation_id": str(validation.get("validation_id") or ""),
+            "experimental_claims": dict(
+                program_review.get("experimental_claims") or {}
+            ),
+            "experimental_claims_oracle": claim_oracle,
+            "shadow_admission": shadow_admission,
+            "resolved_program_validation_signal_ids": pending_signal_ids,
+            "semantics": {
+                "feedback_is_host_gated": True,
+                "claims_are_exact_boundary_observations": True,
+                "shadow_admission_requires_explicit_enable": True,
+                "canonical_reaction_edges_are_not_created": True,
+            },
+        }
+
+    def handle_program_admission(_action: CampaignAction) -> dict[str, Any]:
+        if not active.enable_program_admission:
+            return {
+                "status": "skipped",
+                "reason": "program_admission_not_explicitly_enabled",
+            }
+        return {
+            "status": "completed",
+            "admission": service.admit_programs(enable_program_admission=True),
+            "semantics": {
+                "shadow_program_store_only": True,
+                "canonical_graph_remains_authoritative": True,
+            },
+        }
+
+    preexecuted_action_backlog: list[dict[str, Any]] = []
+
+    def project_action_results(
+        _phase: str,
+        runtime: CampaignActionRuntime,
+        *,
+        max_actions: int,
+        excluded_action_ids: Iterable[str] = (),
+        supplemental_deficits: Iterable[Mapping[str, Any]] = (),
+    ) -> list[dict[str, Any]]:
+        """Project executions already produced by the one anytime loop."""
+
+        del excluded_action_ids, supplemental_deficits
+        runtime_kinds = {kind.value for kind in runtime.handlers}
+        phase_kind = {
+            "program_discovery": CampaignActionKind.PROGRAM_DISCOVER.value,
+            "program_review": CampaignActionKind.PROGRAM_REVIEW.value,
+            "program_admission": CampaignActionKind.PROGRAM_ADMIT.value,
+        }.get(_phase)
+        if phase_kind:
+            runtime_kinds = {phase_kind}
+        preexecuted = [
+            execution
+            for execution in preexecuted_action_backlog
+            if str(dict(execution.get("action") or {}).get("kind") or "")
+            in runtime_kinds
+        ][: max(1, int(max_actions))]
+        if preexecuted:
+            consumed_ids = {id(execution) for execution in preexecuted}
+            preexecuted_action_backlog[:] = [
+                execution
+                for execution in preexecuted_action_backlog
+                if id(execution) not in consumed_ids
+            ]
+            return [dict(execution) for execution in preexecuted]
+        return []
+
+    seed_action_runtime = CampaignActionRuntime(
+        service.kernel,
+        {
+            CampaignActionKind.MATERIALIZE: handle_materialize,
+            CampaignActionKind.STOCK_AUDIT: handle_stock,
+        },
+    )
+    condition_action_runtime = CampaignActionRuntime(
+        service.kernel,
+        (
+            {CampaignActionKind.CONDITION_ENRICH: handle_condition}
+            if resolved_condition_predictor is not None
+            else {}
+        ),
+    )
+    target_chemenzy_action_runtime = CampaignActionRuntime(
+        service.kernel,
+        (
+            {CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle_target_chemenzy}
+            if active.enable_chemenzy and active.enable_target_chemenzy_baseline
+            else {}
+        ),
+    )
+    guided_chemenzy_action_runtime = CampaignActionRuntime(
+        service.kernel,
+        (
+            {CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle_guided_chemenzy}
+            if active.enable_chemenzy and active.enable_guided_chemenzy
+            else {}
+        ),
+    )
+    global_architecture_action_runtime = CampaignActionRuntime(
+        service.kernel,
+        {CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_global_architecture},
+    )
+    program_action_runtime = CampaignActionRuntime(
+        service.kernel,
+        {
+            **(
+                {CampaignActionKind.PROGRAM_DISCOVER: handle_program_discovery}
+                if active.enable_program_discovery
+                and (
+                    bool(resolved_program_capabilities)
+                    or bool(resolved_mechanism_proposals)
+                )
+                else {}
+            ),
+            **(
+                {CampaignActionKind.PROGRAM_REVIEW: handle_program_review}
+                if active.enable_program_review
+                else {}
+            ),
+            **(
+                {CampaignActionKind.PROGRAM_ADMIT: handle_program_admission}
+                if active.enable_program_admission
+                else {}
+            ),
+            **(
+                {CampaignActionKind.PROGRAM_VALIDATE: handle_program_validation}
+                if active.enable_program_validation
+                else {}
+            ),
+            **(
+                {
+                    CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST: (
+                        handle_experiment_feedback
+                    )
+                }
+                if active.enable_program_validation
+                else {}
+            ),
+        },
+    )
+
+    if budget_extension_event is not None:
+        stages.append(
+            _stage(
+                "model_budget_extension",
+                "accepted",
+                {
+                    "event": budget_extension_event.to_dict(),
+                    "effective_budget": resolved_budget.to_dict(),
+                    "semantics": {
+                        "explicit_resume_policy": True,
+                        "observed_usage_is_preserved": True,
+                    },
+                },
+            )
+        )
     if checkpoint.get("complete") is True and service.kernel.decide_stop().terminal:
         return _refresh_terminal_report(
             service,
@@ -478,6 +1131,716 @@ def solve_target(
         )
     )
     initial_template_observation = self_evo.observation()
+    chemenzy_observation: dict[str, Any] = {}
+    initial_director_context = service.compile_global_context(
+        evidence_observations={
+            **dict(initial_template_observation),
+            "target_identity": target_identity,
+            "chemenzy_provider_observation": {},
+        }
+    )
+    latest_evidence_action_result: dict[str, Any] = {}
+    evidence_action_completed = False
+    unified_material_events: set[str] = set()
+    unified_replan_audit_contexts: dict[str, dict[str, Any]] = {}
+
+    def handle_unified_evidence(_action: CampaignAction) -> dict[str, Any]:
+        nonlocal evidence_action_completed, latest_evidence_action_result
+        if evidence_action_completed:
+            return {
+                "status": "reused",
+                "changed": False,
+                "reason": "unified_evidence_action_already_executed",
+            }
+        source_frontier = discover_director_source_hints(service, outcomes)
+        result = _acquire_evidence_stage(
+            service,
+            source_stage=source_frontier,
+            connector=resolved_evidence_connector,
+            atom_mapper=atom_mapper,
+            visual_provider=visual_evidence_provider,
+            max_visual_pages=active.max_visual_evidence_pages,
+            target_name=resolved_target_name,
+            target_identity=dict(target_identity.get("identity") or {}),
+            prior_visual_observation=_latest_visual_observation(stages),
+            defer_validation=True,
+        )
+        evidence_action_completed = True
+        latest_evidence_action_result = dict(result)
+        return result
+
+    def handle_unified_replan(action: CampaignAction) -> dict[str, Any]:
+        if action.metadata.get("global_replan") is not True:
+            return {
+                "status": "failed",
+                "reasons": ["codex_global_replan_action_scope_invalid"],
+            }
+        unified_replan_audit_contexts[action.execution_id] = {
+            "graph_before": service.graph_store.load(),
+            "gates_before": current_campaign_gates(),
+            "model_cost_before": dict(service.kernel.state.model_totals),
+        }
+        evidence_observations = {
+            **_evidence_observations(latest_evidence_action_result),
+            **self_evo.observation(),
+        }
+        return _run_director_safely(
+            service,
+            mode="event_replan",
+            material_events=tuple(
+                str(value)
+                for value in action.metadata.get("material_events") or []
+                if str(value)
+            ),
+            evidence_observations=evidence_observations,
+            idempotency_key=f"solve-target:director:{action.execution_id}",
+        )
+
+    def publish_unified_replan_signal() -> None:
+        if (
+            not active.enable_replan
+            or not outcomes
+            or any(
+                str(outcome.get("mode") or "") == "event_replan"
+                for outcome in outcomes
+            )
+            or len(outcomes) >= _MAX_DIRECTOR_OUTCOMES
+        ):
+            return
+        graph = service.graph_store.load()
+        if any(
+            str(signal.get("kind") or "") == "replan"
+            for signal in dict(graph.get("action_signals") or {}).values()
+            if isinstance(signal, Mapping)
+        ):
+            return
+        gates = current_campaign_gates()
+        reasons = _replan_reasons(
+            gates,
+            material_events=tuple(sorted(unified_material_events)),
+        )
+        if not reasons or not _director_outcome_allows_replan(outcomes):
+            return
+        signal_gate = _replan_signal_gate(
+            gates,
+            material_events=tuple(sorted(unified_material_events)),
+            trigger_reasons=reasons,
+        )
+        if signal_gate.get("accepted") is not True:
+            return
+        budget_guard = _replan_budget_guard(
+            model_cost=service.kernel.state.model_totals,
+            budget=resolved_budget,
+            config=active,
+        )
+        if budget_guard.get("accepted") is not True:
+            return
+        signal_payload = {
+            "graph_revision": service.kernel.state.graph_revision,
+            "material_events": sorted(unified_material_events),
+            "trigger_reasons": list(reasons),
+            "prompt_context_bytes": 0,
+        }
+        signal_sha256 = _digest(signal_payload)
+        service.publish_action_signals(
+            (
+                {
+                    "signal_id": f"event-deficit:replan:{signal_sha256}",
+                    "kind": "replan",
+                    "object_id": str(
+                        graph.get("target_molecule_id")
+                        or service.kernel.spec.run_id
+                    ),
+                    "entity_ids": [str(graph.get("target_molecule_id") or "")],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": True,
+                    "reason": "material_state_requires_global_replan",
+                    "score": {
+                        "expected_portfolio_gain": 0.84,
+                        "distance_to_closure": 0.72,
+                        "evidence_gain": 0.30,
+                        "route_diversity_gain": 0.82,
+                        "cost_penalty": 0.55,
+                        "failure_risk_penalty": 0.35,
+                    },
+                    "metadata": {
+                        **signal_payload,
+                        "global_replan": True,
+                    },
+                },
+            ),
+            idempotency_key=f"unified-replan-signal:{signal_sha256[:24]}",
+        )
+
+    def publish_unified_program_signals() -> None:
+        if not (
+            active.enable_program_discovery
+            or active.enable_program_review
+            or active.enable_program_admission
+            or active.enable_program_validation
+        ):
+            return
+        graph = service.graph_store.load()
+        existing_signals = [
+            dict(value)
+            for value in dict(graph.get("action_signals") or {}).values()
+            if isinstance(value, Mapping)
+        ]
+        discovered_route_family_ids = {
+            str(
+                dict(signal.get("metadata") or {}).get("route_family_id")
+                or dict(signal.get("metadata") or {}).get("route_id")
+                or ""
+            )
+            for signal in existing_signals
+            if str(signal.get("kind") or "") == "program_discovery"
+        }
+        existing_kinds = {
+            str(signal.get("kind") or "") for signal in existing_signals
+        }
+        portfolio = compile_proof_portfolio(
+            graph,
+            acceptance_spec=resolved_acceptance,
+            config=_portfolio_config(active, resolved_acceptance),
+        )
+        route_rows = [
+            dict(route)
+            for route in portfolio.get("selected_routes") or []
+            if isinstance(route, Mapping) and str(route.get("route_id") or "")
+        ][: active.max_program_routes]
+        signals: list[dict[str, Any]] = []
+        if (
+            active.enable_program_discovery
+            and (resolved_program_capabilities or resolved_mechanism_proposals)
+        ):
+            for route in route_rows:
+                route_id = str(route.get("route_id") or "")
+                route_family_id = str(
+                    route.get("route_family_id") or route_id
+                )
+                if route_family_id in discovered_route_family_ids:
+                    continue
+                signal_payload = {
+                    "graph_scientific_sha256": str(
+                        graph.get("scientific_sha256") or ""
+                    ),
+                    "route_id": route_id,
+                    "route_family_id": route_family_id,
+                }
+                signal_sha256 = _digest(signal_payload)
+                signals.append(
+                    {
+                        "signal_id": (
+                            f"event-deficit:program-discovery:{signal_sha256}"
+                        ),
+                        "kind": "program_discovery",
+                        "object_id": route_id,
+                        "entity_ids": [route_id],
+                        "route_family_ids": [route_family_id],
+                        "dependency_ids": [],
+                        "deterministic": True,
+                        "model_allowed": False,
+                        "reason": (
+                            "selected_route_requires_program_opportunity_review"
+                        ),
+                        "score": {
+                            "expected_portfolio_gain": 0.12,
+                            "distance_to_closure": 0.08,
+                            "evidence_gain": 0.08,
+                            "route_diversity_gain": 0.70,
+                            "cost_penalty": 0.10,
+                            "failure_risk_penalty": 0.10,
+                        },
+                        "metadata": {
+                            **signal_payload,
+                            "program_discovery": True,
+                        },
+                    }
+                )
+        target_object = str(
+            graph.get("target_molecule_id") or service.kernel.spec.run_id
+        )
+        if (
+            route_rows
+            and active.enable_program_review
+            and "program_review" not in existing_kinds
+        ):
+            signal_sha256 = _digest(
+                {
+                    "graph_scientific_sha256": str(
+                        graph.get("scientific_sha256") or ""
+                    ),
+                    "operation": "review",
+                }
+            )
+            signals.append(
+                {
+                    "signal_id": f"event-deficit:program-review:{signal_sha256}",
+                    "kind": "program_review",
+                    "object_id": target_object,
+                    "entity_ids": [target_object],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "reason": "canonical_graph_requires_program_projection_review",
+                    "score": {
+                        "expected_portfolio_gain": 0.10,
+                        "distance_to_closure": 0.10,
+                        "evidence_gain": 0.10,
+                        "route_diversity_gain": 0.20,
+                        "cost_penalty": 0.05,
+                        "failure_risk_penalty": 0.02,
+                    },
+                    "metadata": {"program_review": True},
+                }
+            )
+        if (
+            route_rows
+            and
+            active.enable_program_admission
+            and "program_admission" not in existing_kinds
+        ):
+            signal_sha256 = _digest(
+                {
+                    "graph_scientific_sha256": str(
+                        graph.get("scientific_sha256") or ""
+                    ),
+                    "operation": "admit",
+                }
+            )
+            signals.append(
+                {
+                    "signal_id": f"event-deficit:program-admit:{signal_sha256}",
+                    "kind": "program_admission",
+                    "object_id": target_object,
+                    "entity_ids": [target_object],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "reason": "operator_enabled_shadow_program_admission",
+                    "score": {
+                        "expected_portfolio_gain": 0.08,
+                        "distance_to_closure": 0.08,
+                        "evidence_gain": 0.08,
+                        "route_diversity_gain": 0.12,
+                        "cost_penalty": 0.05,
+                        "failure_risk_penalty": 0.02,
+                    },
+                    "metadata": {"program_admission": True},
+                }
+            )
+        if signals:
+            signals_sha256 = _digest(signals)
+            service.publish_action_signals(
+                signals,
+                idempotency_key=(
+                    f"unified-program-signals:{signals_sha256[:24]}"
+                ),
+            )
+
+    def publish_program_validation_signals(
+        discovery_result: Mapping[str, Any],
+    ) -> None:
+        if not active.enable_program_validation:
+            return
+        frontier = dict(discovery_result.get("experimental_work_frontier") or {})
+        route_id = str(frontier.get("route_id") or discovery_result.get("route_id") or "")
+        signals = []
+        for work_item_id, raw_item in sorted(
+            dict(frontier.get("work_items") or {}).items()
+        ):
+            if not isinstance(raw_item, Mapping):
+                continue
+            work_item = dict(raw_item)
+            item_sha256 = str(work_item.get("content_sha256") or "")
+            if not item_sha256:
+                continue
+            program_id = str(work_item.get("program_id") or work_item_id)
+            signals.append(
+                {
+                    "signal_id": f"event-deficit:program-validation:{item_sha256}",
+                    "kind": "program_validation",
+                    "object_id": str(work_item_id),
+                    "entity_ids": [program_id],
+                    "route_family_ids": [route_id] if route_id else [],
+                    "dependency_ids": list(
+                        work_item.get("linked_canonical_deficit_ids") or []
+                    ),
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "reason": "program_candidate_requires_specialized_validation",
+                    "score": {
+                        "expected_portfolio_gain": 0.05,
+                        "distance_to_closure": 0.05,
+                        "evidence_gain": 0.45,
+                        "route_diversity_gain": 0.10,
+                        "cost_penalty": 0.25,
+                        "failure_risk_penalty": 0.15,
+                    },
+                    "metadata": {
+                        "program_validation": True,
+                        "route_id": route_id,
+                        "work_item": work_item,
+                    },
+                }
+            )
+        if signals:
+            signals_sha256 = _digest(signals)
+            service.publish_action_signals(
+                signals,
+                idempotency_key=(
+                    f"unified-program-validation-signals:{signals_sha256[:24]}"
+                ),
+            )
+
+    def publish_unified_experiment_feedback_signals() -> None:
+        signals = []
+        for envelope in resolved_program_validation_feedback:
+            route_id = str(envelope.get("route_id") or "")
+            validation = dict(envelope.get("validation") or {})
+            if not route_id or not validation:
+                raise ValueError("program validation feedback requires route_id and validation")
+            payload = {"route_id": route_id, "validation": validation}
+            payload_sha256 = _digest(payload)
+            program_id = str(validation.get("program_id") or payload_sha256)
+            signals.append(
+                {
+                    "signal_id": f"event-deficit:experiment-feedback:{payload_sha256}",
+                    "kind": "experiment_feedback",
+                    "object_id": str(validation.get("validation_id") or payload_sha256),
+                    "entity_ids": [program_id],
+                    "route_family_ids": [route_id],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "reason": "external_program_validation_feedback_available",
+                    "score": {
+                        "expected_portfolio_gain": 0.05,
+                        "distance_to_closure": 0.05,
+                        "evidence_gain": 0.75,
+                        "route_diversity_gain": 0.05,
+                        "cost_penalty": 0.02,
+                        "failure_risk_penalty": 0.05,
+                    },
+                    "metadata": {
+                        "experiment_feedback": True,
+                        **payload,
+                    },
+                }
+            )
+        if signals:
+            signals_sha256 = _digest(signals)
+            service.publish_action_signals(
+                signals,
+                idempotency_key=(
+                    f"unified-experiment-feedback-signals:{signals_sha256[:24]}"
+                ),
+            )
+
+    unified_core_handlers = {
+        CampaignActionKind.MATERIALIZE: handle_materialize,
+        CampaignActionKind.REACTION_VALIDATE: handle_validation,
+        CampaignActionKind.STOCK_AUDIT: handle_stock,
+        CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_global_architecture,
+        **(
+            {CampaignActionKind.CODEX_REPLAN: handle_unified_replan}
+            if active.enable_replan
+            else {}
+        ),
+        **(
+            {CampaignActionKind.CONDITION_ENRICH: handle_condition}
+            if resolved_condition_predictor is not None
+            else {}
+        ),
+        **(
+            {CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle_target_chemenzy}
+            if active.enable_chemenzy and active.enable_target_chemenzy_baseline
+            else {}
+        ),
+        **(
+            {CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle_guided_chemenzy}
+            if active.enable_chemenzy and active.enable_guided_chemenzy
+            else {}
+        ),
+        **(
+            {
+                CampaignActionKind.ACQUIRE_EVIDENCE: handle_unified_evidence,
+                CampaignActionKind.BIND_EVIDENCE: handle_unified_evidence,
+            }
+            if resolved_evidence_connector is not None
+            else {}
+        ),
+        **program_action_runtime.handlers,
+    }
+    unified_core_runtime = CampaignActionRuntime(
+        service.kernel,
+        unified_core_handlers,
+    )
+
+    def observe_unified_core_execution(
+        index: int,
+        execution: Mapping[str, Any],
+    ) -> None:
+        nonlocal chemenzy_observation
+        execution_row = dict(execution)
+        preexecuted_action_backlog.append(execution_row)
+        action_kind = str(
+            dict(execution_row.get("action") or {}).get("kind") or ""
+        )
+        handler_result = dict(
+            dict(execution_row.get("outcome") or {}).get("handler_result") or {}
+        )
+        unified_material_events.update(
+            str(value)
+            for value in handler_result.get("material_events") or []
+            if isinstance(value, str) and str(value)
+        )
+        action_metadata = dict(
+            dict(execution_row.get("action") or {}).get("metadata") or {}
+        )
+        action_signal_id = str(action_metadata.get("action_signal_id") or "")
+        execution_status = str(execution_row.get("status") or "unresolved")
+        keep_signal_pending = bool(
+            action_kind == CampaignActionKind.PROGRAM_VALIDATE.value
+            and execution_status == "awaiting_external_result"
+        )
+        if action_signal_id and not keep_signal_pending:
+            service.resolve_action_signals(
+                (action_signal_id,),
+                resolution={
+                    "status": execution_status,
+                    "action_execution_id": str(
+                        dict(execution_row.get("action") or {}).get(
+                            "execution_id"
+                        )
+                        or ""
+                    ),
+                },
+                idempotency_key=(
+                    "unified-action-signal-resolve:"
+                    + str(
+                        dict(execution_row.get("action") or {}).get(
+                            "execution_id"
+                        )
+                        or action_signal_id
+                    )
+                ),
+            )
+        if action_kind == CampaignActionKind.CHEMENZY_TARGET_EXPAND.value:
+            chemenzy_result = dict(
+                dict(execution_row.get("outcome") or {}).get("handler_result")
+                or {}
+            )
+            chemenzy_observation = _chemenzy_director_observation(
+                (
+                    {
+                        "stage": "chemenzy_baseline",
+                        "status": str(
+                            chemenzy_result.get("status") or "unresolved"
+                        ),
+                        "detail": chemenzy_result,
+                    },
+                )
+            )
+        elif action_kind == CampaignActionKind.PROGRAM_DISCOVER.value:
+            publish_program_validation_signals(handler_result)
+        elif action_kind == CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST.value:
+            resolved_signal_ids = tuple(
+                str(value)
+                for value in handler_result.get(
+                    "resolved_program_validation_signal_ids"
+                )
+                or []
+                if str(value)
+            )
+            if resolved_signal_ids:
+                service.resolve_action_signals(
+                    resolved_signal_ids,
+                    resolution={
+                        "status": "feedback_ingested",
+                        "feedback_action_execution_id": str(
+                            dict(execution_row.get("action") or {}).get(
+                                "execution_id"
+                            )
+                            or ""
+                        ),
+                    },
+                    idempotency_key=(
+                        "unified-program-validation-resolve:"
+                        + str(
+                            dict(execution_row.get("action") or {}).get(
+                                "execution_id"
+                            )
+                            or _digest(resolved_signal_ids)
+                        )
+                    ),
+                )
+        elif action_kind == CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE.value:
+            director_result = handler_result
+            if director_result and not outcomes:
+                outcomes.append(director_result)
+                stages.append(
+                    _stage(
+                        "global_campaign",
+                        str(director_result.get("status") or "unresolved"),
+                        director_result,
+                    )
+                )
+            template_reuse = self_evo.materialize(service)
+            stages.append(
+                _stage(
+                    "patent_template_reuse",
+                    str(template_reuse.get("status") or "unresolved"),
+                    template_reuse,
+                )
+            )
+        elif action_kind == CampaignActionKind.CODEX_REPLAN.value:
+            if handler_result:
+                outcomes.append(handler_result)
+                stages.append(
+                    _stage(
+                        "global_replan",
+                        str(handler_result.get("status") or "unresolved"),
+                        handler_result,
+                    )
+                )
+            action_execution_id = str(
+                dict(execution_row.get("action") or {}).get("execution_id") or ""
+            )
+            audit_context = unified_replan_audit_contexts.pop(
+                action_execution_id,
+                None,
+            )
+            if audit_context is not None:
+                retention_audit = _replan_retention_audit(
+                    dict(audit_context.get("graph_before") or {}),
+                    service.graph_store.load(),
+                )
+                stages.append(
+                    _stage(
+                        "replan_retention_audit",
+                        "accepted" if retention_audit["accepted"] else "failed",
+                        retention_audit,
+                    )
+                )
+                replan_gain = _replan_gain_audit(
+                    dict(audit_context.get("gates_before") or {}),
+                    current_campaign_gates(),
+                    model_cost_before=dict(
+                        audit_context.get("model_cost_before") or {}
+                    ),
+                    model_cost_after=service.kernel.state.model_totals,
+                )
+                stages.append(
+                    _stage(
+                        "global_replan_gain_audit",
+                        str(replan_gain["disposition"]),
+                        replan_gain,
+                    )
+                )
+        elif action_kind == CampaignActionKind.REACTION_VALIDATE.value:
+            repair = repair_rejected_precursor_typos(service, handler_result)
+            if repair.get("status") != "not_needed":
+                stages.append(
+                    _stage(
+                        "precursor_repair",
+                        str(repair.get("status") or "unresolved"),
+                        repair,
+                    )
+                )
+        elif action_kind in {
+            CampaignActionKind.ACQUIRE_EVIDENCE.value,
+            CampaignActionKind.BIND_EVIDENCE.value,
+        }:
+            template_learning = self_evo.learn(service.graph_store.load())
+            stages.append(
+                _stage(
+                    "patent_template_learning",
+                    str(template_learning.get("status") or "unresolved"),
+                    template_learning,
+                )
+            )
+            learned_reuse = self_evo.materialize(service)
+            stages.append(
+                _stage(
+                    "post_learning_template_reuse",
+                    str(learned_reuse.get("status") or "unresolved"),
+                    learned_reuse,
+                )
+            )
+        publish_unified_replan_signal()
+        publish_unified_program_signals()
+        stages.append(
+            _stage(
+                f"campaign_action_unified_core_{index:02d}",
+                str(execution_row.get("status") or "unresolved"),
+                execution_row,
+            )
+        )
+        settlement_gates = current_campaign_gates()
+        stages.append(
+            _stage(
+                f"campaign_snapshot_unified_core_{index:02d}",
+                "observed",
+                compile_campaign_snapshot(
+                    phase=f"unified_core:{index:02d}",
+                    observed_at=_utc_now(),
+                    graph_revision=service.kernel.state.graph_revision,
+                    gates=settlement_gates,
+                    resource_usage={
+                        "model_cost": dict(service.kernel.state.model_totals),
+                        "native_search": service.kernel.native_search_budget(),
+                        "attempt_count": service.kernel.state.attempt_count,
+                        "accepted_expansion_count": (
+                            service.kernel.state.accepted_expansion_count
+                        ),
+                        "settled_task_count": service.kernel.state.settled_task_count,
+                    },
+                    action_decision=dict(execution_row.get("decision") or {}),
+                ),
+            )
+        )
+
+    publish_unified_experiment_feedback_signals()
+    unified_core_action_limit = max(
+        32,
+        active.effective_provider_route_reserve
+        + active.max_atom_mapping_reactions
+        + active.max_condition_prediction_reactions
+        + active.max_guided_chemenzy_frontiers
+        + 8,
+    )
+    unified_core_loop = unified_core_runtime.run_anytime(
+        opportunity_provider=lambda: compile_action_opportunities(
+            dict(service.graph_store.load().get("deficit_frontier") or {})
+        ),
+        milestones_provider=lambda: _campaign_milestones(
+            current_campaign_gates()
+        ),
+        resource_availability_provider=scheduler_resources,
+        max_actions=unified_core_action_limit,
+        max_consecutive_no_gain=unified_core_action_limit + 1,
+        concurrent_start_kinds=(
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
+        ),
+        on_execution=observe_unified_core_execution,
+    )
+    stages.append(
+        _stage(
+            "campaign_anytime_core",
+            str(unified_core_loop.get("termination") or "unresolved"),
+            {
+                key: value
+                for key, value in unified_core_loop.items()
+                if key != "executions"
+            },
+        )
+    )
     prior_chemenzy_stages = [
         row for row in stages if row.get("stage") == "chemenzy_baseline"
     ]
@@ -495,30 +1858,149 @@ def solve_target(
             "chemenzy_baseline",
             enabled=(active.enable_chemenzy and active.enable_target_chemenzy_baseline),
         )
-        chemenzy_stage = run_chemenzy_proposal_stage(
-            service,
-            target_name=case.target_name,
-            target_smiles=canonical,
-            enabled=(
-                active.enable_chemenzy and active.enable_target_chemenzy_baseline
-            ),
-            provider=chemenzy_provider,
-            env_prefix=active.chemenzy_env_prefix or None,
-            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
-            max_routes=active.max_chemenzy_routes,
-            max_steps=active.max_chemenzy_steps,
-            max_iterations=active.max_chemenzy_iterations,
-            expansion_topk=active.chemenzy_expansion_topk,
-            timeout_s=active.chemenzy_timeout_s,
-            search_preset=active.chemenzy_search_preset,
-            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
-            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
-            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
-            pandarallel_workers=active.chemenzy_pandarallel_workers,
+        chemenzy_action_executions = project_action_results(
+            "chemenzy_target_expand",
+            target_chemenzy_action_runtime,
+            max_actions=1,
+        )
+        chemenzy_action_results = _campaign_action_handler_results(
+            chemenzy_action_executions,
+            kind=CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+        )
+        chemenzy_stage = (
+            chemenzy_action_results[-1]
+            if chemenzy_action_results
+            else {
+                "stage": "chemenzy_proposal",
+                "status": "not_scheduled",
+                "reason": "scheduler_found_no_target_native_search_action",
+                "semantics": {"scheduler_owned_execution": True},
+            }
         )
         stages.append(_stage("chemenzy_baseline", chemenzy_stage["status"], chemenzy_stage))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
     chemenzy_observation = _chemenzy_director_observation(stages)
+    seed_proposal_count = int(chemenzy_observation.get("proposal_count") or 0)
+    if seed_proposal_count > 0:
+        seed_executions = project_action_results(
+            "chemenzy_seed",
+            seed_action_runtime,
+            max_actions=active.effective_provider_route_reserve + 2,
+        )
+        seed_materialization_results = [
+            dict(dict(value.get("outcome") or {}).get("handler_result") or {})
+            for value in seed_executions
+            if dict(value.get("action") or {}).get("kind")
+            == CampaignActionKind.MATERIALIZE.value
+        ]
+        seed_materialization = {
+            "schema_version": "campaign_action_slice_summary.v1",
+            "status": (
+                "completed" if seed_materialization_results else "reused_or_empty"
+            ),
+            "changed": any(
+                value.get("changed") is True
+                for value in seed_materialization_results
+            ),
+            "executed_command_count": sum(
+                int(value.get("executed_command_count") or 0)
+                for value in seed_materialization_results
+            ),
+            "action_execution_count": len(seed_materialization_results),
+            "semantics": {"scheduler_owned_execution": True},
+        }
+        stages.append(
+            _stage(
+                "chemenzy_seed_materialization",
+                (
+                    "completed"
+                    if seed_materialization.get("changed")
+                    else "reused_or_empty"
+                ),
+                seed_materialization,
+            )
+        )
+        seed_stock_results = [
+            dict(dict(value.get("outcome") or {}).get("handler_result") or {})
+            for value in seed_executions
+            if dict(value.get("action") or {}).get("kind")
+            == CampaignActionKind.STOCK_AUDIT.value
+        ]
+        seed_stock = (
+            seed_stock_results[-1]
+            if seed_stock_results
+            else {
+                "stage": "stock",
+                "status": "not_scheduled",
+                "reason": "scheduler_found_no_executable_stock_deficit",
+                "semantics": {"scheduler_owned_execution": True},
+            }
+        )
+        stages.append(
+            _stage(
+                "chemenzy_seed_stock",
+                seed_stock["status"],
+                seed_stock,
+            )
+        )
+        seed_portfolio = compile_proof_portfolio(
+            service.graph_store.load(),
+            acceptance_spec=resolved_acceptance,
+            config=_portfolio_config(active, resolved_acceptance),
+        )
+        seed_gates = compile_blind_acceptance_report(
+            preflight=preflight,
+            director_outcomes=outcomes,
+            graph=service.graph_store.load(),
+            portfolio=seed_portfolio,
+        )
+        seed_milestones = _campaign_milestones(seed_gates)
+        stages.append(
+            _stage(
+                "campaign_milestone",
+                "observed",
+                {
+                    "milestones": seed_milestones,
+                    "gates": dict(seed_gates.get("gates") or {}),
+                    "counts": dict(seed_gates.get("counts") or {}),
+                    "semantics": {
+                        "milestones_do_not_select_solver_control_flow": True,
+                        "B4_does_not_imply_B2_B3_or_B5": True,
+                    },
+                },
+            )
+        )
+        seed_graph = service.graph_store.load()
+        seed_opportunities = compile_action_opportunities(
+            dict(seed_graph.get("deficit_frontier") or {})
+        )
+        seed_action_decision = schedule_next_action(
+            seed_opportunities,
+            milestones=seed_milestones,
+            resource_availability=scheduler_resources(),
+        )
+        stages.append(
+            _stage(
+                "campaign_snapshot_chemenzy_seed",
+                "observed",
+                compile_campaign_snapshot(
+                    phase="chemenzy_seed",
+                    observed_at=_utc_now(),
+                    graph_revision=service.kernel.state.graph_revision,
+                    gates=seed_gates,
+                    resource_usage={
+                        "model_cost": dict(service.kernel.state.model_totals),
+                        "native_search": service.kernel.native_search_budget(),
+                        "attempt_count": service.kernel.state.attempt_count,
+                        "accepted_expansion_count": (
+                            service.kernel.state.accepted_expansion_count
+                        ),
+                    },
+                    action_decision=seed_action_decision,
+                ),
+            )
+        )
+        _checkpoint(checkpoint_path, identity, stages, outcomes)
     if not outcomes:
         _mark_stage_running(
             checkpoint_path,
@@ -529,22 +2011,40 @@ def solve_target(
             model=active.model,
             mode="initial_architecture",
         )
-        initial = _run_director_safely(
-            service,
-            mode="initial_architecture",
-            evidence_observations={
-                **dict(initial_template_observation),
-                "target_identity": target_identity,
-                "chemenzy_provider_observation": chemenzy_observation,
-            },
-            idempotency_key="solve-target:director:initial",
+        global_architecture_executions = project_action_results(
+            "codex_global_architecture",
+            global_architecture_action_runtime,
+            max_actions=1,
+        )
+        global_architecture_results = _campaign_action_handler_results(
+            global_architecture_executions,
+            kind=CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
+        )
+        initial = (
+            global_architecture_results[-1]
+            if global_architecture_results
+            else {
+                "status": "skipped",
+                "plan": {},
+                "reason": "scheduler_found_no_global_architecture_action",
+                "semantics": {"scheduler_owned_execution": True},
+            }
         )
         outcomes.append(initial)
         stages.append(_stage("global_campaign", initial["status"], initial))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
 
-    materialization = service.execute_frontier_materialization(
-        idempotency_key=f"solve-target:materialize:{service.kernel.state.graph_revision}"
+    post_director_materialization_runtime = CampaignActionRuntime(
+        service.kernel,
+        {CampaignActionKind.MATERIALIZE: handle_materialize},
+    )
+    post_director_materialization_executions = project_action_results(
+        "post_director_materialize",
+        post_director_materialization_runtime,
+        max_actions=active.effective_provider_route_reserve + 2,
+    )
+    materialization = _aggregate_materialization_action_results(
+        post_director_materialization_executions
     )
     stages.append(
         _stage(
@@ -555,20 +2055,78 @@ def solve_target(
     )
     template_reuse = self_evo.materialize(service)
     stages.append(_stage("patent_template_reuse", template_reuse["status"], template_reuse))
-    validation = validate_materialized_edges(
-        service,
-        atom_mapper=atom_mapper,
-        max_reactions=active.max_atom_mapping_reactions,
+    post_director_validation_runtime = CampaignActionRuntime(
+        service.kernel,
+        {CampaignActionKind.REACTION_VALIDATE: handle_validation},
+    )
+
+    def run_validation_action_stage(phase: str) -> dict[str, Any]:
+        return _aggregate_validation_action_results(
+            project_action_results(
+                phase,
+                post_director_validation_runtime,
+                max_actions=active.max_atom_mapping_reactions + 2,
+            )
+        )
+
+    def run_evidence_action_stage(
+        phase: str,
+        *,
+        source_frontier: Mapping[str, Any],
+        prior_visual_observation: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        def handle_evidence(_action: CampaignAction) -> dict[str, Any]:
+            return _acquire_evidence_stage(
+                service,
+                source_stage=source_frontier,
+                connector=resolved_evidence_connector,
+                atom_mapper=atom_mapper,
+                visual_provider=visual_evidence_provider,
+                max_visual_pages=active.max_visual_evidence_pages,
+                target_name=resolved_target_name,
+                target_identity=dict(target_identity.get("identity") or {}),
+                prior_visual_observation=prior_visual_observation,
+                validation_runner=run_validation_action_stage,
+            )
+
+        runtime = CampaignActionRuntime(
+            service.kernel,
+            (
+                {
+                    CampaignActionKind.ACQUIRE_EVIDENCE: handle_evidence,
+                    CampaignActionKind.BIND_EVIDENCE: handle_evidence,
+                }
+                if resolved_evidence_connector is not None
+                else {}
+            ),
+        )
+        executions = project_action_results(
+            phase,
+            runtime,
+            max_actions=1,
+        )
+        return _aggregate_evidence_action_results(executions)
+
+    post_director_validation_executions = project_action_results(
+        "post_director_validate",
+        post_director_validation_runtime,
+        max_actions=active.max_atom_mapping_reactions + 2,
+    )
+    validation = _aggregate_validation_action_results(
+        post_director_validation_executions
     )
     stages.append(_stage("reaction_validation", validation["status"], validation))
     repair_stage = repair_rejected_precursor_typos(service, validation)
     stages.append(_stage("precursor_repair", repair_stage["status"], repair_stage))
     repair_validation: dict[str, Any] = {}
     if int(repair_stage.get("accepted_repair_count") or 0) > 0:
-        repair_validation = validate_materialized_edges(
-            service,
-            atom_mapper=atom_mapper,
-            max_reactions=active.max_atom_mapping_reactions,
+        repair_validation_executions = project_action_results(
+            "precursor_repair_validate",
+            post_director_validation_runtime,
+            max_actions=active.max_atom_mapping_reactions + 2,
+        )
+        repair_validation = _aggregate_validation_action_results(
+            repair_validation_executions
         )
         stages.append(
             _stage(
@@ -577,6 +2135,7 @@ def solve_target(
                 repair_validation,
             )
         )
+    append_condition_stage("condition_enrichment")
 
     # Publish an honest, provisional projection as soon as the global Codex
     # architecture has been materialized and host-validated.  Evidence,
@@ -624,9 +2183,8 @@ def solve_target(
         )
     )
 
-    # Codex owns the global route architecture.  ChemEnzy is delegated only
-    # canonical subtargets selected in that architecture, before source search
-    # and stock closure make those local expansions more expensive to revisit.
+    # The target-level ChemEnzy route pool seeds complete multi-step options;
+    # guided delegation below expands canonical subtargets selected by Codex.
     prior_attempted_frontiers = _attempted_chemenzy_frontiers(stages)
     prior_guided = _latest_stage(stages, "chemenzy_guided_frontier")
     prior_guided_status = str(prior_guided.get("status") or "")
@@ -672,26 +2230,25 @@ def solve_target(
             if active.max_guided_chemenzy_frontiers > 1
             else 1
         )
-        guided_stage = run_chemenzy_guided_frontier_stage(
-            service,
-            target_name=case.target_name,
-            root_target_smiles=canonical,
-            enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
-            provider=chemenzy_provider,
-            env_prefix=active.chemenzy_env_prefix or None,
-            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
-            max_frontiers=initial_guided_limit,
-            max_routes=1,
-            max_steps=active.max_chemenzy_steps,
-            max_iterations=min(24, active.max_guided_chemenzy_iterations),
-            expansion_topk=min(80, active.chemenzy_expansion_topk),
-            timeout_s=active.guided_chemenzy_timeout_s,
-            exclude_frontier_smiles=tuple(sorted(prior_attempted_frontiers)),
-            search_preset="thorough",
-            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
-            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
-            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
-            pandarallel_workers=active.chemenzy_pandarallel_workers,
+        guided_opportunities = compile_action_opportunities(
+            dict(service.graph_store.load().get("deficit_frontier") or {})
+        )
+        guided_excluded_action_ids = tuple(
+            str(row.get("action_id") or "")
+            for row in guided_opportunities.get("actions") or []
+            if row.get("kind")
+            == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
+            and str(dict(row.get("metadata") or {}).get("frontier_smiles") or "")
+            in prior_attempted_frontiers
+        )
+        guided_action_executions = project_action_results(
+            "chemenzy_guided_frontier_expand",
+            guided_chemenzy_action_runtime,
+            max_actions=initial_guided_limit,
+            excluded_action_ids=guided_excluded_action_ids,
+        )
+        guided_stage = _aggregate_guided_chemenzy_action_results(
+            guided_action_executions
         )
         guided_stage["new_proposal_count"] = int(
             guided_stage.get("proposal_count") or 0
@@ -706,11 +2263,13 @@ def solve_target(
         guided_stage.get("new_proposal_count", guided_stage.get("proposal_count"))
         or 0
     ) > 0:
-        guided_materialization = service.execute_frontier_materialization(
-            idempotency_key=(
-                "solve-target:guided-materialize:"
-                f"{service.kernel.state.graph_revision}"
-            )
+        guided_materialization_executions = project_action_results(
+            "guided_materialize",
+            post_director_materialization_runtime,
+            max_actions=active.effective_provider_route_reserve + 2,
+        )
+        guided_materialization = _aggregate_materialization_action_results(
+            guided_materialization_executions
         )
         stages.append(
             _stage(
@@ -719,10 +2278,13 @@ def solve_target(
                 guided_materialization,
             )
         )
-        guided_validation = validate_materialized_edges(
-            service,
-            atom_mapper=atom_mapper,
-            max_reactions=active.max_atom_mapping_reactions,
+        guided_validation_executions = project_action_results(
+            "guided_validate",
+            post_director_validation_runtime,
+            max_actions=active.max_atom_mapping_reactions + 2,
+        )
+        guided_validation = _aggregate_validation_action_results(
+            guided_validation_executions
         )
         stages.append(
             _stage("guided_reaction_validation", guided_validation["status"], guided_validation)
@@ -738,6 +2300,7 @@ def solve_target(
     )
     source_stage = _merge_prefetched_source_hints(source_stage, evidence_prefetch)
     stages.append(_stage("source_frontier", source_stage["status"], source_stage))
+    append_condition_stage("post_guided_condition_enrichment")
     _mark_stage_running(
         checkpoint_path,
         identity,
@@ -746,15 +2309,10 @@ def solve_target(
         "evidence_acquisition",
         visual_enabled=visual_evidence_provider is not None,
     )
-    evidence_stage = _acquire_evidence_stage(
-        service,
-        source_stage=source_stage,
-        connector=resolved_evidence_connector,
-        atom_mapper=atom_mapper,
-        visual_provider=visual_evidence_provider,
-        max_visual_pages=active.max_visual_evidence_pages,
-        target_name=resolved_target_name,
-        target_identity=dict(target_identity.get("identity") or {}),
+    evidence_stage = run_evidence_action_stage(
+        "evidence_acquisition",
+        source_frontier=source_stage,
+        prior_visual_observation=_latest_visual_observation(stages),
     )
     evidence_stage["prefetch"] = evidence_prefetch
     evidence_stage["latency_hidden_by_global_s"] = min(
@@ -780,10 +2338,13 @@ def solve_target(
     )
     learned_template_validation: dict[str, Any] = {}
     if dict(learned_template_reuse.get("execution") or {}).get("changed") is True:
-        learned_template_validation = validate_materialized_edges(
-            service,
-            atom_mapper=atom_mapper,
-            max_reactions=active.max_atom_mapping_reactions,
+        learned_template_validation_executions = project_action_results(
+            "learned_template_validate",
+            post_director_validation_runtime,
+            max_actions=active.max_atom_mapping_reactions + 2,
+        )
+        learned_template_validation = _aggregate_validation_action_results(
+            learned_template_validation_executions
         )
         stages.append(
             _stage(
@@ -800,12 +2361,17 @@ def solve_target(
         "stock",
         boundary=resolved_acceptance.stock_boundary,
     )
-    stock_stage = _audit_stock_stage(
-        service,
-        acceptance=resolved_acceptance,
-        config=active,
-        catalog_builder=stock_catalog_builder,
-        inventory_builder=inventory_snapshot_builder,
+    stock_action_runtime = CampaignActionRuntime(
+        service.kernel,
+        {CampaignActionKind.STOCK_AUDIT: handle_stock},
+    )
+    stock_executions = project_action_results(
+        "stock",
+        stock_action_runtime,
+        max_actions=4,
+    )
+    stock_stage = _aggregate_stock_action_results(
+        stock_executions
     )
     stages.append(_stage("stock", stock_stage["status"], stock_stage))
 
@@ -829,38 +2395,37 @@ def solve_target(
         active.max_guided_chemenzy_frontiers - len(attempted_guided_frontiers),
     )
     if remaining_guided:
-        recovery_stage = run_chemenzy_guided_frontier_stage(
-            service,
-            target_name=case.target_name,
-            root_target_smiles=canonical,
-            enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
-            provider=chemenzy_provider,
-            env_prefix=active.chemenzy_env_prefix or None,
-            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
-            max_frontiers=remaining_guided,
-            max_routes=1,
-            max_steps=active.max_chemenzy_steps,
-            max_iterations=min(24, active.max_guided_chemenzy_iterations),
-            expansion_topk=min(80, active.chemenzy_expansion_topk),
-            timeout_s=active.guided_chemenzy_timeout_s,
-            exclude_frontier_smiles=tuple(
-                sorted(attempted_guided_frontiers)
-            ),
-            search_preset="thorough",
-            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
-            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
-            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
-            pandarallel_workers=active.chemenzy_pandarallel_workers,
+        recovery_opportunities = compile_action_opportunities(
+            dict(service.graph_store.load().get("deficit_frontier") or {})
+        )
+        recovery_excluded_action_ids = tuple(
+            str(row.get("action_id") or "")
+            for row in recovery_opportunities.get("actions") or []
+            if row.get("kind")
+            == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
+            and str(dict(row.get("metadata") or {}).get("frontier_smiles") or "")
+            in attempted_guided_frontiers
+        )
+        recovery_action_executions = project_action_results(
+            "chemenzy_stock_recovery_expand",
+            guided_chemenzy_action_runtime,
+            max_actions=remaining_guided,
+            excluded_action_ids=recovery_excluded_action_ids,
+        )
+        recovery_stage = _aggregate_guided_chemenzy_action_results(
+            recovery_action_executions
         )
         stages.append(
             _stage("chemenzy_stock_recovery", recovery_stage["status"], recovery_stage)
         )
     if int(recovery_stage.get("proposal_count") or 0) > 0:
-        recovery_materialization = service.execute_frontier_materialization(
-            idempotency_key=(
-                "solve-target:recovery-materialize:"
-                f"{service.kernel.state.graph_revision}"
-            )
+        recovery_materialization_executions = project_action_results(
+            "recovery_materialize",
+            post_director_materialization_runtime,
+            max_actions=active.effective_provider_route_reserve + 2,
+        )
+        recovery_materialization = _aggregate_materialization_action_results(
+            recovery_materialization_executions
         )
         stages.append(
             _stage(
@@ -871,10 +2436,13 @@ def solve_target(
                 recovery_materialization,
             )
         )
-        recovery_validation = validate_materialized_edges(
-            service,
-            atom_mapper=atom_mapper,
-            max_reactions=active.max_atom_mapping_reactions,
+        recovery_validation_executions = project_action_results(
+            "recovery_validate",
+            post_director_validation_runtime,
+            max_actions=active.max_atom_mapping_reactions + 2,
+        )
+        recovery_validation = _aggregate_validation_action_results(
+            recovery_validation_executions
         )
         stages.append(
             _stage(
@@ -883,18 +2451,20 @@ def solve_target(
                 recovery_validation,
             )
         )
-        recovery_stock = _audit_stock_stage(
-            service,
-            acceptance=resolved_acceptance,
-            config=active,
-            catalog_builder=stock_catalog_builder,
-            inventory_builder=inventory_snapshot_builder,
+        recovery_stock_executions = project_action_results(
+            "recovery_stock",
+            stock_action_runtime,
+            max_actions=4,
+        )
+        recovery_stock = _aggregate_stock_action_results(
+            recovery_stock_executions
         )
         stages.append(_stage("recovery_stock", recovery_stock["status"], recovery_stock))
         stock_stage = recovery_stock
 
     provisional = service.closeout(
-        idempotency_key=f"solve-target:provisional:{service.kernel.state.graph_revision}"
+        idempotency_key=f"solve-target:provisional:{service.kernel.state.graph_revision}",
+        config=_portfolio_config(active, resolved_acceptance),
     )["portfolio"]
     provisional_gates = compile_blind_acceptance_report(
         preflight=preflight,
@@ -910,9 +2480,6 @@ def solve_target(
         sorted(
             {
                 *_material_replan_events(
-                    materialization,
-                    template_reuse,
-                    validation,
                     repair_stage,
                     repair_validation,
                     source_stage,
@@ -938,12 +2505,26 @@ def solve_target(
         provisional_gates,
         material_events=material_events,
     )
-    needs_replan = bool(
+    replan_candidate = bool(
         active.enable_replan
         and replan_reasons
         and _director_outcome_allows_replan(outcomes)
-        and len(outcomes) < 2
+        and len(outcomes) < _MAX_DIRECTOR_OUTCOMES
     )
+    replan_signal_gate = _replan_signal_gate(
+        provisional_gates,
+        material_events=material_events,
+        trigger_reasons=replan_reasons,
+    )
+    needs_replan = bool(replan_candidate and replan_signal_gate["accepted"])
+    if replan_candidate:
+        stages.append(
+            _stage(
+                "global_replan_signal_gate",
+                "accepted" if replan_signal_gate["accepted"] else "skipped",
+                replan_signal_gate,
+            )
+        )
     evidence_observations = {
         **_evidence_observations(evidence_stage),
         **self_evo.observation(dict(learned_template_reuse.get("retrieval") or {})),
@@ -989,6 +2570,8 @@ def solve_target(
         "prompt_context_bytes": replan_prompt_context_bytes,
         "trigger_reasons": list(replan_reasons),
     }
+    replan_executed = False
+    model_cost_before_replan: dict[str, Any] = {}
     if needs_replan:
         stages.append(
             _stage(
@@ -998,6 +2581,8 @@ def solve_target(
             )
         )
     if needs_replan and replan_guard["accepted"]:
+        graph_before_replan = service.graph_store.load()
+        model_cost_before_replan = dict(service.kernel.state.model_totals)
         _mark_stage_running(
             checkpoint_path,
             identity,
@@ -1007,22 +2592,117 @@ def solve_target(
             model=active.model,
             mode="event_replan",
         )
-        replan = _run_director_safely(
-            service,
-            mode="event_replan",
-            material_events=material_events,
-            evidence_observations=evidence_observations,
-            idempotency_key="solve-target:director:replan",
+        replan_signal = {
+            "graph_revision": service.kernel.state.graph_revision,
+            "material_events": list(material_events),
+            "trigger_reasons": list(replan_reasons),
+            "prompt_context_bytes": replan_prompt_context_bytes,
+        }
+        replan_signal_sha256 = _digest(replan_signal)
+        replan_deficit = {
+            "deficit_id": f"event-deficit:replan:{replan_signal_sha256}",
+            "kind": "replan",
+            "object_id": str(
+                graph_before_replan.get("target_molecule_id")
+                or service.kernel.spec.run_id
+            ),
+            "entity_ids": [
+                str(graph_before_replan.get("target_molecule_id") or "")
+            ],
+            "route_family_ids": [],
+            "dependency_ids": [],
+            "deterministic": False,
+            "model_allowed": True,
+            "reason": "material_state_requires_global_replan",
+            "priority": 720.0,
+            "score": {
+                "expected_portfolio_gain": 0.84,
+                "distance_to_closure": 0.72,
+                "evidence_gain": 0.30,
+                "route_diversity_gain": 0.82,
+                "cost_penalty": 0.55,
+                "failure_risk_penalty": 0.35,
+            },
+            "metadata": {
+                **replan_signal,
+                "global_replan": True,
+                "event_signal_sha256": replan_signal_sha256,
+            },
+        }
+        event_replan_action_set = compile_action_opportunities(
+            {"items": [replan_deficit]}
+        )
+        event_replan_action_id = str(
+            next(
+                (
+                    row.get("action_id")
+                    for row in event_replan_action_set.get("actions") or []
+                    if row.get("kind") == CampaignActionKind.CODEX_REPLAN.value
+                ),
+                "",
+            )
+        )
+        graph_replan_action_set = compile_action_opportunities(
+            dict(graph_before_replan.get("deficit_frontier") or {})
+        )
+        excluded_replan_action_ids = tuple(
+            str(row.get("action_id") or "")
+            for row in graph_replan_action_set.get("actions") or []
+            if row.get("kind") == CampaignActionKind.CODEX_REPLAN.value
+            and str(row.get("action_id") or "") != event_replan_action_id
+        )
+
+        def handle_global_replan(action: CampaignAction) -> dict[str, Any]:
+            if action.metadata.get("global_replan") is not True:
+                return {
+                    "status": "failed",
+                    "reasons": ["codex_global_replan_action_scope_invalid"],
+                }
+            return _run_director_safely(
+                service,
+                mode="event_replan",
+                material_events=material_events,
+                evidence_observations=evidence_observations,
+                idempotency_key=f"solve-target:director:replan:{len(outcomes)}",
+            )
+
+        replan_runtime = CampaignActionRuntime(
+            service.kernel,
+            {CampaignActionKind.CODEX_REPLAN: handle_global_replan},
+        )
+        replan_executions = project_action_results(
+            "codex_event_replan",
+            replan_runtime,
+            max_actions=1,
+            excluded_action_ids=excluded_replan_action_ids,
+            supplemental_deficits=(replan_deficit,),
+        )
+        replan_results = _campaign_action_handler_results(
+            replan_executions,
+            kind=CampaignActionKind.CODEX_REPLAN,
+        )
+        replan_executed = bool(replan_results)
+        replan = (
+            replan_results[-1]
+            if replan_results
+            else {
+                "status": "skipped",
+                "plan": {},
+                "reason": "scheduler_found_no_event_replan_action",
+                "semantics": {"scheduler_owned_execution": True},
+            }
         )
         outcomes.append(replan)
         stages.append(_stage("global_replan", replan["status"], replan))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
         if replan.get("status") == "accepted" and replan.get("plan"):
-            rematerialization = service.execute_frontier_materialization(
-                idempotency_key=(
-                    "solve-target:replan-materialize:"
-                    f"{service.kernel.state.graph_revision}"
-                )
+            rematerialization_executions = project_action_results(
+                "replan_materialize",
+                post_director_materialization_runtime,
+                max_actions=active.effective_provider_route_reserve + 2,
+            )
+            rematerialization = _aggregate_materialization_action_results(
+                rematerialization_executions
             )
             stages.append(
                 _stage(
@@ -1043,10 +2723,13 @@ def solve_target(
                     replan_template_reuse,
                 )
             )
-            revalidation = validate_materialized_edges(
-                service,
-                atom_mapper=atom_mapper,
-                max_reactions=active.max_atom_mapping_reactions,
+            revalidation_executions = project_action_results(
+                "replan_validate",
+                post_director_validation_runtime,
+                max_actions=active.max_atom_mapping_reactions + 2,
+            )
+            revalidation = _aggregate_validation_action_results(
+                revalidation_executions
             )
             stages.append(
                 _stage("replan_validation", revalidation["status"], revalidation)
@@ -1056,10 +2739,13 @@ def solve_target(
                 _stage("replan_precursor_repair", replan_repair["status"], replan_repair)
             )
             if int(replan_repair.get("accepted_repair_count") or 0) > 0:
-                repaired_revalidation = validate_materialized_edges(
-                    service,
-                    atom_mapper=atom_mapper,
-                    max_reactions=active.max_atom_mapping_reactions,
+                repaired_revalidation_executions = project_action_results(
+                    "replan_repair_validate",
+                    post_director_validation_runtime,
+                    max_actions=active.max_atom_mapping_reactions + 2,
+                )
+                repaired_revalidation = _aggregate_validation_action_results(
+                    repaired_revalidation_executions
                 )
                 stages.append(
                     _stage(
@@ -1080,15 +2766,10 @@ def solve_target(
                 "replan_evidence_acquisition",
                 visual_enabled=visual_evidence_provider is not None,
             )
-            evidence_stage = _acquire_evidence_stage(
-                service,
-                source_stage=source_stage,
-                connector=resolved_evidence_connector,
-                atom_mapper=atom_mapper,
-                visual_provider=visual_evidence_provider,
-                max_visual_pages=active.max_visual_evidence_pages,
-                target_name=resolved_target_name,
-                target_identity=dict(target_identity.get("identity") or {}),
+            evidence_stage = run_evidence_action_stage(
+                "replan_evidence_acquisition",
+                source_frontier=source_stage,
+                prior_visual_observation=_latest_visual_observation(stages),
             )
             stages.append(
                 _stage(
@@ -1105,15 +2786,338 @@ def solve_target(
                     replan_template_learning,
                 )
             )
-            stock_stage = _audit_stock_stage(
-                service,
-                acceptance=resolved_acceptance,
-                config=active,
-                catalog_builder=stock_catalog_builder,
-                inventory_builder=inventory_snapshot_builder,
+            replan_stock_executions = project_action_results(
+                "replan_stock",
+                stock_action_runtime,
+                max_actions=4,
+            )
+            stock_stage = _aggregate_stock_action_results(
+                replan_stock_executions
             )
             stages.append(_stage("replan_stock", stock_stage["status"], stock_stage))
+        retention_audit = _replan_retention_audit(
+            graph_before_replan,
+            service.graph_store.load(),
+        )
+        stages.append(
+            _stage(
+                "replan_retention_audit",
+                "accepted" if retention_audit["accepted"] else "failed",
+                retention_audit,
+            )
+        )
 
+    program_discovery_changed = False
+    if active.enable_program_discovery:
+        program_graph = service.graph_store.load()
+        program_portfolio = compile_proof_portfolio(
+            program_graph,
+            acceptance_spec=resolved_acceptance,
+            config=_portfolio_config(active, resolved_acceptance),
+        )
+        program_route_ids = [
+            str(route.get("route_id") or "")
+            for route in program_portfolio.get("selected_routes") or []
+            if str(route.get("route_id") or "")
+        ][: active.max_program_routes]
+        program_discovery_deficits = []
+        for route_id in program_route_ids:
+            signal = {
+                "graph_revision": service.kernel.state.graph_revision,
+                "graph_scientific_sha256": str(
+                    program_graph.get("scientific_sha256") or ""
+                ),
+                "route_id": route_id,
+                "capability_catalog_available": bool(
+                    resolved_program_capabilities
+                ),
+                "mechanism_proposal_count": len(
+                    resolved_mechanism_proposals
+                ),
+            }
+            signal_sha256 = _digest(signal)
+            program_discovery_deficits.append(
+                {
+                    "deficit_id": (
+                        f"event-deficit:program-discovery:{signal_sha256}"
+                    ),
+                    "kind": "program_discovery",
+                    "object_id": route_id,
+                    "entity_ids": [route_id],
+                    "route_family_ids": [
+                        str(
+                            next(
+                                (
+                                    route.get("route_family_id")
+                                    for route in program_portfolio.get(
+                                        "selected_routes"
+                                    )
+                                    or []
+                                    if str(route.get("route_id") or "")
+                                    == route_id
+                                ),
+                                "",
+                            )
+                        )
+                    ],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "reason": "selected_route_requires_program_opportunity_review",
+                    "priority": 280.0,
+                    "score": {
+                        "expected_portfolio_gain": 0.12,
+                        "distance_to_closure": 0.08,
+                        "evidence_gain": 0.08,
+                        "route_diversity_gain": 0.70,
+                        "cost_penalty": 0.10,
+                        "failure_risk_penalty": 0.10,
+                    },
+                    "metadata": {
+                        **signal,
+                        "program_discovery": True,
+                        "event_signal_sha256": signal_sha256,
+                    },
+                }
+            )
+        program_discovery_executions = (
+            project_action_results(
+                "program_discovery",
+                program_action_runtime,
+                max_actions=len(program_discovery_deficits),
+                supplemental_deficits=tuple(program_discovery_deficits),
+            )
+            if program_discovery_deficits
+            else []
+        )
+        program_discovery_results = _campaign_action_handler_results(
+            program_discovery_executions,
+            kind=CampaignActionKind.PROGRAM_DISCOVER,
+        )
+        program_discovery_changed = any(
+            dict(result.get("canonical_ingestion") or {}).get("changed") is True
+            for result in program_discovery_results
+        )
+        program_discovery = {
+            "schema_version": "campaign_program_discovery_summary.v1",
+            "status": (
+                "completed"
+                if program_discovery_results
+                else "unavailable"
+                if program_capability_error
+                else "not_needed"
+            ),
+            "route_count": len(program_route_ids),
+            "action_execution_count": len(program_discovery_results),
+            "candidate_count": sum(
+                int(result.get("candidate_count") or 0)
+                for result in program_discovery_results
+            ),
+            "program_draft_candidate_ids": sorted(
+                {
+                    str(value)
+                    for result in program_discovery_results
+                    for value in result.get("program_draft_candidate_ids") or []
+                    if str(value)
+                }
+            ),
+            "execution_program_draft_candidate_ids": sorted(
+                {
+                    str(value)
+                    for result in program_discovery_results
+                    for value in result.get(
+                        "execution_program_draft_candidate_ids"
+                    )
+                    or []
+                    if str(value)
+                }
+            ),
+            "mechanism_hypothesis_count": sum(
+                int(result.get("mechanism_hypothesis_count") or 0)
+                for result in program_discovery_results
+            ),
+            "canonical_ingestion_changed": program_discovery_changed,
+            "capability_error": program_capability_error,
+            "results": program_discovery_results,
+            "semantics": {
+                "target_names_are_not_matching_inputs": True,
+                "program_candidates_are_proposal_only": True,
+                "conventional_routes_remain_fallbacks": True,
+            },
+        }
+        stages.append(
+            _stage(
+                "program_discovery",
+                program_discovery["status"],
+                program_discovery,
+            )
+        )
+    if program_discovery_changed:
+        program_materialization = _aggregate_materialization_action_results(
+            project_action_results(
+                "program_materialize",
+                post_director_materialization_runtime,
+                max_actions=active.effective_provider_route_reserve + 2,
+            )
+        )
+        stages.append(
+            _stage(
+                "program_materialization",
+                (
+                    "completed"
+                    if program_materialization.get("changed")
+                    else "reused_or_empty"
+                ),
+                program_materialization,
+            )
+        )
+        program_validation = run_validation_action_stage("program_validate")
+        stages.append(
+            _stage(
+                "program_reaction_validation",
+                program_validation["status"],
+                program_validation,
+            )
+        )
+        program_stock = _aggregate_stock_action_results(
+            project_action_results(
+                "program_stock",
+                stock_action_runtime,
+                max_actions=4,
+            )
+        )
+        stages.append(
+            _stage("program_stock", program_stock["status"], program_stock)
+        )
+    append_condition_stage("final_condition_enrichment")
+    if active.enable_program_review:
+        program_graph = service.graph_store.load()
+        program_review_signal = {
+            "graph_revision": service.kernel.state.graph_revision,
+            "graph_scientific_sha256": str(
+                program_graph.get("scientific_sha256") or ""
+            ),
+            "operation": "review",
+        }
+        program_review_sha256 = _digest(program_review_signal)
+        program_review_executions = project_action_results(
+            "program_review",
+            program_action_runtime,
+            max_actions=1,
+            supplemental_deficits=(
+                {
+                    "deficit_id": f"event-deficit:program-review:{program_review_sha256}",
+                    "kind": "program_review",
+                    "object_id": str(
+                        program_graph.get("target_molecule_id")
+                        or service.kernel.spec.run_id
+                    ),
+                    "entity_ids": [
+                        str(program_graph.get("target_molecule_id") or "")
+                    ],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "reason": "canonical_graph_requires_program_projection_review",
+                    "priority": 260.0,
+                    "score": {
+                        "expected_portfolio_gain": 0.10,
+                        "distance_to_closure": 0.10,
+                        "evidence_gain": 0.10,
+                        "route_diversity_gain": 0.20,
+                        "cost_penalty": 0.05,
+                        "failure_risk_penalty": 0.02,
+                    },
+                    "metadata": {
+                        **program_review_signal,
+                        "program_review": True,
+                        "event_signal_sha256": program_review_sha256,
+                    },
+                },
+            ),
+        )
+        program_review_results = _campaign_action_handler_results(
+            program_review_executions,
+            kind=CampaignActionKind.PROGRAM_REVIEW,
+        )
+        program_review = (
+            program_review_results[-1]
+            if program_review_results
+            else {
+                "status": "not_scheduled",
+                "reason": "scheduler_found_no_program_review_action",
+            }
+        )
+        stages.append(
+            _stage("program_review", str(program_review.get("status") or "unresolved"), program_review)
+        )
+    if active.enable_program_admission:
+        admission_graph = service.graph_store.load()
+        admission_signal = {
+            "graph_revision": service.kernel.state.graph_revision,
+            "graph_scientific_sha256": str(
+                admission_graph.get("scientific_sha256") or ""
+            ),
+            "operation": "admit",
+        }
+        admission_sha256 = _digest(admission_signal)
+        program_admission_executions = project_action_results(
+            "program_admission",
+            program_action_runtime,
+            max_actions=1,
+            supplemental_deficits=(
+                {
+                    "deficit_id": f"event-deficit:program-admit:{admission_sha256}",
+                    "kind": "program_admission",
+                    "object_id": str(
+                        admission_graph.get("target_molecule_id")
+                        or service.kernel.spec.run_id
+                    ),
+                    "entity_ids": [
+                        str(admission_graph.get("target_molecule_id") or "")
+                    ],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "reason": "operator_enabled_shadow_program_admission",
+                    "priority": 250.0,
+                    "score": {
+                        "expected_portfolio_gain": 0.08,
+                        "distance_to_closure": 0.08,
+                        "evidence_gain": 0.08,
+                        "route_diversity_gain": 0.12,
+                        "cost_penalty": 0.05,
+                        "failure_risk_penalty": 0.02,
+                    },
+                    "metadata": {
+                        **admission_signal,
+                        "program_admission": True,
+                        "event_signal_sha256": admission_sha256,
+                    },
+                },
+            ),
+        )
+        program_admission_results = _campaign_action_handler_results(
+            program_admission_executions,
+            kind=CampaignActionKind.PROGRAM_ADMIT,
+        )
+        program_admission = (
+            program_admission_results[-1]
+            if program_admission_results
+            else {
+                "status": "not_scheduled",
+                "reason": "scheduler_found_no_program_admission_action",
+            }
+        )
+        stages.append(
+            _stage(
+                "program_admission",
+                str(program_admission.get("status") or "unresolved"),
+                program_admission,
+            )
+        )
     _mark_stage_running(
         checkpoint_path,
         identity,
@@ -1122,7 +3126,8 @@ def solve_target(
         "closeout",
     )
     closeout = service.closeout(
-        idempotency_key=f"solve-target:closeout:{service.kernel.state.graph_revision}"
+        idempotency_key=f"solve-target:closeout:{service.kernel.state.graph_revision}",
+        config=_portfolio_config(active, resolved_acceptance),
     )
     stages.append(
         _stage(
@@ -1142,20 +3147,125 @@ def solve_target(
         graph=service.graph_store.load(),
         portfolio=closeout["portfolio"],
     )
+    chemenzy_lineage = _compile_chemenzy_route_lineage(
+        stages,
+        service.graph_store.load(),
+        gates=gates,
+    )
+    if chemenzy_lineage["route_count"]:
+        stages.append(
+            _stage(
+                "chemenzy_route_lineage",
+                "completed",
+                chemenzy_lineage,
+            )
+        )
     resource_envelope = _resource_envelope(
         model_cost=service.kernel.state.model_totals,
+        native_search=service.kernel.native_search_budget(),
         attempt_count=service.kernel.state.attempt_count,
         accepted_expansion_count=service.kernel.state.accepted_expansion_count,
         budget=resolved_budget,
     )
+    final_graph = service.graph_store.load()
+    final_opportunities = compile_action_opportunities(
+        dict(final_graph.get("deficit_frontier") or {})
+    )
+    final_action_decision = schedule_next_action(
+        final_opportunities,
+        milestones=_campaign_milestones(gates),
+        resource_availability=scheduler_resources(),
+    )
+    stages.append(
+        _stage(
+            "campaign_action_schedule",
+            "selected" if final_action_decision["selected_action_id"] else "empty",
+            final_action_decision,
+        )
+    )
+    stages.append(
+        _stage(
+            "campaign_snapshot_closeout",
+            "observed",
+            compile_campaign_snapshot(
+                phase="closeout",
+                observed_at=_utc_now(),
+                graph_revision=service.kernel.state.graph_revision,
+                gates=gates,
+                resource_usage={
+                    "model_cost": dict(service.kernel.state.model_totals),
+                    "native_search": service.kernel.native_search_budget(),
+                    "attempt_count": service.kernel.state.attempt_count,
+                    "accepted_expansion_count": (
+                        service.kernel.state.accepted_expansion_count
+                    ),
+                    "resource_envelope": resource_envelope,
+                },
+                action_decision=final_action_decision,
+            ),
+        )
+    )
+    trajectory = compile_campaign_trajectory(snapshots_from_stages(stages))
+    campaign_accepted = _record_campaign_acceptance(
+        service,
+        gates=gates,
+        resource_envelope=resource_envelope,
+        idempotency_key=(
+            f"solve-target:campaign-acceptance:{service.kernel.state.graph_revision}"
+        ),
+    )
+    if replan_executed:
+        replan_gain = _replan_gain_audit(
+            provisional_gates,
+            gates,
+            model_cost_before=model_cost_before_replan,
+            model_cost_after=service.kernel.state.model_totals,
+        )
+        stages.append(
+            _stage(
+                "global_replan_gain_audit",
+                str(replan_gain["disposition"]),
+                replan_gain,
+            )
+        )
     stop_preview = service.kernel.decide_stop().to_dict()
     continuation_exhausted = _automatic_continuation_exhausted(
         resumed_completed_checkpoint=resumed_completed_checkpoint,
         baseline=continuation_baseline,
         current=_automatic_continuation_baseline(service),
-        portfolio_accepted=closeout["portfolio"].get("accepted") is True,
+        portfolio_accepted=campaign_accepted,
     )
-    if continuation_exhausted:
+    director_outcome_limit_exhausted = bool(
+        not campaign_accepted
+        and len(outcomes) >= _MAX_DIRECTOR_OUTCOMES
+    )
+    if director_outcome_limit_exhausted:
+        stages.append(
+            _stage(
+                "director_outcome_limit",
+                "exhausted",
+                {
+                    "observed_outcomes": len(outcomes),
+                    "maximum_outcomes": _MAX_DIRECTOR_OUTCOMES,
+                    "semantics": {
+                        "outcome_limit_is_not_scientific_acceptance": True,
+                        "resume_cannot_create_an_additional_director_outcome": True,
+                    },
+                },
+            )
+        )
+        service.kernel.transition(
+            "unresolved",
+            idempotency_key=(
+                "solve-target:director-outcome-limit:"
+                f"{service.kernel.state.revision}"
+            ),
+            reasons=(
+                "director_outcome_limit_exhausted",
+                "configured_scientific_acceptance_not_met",
+            ),
+        )
+    elif continuation_exhausted:
         stages.append(
             _stage(
                 "automatic_continuation",
@@ -1196,6 +3306,7 @@ def solve_target(
         gates,
         resolved_acceptance,
         resource_envelope,
+        objective_mode=active.objective_mode,
         workbench=profile_projection,
     )
     planning_depth = _planning_depth_requirement(
@@ -1230,6 +3341,16 @@ def solve_target(
         "budget": resolved_budget.to_dict(),
         "director_outcomes": outcomes,
         "stages": _deduplicate_stages(stages),
+        "trajectory": trajectory,
+        "next_action": {
+            "selected_action_id": final_action_decision["selected_action_id"],
+            "selected_action": final_action_decision["selected_action"],
+            "candidate_count": final_action_decision["candidate_count"],
+            "eligible_candidate_count": final_action_decision[
+                "eligible_candidate_count"
+            ],
+            "decision_sha256": final_action_decision["content_sha256"],
+        },
         "gates": gates,
         "planning_depth": planning_depth,
         "model_cost": dict(service.kernel.state.model_totals),
@@ -1243,24 +3364,14 @@ def solve_target(
         "workbench_ref": workbench["snapshot_ref"],
         "claim": claim,
     }
-    report["content_sha256"] = _digest(report)
-    report_artifact = service.kernel.artifacts.put_json(
-        report,
-        logical_name="target_only_solve_report.json",
-        producer="autoplanner.target_solver",
+    return _persist_target_report(
+        service,
+        report=report,
+        identity=identity,
+        directory=directory,
+        checkpoint_path=checkpoint_path,
+        outcomes=outcomes,
     )
-    report_ref = report_artifact.to_dict()
-    service.kernel.index.index_artifact(
-        run_id=identity,
-        artifact_id="target_only_solve_report",
-        ref=report_artifact,
-        revision=service.kernel.state.graph_revision,
-        authority_scope="benchmark_measurement_only",
-    )
-    report_path = directory / "target-only-solve-report.json"
-    _write_json_atomic(report_path, report)
-    _checkpoint(checkpoint_path, identity, report["stages"], outcomes, complete=True)
-    return {**report, "report_ref": report_ref, "report_path": str(report_path)}
 
 
 def _acceptance_input(value: RetrosynthesisAcceptanceSpec) -> dict[str, Any]:
@@ -1269,6 +3380,556 @@ def _acceptance_input(value: RetrosynthesisAcceptanceSpec) -> dict[str, Any]:
         "minimum_edge_proof_level": value.minimum_edge_proof_level,
         "minimum_independent_source_groups": value.minimum_independent_source_groups,
         "stock_boundary": value.stock_boundary,
+    }
+
+
+def _resolve_program_capabilities(
+    supplied: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None,
+    *,
+    configured_path: str,
+    repository_root: Path,
+) -> tuple[Mapping[str, Any] | tuple[dict[str, Any], ...], str]:
+    if isinstance(supplied, Mapping):
+        return dict(supplied), ""
+    if supplied is not None:
+        return (
+            tuple(dict(value) for value in supplied if isinstance(value, Mapping)),
+            "",
+        )
+    path = (
+        Path(configured_path).expanduser().resolve()
+        if str(configured_path).strip()
+        else repository_root / "config" / "route_innovation_capabilities.v1.json"
+    )
+    if not path.is_file():
+        return (), f"program_capability_catalog_missing:{path}"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return (), f"program_capability_catalog_invalid:{type(exc).__name__}:{exc}"
+    if isinstance(value, Mapping):
+        return dict(value), ""
+    if isinstance(value, list):
+        return tuple(dict(row) for row in value if isinstance(row, Mapping)), ""
+    return (), "program_capability_catalog_not_mapping_or_list"
+
+
+def _portfolio_config(
+    config: TargetSolveConfig,
+    acceptance: RetrosynthesisAcceptanceSpec,
+) -> PortfolioConfig:
+    minimum = min(12, max(1, int(acceptance.minimum_complete_routes)))
+    maximum = min(12, max(minimum, int(config.display_route_limit)))
+    return PortfolioConfig(
+        minimum_routes_to_show=minimum,
+        maximum_routes_to_show=maximum,
+    )
+
+
+def _campaign_milestones(gates: Mapping[str, Any]) -> dict[str, bool]:
+    values = dict(gates.get("gates") or {})
+    return {
+        str(name): values.get(name) is True
+        for name in (
+            "B0_blind_input",
+            "B1_global_multi_route",
+            "B2_host_validated_routes",
+            "B3_exact_multi_source",
+            "B4_stock_boundary",
+            "B5_configured_portfolio_acceptance",
+        )
+    }
+
+
+def _campaign_action_handler_results(
+    executions: Iterable[Mapping[str, Any]],
+    *,
+    kind: CampaignActionKind,
+) -> list[dict[str, Any]]:
+    return [
+        dict(dict(execution.get("outcome") or {}).get("handler_result") or {})
+        for execution in executions
+        if dict(execution.get("action") or {}).get("kind") == kind.value
+        and isinstance(
+            dict(execution.get("outcome") or {}).get("handler_result"),
+            Mapping,
+        )
+    ]
+
+
+def _aggregate_materialization_action_results(
+    executions: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    results = _campaign_action_handler_results(
+        executions,
+        kind=CampaignActionKind.MATERIALIZE,
+    )
+    material_events = [
+        dict(event)
+        for result in results
+        for event in result.get("material_events") or []
+        if isinstance(event, Mapping)
+    ]
+    return {
+        "schema_version": "campaign_action_materialization_summary.v1",
+        "status": "completed" if results else "reused_or_empty",
+        "changed": any(result.get("changed") is True for result in results),
+        "executed_command_count": sum(
+            int(result.get("executed_command_count") or 0) for result in results
+        ),
+        "action_execution_count": len(results),
+        "material_events": material_events,
+        "semantics": {
+            "scheduler_owned_execution": True,
+            "canonical_ingestion_remains_authoritative": True,
+        },
+    }
+
+
+def _aggregate_validation_action_results(
+    executions: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    results = _campaign_action_handler_results(
+        executions,
+        kind=CampaignActionKind.REACTION_VALIDATE,
+    )
+    accepted_ids = sorted(
+        {
+            str(edge_id)
+            for result in results
+            for edge_id in result.get("accepted_edge_ids") or []
+            if str(edge_id)
+        }
+    )
+    rejected_ids = sorted(
+        {
+            str(edge_id)
+            for result in results
+            for edge_id in result.get("rejected_edge_ids") or []
+            if str(edge_id)
+        }
+        - set(accepted_ids)
+    )
+    diagnostics_by_edge = {
+        str(row.get("edge_id") or ""): dict(row)
+        for result in results
+        for row in result.get("rejection_diagnostics") or []
+        if isinstance(row, Mapping) and str(row.get("edge_id") or "")
+    }
+    rejection_reason_counts: dict[str, int] = {}
+    for row in diagnostics_by_edge.values():
+        for reason in row.get("reasons") or []:
+            name = str(reason)
+            if name:
+                rejection_reason_counts[name] = rejection_reason_counts.get(name, 0) + 1
+    mapped_reactions: dict[str, Any] = {}
+    mapping_failures: list[dict[str, Any]] = []
+    mapping_backends: set[str] = set()
+    for result in results:
+        mapping = dict(result.get("mapping") or {})
+        mapped_reactions.update(dict(mapping.get("mapped_reactions") or {}))
+        mapping_failures.extend(
+            dict(row)
+            for row in mapping.get("failures") or []
+            if isinstance(row, Mapping)
+        )
+        if str(mapping.get("backend") or ""):
+            mapping_backends.add(str(mapping.get("backend")))
+    statuses = {str(result.get("status") or "") for result in results}
+    status = (
+        "reused_or_empty"
+        if not results
+        else "partial"
+        if statuses.intersection({"partial", "failed", "error"})
+        else "completed"
+    )
+    material_events = [
+        dict(event)
+        for result in results
+        for event in dict(result.get("execution") or {}).get("material_events") or []
+        if isinstance(event, Mapping)
+    ]
+    return {
+        "stage": "reaction_validation",
+        "schema_version": "campaign_action_validation_summary.v1",
+        "status": status,
+        "pending_edge_count": sum(
+            int(result.get("pending_edge_count") or 0) for result in results
+        ),
+        "forced_revalidation_edge_count": sum(
+            int(result.get("forced_revalidation_edge_count") or 0)
+            for result in results
+        ),
+        "validation_command_count": sum(
+            int(result.get("validation_command_count") or 0) for result in results
+        ),
+        "accepted_validation_count": len(accepted_ids),
+        "rejected_validation_count": len(rejected_ids),
+        "accepted_edge_ids": accepted_ids,
+        "rejected_edge_ids": rejected_ids,
+        "rejection_diagnostics": [
+            diagnostics_by_edge[key] for key in sorted(diagnostics_by_edge)
+        ],
+        "rejection_reason_counts": dict(
+            sorted(
+                rejection_reason_counts.items(),
+                key=lambda row: (-row[1], row[0]),
+            )
+        ),
+        "mapping": {
+            "schema_version": "campaign_action_mapping_summary.v1",
+            "backend": "+".join(sorted(mapping_backends)),
+            "requested_count": sum(
+                int(dict(result.get("mapping") or {}).get("requested_count") or 0)
+                for result in results
+            ),
+            "mapped_count": len(mapped_reactions),
+            "failure_count": len(mapping_failures),
+            "truncated": any(
+                dict(result.get("mapping") or {}).get("truncated") is True
+                for result in results
+            ),
+            "mapped_reactions": mapped_reactions,
+            "failures": mapping_failures,
+        },
+        "execution": {
+            "executed_command_count": sum(
+                int(
+                    dict(result.get("execution") or {}).get(
+                        "executed_command_count"
+                    )
+                    or 0
+                )
+                for result in results
+            ),
+            "material_events": material_events,
+        },
+        "action_execution_count": len(results),
+        "semantics": {
+            "scheduler_owned_execution": True,
+            "diagnostics_preserved_for_precursor_repair": True,
+        },
+    }
+
+
+def _scope_validation_summary(
+    validation: Mapping[str, Any],
+    edge_ids: Iterable[str],
+) -> dict[str, Any]:
+    selected = {str(value) for value in edge_ids if str(value)}
+    if not selected or not validation:
+        return {}
+    accepted_ids = sorted(
+        selected.intersection(
+            str(value) for value in validation.get("accepted_edge_ids") or []
+        )
+    )
+    rejected_ids = sorted(
+        selected.intersection(
+            str(value) for value in validation.get("rejected_edge_ids") or []
+        )
+    )
+    diagnostics = [
+        dict(row)
+        for row in validation.get("rejection_diagnostics") or []
+        if isinstance(row, Mapping)
+        and str(row.get("edge_id") or "") in selected
+    ]
+    reason_counts: dict[str, int] = {}
+    for row in diagnostics:
+        for reason in row.get("reasons") or []:
+            name = str(reason)
+            if name:
+                reason_counts[name] = reason_counts.get(name, 0) + 1
+    return {
+        **dict(validation),
+        "accepted_validation_count": len(accepted_ids),
+        "rejected_validation_count": len(rejected_ids),
+        "accepted_edge_ids": accepted_ids,
+        "rejected_edge_ids": rejected_ids,
+        "rejection_diagnostics": diagnostics,
+        "rejection_reason_counts": dict(
+            sorted(reason_counts.items(), key=lambda row: (-row[1], row[0]))
+        ),
+        "scoped_edge_ids": sorted(selected),
+        "semantics": {
+            **dict(validation.get("semantics") or {}),
+            "validation_attribution_is_edge_scoped": True,
+        },
+    }
+
+
+def _aggregate_stock_action_results(
+    executions: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    results = _campaign_action_handler_results(
+        executions,
+        kind=CampaignActionKind.STOCK_AUDIT,
+    )
+    if not results:
+        return {
+            "stage": "stock",
+            "status": "reused_or_empty",
+            "reason": "scheduler_found_no_executable_stock_deficit",
+            "action_execution_count": 0,
+            "semantics": {"scheduler_owned_execution": True},
+        }
+    return {
+        **results[-1],
+        "action_execution_count": len(results),
+        "semantics": {
+            **dict(results[-1].get("semantics") or {}),
+            "scheduler_owned_execution": True,
+        },
+    }
+
+
+def _aggregate_condition_action_results(
+    executions: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    results = _campaign_action_handler_results(
+        executions,
+        kind=CampaignActionKind.CONDITION_ENRICH,
+    )
+    if not results:
+        return {
+            "stage": "condition_enrichment",
+            "status": "reused_or_empty",
+            "reason": "scheduler_found_no_executable_condition_deficit",
+            "action_execution_count": 0,
+            "semantics": {"scheduler_owned_execution": True},
+        }
+    enriched_ids = sorted(
+        {
+            str(edge_id)
+            for result in results
+            for edge_id in result.get("enriched_edge_ids") or []
+            if str(edge_id)
+        }
+    )
+    failed_ids = sorted(
+        {
+            str(edge_id)
+            for result in results
+            for edge_id in result.get("failed_edge_ids") or []
+            if str(edge_id)
+        }
+        - set(enriched_ids)
+    )
+    prediction_errors = {
+        str(edge_id): str(reason)
+        for result in results
+        for edge_id, reason in dict(result.get("prediction_errors") or {}).items()
+        if str(edge_id)
+    }
+    statuses = {str(result.get("status") or "") for result in results}
+    material_events = [
+        dict(event)
+        for result in results
+        for event in dict(result.get("execution") or {}).get("material_events") or []
+        if isinstance(event, Mapping)
+    ]
+    return {
+        "stage": "condition_enrichment",
+        "status": (
+            "partial"
+            if failed_ids or statuses.intersection({"partial", "failed", "error"})
+            else "completed"
+        ),
+        "pending_edge_count": sum(
+            int(result.get("pending_edge_count") or 0) for result in results
+        ),
+        "selected_edge_count": sum(
+            int(result.get("selected_edge_count") or 0) for result in results
+        ),
+        "condition_command_count": sum(
+            int(result.get("condition_command_count") or 0) for result in results
+        ),
+        "enriched_edge_count": len(enriched_ids),
+        "failed_edge_count": len(failed_ids),
+        "enriched_edge_ids": enriched_ids,
+        "failed_edge_ids": failed_ids,
+        "prediction_errors": prediction_errors,
+        "execution": {
+            "executed_command_count": sum(
+                int(
+                    dict(result.get("execution") or {}).get(
+                        "executed_command_count"
+                    )
+                    or 0
+                )
+                for result in results
+            ),
+            "material_events": material_events,
+        },
+        "action_execution_count": len(results),
+        "semantics": {
+            "scheduler_owned_execution": True,
+            "prediction_grants_no_reaction_or_evidence_proof": True,
+        },
+    }
+
+
+def _aggregate_evidence_action_results(
+    executions: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    rows = list(executions)
+    results = [
+        *_campaign_action_handler_results(
+            rows,
+            kind=CampaignActionKind.ACQUIRE_EVIDENCE,
+        ),
+        *_campaign_action_handler_results(
+            rows,
+            kind=CampaignActionKind.BIND_EVIDENCE,
+        ),
+    ]
+    if not results:
+        return {
+            "stage": "evidence_acquisition",
+            "status": "unresolved",
+            "reason": "scheduler_found_no_executable_evidence_deficit",
+            "model_invocations": 0,
+            "visual_invocations": 0,
+            "action_execution_count": 0,
+            "semantics": {"scheduler_owned_execution": True},
+        }
+    return {
+        **results[-1],
+        "action_execution_count": len(results),
+        "semantics": {
+            **dict(results[-1].get("semantics") or {}),
+            "scheduler_owned_execution": True,
+        },
+    }
+
+
+def _aggregate_guided_chemenzy_action_results(
+    executions: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    results = _campaign_action_handler_results(
+        executions,
+        kind=CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,
+    )
+    proposal_count = sum(int(result.get("proposal_count") or 0) for result in results)
+    frontier_smiles = sorted(
+        {
+            str(value)
+            for result in results
+            for value in result.get("frontier_smiles") or []
+            if str(value)
+        }
+    )
+    provider_results = [
+        dict(row)
+        for result in results
+        for row in result.get("results") or []
+        if isinstance(row, Mapping)
+    ]
+    return {
+        "schema_version": "v4_chemenzy_guided_frontier_stage.v1",
+        "stage": "chemenzy_guided_frontier",
+        "status": (
+            "completed"
+            if proposal_count
+            else "unresolved"
+            if results
+            else "not_needed"
+        ),
+        "frontier_count": len(frontier_smiles),
+        "executed_frontier_count": len(results),
+        "provider_invocation_count": sum(
+            int(result.get("provider_invocation_count") or 0) for result in results
+        ),
+        "codex_delegated_frontier_count": sum(
+            int(result.get("codex_delegated_frontier_count") or 0)
+            for result in results
+        ),
+        "frontier_smiles": frontier_smiles,
+        "proposal_count": proposal_count,
+        "results": provider_results,
+        "action_execution_count": len(results),
+        "material_events": (
+            ["guided_provider_proposals_added"] if proposal_count else []
+        ),
+        "semantics": {
+            "canonical_frontier_queue": True,
+            "frontier_batch_is_bounded": True,
+            "provider_result_requires_host_materialization": True,
+            "scheduler_owned_execution": True,
+        },
+    }
+
+
+def _record_campaign_acceptance(
+    service: Any,
+    *,
+    gates: Mapping[str, Any],
+    resource_envelope: Mapping[str, Any],
+    idempotency_key: str,
+) -> bool:
+    milestones = _campaign_milestones(gates)
+    gate_achieved = milestones["B5_configured_portfolio_acceptance"]
+    accepted = bool(
+        gate_achieved and resource_envelope.get("within_budget") is True
+    )
+    service.kernel.record_acceptance(
+        {
+            "schema_version": "unified_campaign_acceptance_report.v1",
+            "graph_revision": service.kernel.state.graph_revision,
+            "accepted": accepted,
+            "configured_acceptance_achieved": gate_achieved,
+            "milestones": milestones,
+            "within_resource_budget": (
+                resource_envelope.get("within_budget") is True
+            ),
+            "semantics": {
+                "one_acceptance_rule_for_all_targets": True,
+                "milestones_do_not_select_solver_control_flow": True,
+                "B4_does_not_grant_reaction_or_evidence_proof": True,
+            },
+        },
+        idempotency_key=idempotency_key,
+    )
+    return accepted
+
+
+def _persist_target_report(
+    service: Any,
+    *,
+    report: Mapping[str, Any],
+    identity: str,
+    directory: Path,
+    checkpoint_path: Path,
+    outcomes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    payload = dict(report)
+    payload["content_sha256"] = _digest(payload)
+    report_artifact = service.kernel.artifacts.put_json(
+        payload,
+        logical_name="target_only_solve_report.json",
+        producer="autoplanner.target_solver",
+    )
+    service.kernel.index.index_artifact(
+        run_id=identity,
+        artifact_id="target_only_solve_report",
+        ref=report_artifact,
+        revision=service.kernel.state.graph_revision,
+        authority_scope="benchmark_measurement_only",
+    )
+    report_path = directory / "target-only-solve-report.json"
+    _write_json_atomic(report_path, payload)
+    _checkpoint(
+        checkpoint_path,
+        identity,
+        payload["stages"],
+        outcomes,
+        complete=True,
+    )
+    return {
+        **payload,
+        "report_ref": report_artifact.to_dict(),
+        "report_path": str(report_path),
     }
 
 
@@ -1321,6 +3982,7 @@ def _refresh_terminal_report(
     portfolio = compile_proof_portfolio(
         graph,
         acceptance_spec=acceptance,
+        config=_portfolio_config(config, acceptance),
         budget_exhausted=service.kernel.state.status == "budget_exhausted",
     )
     gates = compile_blind_acceptance_report(
@@ -1331,6 +3993,7 @@ def _refresh_terminal_report(
     )
     resource_envelope = _resource_envelope(
         model_cost=service.kernel.state.model_totals,
+        native_search=service.kernel.native_search_budget(),
         attempt_count=service.kernel.state.attempt_count,
         accepted_expansion_count=service.kernel.state.accepted_expansion_count,
         budget=budget,
@@ -1341,6 +4004,7 @@ def _refresh_terminal_report(
         gates,
         acceptance,
         resource_envelope,
+        objective_mode=config.objective_mode,
         workbench=profile_projection,
     )
     planning_depth = _planning_depth_requirement(
@@ -1432,6 +4096,10 @@ def _budget_input(value: RetrosynthesisRunBudget) -> dict[str, Any]:
             "max_total_wall_time_s",
             "max_accepted_expansions",
             "max_attempt_runs",
+            "max_native_search_invocations",
+            "min_target_native_search_invocations",
+            "max_frontier_native_search_invocations",
+            "allow_frontier_native_search_borrowing",
             "max_prompt_context_bytes",
         }
     }
@@ -1495,9 +4163,12 @@ def _target_identity_stage(
         is not None
     )
     stale_provider_version = (
-        generic
-        and prior.get("status") == "completed"
-        and prior.get("provider_id") == "pubchem.pug_rest"
+        (generic or resolve_named)
+        and prior.get("status") in {"completed", "unresolved"}
+        and (
+            prior.get("provider_id") == "pubchem.pug_rest"
+            or str(prior.get("reason") or "").startswith("pubchem_")
+        )
         and prior.get("provider_version") != TARGET_IDENTITY_PROVIDER_VERSION
     )
     if prior and not stale_opaque_skip and not stale_provider_version:
@@ -1515,7 +4186,7 @@ def _target_identity_stage(
             "identity": {"preferred_name": target_name},
             "semantics": {"user_supplied_name_not_treated_as_evidence": True},
         }
-    result = resolve_target_identity(target_smiles)
+    result = resolve_target_identity(target_smiles, target_name=target_name)
     artifact = service.kernel.artifacts.put_json(
         result,
         logical_name="target_identity_observation.json",
@@ -1550,6 +4221,26 @@ def _latest_stage(
         ),
         {},
     )
+
+
+def _latest_visual_observation(
+    stages: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Return the newest frozen visual observation from either evidence pass."""
+
+    for stage in reversed(list(stages)):
+        if stage.get("stage") not in {
+            "evidence_acquisition",
+            "replan_evidence_acquisition",
+        }:
+            continue
+        detail = dict(stage.get("detail") or {})
+        observation = dict(
+            dict(detail.get("visual_evidence") or {}).get("observation") or {}
+        )
+        if observation.get("candidate_steps"):
+            return observation
+    return {}
 
 
 def _attempted_chemenzy_frontiers(
@@ -1664,6 +4355,9 @@ def _acquire_evidence_stage(
     max_visual_pages: int = 6,
     target_name: str = "",
     target_identity: Mapping[str, Any] | None = None,
+    prior_visual_observation: Mapping[str, Any] | None = None,
+    validation_runner: Callable[[str], Mapping[str, Any]] | None = None,
+    defer_validation: bool = False,
 ) -> dict[str, Any]:
     if connector is None:
         return {
@@ -1672,13 +4366,21 @@ def _acquire_evidence_stage(
             "reason": "structured_evidence_connector_not_configured",
             "model_invocations": 0,
         }
+    effective_target_identity, target_identity_resolution = (
+        _ensure_evidence_target_identity(
+            service,
+            target_name=target_name or service.kernel.spec.target_name,
+            target_smiles=service.kernel.spec.target_smiles,
+            target_identity=target_identity,
+        )
+    )
     request = compile_evidence_acquisition_request(
         run_id=service.kernel.spec.run_id,
         target_name=target_name or service.kernel.spec.target_name,
         target_smiles=service.kernel.spec.target_smiles,
         graph=service.graph_store.load(),
         source_frontier=source_stage,
-        target_identity=target_identity,
+        target_identity=effective_target_identity,
     )
     visual_stage: dict[str, Any] = {}
     source_route_stage: dict[str, Any] = {}
@@ -1708,6 +4410,35 @@ def _acquire_evidence_stage(
             service,
             discovery,
         )
+        source_edge_ids = {
+            str(value)
+            for value in source_route_stage.get("materialized_edge_ids") or []
+            if str(value)
+        }
+        source_route_validation: dict[str, Any] = {}
+        if dict(source_route_stage.get("execution") or {}).get("changed") is True:
+            if defer_validation:
+                source_route_validation = {
+                    "status": "deferred_to_campaign_action_frontier",
+                    "deferred_edge_ids": sorted(source_edge_ids),
+                }
+            elif validation_runner is not None:
+                source_route_validation = dict(
+                    validation_runner("evidence_source_route_validate")
+                )
+            else:
+                source_route_validation = validate_materialized_edges(
+                    service,
+                    atom_mapper=atom_mapper,
+                    edge_ids=source_edge_ids,
+                )
+        source_route_stage = {
+            **source_route_stage,
+            "validation": _scope_validation_summary(
+                source_route_validation,
+                source_edge_ids,
+            ),
+        }
         visual_stage = acquire_visual_evidence_candidates(
             service,
             evidence_request=request,
@@ -1715,16 +4446,36 @@ def _acquire_evidence_stage(
             provider=visual_provider,
             max_pages=max_visual_pages,
         )
+        if (
+            visual_stage.get("status") == "budget_blocked"
+            and prior_visual_observation
+        ):
+            rebound = rebind_visual_evidence_observation(
+                service,
+                request=dict(visual_stage.get("request") or {}),
+                prior_observation=prior_visual_observation,
+            )
+            if rebound.get("status") == "reused":
+                visual_stage = rebound
         visual_materialization = materialize_visual_evidence_candidates(
             service,
             observation=dict(visual_stage.get("observation") or {}),
         )
         visual_validation: dict[str, Any] = {}
         if dict(visual_materialization.get("execution") or {}).get("changed") is True:
-            visual_validation = validate_materialized_edges(
-                service,
-                atom_mapper=atom_mapper,
-            )
+            if defer_validation:
+                visual_validation = {
+                    "status": "deferred_to_campaign_action_frontier",
+                }
+            elif validation_runner is not None:
+                visual_validation = dict(
+                    validation_runner("evidence_visual_validate")
+                )
+            else:
+                visual_validation = validate_materialized_edges(
+                    service,
+                    atom_mapper=atom_mapper,
+                )
         visual_stage = {
             **visual_stage,
             "materialization": visual_materialization,
@@ -1751,19 +4502,26 @@ def _acquire_evidence_stage(
         }
         document = acquired.get("document")
         if document is None:
-            source_route_validation: dict[str, Any] = {}
-            if dict(source_route_stage.get("execution") or {}).get("changed") is True:
-                source_route_validation = validate_materialized_edges(
-                    service,
-                    atom_mapper=atom_mapper,
+            visual_structure_binding_count = int(
+                dict(visual_stage.get("materialization") or {}).get(
+                    "exact_structure_binding_candidate_count"
                 )
-            source_route_stage = {
-                **source_route_stage,
-                "validation": source_route_validation,
-            }
+                or 0
+            )
+            source_route_structure_binding_count = len(
+                source_route_stage.get("materialized_edge_ids") or []
+            )
+            structure_binding_count = (
+                visual_structure_binding_count
+                + source_route_structure_binding_count
+            )
             return {
                 "stage": "evidence_acquisition",
-                "status": "discovered_unbound",
+                "status": (
+                    "structure_bound_unproven"
+                    if structure_binding_count
+                    else "discovered_unbound"
+                ),
                 "request_sha256": request["content_sha256"],
                 "receipt_ref": receipt_ref,
                 "discovery_ref": discovery_ref,
@@ -1772,7 +4530,13 @@ def _acquire_evidence_stage(
                 "source_route": source_route_stage,
                 "visual_evidence": visual_stage,
                 "source_count": len(discovery.get("sources") or []),
+                "target_identity_resolution": target_identity_resolution,
                 "exact_record_count": 0,
+                "exact_structure_binding_count": structure_binding_count,
+                "visual_structure_binding_count": visual_structure_binding_count,
+                "source_route_structure_binding_count": (
+                    source_route_structure_binding_count
+                ),
                 "model_invocations": int(
                     visual_stage.get("model_invocations") or 0
                 ),
@@ -1797,6 +4561,7 @@ def _acquire_evidence_stage(
                 ),
                 "semantics": {
                     "discovery_is_not_exact_evidence": True,
+                    "exact_structure_binding_is_not_reaction_proof": True,
                     "discovery_may_inform_bounded_global_replan": True,
                     "connector_cannot_grant_reaction_validation": True,
                 },
@@ -1805,6 +4570,15 @@ def _acquire_evidence_stage(
             service,
             document=dict(document),
             atom_mapper=atom_mapper,
+            validation_runner=(
+                lambda edge_ids: _scope_validation_summary(
+                    dict(validation_runner("structured_evidence_revalidate")),
+                    edge_ids,
+                )
+                if validation_runner is not None
+                else None
+            ),
+            defer_validation=defer_validation,
         )
         # Structured import validates every pending edge in one canonical
         # batch.  Scope its receipt back to the source-route edge IDs instead
@@ -1851,6 +4625,7 @@ def _acquire_evidence_stage(
             "status": "unresolved",
             "reason": f"evidence_connector_failed:{type(exc).__name__}:{exc}",
             "request_sha256": request["content_sha256"],
+            "target_identity_resolution": target_identity_resolution,
             "model_invocations": int(visual_stage.get("model_invocations") or 0),
             "visual_invocations": int(visual_stage.get("visual_invocations") or 0),
             "false_evidence_claim": False,
@@ -1869,6 +4644,7 @@ def _acquire_evidence_stage(
         "source_route": source_route_stage,
         "visual_evidence": visual_stage,
         "source_count": imported["source_count"],
+        "target_identity_resolution": target_identity_resolution,
         "exact_record_count": imported["exact_record_count"],
         "source_binding_count": imported["source_binding_count"],
         "execution": imported["execution"],
@@ -1903,6 +4679,61 @@ def _acquire_evidence_stage(
             "connector_output_requires_normal_host_ingestion": True,
             "connector_cannot_grant_reaction_validation": True,
             "receipt_grants_no_scientific_authority": True,
+        },
+    }
+
+
+def _ensure_evidence_target_identity(
+    service: Any,
+    *,
+    target_name: str,
+    target_smiles: str,
+    target_identity: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Guarantee structure-derived aliases before ranking downloaded papers.
+
+    Normal target solves already resolve identity before evidence prefetch, but
+    validation forks and historical continuations used to bypass that stage.
+    An empty identity made native PDF alias hits invisible and could send the
+    single visual pass to a merely related paper.  Evidence acquisition is the
+    last safe common boundary, so it now repairs that omission itself.
+    """
+
+    supplied = dict(target_identity or {})
+    structurally_resolved = bool(
+        supplied.get("inchikey")
+        or supplied.get("cid")
+        or supplied.get("resolved_from_input_structure") is True
+        or supplied.get("synonyms")
+    )
+    if structurally_resolved:
+        return supplied, {
+            "status": "reused",
+            "reason": "structure_resolved_target_identity_supplied",
+            "identity": supplied,
+        }
+
+    result = resolve_target_identity(target_smiles, target_name=target_name)
+    artifact = service.kernel.artifacts.put_json(
+        result,
+        logical_name="evidence_target_identity_observation.json",
+        producer="autoplanner.target_identity.evidence_guard",
+    )
+    resolved = dict(result.get("identity") or {})
+    if result.get("status") == "completed" and resolved:
+        return resolved, {
+            **result,
+            "status": "completed",
+            "reason": "evidence_boundary_recovered_structure_identity",
+            "artifact_ref": artifact.to_dict(),
+        }
+    return supplied, {
+        **result,
+        "artifact_ref": artifact.to_dict(),
+        "semantics": {
+            **dict(result.get("semantics") or {}),
+            "identity_failure_does_not_block_literature_discovery": True,
+            "identity_failure_must_not_be_cached_as_success": True,
         },
     }
 
@@ -2067,7 +4898,7 @@ def _replan_budget_guard(
 
 
 def _material_replan_events(*stages: Mapping[str, Any]) -> tuple[str, ...]:
-    events = {"portfolio_stagnation"}
+    events: set[str] = set()
     for stage in stages:
         events.update(
             str(value)
@@ -2082,7 +4913,162 @@ def _material_replan_events(*stages: Mapping[str, Any]) -> tuple[str, ...]:
         )
         if int(stage.get("rejected_validation_count") or 0) > 0:
             events.add("critical_edge_rejected")
+        if int(stage.get("accepted_validation_count") or 0) > 0:
+            events.add("host_validated_edges_added_after_initial_plan")
+        if int(stage.get("source_route_host_accepted_count") or 0) > 0:
+            events.add("host_validated_source_route_added")
     return tuple(sorted(events))
+
+
+def _replan_signal_gate(
+    gates: Mapping[str, Any],
+    *,
+    material_events: Iterable[str],
+    trigger_reasons: Iterable[str],
+) -> dict[str, Any]:
+    """Require a new host observation before spending the optional model call.
+
+    A portfolio deficit is an outcome, not new information.  The director may
+    be called again only when validation, evidence, inventory, provider output,
+    or a host contract audit gives it a fact that was absent from the initial
+    architecture prompt.
+    """
+
+    observed = {
+        str(value)
+        for value in material_events
+        if str(value).strip()
+    }
+    actionable = observed & _REPLAN_ACTIONABLE_EVENTS
+    gate_values = dict(gates.get("gates") or {})
+    if gate_values.get("B4_stock_boundary") is True:
+        actionable.difference_update({"stock_boundary_changed", "stock_records_added"})
+    reasons = [] if actionable else ["no_new_actionable_host_observation"]
+    return {
+        "schema_version": "target_solve_replan_signal_gate.v1",
+        "accepted": not reasons,
+        "trigger_reasons": sorted(
+            {str(value) for value in trigger_reasons if str(value).strip()}
+        ),
+        "observed_material_events": sorted(observed),
+        "actionable_material_events": sorted(actionable),
+        "ignored_material_events": sorted(observed - actionable),
+        "reasons": reasons,
+        "semantics": {
+            "portfolio_deficit_alone_never_spends_a_model_call": True,
+            "new_host_observation_required": True,
+            "already_closed_stock_boundary_is_not_a_replan_signal": True,
+            "skipped_replan_is_not_completion": True,
+        },
+    }
+
+
+def _replan_retention_audit(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Prove that a replan extends the canonical graph instead of replacing it."""
+
+    collections = ("molecules", "edges", "route_families")
+    counts: dict[str, dict[str, int]] = {}
+    missing: dict[str, list[str]] = {}
+    for collection in collections:
+        before_ids = set(dict(before.get(collection) or {}))
+        after_ids = set(dict(after.get(collection) or {}))
+        counts[collection] = {
+            "before": len(before_ids),
+            "after": len(after_ids),
+            "added": len(after_ids - before_ids),
+            "missing": len(before_ids - after_ids),
+        }
+        if before_ids - after_ids:
+            missing[collection] = sorted(before_ids - after_ids)
+    return {
+        "schema_version": "target_solve_replan_retention_audit.v1",
+        "accepted": not missing,
+        "counts": counts,
+        "missing_ids": missing,
+        "semantics": {
+            "canonical_graph_before_replan_is_retained": not missing,
+            "replan_is_union_not_replacement": True,
+            "proof_state_may_be_strengthened_in_place": True,
+        },
+    }
+
+
+def _replan_gain_audit(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    *,
+    model_cost_before: Mapping[str, Any],
+    model_cost_after: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Measure one replan's observed scientific delta without causal overclaim."""
+
+    before_gates = dict(before.get("gates") or {})
+    after_gates = dict(after.get("gates") or {})
+    gate_names = sorted(set(before_gates) | set(after_gates))
+    gained_gates = [
+        key
+        for key in gate_names
+        if before_gates.get(key) is not True and after_gates.get(key) is True
+    ]
+    regressed_gates = [
+        key
+        for key in gate_names
+        if before_gates.get(key) is True and after_gates.get(key) is not True
+    ]
+
+    before_counts = dict(before.get("counts") or {})
+    after_counts = dict(after.get("counts") or {})
+    count_deltas = {
+        key: int(after_counts.get(key) or 0) - int(before_counts.get(key) or 0)
+        for key in sorted(set(before_counts) | set(after_counts))
+    }
+    positive_counts = {key: value for key, value in count_deltas.items() if value > 0}
+    negative_counts = {key: value for key, value in count_deltas.items() if value < 0}
+
+    cost_keys = (
+        "model_invocations",
+        "input_tokens",
+        "output_tokens",
+        "wall_time_s",
+    )
+    model_cost_delta = {
+        key: round(
+            float(model_cost_after.get(key) or 0.0)
+            - float(model_cost_before.get(key) or 0.0),
+            6,
+        )
+        for key in cost_keys
+    }
+    observed_gain = bool(gained_gates or positive_counts)
+    observed_regression = bool(regressed_gates or negative_counts)
+    disposition = (
+        "regressed"
+        if observed_regression
+        else "positive_gain"
+        if observed_gain
+        else "no_gain"
+    )
+    return {
+        "schema_version": "target_solve_replan_gain_audit.v1",
+        "disposition": disposition,
+        "observed_gain": observed_gain,
+        "observed_regression": observed_regression,
+        "gained_gates": gained_gates,
+        "regressed_gates": regressed_gates,
+        "count_deltas": count_deltas,
+        "positive_count_deltas": positive_counts,
+        "negative_count_deltas": negative_counts,
+        "model_cost_delta": model_cost_delta,
+        "semantics": {
+            "within_run_before_after_measurement": True,
+            "remote_model_sampling_is_not_bitwise_frozen": True,
+            "observed_delta_is_not_a_cross_arm_causal_estimate": True,
+            "no_gain_does_not_delete_retained_routes": True,
+        },
+    }
 
 
 def _director_topology_replan_events(
@@ -2231,12 +5217,16 @@ def _replan_reasons(
         reasons.append("director_topology_deficit")
     if values.get("B2_host_validated_routes") is not True:
         reasons.append("host_validated_route_deficit")
-    if values.get("B3_exact_multi_source") is not True and events & {
+    if (
+        values.get("B3_exact_multi_source") is not True
+        and events
+        & {
         "exact_rows_added",
         "material_evidence_added",
         "source_material_discovered",
         "visual_source_candidates_added",
-    }:
+        }
+    ):
         reasons.append("evidence_deficit_with_new_source_material")
     if values.get("B4_stock_boundary") is not True and events & {
         "stock_boundary_changed",
@@ -2515,11 +5505,16 @@ def _claim(
     acceptance: RetrosynthesisAcceptanceSpec,
     resource_envelope: Mapping[str, Any],
     *,
+    objective_mode: TargetObjectiveMode = "scientific_proof",
     workbench: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     values = dict(gates.get("gates") or {})
-    accepted = bool(
+    scientifically_accepted = bool(
         values.get("B5_configured_portfolio_acceptance") is True
+        and resource_envelope.get("within_budget") is True
+    )
+    stock_milestone_achieved = bool(
+        values.get("B4_stock_boundary") is True
         and resource_envelope.get("within_budget") is True
     )
     acceptance_profile = {
@@ -2544,7 +5539,13 @@ def _claim(
         ),
         "exact_multi_source_grade": values.get("B3_exact_multi_source") is True,
         "configured_stock_boundary_closed": values.get("B4_stock_boundary") is True,
-        "accepted_under_configured_policy": accepted,
+        "accepted_under_configured_policy": scientifically_accepted,
+        "scientific_proof_accepted": scientifically_accepted,
+        "milestones": _campaign_milestones(gates),
+        "objective_mode": objective_mode,
+        "objective_gate": "B5_configured_portfolio_acceptance",
+        "objective_achieved": scientifically_accepted,
+        "benchmark_search_completed": stock_milestone_achieved,
         "acceptance_profile": acceptance_profile,
         "achieved_profile": achieved_profile,
         "product_profile_counts": profile_counts,
@@ -2557,6 +5558,11 @@ def _claim(
         "process_ready": profile_counts.get("process_ready", 0) > 0,
         "no_unqualified_solved_claim": True,
         "no_unqualified_complete_claim": True,
+        "semantics": {
+            "objective_mode_is_compatibility_metadata_only": True,
+            "B4_is_an_anytime_milestone_not_a_solver_terminal": True,
+            "one_configured_acceptance_rule_for_all_targets": True,
+        },
     }
 
 
@@ -2592,14 +5598,18 @@ def _current_disposition(
     claim: Mapping[str, Any],
     gates: Mapping[str, Any],
 ) -> dict[str, Any]:
-    accepted = claim.get("accepted_under_configured_policy") is True
+    objective_achieved = claim.get("objective_achieved") is True
+    scientifically_accepted = (
+        claim.get("accepted_under_configured_policy") is True
+    )
+    stock_closed = claim.get("configured_stock_boundary_closed") is True
     historical_completion = bool(
         str(kernel_status) == "completed"
         or stop_decision.get("decision") == "completed"
     )
     proof_audit = dict(gates.get("reaction_proof_version_audit") or {})
-    stale_terminal = historical_completion and not accepted
-    if accepted:
+    stale_terminal = historical_completion and not objective_achieved
+    if scientifically_accepted:
         state = "accepted"
         reasons: list[str] = []
     elif stale_terminal:
@@ -2607,6 +5617,9 @@ def _current_disposition(
         reasons = ["current_proof_policy_does_not_accept_historical_terminal_snapshot"]
         if proof_audit.get("requires_revalidation") is True:
             reasons.append("stale_reaction_validator_proofs_present")
+    elif stock_closed:
+        state = "stock_closed_proof_open"
+        reasons = _open_gate_reasons(gates, include_host_validation=True)
     elif stop_decision.get("terminal") is True:
         state = str(stop_decision.get("decision") or "terminal_unresolved")
         reasons = [str(value) for value in stop_decision.get("reasons") or []]
@@ -2622,7 +5635,8 @@ def _current_disposition(
     return {
         "schema_version": "target_solve_current_disposition.v1",
         "state": state,
-        "scientifically_accepted": accepted,
+        "objective_achieved": objective_achieved,
+        "scientifically_accepted": scientifically_accepted,
         "historical_kernel_status": str(kernel_status),
         "historical_kernel_terminal": stop_decision.get("terminal") is True,
         "requires_revalidation": bool(
@@ -2657,6 +5671,7 @@ def _open_gate_reasons(
 def _resource_envelope(
     *,
     model_cost: Mapping[str, Any],
+    native_search: Mapping[str, Any],
     attempt_count: int,
     accepted_expansion_count: int,
     budget: RetrosynthesisRunBudget,
@@ -2669,6 +5684,9 @@ def _resource_envelope(
         "visual_invocations": int(model_cost.get("visual_invocations") or 0),
         "attempt_runs": int(attempt_count),
         "accepted_expansions": int(accepted_expansion_count),
+        "native_search_committed": int(
+            native_search.get("committed_total") or 0
+        ),
     }
     limits = {
         "model_invocations": budget.max_model_invocations,
@@ -2678,6 +5696,7 @@ def _resource_envelope(
         "visual_invocations": budget.max_visual_invocations,
         "attempt_runs": budget.max_attempt_runs,
         "accepted_expansions": budget.max_accepted_expansions,
+        "native_search_committed": budget.max_native_search_invocations,
     }
     violations = sorted(
         f"{key}_budget_violated"
@@ -2689,6 +5708,7 @@ def _resource_envelope(
         "within_budget": not violations,
         "observed": observed,
         "limits": limits,
+        "native_search": dict(native_search),
         "violations": violations,
         "semantics": {
             "reaching_a_cap_is_compliant": True,
@@ -2741,6 +5761,122 @@ def _chemenzy_director_observation(
             "provider_result_is_proposal_only": True,
             "topology_contains_exact_seed_steps": True,
             "director_should_reason_over_seed_as_a_global_route": True,
+        },
+    }
+
+
+def _compile_chemenzy_route_lineage(
+    stages: Iterable[Mapping[str, Any]],
+    graph: Mapping[str, Any],
+    *,
+    gates: Mapping[str, Any],
+) -> dict[str, Any]:
+    baseline = next(
+        (
+            dict(value)
+            for value in reversed(list(stages))
+            if value.get("stage") == "chemenzy_baseline"
+        ),
+        {},
+    )
+    source_rows = [
+        dict(value)
+        for value in dict(baseline.get("detail") or {}).get("route_lineage") or []
+        if isinstance(value, Mapping)
+    ]
+    families = dict(graph.get("route_families") or {})
+    measured_routes = [
+        dict(value)
+        for value in gates.get("routes") or []
+        if isinstance(value, Mapping)
+    ]
+    alias_to_id = {
+        str(alias): str(route_id)
+        for route_id, value in families.items()
+        for alias in dict(value).get("aliases") or []
+        if str(alias)
+    }
+    rows: list[dict[str, Any]] = []
+    disposition_counts: dict[str, int] = {}
+    for source in source_rows:
+        alias = str(source.get("canonical_route_family_alias") or "")
+        route_id = str(source.get("canonical_route_family_id") or "")
+        if not route_id:
+            route_id = alias_to_id.get(alias, "")
+        family = dict(families.get(route_id) or {})
+        route_measurements = [
+            value
+            for value in measured_routes
+            if str(value.get("route_family_id") or "") == route_id
+        ]
+        edge_ids = sorted(str(value) for value in family.get("edge_ids") or [] if str(value))
+        hypothesis_ids = sorted(
+            str(value) for value in family.get("hypothesis_ids") or [] if str(value)
+        )
+        if any(value.get("stock_closed") is True for value in route_measurements):
+            disposition = "stock_closed"
+        elif any(value.get("materialized") is True for value in route_measurements):
+            disposition = "materialized_or_partially_materialized"
+        elif edge_ids:
+            disposition = "canonical_edges_present_outside_complete_measured_route"
+        elif hypothesis_ids:
+            disposition = "canonical_hypothesis_only"
+        else:
+            disposition = str(source.get("disposition") or "unresolved")
+        disposition_counts[disposition] = disposition_counts.get(disposition, 0) + 1
+        rows.append(
+            {
+                **source,
+                "canonical_route_family_id": route_id,
+                "canonical_route_ids": sorted(
+                    str(value.get("route_id") or value.get("skeleton_id") or "")
+                    for value in route_measurements
+                    if str(value.get("route_id") or value.get("skeleton_id") or "")
+                ),
+                "stock_closed_route_ids": sorted(
+                    str(value.get("route_id") or value.get("skeleton_id") or "")
+                    for value in route_measurements
+                    if value.get("stock_closed") is True
+                    and str(value.get("route_id") or value.get("skeleton_id") or "")
+                ),
+                "canonical_hypothesis_ids": hypothesis_ids,
+                "canonical_edge_ids": edge_ids,
+                "canonical_route_closed": bool(route_measurements),
+                "canonical_stock_closure_rate": (
+                    sum(
+                        1
+                        for value in route_measurements
+                        if value.get("stock_closed") is True
+                    )
+                    / len(route_measurements)
+                    if route_measurements
+                    else 0.0
+                ),
+                "canonical_minimum_proof_level": int(
+                    family.get("minimum_proof_level") or 0
+                ),
+                "blocking_deficit_ids": sorted(
+                    str(value)
+                    for value in family.get("blocking_deficit_ids") or []
+                    if str(value)
+                ),
+                "final_disposition": disposition,
+            }
+        )
+    return {
+        "schema_version": "chemenzy_route_lineage.v1",
+        "route_count": len(rows),
+        "disposition_counts": {
+            key: disposition_counts[key] for key in sorted(disposition_counts)
+        },
+        "campaign_B4_stock_boundary": bool(
+            dict(gates.get("gates") or {}).get("B4_stock_boundary") is True
+        ),
+        "routes": rows,
+        "semantics": {
+            "raw_normalized_canonical_bound_by_digest": True,
+            "campaign_B4_does_not_imply_each_provider_route_is_closed": True,
+            "missing_proof_never_erases_provider_lineage": True,
         },
     }
 
@@ -2846,22 +5982,30 @@ def _run_director_safely(
     evidence_observations: Mapping[str, Any]
     | tuple[Mapping[str, Any], ...]
     | None = None,
+    context: Any | None = None,
     idempotency_key: str,
 ) -> dict[str, Any]:
     """Turn a bounded provider failure into an auditable unresolved outcome."""
 
     try:
+        if context is not None:
+            return service.run_global_director_with_context(
+                context,
+                mode=mode,
+                idempotency_key=idempotency_key,
+            ).to_dict()
         return service.run_global_director(
             mode=mode,
             material_events=material_events,
             evidence_observations=evidence_observations,
             idempotency_key=idempotency_key,
         ).to_dict()
-    except GlobalCampaignDirectorError as exc:
+    except (GlobalCampaignDirectorError, RunKernelBudgetError) as exc:
         reason = str(exc).strip() or type(exc).__name__
+        budget_exhausted = isinstance(exc, RunKernelBudgetError)
         return DirectorOutcome(
-            status="failed",
-            invoked=True,
+            status="skipped" if budget_exhausted else "failed",
+            invoked=not budget_exhausted,
             cache_hit=False,
             mode=mode,
             context_sha256="",

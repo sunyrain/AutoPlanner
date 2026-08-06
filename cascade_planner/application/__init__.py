@@ -1,15 +1,22 @@
-"""Lazy application API with V4 contracts as the primary surface.
-
-Legacy V3 symbols remain import-compatible but are loaded only on demand.
-They are inventoried compatibility paths, not owners of new scientific state.
-"""
+"""Lazy public API for canonical V4 application contracts."""
 from __future__ import annotations
 
 from importlib import import_module
 from typing import Any
 
-
 _V4_EXPORTS = {
+    "CampaignAction": (
+        "cascade_planner.application.campaign_actions",
+        "CampaignAction",
+    ),
+    "CampaignActionKind": (
+        "cascade_planner.application.campaign_actions",
+        "CampaignActionKind",
+    ),
+    "CampaignActionOpportunity": (
+        "cascade_planner.application.campaign_actions",
+        "CampaignActionOpportunity",
+    ),
     "CAMPAIGN_CONTEXT_DELTA_SCHEMA": (
         "cascade_planner.application.campaign_context",
         "CAMPAIGN_CONTEXT_DELTA_SCHEMA",
@@ -34,6 +41,10 @@ _V4_EXPORTS = {
     "CampaignContextTooLargeError": (
         "cascade_planner.application.campaign_context",
         "CampaignContextTooLargeError",
+    ),
+    "unified_frontier_acceptance": (
+        "cascade_planner.application.campaign_work_policy",
+        "unified_frontier_acceptance",
     ),
     "CanonicalHypergraphStore": (
         "cascade_planner.application.canonical_hypergraph",
@@ -105,6 +116,22 @@ _V4_EXPORTS = {
         "cascade_planner.application.deficit_frontier",
         "compile_deficit_frontier",
     ),
+    "compile_action_opportunities": (
+        "cascade_planner.application.campaign_actions",
+        "compile_action_opportunities",
+    ),
+    "bind_scheduled_action": (
+        "cascade_planner.application.campaign_actions",
+        "bind_scheduled_action",
+    ),
+    "compile_campaign_snapshot": (
+        "cascade_planner.application.campaign_trajectory",
+        "compile_campaign_snapshot",
+    ),
+    "compile_campaign_trajectory": (
+        "cascade_planner.application.campaign_trajectory",
+        "compile_campaign_trajectory",
+    ),
     "compile_proof_portfolio": (
         "cascade_planner.application.proof_portfolio",
         "compile_proof_portfolio",
@@ -121,117 +148,25 @@ _V4_EXPORTS = {
         "cascade_planner.application.proof_portfolio",
         "publish_proof_portfolio",
     ),
-}
-
-_LEGACY_EXPORTS = {
-    "FRONTIER_LEDGER_SCHEMA": (
-        "cascade_planner.application.frontier_ledger",
-        "FRONTIER_LEDGER_SCHEMA",
-    ),
-    "RETROSYNTHESIS_ACCEPTANCE_REPORT_SCHEMA": (
-        "cascade_planner.application.retrosynthesis_acceptance",
-        "RETROSYNTHESIS_ACCEPTANCE_REPORT_SCHEMA",
-    ),
-    "FrontierCompletenessReport": (
-        "cascade_planner.application.frontier_scheduler",
-        "FrontierCompletenessReport",
-    ),
-    "FrontierExecutor": (
-        "cascade_planner.application.frontier_scheduler",
-        "FrontierExecutor",
-    ),
-    "FrontierJob": ("cascade_planner.application.frontier_scheduler", "FrontierJob"),
-    "FrontierJobState": (
-        "cascade_planner.application.frontier_scheduler",
-        "FrontierJobState",
-    ),
-    "FrontierScheduler": (
-        "cascade_planner.application.frontier_scheduler",
-        "FrontierScheduler",
-    ),
-    "PersistentFrontierQueue": (
-        "cascade_planner.application.frontier_scheduler",
-        "PersistentFrontierQueue",
-    ),
-    "RouteDeficit": (
-        "cascade_planner.application.route_deficit_queue",
-        "RouteDeficit",
-    ),
-    "RouteDeficitKind": (
-        "cascade_planner.application.route_deficit_queue",
-        "RouteDeficitKind",
-    ),
-    "RoutePortfolioItem": (
-        "cascade_planner.application.route_portfolio",
-        "RoutePortfolioItem",
-    ),
-    "RoutePortfolioReport": (
-        "cascade_planner.application.route_portfolio",
-        "RoutePortfolioReport",
-    ),
-    "assess_frontier_completeness": (
-        "cascade_planner.application.frontier_scheduler",
-        "assess_frontier_completeness",
-    ),
-    "build_route_verifier_bundle": (
-        "cascade_planner.application.route_portfolio",
-        "build_route_verifier_bundle",
-    ),
-    "compile_route_deficit_queue": (
-        "cascade_planner.application.route_deficit_queue",
-        "compile_route_deficit_queue",
-    ),
-    "derive_portfolio_bindings": (
-        "cascade_planner.application.route_portfolio",
-        "derive_portfolio_bindings",
-    ),
-    "exact_edge_signature": (
-        "cascade_planner.application.frontier_ledger",
-        "exact_edge_signature",
-    ),
-    "evaluate_retrosynthesis_acceptance": (
-        "cascade_planner.application.retrosynthesis_acceptance",
-        "evaluate_retrosynthesis_acceptance",
-    ),
-    "next_route_deficit": (
-        "cascade_planner.application.route_deficit_queue",
-        "next_route_deficit",
-    ),
-    "project_frontier_ledger": (
-        "cascade_planner.application.frontier_ledger",
-        "project_frontier_ledger",
-    ),
-    "solve_diverse_routes": (
-        "cascade_planner.application.route_portfolio",
-        "solve_diverse_routes",
-    ),
-    "validate_portfolio_replacements": (
-        "cascade_planner.application.route_portfolio",
-        "validate_portfolio_replacements",
-    ),
-    "validate_frontier_ledger": (
-        "cascade_planner.application.frontier_ledger",
-        "validate_frontier_ledger",
-    ),
-    "validate_route_replacement": (
-        "cascade_planner.application.route_portfolio",
-        "validate_route_replacement",
+    "schedule_next_action": (
+        "cascade_planner.application.action_scheduler",
+        "schedule_next_action",
     ),
 }
 
-_EXPORTS = {**_V4_EXPORTS, **_LEGACY_EXPORTS}
-__all__ = sorted(_EXPORTS)
+__all__ = sorted(_V4_EXPORTS)
 
 
 def __getattr__(name: str) -> Any:
-    target = _EXPORTS.get(name)
-    if target is None:
+    target = _V4_EXPORTS.get(name)
+    if target is not None:
+        module_name, attribute_name = target
+        value = getattr(import_module(module_name), attribute_name)
+    else:
         raise AttributeError(name)
-    module_name, attribute_name = target
-    value = getattr(import_module(module_name), attribute_name)
     globals()[name] = value
     return value
 
 
 def __dir__() -> list[str]:
-    return sorted({*globals(), *_EXPORTS})
+    return sorted({*globals(), *_V4_EXPORTS})

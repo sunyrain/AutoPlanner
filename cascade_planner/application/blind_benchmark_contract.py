@@ -52,6 +52,10 @@ _BUDGET_FIELDS = frozenset(
         "max_total_wall_time_s",
         "max_accepted_expansions",
         "max_attempt_runs",
+        "max_native_search_invocations",
+        "min_target_native_search_invocations",
+        "max_frontier_native_search_invocations",
+        "allow_frontier_native_search_borrowing",
         "max_prompt_context_bytes",
     }
 )

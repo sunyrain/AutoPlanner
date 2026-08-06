@@ -16,6 +16,10 @@ from typing import Any, Iterable, Mapping
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.application.condition_predictions import (
+    CONDITION_PREDICTION_RESULT_SCHEMA,
+    normalize_condition_predictions,
+)
 from cascade_planner.application.reaction_condition_records import (
     audit_condition_completeness,
     build_source_procedure_record,
@@ -119,6 +123,12 @@ def build_retrosynthesis_worker_handlers() -> dict[str, WorkerHandlerSpec]:
             validate_reaction_worker,
         ),
         WorkerHandlerSpec(
+            "record_condition_predictions",
+            WORKER_SET_VERSION,
+            "other",
+            record_condition_predictions_worker,
+        ),
+        WorkerHandlerSpec(
             "discover_sources",
             WORKER_SET_VERSION,
             "evidence",
@@ -183,18 +193,24 @@ def materialization_commands_for_global_plan(
                     "precursor_smiles_multiset": sorted(precursors),
                 }
             )
-            grouped.setdefault(
+            payload = grouped.setdefault(
                 identity,
                 {
                     "product_smiles": product,
                     "precursor_smiles": precursors,
                     "reagent_smiles": _string_list(step.get("reagent_smiles")),
+                    "condition_predictions": [],
                     "existing_edge_digests": sorted(
                         {str(value) for value in existing_edge_digests if str(value)}
                     ),
                     "proposal_refs": [],
                 },
-            )["proposal_refs"].append(
+            )
+            payload["condition_predictions"] = _merge_annotation_rows(
+                payload.get("condition_predictions"),
+                step.get("condition_predictions"),
+            )
+            payload["proposal_refs"].append(
                 {
                     "origin_kind": "codex_global_director",
                     "route_family_id": route_family_id,
@@ -218,15 +234,84 @@ def materialization_commands_for_global_plan(
         work_identity = _digest(
             {"edge_identity": identity, "proposal_refs": payload["proposal_refs"]}
         )
+        command_identity = _digest(
+            {
+                "work_identity": work_identity,
+                "input_revision": int(input_revision),
+                "dependency_revisions": dict(dependency_revisions or {}),
+            }
+        )
         commands.append(
             WorkerCommand(
-                command_id=f"materialize:{work_identity[:24]}",
+                command_id=f"materialize:{command_identity[:24]}",
                 run_id=run_id,
                 worker_type="materialize_candidate",
                 input_revision=int(input_revision),
-                idempotency_key=f"materialize:{work_identity}",
+                idempotency_key=f"materialize:{command_identity}",
                 payload=payload,
                 budget=WorkerBudget(task_kind="proposal"),
+                dependency_revisions=dict(dependency_revisions or {}),
+            )
+        )
+    return tuple(commands)
+
+
+def condition_prediction_commands_for_edges(
+    predictions: Iterable[Mapping[str, Any]],
+    *,
+    run_id: str,
+    input_revision: int,
+    dependency_revisions: Mapping[str, str | int] | None = None,
+    maximum_candidates: int = 2,
+) -> tuple[WorkerCommand, ...]:
+    """Bind raw predictor output to canonical edge digests for replayable ingestion."""
+
+    commands: list[WorkerCommand] = []
+    for value in predictions:
+        if not isinstance(value, Mapping):
+            continue
+        row = dict(value)
+        edge_digest = str(row.get("edge_digest") or "").strip()
+        reaction_smiles = str(row.get("reaction_smiles") or "").strip()
+        if not edge_digest or ">>" not in reaction_smiles:
+            continue
+        identity = _digest(
+            {
+                "edge_digest": edge_digest,
+                "reaction_smiles": reaction_smiles,
+                "raw_predictions": row.get("raw_predictions") or [],
+                "prediction_error": str(row.get("prediction_error") or ""),
+                "condition_model": str(row.get("condition_model") or ""),
+                "input_revision": int(input_revision),
+                "dependency_revisions": {
+                    str(key): value
+                    for key, value in sorted(
+                        dict(dependency_revisions or {}).items()
+                    )
+                },
+            }
+        )
+        commands.append(
+            WorkerCommand(
+                command_id=f"conditions:{identity[:24]}",
+                run_id=run_id,
+                worker_type="record_condition_predictions",
+                input_revision=int(input_revision),
+                idempotency_key=f"conditions:{identity}",
+                payload={
+                    "edge_digest": edge_digest,
+                    "reaction_smiles": reaction_smiles,
+                    "raw_predictions": row.get("raw_predictions") or [],
+                    "prediction_error": str(row.get("prediction_error") or ""),
+                    "condition_model": str(row.get("condition_model") or ""),
+                    "prediction_producer": str(
+                        row.get("prediction_producer") or "condition_enrichment"
+                    ),
+                    "maximum_candidates": max(
+                        1, min(2, int(maximum_candidates or 2))
+                    ),
+                },
+                budget=WorkerBudget(task_kind="other", uses_model=False),
                 dependency_revisions=dict(dependency_revisions or {}),
             )
         )
@@ -303,6 +388,11 @@ def materialization_commands_for_proposals(
                 "transformation_hypothesis": str(
                     row.get("transformation_hypothesis") or ""
                 ),
+                "provider_reaction_metadata": (
+                    dict(row.get("provider_reaction_metadata") or {})
+                    if isinstance(row.get("provider_reaction_metadata"), Mapping)
+                    else {}
+                ),
             }
         )
         raw_innovations = [
@@ -352,13 +442,20 @@ def materialization_commands_for_proposals(
         work_identity = _digest(
             {"edge_identity": identity, "proposal_refs": payload["proposal_refs"]}
         )
+        command_identity = _digest(
+            {
+                "work_identity": work_identity,
+                "input_revision": int(input_revision),
+                "dependency_revisions": dict(dependency_revisions or {}),
+            }
+        )
         commands.append(
             WorkerCommand(
-                command_id=f"materialize:{work_identity[:24]}",
+                command_id=f"materialize:{command_identity[:24]}",
                 run_id=run_id,
                 worker_type="materialize_candidate",
                 input_revision=int(input_revision),
-                idempotency_key=f"materialize:{work_identity}",
+                idempotency_key=f"materialize:{command_identity}",
                 payload=payload,
                 budget=WorkerBudget(task_kind="proposal"),
                 dependency_revisions=dict(dependency_revisions or {}),
@@ -490,6 +587,59 @@ def materialize_candidate_worker(
     }
 
 
+def record_condition_predictions_worker(
+    command: WorkerCommand,
+    artifacts: WorkerArtifactReader,
+) -> dict[str, Any]:
+    """Normalize advisory conditions while stripping any spoofed authority."""
+
+    del artifacts
+    payload = dict(command.payload)
+    edge_digest = str(payload.get("edge_digest") or "")
+    reaction_smiles = str(payload.get("reaction_smiles") or "")
+    maximum = max(1, min(2, int(payload.get("maximum_candidates") or 2)))
+    predictions = normalize_condition_predictions(
+        payload.get("raw_predictions"),
+        max_candidates=maximum,
+        default_model=str(payload.get("condition_model") or ""),
+        producer=str(payload.get("prediction_producer") or "condition_enrichment"),
+    )
+    error = str(payload.get("prediction_error") or "")
+    reasons: list[str] = []
+    if error:
+        reasons.append("condition_predictor_failed")
+    if not predictions:
+        reasons.append("condition_prediction_empty")
+    result_payload = {
+        "schema_version": CONDITION_PREDICTION_RESULT_SCHEMA,
+        "edge_digest": edge_digest,
+        "reaction_smiles": reaction_smiles,
+        "condition_predictions": predictions,
+        "diagnostics": {
+            "attempted": True,
+            "returned_candidate_count": len(predictions),
+            "maximum_candidates": maximum,
+            "condition_model": str(payload.get("condition_model") or ""),
+            "prediction_producer": str(
+                payload.get("prediction_producer") or "condition_enrichment"
+            ),
+            "failure_reasons": sorted(set(reasons)),
+            "error": error[:1_000],
+        },
+        "semantics": {
+            "prediction_is_not_reaction_proof": True,
+            "prediction_is_not_source_evidence": True,
+            "source_procedure_supersedes_prediction": True,
+        },
+    }
+    return {
+        "status": "completed" if predictions else "partial",
+        "payload": result_payload,
+        "failure_reasons": sorted(set(reasons)),
+        "material_events": ["condition_predictions_added"] if predictions else [],
+    }
+
+
 def _merge_annotation_rows(existing: Any, incoming: Any) -> list[dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
     for value in [*(existing or []), *(incoming or [])]:
@@ -544,18 +694,53 @@ def validate_reaction_worker(
         for row in payload.get("exact_source_records") or []
         if isinstance(row, Mapping)
     ]
-    proof = verify_reaction_step(
-        step,
-        graph_and_stock_closed=payload.get("graph_and_stock_closed") is True,
-        trusted_precedent_binding=dict(payload.get("trusted_precedent_binding") or {}),
-        procurement_binding=dict(payload.get("procurement_binding") or {}),
-        trusted_stock_providers=dict(payload.get("trusted_stock_providers") or {}),
-        source_supported_multicentre=_exact_records_support_edge(
-            exact_source_records,
-            str(candidate.get("edge_digest") or ""),
-        ),
-        exact_source_records=exact_source_records,
+    source_procedure_records = [
+        dict(row)
+        for row in payload.get("source_procedure_records") or []
+        if isinstance(row, Mapping)
+    ]
+    source_bindings = [
+        dict(row)
+        for row in payload.get("source_bindings") or []
+        if isinstance(row, Mapping)
+    ]
+    proof = dict(
+        verify_reaction_step(
+            step,
+            graph_and_stock_closed=payload.get("graph_and_stock_closed") is True,
+            trusted_precedent_binding=dict(
+                payload.get("trusted_precedent_binding") or {}
+            ),
+            procurement_binding=dict(payload.get("procurement_binding") or {}),
+            trusted_stock_providers=dict(
+                payload.get("trusted_stock_providers") or {}
+            ),
+            source_supported_multicentre=_exact_records_support_edge(
+                exact_source_records,
+                str(candidate.get("edge_digest") or ""),
+            ),
+            exact_source_records=exact_source_records,
+            source_procedure_records=source_procedure_records,
+            source_bindings=source_bindings,
+        )
     )
+    proof["exact_record_ids"] = sorted(
+        str(row.get("record_id") or "")
+        for row in exact_source_records
+        if str(row.get("record_id") or "")
+    )
+    proof["procedure_record_ids"] = sorted(
+        str(row.get("procedure_record_id") or "")
+        for row in source_procedure_records
+        if str(row.get("procedure_record_id") or "")
+    )
+    proof["source_binding_ids"] = sorted(
+        str(row.get("binding_id") or "")
+        for row in source_bindings
+        if str(row.get("binding_id") or "")
+    )
+    proof.pop("proof_digest", None)
+    proof["proof_digest"] = _digest(proof)
     validated = proof.get("accepted") is True
     state = proof_state(
         structural_materialized=True,
@@ -1339,9 +1524,15 @@ def audit_benchmark_leaf_stock_worker(
     except ValueError as exc:
         return {"status": "rejected", "payload": {}, "failure_reasons": [str(exc)]}
     max_age_days = _finite_nonnegative(payload.get("max_age_days"), default=30.0)
+    immutable_catalog = (
+        dict(catalog.get("source") or {}).get("immutable_content_addressed") is True
+    )
     if as_of < retrieved_at:
         reasons.append("benchmark_catalog_from_future")
-    elif (as_of - retrieved_at).total_seconds() / 86_400.0 > max_age_days:
+    elif (
+        not immutable_catalog
+        and (as_of - retrieved_at).total_seconds() / 86_400.0 > max_age_days
+    ):
         reasons.append("benchmark_catalog_stale")
     adapter_version = str(catalog.get("adapter_version") or "")
     catalog_version = str(catalog.get("catalog_version") or "")
@@ -1357,10 +1548,20 @@ def audit_benchmark_leaf_stock_worker(
         row = dict(raw)
         canonical = _canonical_smiles(row.get("canonical_smiles"))
         response_sha256 = str(row.get("response_sha256") or "").lower()
+        membership_proof_sha256 = str(
+            row.get("membership_proof_sha256") or ""
+        ).lower()
+        vendor_record_valid = (
+            int(row.get("vendor_count") or 0) > 0
+            and bool(re.fullmatch(r"[0-9a-f]{64}", response_sha256))
+        )
+        frozen_membership_valid = (
+            row.get("membership_verified") is True
+            and bool(re.fullmatch(r"[0-9a-f]{64}", membership_proof_sha256))
+        )
         if (
             not canonical
-            or int(row.get("vendor_count") or 0) <= 0
-            or not re.fullmatch(r"[0-9a-f]{64}", response_sha256)
+            or not (vendor_record_valid or frozen_membership_valid)
         ):
             reasons.append(f"benchmark_catalog_member_invalid:{index}")
             continue
@@ -1398,6 +1599,12 @@ def audit_benchmark_leaf_stock_worker(
                     "cid": int(member.get("cid") or 0),
                     "vendor_count": int(member.get("vendor_count") or 0),
                     "response_sha256": str(member.get("response_sha256") or ""),
+                    "membership_verified": (
+                        member.get("membership_verified") is True
+                    ),
+                    "membership_proof_sha256": str(
+                        member.get("membership_proof_sha256") or ""
+                    ),
                     "artifact_hash_verified": True,
                     "commercial_orderability_claimed": False,
                 },
@@ -1416,7 +1623,11 @@ def audit_benchmark_leaf_stock_worker(
             accepted=accepted,
             payload=boundary.to_dict(),
             reasons=boundary.reasons,
-            source_refs=(str(member.get("source_url") or ""),) if member else (),
+            source_refs=(
+                str(member.get("source_url") or member.get("catalog_uri") or ""),
+            )
+            if member
+            else (),
         ).to_dict()
         audit = {
             "schema_version": DEEP_LEAF_AUDIT_SCHEMA,
@@ -1432,6 +1643,7 @@ def audit_benchmark_leaf_stock_worker(
             "reasons": [] if accepted else list(boundary.reasons),
             "semantics": {
                 "benchmark_membership_only": True,
+                "immutable_content_addressed_catalog": immutable_catalog,
                 "commercial_orderability_claimed": False,
                 "every_selected_leaf_has_a_record": True,
             },

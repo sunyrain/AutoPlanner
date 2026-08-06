@@ -98,6 +98,9 @@ def edge_inspector(
             or dict(edge.get("metadata") or {}).get("condition_predictions")
             or []
         ),
+        "condition_prediction_attempts": _copy_json(
+            edge.get("condition_prediction_attempts") or []
+        ),
         "reaction_proofs": _copy_json(edge.get("reaction_proofs") or []),
         "sources": [
             _copy_json(dict(graph.get("source_bindings") or {}).get(value) or {})

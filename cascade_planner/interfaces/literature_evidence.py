@@ -27,8 +27,11 @@ from cascade_planner.harness.local_pdf_proxy import (
     local_pdf_proxy_request_queue_path,
 )
 from cascade_planner.interfaces.literature_access import (
+    authorized_proxy_artifact,
+    downloaded_unextractable_source,
     pending_source,
     queue_authorized_pdf_request,
+    run_authorized_browser_fetch,
 )
 from cascade_planner.interfaces.literature_candidates import (
     candidate_source_ref as _candidate_source_ref,
@@ -54,9 +57,10 @@ from cascade_planner.interfaces.live_evidence import (
 
 
 BUILTIN_LITERATURE_PROVIDER_ID = "autoplanner.builtin_literature_evidence"
-BUILTIN_LITERATURE_PROVIDER_VERSION = "1.5"
+BUILTIN_LITERATURE_PROVIDER_VERSION = "1.8"
 PaperSearch = Callable[[str, int], Iterable[Mapping[str, Any]]]
 BytesFetcher = Callable[[str, float, int], bytes]
+AuthorizedFetcher = Callable[..., Mapping[str, Any]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +82,10 @@ class BuiltinLiteratureEvidenceConfig:
     render_zoom: float = 1.6
     authorized_proxy_output_dir: str | Path = ""
     queue_restricted_sources: bool = True
+    auto_fetch_restricted_sources: bool = False
+    auto_fetch_timeout_s: float = 180.0
+    auto_fetch_max_items: int = 4
+    auto_fetch_headless: bool = True
 
     def __post_init__(self) -> None:
         if not 1 <= self.max_sources <= 8 or not 1 <= self.max_queries <= 8:
@@ -92,6 +100,8 @@ class BuiltinLiteratureEvidenceConfig:
             raise ValueError("literature_evidence_execution_limit_invalid")
         if not 1 <= self.max_workers <= 8:
             raise ValueError("literature_evidence_worker_limit_invalid")
+        if self.auto_fetch_timeout_s <= 0 or not 1 <= self.auto_fetch_max_items <= 8:
+            raise ValueError("literature_evidence_autofetch_limit_invalid")
 
 
 def build_builtin_literature_evidence_connector(
@@ -99,6 +109,7 @@ def build_builtin_literature_evidence_connector(
     *,
     searcher: PaperSearch | None = None,
     fetcher: BytesFetcher | None = None,
+    authorized_fetcher: AuthorizedFetcher | None = None,
     structure_resolver: StructureResolver | None = None,
     candidate_name_resolver: CandidateNameResolver | None = None,
 ) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
@@ -111,6 +122,7 @@ def build_builtin_literature_evidence_connector(
     )
     search = searcher or primary_literature_search
     fetch = fetcher or fetch_bytes
+    fetch_authorized = authorized_fetcher or run_authorized_browser_fetch
     resolver_cache: DeterministicResolverCache | None = None
     default_structure_resolver: StructureResolver | None = None
     default_name_resolver: CandidateNameResolver | None = None
@@ -182,7 +194,50 @@ def build_builtin_literature_evidence_connector(
         sources: list[dict[str, Any]] = []
         structured_sources: list[dict[str, Any]] = []
         pending_sources: list[dict[str, Any]] = []
+        pending_attempts: list[dict[str, Any]] = []
         audits: list[dict[str, Any]] = []
+
+        def admit_materialized_source(
+            source: Mapping[str, Any],
+        ) -> tuple[dict[str, Any], dict[str, Any]]:
+            admitted = dict(source)
+            route_binding: dict[str, Any] = {
+                "status": "not_needed",
+                "model_invocations": 0,
+            }
+            if _route_binding_eligible(admitted, request=request):
+                default_structure, default_names = default_resolvers()
+                admitted, structured, route_binding = bind_materialized_literature_source(
+                    admitted,
+                    request=request,
+                    output_dir=(
+                        request_dir
+                        / hashlib.sha256(
+                            str(admitted.get("source_ref") or "").encode()
+                        ).hexdigest()[:20]
+                    ),
+                    structure_resolver=(structure_resolver or default_structure),
+                    candidate_name_resolver=(candidate_name_resolver or default_names),
+                    timeout_s=config.timeout_s,
+                    provider_version=BUILTIN_LITERATURE_PROVIDER_VERSION,
+                )
+                if structured:
+                    structured_sources.append(structured)
+            return admitted, {
+                "source_ref": admitted["source_ref"],
+                "accepted": True,
+                "source_artifact_sha256": str(
+                    admitted.get("source_fulltext_sha256")
+                    or admitted.get("source_pdf_sha256")
+                    or ""
+                ),
+                "acquisition_method": str(admitted.get("acquisition_method") or ""),
+                "fulltext_sha256": str(admitted.get("source_fulltext_sha256") or ""),
+                "pdf_sha256": str(admitted.get("source_pdf_sha256") or ""),
+                "visual_page_count": len(admitted["visual_candidate_pages"]),
+                "route_binding": route_binding,
+            }
+
         remaining = iter(candidates)
         while len(sources) + len(pending_sources) < config.max_sources:
             batch = [
@@ -236,20 +291,55 @@ def build_builtin_literature_evidence_connector(
                 if len(sources) + len(pending_sources) >= config.max_sources:
                     break
                 if exc is not None:
+                    source_ref = _candidate_source_ref(candidate)
+                    source_doi = _doi(candidate)
+                    frozen_authorized_artifact = authorized_proxy_artifact(
+                        candidate,
+                        proxy_root=proxy_root,
+                        source_ref=source_ref,
+                        doi=source_doi,
+                    )
+                    if frozen_authorized_artifact:
+                        reason = f"{type(exc).__name__}:{str(exc)[:500]}"
+                        audits.append(
+                            {
+                                "source_ref": source_ref,
+                                "accepted": False,
+                                "status": "downloaded_unextractable",
+                                "reason": reason,
+                                "authorized_artifact": {
+                                    "request_id": str(
+                                        frozen_authorized_artifact.get("request_id") or ""
+                                    ),
+                                    "artifact_kind": str(
+                                        frozen_authorized_artifact.get("artifact_kind") or ""
+                                    ),
+                                },
+                            }
+                        )
+                        pending_sources.append(
+                            downloaded_unextractable_source(
+                                candidate,
+                                source_ref=source_ref,
+                                doi=source_doi,
+                                reason=reason,
+                            )
+                        )
+                        continue
                     queued = (
                         queue_authorized_pdf_request(
                             candidate,
                             request=request,
                             proxy_root=proxy_root,
                             reason=f"direct_pdf_materialization_failed:{type(exc).__name__}",
-                            source_ref=_candidate_source_ref(candidate),
+                            source_ref=source_ref,
                         )
                         if config.queue_restricted_sources
                         else {}
                     )
                     audits.append(
                         {
-                            "source_ref": _candidate_source_ref(candidate),
+                            "source_ref": source_ref,
                             "accepted": False,
                             "status": "queued_for_authorized_browser" if queued else "failed",
                             "reason": f"{type(exc).__name__}:{str(exc)[:500]}",
@@ -257,62 +347,144 @@ def build_builtin_literature_evidence_connector(
                         }
                     )
                     if queued:
+                        pending_attempts.append(
+                            {
+                                "candidate": dict(candidate),
+                                "source_ref": source_ref,
+                                "audit_index": len(audits) - 1,
+                            }
+                        )
                         pending_sources.append(
                             pending_source(
                                 candidate,
                                 proxy_request=queued,
-                                source_ref=_candidate_source_ref(candidate),
-                                doi=_doi(candidate),
+                                source_ref=source_ref,
+                                doi=source_doi,
                             )
                         )
                     continue
                 assert source is not None
-                route_binding: dict[str, Any] = {
-                    "status": "not_needed",
-                    "model_invocations": 0,
-                }
-                if _route_binding_eligible(source, request=request):
-                    default_structure, default_names = default_resolvers()
-                    source, structured, route_binding = bind_materialized_literature_source(
-                        source,
-                        request=request,
-                        output_dir=(
-                            request_dir
-                            / hashlib.sha256(
-                                str(source.get("source_ref") or "").encode()
-                            ).hexdigest()[:20]
+                admitted, audit = admit_materialized_source(source)
+                audits.append(audit)
+                sources.append(admitted)
+
+        automatic_fetch: dict[str, Any] = {
+            "schema_version": "authorized_browser_autofetch.v1",
+            "status": "disabled",
+            "reason": "automatic_authorized_browser_fetch_disabled",
+            "processed_count": 0,
+            "downloaded_count": 0,
+        }
+        if config.auto_fetch_restricted_sources and pending_attempts:
+            try:
+                automatic_fetch = dict(
+                    fetch_authorized(
+                        proxy_root=proxy_root,
+                        case_id=str(request.get("run_id") or request.get("target_name") or ""),
+                        source_refs=tuple(
+                            str(row["source_ref"]) for row in pending_attempts
                         ),
-                        structure_resolver=(structure_resolver or default_structure),
-                        candidate_name_resolver=(candidate_name_resolver or default_names),
-                        timeout_s=config.timeout_s,
-                        provider_version=BUILTIN_LITERATURE_PROVIDER_VERSION,
+                        max_items=min(
+                            config.auto_fetch_max_items,
+                            len(pending_attempts),
+                        ),
+                        timeout_s=config.auto_fetch_timeout_s,
+                        headless=config.auto_fetch_headless,
                     )
-                    if structured:
-                        structured_sources.append(structured)
-                audits.append(
-                    {
-                        "source_ref": source["source_ref"],
-                        "accepted": True,
-                        "source_artifact_sha256": str(
-                            source.get("source_fulltext_sha256")
-                            or source.get("source_pdf_sha256")
-                            or ""
-                        ),
-                        "acquisition_method": str(source.get("acquisition_method") or ""),
-                        "fulltext_sha256": str(source.get("source_fulltext_sha256") or ""),
-                        "pdf_sha256": str(source.get("source_pdf_sha256") or ""),
-                        "visual_page_count": len(source["visual_candidate_pages"]),
-                        "route_binding": route_binding,
-                    }
                 )
-                sources.append(source)
+            except (OSError, RuntimeError, ValueError) as exc:
+                automatic_fetch = {
+                    "schema_version": "authorized_browser_autofetch.v1",
+                    "status": "failed",
+                    "reason": f"{type(exc).__name__}:{str(exc)[:500]}",
+                    "processed_count": 0,
+                    "downloaded_count": 0,
+                }
+            materialized_refs: set[str] = set()
+            downloaded_request_ids = {
+                str(row.get("request_id") or "")
+                for row in automatic_fetch.get("results") or []
+                if isinstance(row, Mapping) and row.get("status") == "downloaded"
+            }
+            downloaded_unextractable: dict[str, str] = {}
+            for attempt in pending_attempts:
+                source_ref = str(attempt["source_ref"])
+                source, retry_error = materialize(attempt["candidate"])
+                if retry_error is not None or source is None:
+                    queued_audit = audits[int(attempt["audit_index"])]
+                    request_id = str(
+                        dict(queued_audit.get("proxy_request") or {}).get(
+                            "request_id"
+                        )
+                        or ""
+                    )
+                    artifact_downloaded = request_id in downloaded_request_ids
+                    extraction_reason = (
+                        f"{type(retry_error).__name__}:{str(retry_error)[:500]}"
+                        if retry_error is not None
+                        else "authorized_artifact_not_materialized"
+                    )
+                    queued_audit["automatic_fetch"] = {
+                        "status": (
+                            "downloaded_unextractable"
+                            if artifact_downloaded
+                            else "unresolved"
+                        ),
+                        "reason": (
+                            extraction_reason
+                        ),
+                    }
+                    if artifact_downloaded:
+                        queued_audit["status"] = "downloaded_unextractable"
+                        downloaded_unextractable[source_ref] = extraction_reason
+                    continue
+                admitted, audit = admit_materialized_source(source)
+                audit["status"] = "materialized_after_automatic_browser_fetch"
+                audits.append(audit)
+                queued_audit = audits[int(attempt["audit_index"])]
+                queued_audit["status"] = "resolved_by_automatic_browser_fetch"
+                queued_audit["resolved_in_same_invocation"] = True
+                sources.append(admitted)
+                materialized_refs.add(source_ref)
+            if materialized_refs:
+                pending_sources = [
+                    row
+                    for row in pending_sources
+                    if str(row.get("source_ref") or "") not in materialized_refs
+                ]
+            if downloaded_unextractable:
+                pending_sources = [
+                    {
+                        **row,
+                        "acquisition_status": "downloaded_unextractable",
+                        "extraction_failure_reason": downloaded_unextractable[
+                            str(row.get("source_ref") or "")
+                        ],
+                        "semantics": {
+                            **dict(row.get("semantics") or {}),
+                            "metadata_only": False,
+                            "resume_after_browser_download": False,
+                            "download_completed_but_extraction_failed": True,
+                        },
+                    }
+                    if str(row.get("source_ref") or "") in downloaded_unextractable
+                    else row
+                    for row in pending_sources
+                ]
+            automatic_fetch["materialized_source_count"] = len(materialized_refs)
+            automatic_fetch["downloaded_unextractable_source_count"] = len(
+                downloaded_unextractable
+            )
         if not sources and not pending_sources:
             raise LiveEvidenceConnectorError("builtin_literature_no_pdf_materialized")
         discovery = {
             "schema_version": SOURCE_DISCOVERY_OBSERVATION_SCHEMA,
             "provider_id": BUILTIN_LITERATURE_PROVIDER_ID,
             "request_sha256": request_sha,
-            "sources": [*sources, *pending_sources],
+            "sources": [
+                _compact_discovery_source(row)
+                for row in [*sources, *pending_sources]
+            ],
             "semantics": {
                 "paper_metadata_is_not_route_evidence": True,
                 "structured_fulltext_precedes_pdf": True,
@@ -321,6 +493,7 @@ def build_builtin_literature_evidence_connector(
                 "visual_output_requires_host_admission_and_validation": True,
                 "queued_sources_are_not_evidence": True,
                 "authorized_browser_results_are_consumed_on_resume": True,
+                "automatic_browser_results_are_rematerialized_in_same_invocation": True,
             },
         }
         discovery["content_sha256"] = _digest(discovery)
@@ -332,10 +505,24 @@ def build_builtin_literature_evidence_connector(
             "queries": queries,
             "candidate_count": len(candidates),
             "accepted_source_count": len(sources),
-            "queued_source_count": len(pending_sources),
+            "queued_source_count": sum(
+                row.get("acquisition_status") == "queued_for_authorized_browser"
+                for row in pending_sources
+            ),
+            "downloaded_unextractable_source_count": sum(
+                row.get("acquisition_status") == "downloaded_unextractable"
+                for row in pending_sources
+            ),
             "source_lifecycle": {
                 "materialized": len(sources),
-                "queued_for_authorized_browser": len(pending_sources),
+                "queued_for_authorized_browser": sum(
+                    row.get("acquisition_status") == "queued_for_authorized_browser"
+                    for row in pending_sources
+                ),
+                "downloaded_unextractable": sum(
+                    row.get("acquisition_status") == "downloaded_unextractable"
+                    for row in pending_sources
+                ),
                 "failed": sum(1 for row in audits if row.get("status") == "failed"),
             },
             "authorized_proxy": {
@@ -344,6 +531,7 @@ def build_builtin_literature_evidence_connector(
                 "download_manifest_path": str(local_pdf_proxy_download_manifest_path(proxy_root)),
                 "credentials_stored": False,
             },
+            "automatic_authorized_fetch": automatic_fetch,
             "audits": audits,
             "search_audits": search_audits,
             "parallel_search": len(queries) > 1,
@@ -368,6 +556,30 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _compact_discovery_source(source: Mapping[str, Any]) -> dict[str, Any]:
+    """Bound verbose procedure text while preserving source-binding fields."""
+
+    row = dict(source)
+    procedures: list[dict[str, Any]] = []
+    for raw in row.get("procedure_inventory") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        procedure = dict(raw)
+        for key in ("procedure_excerpt", "procedure", "text", "source_grounding"):
+            if key in procedure:
+                procedure[key] = str(procedure.get(key) or "")[:800]
+        procedures.append(procedure)
+        if len(procedures) >= 12:
+            break
+    row["procedure_inventory"] = procedures
+    row["semantics"] = {
+        **dict(row.get("semantics") or {}),
+        "discovery_procedure_inventory_bounded": True,
+        "full_source_artifact_remains_hash_bound": True,
+    }
+    return row
 
 
 def _route_binding_eligible(

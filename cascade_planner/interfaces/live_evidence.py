@@ -226,16 +226,36 @@ def compile_evidence_acquisition_request(
             }
         )
     detail = dict(source_frontier.get("detail") or source_frontier)
-    tasks = [
-        _bounded_source_task(row)
+    task_rows = [
+        dict(row)
         for row in detail.get("source_plan") or []
         if isinstance(row, Mapping)
-    ][:max_source_tasks]
+    ]
+    task_rows.sort(
+        key=lambda row: (
+            -float(row.get("priority") or 0.0),
+            str(row.get("source_task_id") or ""),
+        )
+    )
+    tasks = [_bounded_source_task(row) for row in task_rows[:max_source_tasks]]
     source_hints = [
         {
             "source_ref": str(row.get("source_ref") or "")[:500],
             "source_kind": str(row.get("source_kind") or "")[:80],
             "title": " ".join(str(row.get("title") or "").split())[:1000],
+            "occurrence_count": max(0, int(row.get("occurrence_count") or 0)),
+            "target_edge_occurrence_count": max(
+                0, int(row.get("target_edge_occurrence_count") or 0)
+            ),
+            "corroborating_source_ref_count": max(
+                0, int(row.get("corroborating_source_ref_count") or 0)
+            ),
+            "route_skeleton_count": max(
+                0, int(row.get("route_skeleton_count") or 0)
+            ),
+            "affected_step_ids": _bounded_strings(
+                row.get("affected_step_ids") or [], 32, 160
+            ),
         }
         for row in detail.get("sources") or []
         if isinstance(row, Mapping) and str(row.get("source_ref") or "")

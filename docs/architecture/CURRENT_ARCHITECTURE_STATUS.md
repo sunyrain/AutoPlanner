@@ -8,9 +8,41 @@
 适用范围：仓库当前工作区；用于回答“现在已经完成到哪里”和“一个 SMILES 当前如何被处理”。
 下一代目标：[通用逆合成创新架构（GRIA）](GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)
 
+> 2026-08-06 统一控制面增量：已删除 benchmark B4 专用提前结束、objective gate 和按 benchmark
+> 禁用 identity/evidence/conditions/self-evolution/replan 的分支。旧 objective 仅作为兼容展示字段。
+> ChemEnzy 现生成 raw→normalized→host selection→canonical→B4 的 digest-bound lineage；RetroStar-190
+> 目标 001 以旧成功高级配置重跑，规范化路线 multiset 完全一致，仍得到 3 条 B4。统一 Action
+> opportunity、target-blind deterministic scheduler decision 和 anytime trajectory 已接入 target report。
+> 当前控制面已完成单一生产循环收束：`target_solver` 的手写阶段保留为兼容报告投影，但不再拥有能力执行时序。
+> 这不等于整个架构已经完成；入口/resume 兼容层和全量评测仍待推进。现场证据见 [UNIFIED_ANYTIME_BASELINE_20260806.md](UNIFIED_ANYTIME_BASELINE_20260806.md)。
+
+> 2026-08-06 后续增量：P0/P1 现已通过 `CampaignActionRuntime` 接管 materialization、reaction
+> validation、stock、conditions、evidence acquisition/binding、target/guided ChemEnzy、Codex
+> initial/replan 和 Program discovery/review/admission。生产路径现在只调用一次
+> `CampaignActionRuntime.run_anytime()`；`target_solver` 原有 phase-level 位置只从统一循环产生的
+> trajectory/backlog 投影兼容 stage，不再二次运行 scheduler。Program enzyme/whole-cell/hybrid 候选保持 proposal-only，mechanism hypotheses 才可经
+> canonical ingestion 进入 host validation；默认不写 shadow Program store。
+
+> 2026-08-06 W1/W2 增量：ChemEnzy target-native 与 guided-frontier 已拆成独立资源类，RunKernel
+> 现在强制 target 最低服务、native 硬总上限、显式 reserve release 与可重放 borrow 审计；模型、文献、
+> validation 和 Program 不再隐式消耗 native-search 配额。`CampaignActionRuntime.run_anytime()` 已提供
+> 最新 revision 重编译、no-action 和连续低收益有限收敛。Program discovery/review/admission 与 Codex
+> event replan 不再由 `target_solver` 临时拼 supplemental work set，而是先写成不授予科学权威的 canonical
+> `action_signals`，由唯一 `deficit_frontier` 投影并在执行后 resolve。W2 生产迁移已经完成：
+> `target_solver.py` 只有一个生产 `run_anytime()` 调用，原 29 个 phase-level `execute_action_slice()`
+> 已全部改为 `project_action_results()` 兼容投影。Codex event replan 的 retention 与 gain/cost 审计也直接
+> 绑定统一循环中的同一次执行。W3 进一步让 target ChemEnzy 与 Codex initial architecture 先在 RunKernel
+> 中以同一 graph revision 完成 durable reservation，再并发执行；Codex 使用启动前冻结的 canonical context，
+> 不会因线程快慢偶然读取 ChemEnzy 半成品。任一 handler 失败不取消 peer，完成结果按稳定 action 顺序观察，
+> cache replay 复用同一 cohort/action identity 且不重复结算。W4 现已注册 `PROGRAM_VALIDATE` 与
+> `EXPERIMENT_FEEDBACK_INGEST`：专项验证 Action 只形成绑定现有 experimental work item 的待执行请求，
+> 不授予 Claim；反馈 Action 复用既有三域 validation gate、experiment dispatch/settlement 和 experimental
+> Claim store，默认不写 shadow，任何结果都不直接创建 canonical reaction edge。当前进入 W5：终态
+> checkpoint 收到新 action signal/实验反馈时必须重开同一 loop，并统一 CLI/API/Web 的 trajectory 投影。
+
 ## 1. 结论
 
-新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 路线创新过渡层 + GRIA
+新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
 目标设计”三层并存阶段：
 
 - Canonical V4 的运行内核、规范反应超图、统一 frontier、proof portfolio、来源/条件/库存证据链、
@@ -54,6 +86,67 @@
 因此目前可以诚实展示“系统怎样生成、验证和展示路线，以及怎样保留酶法/机理创新候选”，
 不能宣称“任意 SMILES 已经由 GRIA 在 Transformation Program Graph 上完成全局优化”。
 
+2026-07-25 的旧代码隔离增量把冻结 V3 公共面收拢到显式
+`cascade_planner.legacy` 命名空间：V4 包根默认只暴露 V4 符号，combined Web、V3 架构审计和对应
+回归测试分别进入 legacy Web、`scripts/legacy/` 和 `tests/legacy/` 边界。仍未迁移的历史能力在
+saved-run 与 golden replay 完成 canonical V4 迁移前，只允许兼容修复、审计和删除性改动。
+2026-07-26 进一步删除了 application/orchestration/providers/harness 包根旧别名，并把 V3 Codex provider
+从 mainline builtins 迁入 legacy；主 CLI 的 combined surface 同时删除，历史 UI 只保留独立 legacy 启动器。
+同日继续将 recursive Codex campaign、frontier scheduler/ledger、route deficit/portfolio 和旧 acceptance
+实现物理迁出主线目录，统一落入 `cascade_planner.legacy.application_runtime` 与
+`cascade_planner.legacy.orchestration_runtime`；旧模块路径不再保留 shim。
+随后 blackboard controller、action planners、blackboard event state、旧工具分发、runner 与 RouteForest
+compiler 也迁入 `cascade_planner.legacy.harness_runtime`。V4 仅继续复用无状态的 RouteForest
+delivery/layout renderer，不加载旧 controller 或旧工具运行时。
+combined Flask 应用随后迁出 `cascade_planner.web`，V3 operator/replay/RouteForest/golden 脚本也全部改为
+`scripts/legacy/` 显式入口；主脚本目录不再保留兼容包装器。
+blackboard route rebuild、旧 admission receipts 与 admitted-hyperedge journal 也已迁出 canonical
+`routes` 和主线 orchestration，统一进入 legacy runtime；`cascade_planner.routes` 不再默认加载旧图适配器。
+旧 proposal bus、Codex edge verification、parent-route proof、route-objective classifier 与
+target-side strategy 随后也迁入 `cascade_planner.legacy.harness_runtime`；相关测试和 saved-run
+评估/timeline 脚本同步进入 legacy 分区，V4 fresh import 不加载该簇。
+旧 workflow plan/preflight/progress、analogical/process/recursive helpers、failure critic、
+hypothesis closeout reports 与 controller adapter 也已从主线 harness 物理迁出；共享 schemas、
+route verifier、source compilers 和 V4 renderer 继续留在主线。
+旧 selfEVO replay/memory 和 tool registry/execution policy 随后迁入 legacy runtime；主线
+evolution manager、patent self-evolution 与 canonical worker runtime 不通过这些旧 helper 执行。
+selected-route parent proof、旧 route edge signature 与 closeout artifact revision 也完成物理迁出；
+`cascade_planner.runtime` 包根现在只加载当前 agent/runtime contracts 与 canonical run storage。
+Codex-entry schemas 与 advisory route-consensus graph assembler 也已迁入 legacy；主线 routes
+包根只保留 V4 仍使用的 admission、consensus、domain 与 overlay 合同。
+旧 visual structure-chain validator 与其 compound-label 测试已进入 legacy；当前视觉候选仍由
+`interfaces.visual_evidence`、host normalization 和 RunKernel budget 负责。
+冻结的 CCTS v0-v3 训练、审计、回放和报告谱系已迁入
+`cascade_planner.legacy.eval_runtime`；两个 route-tree checkpoint scorer 迁入
+`cascade_planner.legacy.route_tree_runtime`。旧路径删除，相关环境开关必须先通过显式
+legacy-research guard。
+旧 route-pool ranker/LambdaRank 与 block-coherence/block-hard pack、训练、回放和审计模块
+也已迁入 `cascade_planner.legacy.eval_runtime`；仍保留的 active research selector 必须通过
+显式 legacy 路径读取这些冻结 helper，不能把它们提升为 V4 runtime authority。
+route-block value、strict disagreement review、no-human probe 与 strengthening summary
+模块也已迁入同一 runtime，并统一要求 legacy-research opt-in。
+reservoir/controller-v2 calibration、comparison、distillation、acceptance、publication
+与 statistical report 也已迁入同一 runtime；仍被当前 benchmark preparation 复用的 external
+target-cache parser 暂留主线。
+CBA v0 训练/审计与 expert CSV/LLM route-pool review fallback workflow 也已迁入
+legacy eval runtime；旧 eval 路径删除，所有入口统一要求显式 research opt-in。
+adjacent-step cascade-pair pack、训练、回放、runtime scorer 与特征契约均已迁入
+`cascade_planner.legacy.cascade_search_runtime` 与 legacy eval runtime；主线仅保留通用注入协议。
+已关闭的 V4 product-value route encoder、checkpoint loader 与 learned reranker
+契约也已迁入 `cascade_planner.legacy.cascade_search_runtime.v4_product_value`；主线不再提供懒兼容导出。
+历史 `LearnedCascadeValueModel` checkpoint adapter 也已迁入
+`cascade_planner.legacy.cascade_search_runtime.value`；主线 `cascade_search.value` 仅保留启发式与 verifier-augmented 模型。
+未被当前调用链使用的 chemical-anchor 与 semisynthesis stock wrapper 已迁入
+`cascade_planner.legacy.cascadeboard_runtime`；当前执行直接使用 rescue provider 与
+common/vendor/ZINC stock 链。
+当前 open-research contract/experience/retrieval、seed consumables、source-detail resolution 与
+material locator 已从泛化 harness 收拢到 `cascade_planner.research`。该包只由显式研究 worker
+加载，不进入 canonical V4 启动路径。
+research downstream compiler、source-detail chain builder、failure feedback 与真实专利
+procedure gate 也已迁入同一包；相关 replay 脚本显式导入该命名空间。
+根级 `AUTOPLANNRELLM` 实验包也已迁入 `cascade_planner.research.autoplannrellm`，旧根路径
+删除；它只在显式环境开关下参与 route-tree 研究运行，不进入 V4 启动路径。
+
 ## 2. 当前真实可运行路线
 
 ![Canonical V4 当前真实运行路线](../assets/current-architecture/current-runtime-route.svg)
@@ -87,7 +180,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 | Candidate 酶机会/负对照扫描 | 过渡实现（只读） | Bufotalin 产生 5 个 Program draft，其中一个 6→1；Ibrutinib 3 条路线零匹配 | 正例仍来自 Candidate Projection，且没有精确底物实验校准 |
 | Program Graph + Pareto optimizer | 过渡实现（只读） | `program_route_candidate*` + reported/mechanism/execution adapters + optimizer；baseline、酶、whole-cell、hybrid、摘要绑定 reported 完整路线和已重拼机理路线进入同一多轴空间，execution/mechanism 严格成功可进只读 shadow，来源类型不评分，oracle 精确复算 | 尚无生产 `program_ids[]` 路线主语义；execution/mechanism Program 准入及成功率/纯化/成本/PMI 数据未接入 |
 | 实验 Claim、反馈与能力校准 | 过渡实现（影子持久） | 三域 validation frontier/feedback；统一 Claim store；`experimental_work_frontier.v1` 绑定唯一 canonical frontier；host-trusted provider policy、manual handoff、RunKernel dispatch/recovery/settlement 只释放领域验证候选 | 缺真实设备/网络 provider、信息增益 scheduler 与跨相似边界 applicability model |
-| P9 fresh-blind 发布门 | 协议与编译器已实现，科学门未通过 | 真实 Git 跟踪树预检、同义名/SMILES/InChIKey/关键中间体 evaluator-only 扫描、运行前冻结摘要、case-local 记忆副本、三种单变量消融、失败保留和三档产品读出已接入；单目标四臂 smoke 已证明摘要/环境绑定并测得 ChemEnzy 增益 0、replan 验证路线差值 -1；工作台只把 `accepted=false` 显示为红色审计项 | 旧 20-target 结果不能通过新门；当前缺真实库存冻结、足量策略不同路线、条件/采购覆盖和完整 panel 级消融 |
+| P9 fresh-blind 发布门 | 协议与编译器已实现，科学门未通过 | 真实 Git 跟踪树预检、同义名/SMILES/InChIKey/关键中间体 evaluator-only 扫描、运行前冻结摘要、case-local 记忆副本、三种单变量消融、失败保留和三档产品读出已接入；单目标四臂 smoke 已证明摘要/环境绑定并测得 ChemEnzy 增益 0、replan 验证路线差值 -1；后续已加入付费前 replan signal gate 与付费后 canonical graph 保留审计，工作台只把 `accepted=false` 显示为红色审计项 | 旧 20-target 结果不能通过新门；当前缺真实库存冻结、足量策略不同路线、条件/采购覆盖和完整 panel 级消融；单目标且首轮采样不同的差值不能充当 replan 因果结论 |
 
 ## 4. 当前创新兼容层怎样工作
 
@@ -277,6 +370,13 @@ Blackboard 都不能自行把 proposal 提升为事实。
     `route_closure` 时显示“闭合待 current 投影”，不误报失败；旧蟾毒灵 20 步展示会被 fresh V3 的 12 步
     闭合事实替代。启动脚本现调用默认 Canonical V4 server，不再把 combined 兼容应用作为新入口；
     `--server auto` 在 Waitress 缺失时自动回退 Flask，默认命令不会在端口绑定前失败。
+25. Target-only 多轮规划最多保留 10 个 director outcome（1 次首轮架构 + 最多 9 次 event replan）；每次重规划
+    均拆成两个独立门：`global_replan_signal_gate` 先证明上一轮之后出现了新的可行动
+    宿主观察，预算门再核算调用/token/墙钟余量。`portfolio stagnation` 或“尚未闭合”本身不再触发付费；
+    已闭合的库存观察也不重复触发。若确实执行 replan，`replan_retention_audit` 要求 molecules、edges 与
+    route families 的 ID 集合均为首轮图的超集，证明第二轮只能追加候选或强化 proof，不能覆盖第一次路线。
+    `global_replan_gain_audit` 再记录 gate/路线计数增量及模型调用/token/墙钟增量，把 `no_gain` 明确保留
+    为回归信号。旧单目标四臂 smoke 因首轮采样不同仍只作观测证据；正式结论必须来自重复/多目标冻结实验。
 
 ### 7.1 闭合优先核算（Bufotalin V3 当前样例）
 

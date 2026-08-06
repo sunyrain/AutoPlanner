@@ -50,7 +50,7 @@ def request_queries(request: Mapping[str, Any]) -> list[str]:
 
 def request_source_candidates(request: Mapping[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    direct_refs: list[tuple[str, str]] = []
+    direct_refs: list[tuple[str, str, dict[str, int]]] = []
     for task in request.get("source_tasks") or []:
         if not isinstance(task, Mapping) or not any(
             str(kind).casefold()
@@ -64,7 +64,9 @@ def request_source_candidates(request: Mapping[str, Any]) -> list[dict[str, Any]
             for kind in task.get("source_types") or []
         ):
             continue
-        direct_refs.extend((str(raw), "") for raw in task.get("source_refs") or [])
+        direct_refs.extend(
+            (str(raw), "", {}) for raw in task.get("source_refs") or []
+        )
     for hint in request.get("source_hints") or []:
         if not isinstance(hint, Mapping) or str(hint.get("source_kind") or "").casefold() not in {
             "paper",
@@ -74,10 +76,24 @@ def request_source_candidates(request: Mapping[str, Any]) -> list[dict[str, Any]
             "primary_literature",
         }:
             continue
+        relevance = {
+            key: max(0, int(hint.get(key) or 0))
+            for key in (
+                "target_edge_occurrence_count",
+                "corroborating_source_ref_count",
+                "occurrence_count",
+                "route_skeleton_count",
+            )
+            if int(hint.get(key) or 0) > 0
+        }
         direct_refs.append(
-            (str(hint.get("source_ref") or ""), str(hint.get("title") or ""))
+            (
+                str(hint.get("source_ref") or ""),
+                str(hint.get("title") or ""),
+                relevance,
+            )
         )
-    for raw, title in direct_refs:
+    for raw, title, relevance in direct_refs:
         value = str(raw).strip()
         lower = value.casefold()
         source_doi = ""
@@ -93,6 +109,7 @@ def request_source_candidates(request: Mapping[str, Any]) -> list[dict[str, Any]
                     "doi": source_doi,
                     "title": " ".join(title.split()) or source_doi,
                     "source_ref": f"doi:{source_doi}",
+                    **relevance,
                 }
             )
         elif lower.startswith(("https://", "http://")) and ".pdf" in lower:
@@ -101,6 +118,7 @@ def request_source_candidates(request: Mapping[str, Any]) -> list[dict[str, Any]
                     "pdf_url": value,
                     "title": " ".join(title.split()) or value,
                     "source_ref": value,
+                    **relevance,
                 }
             )
     return rows

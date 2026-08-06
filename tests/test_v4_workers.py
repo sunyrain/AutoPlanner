@@ -101,6 +101,40 @@ def test_proposal_compiler_skips_an_already_materialized_edge_before_reserve() -
     assert commands == ()
 
 
+def test_proposal_worker_identity_is_revision_bound() -> None:
+    proposal = {
+        "product_smiles": "CCOC(C)=O",
+        "precursor_smiles": ["CCO", "CC(=O)O"],
+        "origin_kind": "self_evo_patent_template",
+        "origin_ref": "template:fixture",
+        "proposal_id": "proposal:self-evo",
+    }
+
+    first = materialization_commands_for_proposals(
+        [proposal],
+        run_id="revision-bound",
+        input_revision=3,
+        dependency_revisions={"graph_revision": 3, "evidence_revision": 1},
+    )[0]
+    replay = materialization_commands_for_proposals(
+        [proposal],
+        run_id="revision-bound",
+        input_revision=3,
+        dependency_revisions={"graph_revision": 3, "evidence_revision": 1},
+    )[0]
+    revised = materialization_commands_for_proposals(
+        [proposal],
+        run_id="revision-bound",
+        input_revision=4,
+        dependency_revisions={"graph_revision": 4, "evidence_revision": 1},
+    )[0]
+
+    assert first.command_id == replay.command_id
+    assert first.idempotency_key == replay.idempotency_key
+    assert revised.command_id != first.command_id
+    assert revised.idempotency_key != first.idempotency_key
+
+
 def _extraction_artifact(
     kernel: RunKernel,
     binding: dict,
@@ -209,6 +243,14 @@ def test_global_multistep_skeleton_compiles_to_unique_edge_workers(
                         "product_smiles": "CC=O",
                         "precursor_smiles": ["CCO"],
                         "transformation_hypothesis": "oxidation",
+                        "condition_predictions": [
+                            {
+                                "reagent": "oxidant",
+                                "solvent": "dichloromethane",
+                                "authority_scope": "model_predicted_condition",
+                                "not_reaction_proof": True,
+                            }
+                        ],
                     },
                 ],
             },
@@ -246,6 +288,8 @@ def test_global_multistep_skeleton_compiles_to_unique_edge_workers(
         "a2",
         "b-shared",
     }
+    assert shared.payload["condition_predictions"][0]["reagent"] == "oxidant"
+    assert shared.payload["condition_predictions"][0]["not_reaction_proof"] is True
     assert kernel.state.attempt_count == 2
     assert kernel.state.accepted_expansion_count == 2
 
@@ -741,6 +785,69 @@ def test_stock_worker_audits_every_leaf_and_rejects_stale_authority(
     replayed_stock = runtime.replay_result(result.to_dict())
     assert replayed_stock.payload["leaf_audits"] == result.payload["leaf_audits"]
     assert kernel.state.attempt_count == attempts
+
+
+def test_benchmark_stock_worker_accepts_frozen_index_membership_proof(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    catalog = {
+        "schema_version": "versioned_benchmark_stock_catalog.v1",
+        "adapter_version": "autoplanner.frozen_benchmark_stock_index.v1",
+        "catalog_name": "fixture-frozen-stock",
+        "catalog_version": "a" * 64,
+        "retrieved_at": "2024-01-01T00:00:00Z",
+        "source": {"immutable_content_addressed": True},
+        "members": [
+            {
+                "canonical_smiles": "CCO",
+                "membership_verified": True,
+                "membership_proof_sha256": "b" * 64,
+                "catalog_uri": "fixture-stock.sqlite3",
+            }
+        ],
+        "misses": [{"canonical_smiles": "CN", "reason": "not_in_index"}],
+    }
+    catalog_ref = kernel.artifacts.put_json(
+        catalog,
+        logical_name="benchmark_stock_catalog.json",
+        producer="tests.frozen_benchmark_stock",
+    ).to_dict()
+    runtime = _runtime_with_authorities(
+        kernel,
+        {catalog_ref["sha256"]: "benchmark_stock_catalog"},
+    )
+
+    result = runtime.execute(
+        _command(
+            kernel,
+            "audit_benchmark_leaf_stock",
+            {
+                "target_smiles": "CCOC(C)=O",
+                "selected_deep_leaves": [
+                    {"leaf_id": "leaf:ethanol", "smiles": "CCO"},
+                    {"leaf_id": "leaf:methylamine", "smiles": "CN"},
+                ],
+                "catalog_artifact_sha256": catalog_ref["sha256"],
+                "as_of": "2026-07-23T00:00:00Z",
+                "max_age_days": 30,
+            },
+            task_kind="stock",
+            suffix="frozen-index",
+            artifact_refs=(catalog_ref,),
+        )
+    )
+
+    assert result.status == "partial"
+    assert result.payload["audited_leaf_count"] == 2
+    assert result.payload["stock_closed_leaf_count"] == 1
+    ethanol = result.payload["leaf_audits"][0]
+    assert ethanol["accepted"] is True
+    assert ethanol["semantics"]["immutable_content_addressed_catalog"] is True
+    binding = ethanol["provider_result"]["payload"]["catalog_bindings"][0]
+    assert binding["membership_verified"] is True
+    assert binding["membership_proof_sha256"] == "b" * 64
+    assert "benchmark_catalog_stale" not in result.failure_reasons
 
 
 def test_runtime_timeout_and_stale_revision_are_deterministic(tmp_path: Path) -> None:

@@ -13,8 +13,17 @@ import json
 import math
 from typing import Any, Iterable, Mapping
 
+from cascade_planner.application.condition_predictions import (
+    edge_has_complete_source_procedure,
+    edge_has_usable_condition_prediction,
+    reaction_smiles_for_edge,
+)
+from cascade_planner.application.campaign_work_policy import (
+    unified_frontier_acceptance,
+)
 from cascade_planner.application.fact_lifecycle import graph_fact_lifecycle_state
 from cascade_planner.application.proof_policy import ProofPolicy, stitch_edge_proof
+from cascade_planner.application.reaction_proof_versions import active_reaction_proofs
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
 )
@@ -25,25 +34,37 @@ DEFICIT_FRONTIER_ITEM_SCHEMA = "deficit_frontier_item.v1"
 
 
 class DeficitKind(str, Enum):
+    ARCHITECTURE = "architecture"
     MATERIALIZATION = "materialization"
     EVIDENCE = "evidence"
     VALIDATION = "validation"
+    CONDITION = "condition"
     STOCK = "stock"
     CONFLICT = "conflict"
     EXPANSION = "expansion"
     DIVERSITY = "diversity"
     ROUTE_CLOSURE = "route_closure"
+    REPLAN = "replan"
+    PROGRAM_DISCOVERY = "program_discovery"
+    PROGRAM_REVIEW = "program_review"
+    PROGRAM_ADMISSION = "program_admission"
 
 
 _KIND_ORDER = {
     DeficitKind.CONFLICT: 0,
     DeficitKind.VALIDATION: 1,
     DeficitKind.EVIDENCE: 2,
-    DeficitKind.STOCK: 3,
-    DeficitKind.EXPANSION: 4,
-    DeficitKind.MATERIALIZATION: 5,
-    DeficitKind.ROUTE_CLOSURE: 6,
-    DeficitKind.DIVERSITY: 7,
+    DeficitKind.CONDITION: 3,
+    DeficitKind.STOCK: 4,
+    DeficitKind.ARCHITECTURE: 5,
+    DeficitKind.EXPANSION: 6,
+    DeficitKind.MATERIALIZATION: 7,
+    DeficitKind.ROUTE_CLOSURE: 8,
+    DeficitKind.DIVERSITY: 9,
+    DeficitKind.REPLAN: 10,
+    DeficitKind.PROGRAM_DISCOVERY: 11,
+    DeficitKind.PROGRAM_REVIEW: 12,
+    DeficitKind.PROGRAM_ADMISSION: 13,
 }
 
 
@@ -131,7 +152,9 @@ def compile_deficit_frontier(
     dirty_entity_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Compile all deficits or incrementally replace dirty-dependent items."""
-    acceptance = acceptance_spec or RetrosynthesisAcceptanceSpec()
+    acceptance = unified_frontier_acceptance(
+        acceptance_spec or RetrosynthesisAcceptanceSpec()
+    )
     proof_policy = ProofPolicy.from_acceptance(acceptance)
     attempts = {str(key): max(0, int(value)) for key, value in dict(prior_attempts or {}).items()}
     dirty = (
@@ -153,6 +176,150 @@ def compile_deficit_frontier(
 
     def affected(entity_id: str) -> bool:
         return dirty is None or entity_id in dirty
+
+    target_molecule_id = str(graph.get("target_molecule_id") or "")
+    target_molecule = dict(
+        dict(graph.get("molecules") or {}).get(target_molecule_id) or {}
+    )
+    target_native_search_observed = any(
+        str(origin.get("origin_kind") or "") == "chemenzy"
+        and str(origin.get("origin_ref") or "").startswith("chemenzy:seed:")
+        for hypothesis in dict(graph.get("hypotheses") or {}).values()
+        if isinstance(hypothesis, Mapping)
+        for origin in hypothesis.get("origin_records") or []
+        if isinstance(origin, Mapping)
+    )
+    target_global_architecture_observed = any(
+        str(origin.get("origin_kind") or "") == "codex_global_director"
+        for hypothesis in dict(graph.get("hypotheses") or {}).values()
+        if isinstance(hypothesis, Mapping)
+        for origin in hypothesis.get("origin_records") or []
+        if isinstance(origin, Mapping)
+    )
+    if (
+        target_molecule_id
+        and target_molecule
+        and affected(target_molecule_id)
+        and not target_native_search_observed
+    ):
+        recomputed_entities.add(target_molecule_id)
+        items.append(
+            _item(
+                DeficitKind.EXPANSION,
+                target_molecule_id,
+                entity_ids=(target_molecule_id,),
+                deterministic=False,
+                model_allowed=True,
+                reason="target_requires_native_multistep_search",
+                score=_score(
+                    DeficitKind.EXPANSION,
+                    selected=True,
+                    attempts=attempts.get(target_molecule_id, 0),
+                    route_diversity=1.0,
+                ),
+                metadata={
+                    "frontier_smiles": str(
+                        target_molecule.get("canonical_smiles") or ""
+                    ),
+                    "provider_preferences": ["chemenzy"],
+                    "target_level_native_search": True,
+                    "native_budget_reservation": "target_level",
+                },
+            )
+        )
+    if (
+        target_molecule_id
+        and target_molecule
+        and affected(target_molecule_id)
+        and not target_global_architecture_observed
+    ):
+        recomputed_entities.add(target_molecule_id)
+        items.append(
+            _item(
+                DeficitKind.ARCHITECTURE,
+                target_molecule_id,
+                entity_ids=(target_molecule_id,),
+                deterministic=False,
+                model_allowed=True,
+                reason="target_requires_global_architecture",
+                score=_score(
+                    DeficitKind.ARCHITECTURE,
+                    selected=True,
+                    attempts=attempts.get(target_molecule_id, 0),
+                    route_diversity=1.0,
+                ),
+                metadata={
+                    "target_smiles": str(
+                        target_molecule.get("canonical_smiles") or ""
+                    ),
+                    "global_architecture": True,
+                },
+            )
+        )
+
+    for signal_id, raw_signal in sorted(
+        dict(graph.get("action_signals") or {}).items()
+    ):
+        if not isinstance(raw_signal, Mapping):
+            continue
+        signal = dict(raw_signal)
+        signal_entities = {
+            str(value) for value in signal.get("entity_ids") or [] if str(value)
+        }
+        if dirty is not None and not (
+            str(signal_id) in dirty or signal_entities & dirty
+        ):
+            continue
+        recomputed_entities.add(str(signal_id))
+        if str(signal.get("status") or "open") != "open":
+            continue
+        try:
+            signal_kind = DeficitKind(str(signal.get("kind") or ""))
+        except ValueError:
+            continue
+        items.append(
+            DeficitItem(
+                deficit_id=str(signal.get("deficit_id") or signal_id),
+                kind=signal_kind,
+                object_id=str(signal.get("object_id") or signal_id),
+                entity_ids=tuple(
+                    sorted(
+                        {
+                            str(signal_id),
+                            *(
+                                str(value)
+                                for value in signal.get("entity_ids") or []
+                                if str(value)
+                            ),
+                        }
+                    )
+                ),
+                route_family_ids=tuple(
+                    sorted(
+                        str(value)
+                        for value in signal.get("route_family_ids") or []
+                        if str(value)
+                    )
+                ),
+                dependency_ids=tuple(
+                    sorted(
+                        str(value)
+                        for value in signal.get("dependency_ids") or []
+                        if str(value)
+                    )
+                ),
+                deterministic=signal.get("deterministic") is True,
+                model_allowed=signal.get("model_allowed") is True,
+                reason=str(signal.get("reason") or "canonical_action_signal"),
+                score=_action_signal_score(signal),
+                metadata={
+                    **dict(signal.get("metadata") or {}),
+                    "operational_signal": True,
+                    "action_signal_id": str(signal_id),
+                    "requested_priority": float(signal.get("priority") or 0.0),
+                },
+            )
+        )
 
     for hypothesis_id, raw in sorted(dict(graph.get("hypotheses") or {}).items()):
         if not isinstance(raw, Mapping) or not affected(str(hypothesis_id)):
@@ -187,12 +354,34 @@ def compile_deficit_frontier(
         routes = _routes_for(route_index, edge_id)
         selected = bool(set(routes) & selected_routes)
         proof = stitch_edge_proof(graph, str(edge_id), policy=proof_policy)
+        exact_record_ids = tuple(
+            sorted(str(value) for value in proof.get("exact_record_ids") or [] if str(value))
+        )
+        validation_record_sets = {
+            tuple(
+                sorted(
+                    str(value)
+                    for value in active_proof.get("exact_record_ids") or []
+                    if str(value)
+                )
+            )
+            for active_proof in active_reaction_proofs(
+                dict(raw).get("reaction_proofs") or []
+            )
+            if "exact_record_ids" in active_proof
+        }
+        evidence_revalidation_required = bool(
+            exact_record_ids and exact_record_ids not in validation_record_sets
+        )
         exact_groups = {
             str(value)
             for value in proof.get("independent_source_groups") or []
             if str(value)
         }
-        if proof.get("reaction_validated") is not True:
+        if (
+            proof.get("reaction_validated") is not True
+            or evidence_revalidation_required
+        ):
             items.append(
                 _item(
                     DeficitKind.VALIDATION,
@@ -201,12 +390,53 @@ def compile_deficit_frontier(
                     route_family_ids=routes,
                     deterministic=True,
                     model_allowed=False,
-                    reason="materialized_edge_requires_reaction_validation",
+                    reason=(
+                        "exact_evidence_requires_reaction_revalidation"
+                        if evidence_revalidation_required
+                        else "materialized_edge_requires_reaction_validation"
+                    ),
                     score=_score(
                         DeficitKind.VALIDATION,
                         selected=selected,
                         attempts=attempts.get(str(edge_id), 0),
                     ),
+                    metadata={
+                        "force_revalidation": evidence_revalidation_required,
+                        "exact_record_ids": list(exact_record_ids),
+                    },
+                )
+            )
+        edge = dict(raw)
+        if (
+            edge.get("status") == "materialized"
+            and not edge_has_complete_source_procedure(graph, edge)
+            and not edge_has_usable_condition_prediction(edge)
+        ):
+            items.append(
+                _item(
+                    DeficitKind.CONDITION,
+                    str(edge_id),
+                    entity_ids=(str(edge_id),),
+                    route_family_ids=routes,
+                    deterministic=False,
+                    model_allowed=True,
+                    reason="materialized_edge_requires_condition_enrichment",
+                    score=_score(
+                        DeficitKind.CONDITION,
+                        selected=selected,
+                        attempts=attempts.get(str(edge_id), 0),
+                    ),
+                    metadata={
+                        "edge_digest": str(edge.get("edge_digest") or ""),
+                        "reaction_smiles": reaction_smiles_for_edge(edge),
+                        "maximum_candidates": 2,
+                        "source_procedure_complete": False,
+                        "existing_prediction_count": len(
+                            edge.get("condition_predictions") or []
+                        ),
+                        "producer_independent": True,
+                        "authority_scope": "model_predicted_condition",
+                    },
                 )
             )
         required = int(acceptance.minimum_edge_proof_level)
@@ -585,6 +815,8 @@ def frontier_scientific_projection(value: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(raw, Mapping):
             continue
         row = dict(raw)
+        if dict(row.get("metadata") or {}).get("operational_signal") is True:
+            continue
         row.pop("content_sha256", None)
         rows.append(row)
     return {
@@ -822,6 +1054,17 @@ def _item_from_dict(value: Mapping[str, Any]) -> DeficitItem:
     )
 
 
+def _action_signal_score(value: Mapping[str, Any]) -> DeficitScore:
+    row = dict(value.get("score") or {})
+    row.pop("priority", None)
+    return DeficitScore(
+        **{
+            field_name: float(row.get(field_name) or 0.0)
+            for field_name in DeficitScore.__dataclass_fields__
+        }
+    )
+
+
 def _score(
     kind: DeficitKind,
     *,
@@ -831,9 +1074,11 @@ def _score(
     route_diversity: float = 0.0,
 ) -> DeficitScore:
     defaults = {
+        DeficitKind.ARCHITECTURE: (0.76, 0.58, 0.10, 0.10, 0.90, 0.58, 0.35),
         DeficitKind.MATERIALIZATION: (0.55, 0.45, 0.15, 0.10, 0.35, 0.15, 0.20),
         DeficitKind.EVIDENCE: (0.72, 0.70, 1.00, 0.85, 0.20, 0.35, 0.15),
         DeficitKind.VALIDATION: (0.85, 0.85, 0.55, 0.20, 0.15, 0.20, 0.18),
+        DeficitKind.CONDITION: (0.64, 0.62, 0.18, 0.08, 0.10, 0.24, 0.20),
         DeficitKind.STOCK: (0.78, 0.90, 0.15, 0.10, 0.10, 0.10, 0.08),
         DeficitKind.EXPANSION: (0.70, 0.68, 0.10, 0.10, 0.45, 0.42, 0.38),
         DeficitKind.CONFLICT: (0.92, 0.80, 0.75, 0.65, 0.20, 0.30, 0.45),

@@ -193,7 +193,9 @@ def test_reported_bufotalin_interval_replays_as_current_canonical_enzyme_positiv
     )
     assert "个化学步骤 → 1 个酶操作" in html
     assert "program-overlay-card" in html
-    assert "原 ${equivalent} 步化学 fallback" in html
+    assert "化学基线 ${equivalent} 步完整保留 · 展开对照" in html
+    assert "function collapsedProgramProjection(" in html
+    assert "data-program-toggle=" in html
     with pytest.raises(CampaignGatewayError, match="requires_validated_candidate"):
         gateway.admit_route_program_innovations(
             "bufotalin-current-enzyme-interval",

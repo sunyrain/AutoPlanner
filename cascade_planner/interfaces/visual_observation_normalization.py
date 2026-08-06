@@ -4,11 +4,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
+from itertools import combinations
 from typing import Any, Mapping
 
 from rdkit import Chem
 
 from cascade_planner.harness.reaction_step_verifier import canonical_reaction_digest
+from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 
 
 VISUAL_EVIDENCE_OBSERVATION_SCHEMA = "visual_source_candidate_observation.v1"
@@ -59,9 +62,18 @@ def normalize_visual_observation(
             continue
         row = dict(raw)
         product = _canonical_smiles(row.get("product_smiles"))
-        reactants = _canonical_reactants(row.get("reactant_smiles"))
+        raw_reactants = _raw_reactants(row.get("reactant_smiles"))
+        reactants = _canonical_reactants(raw_reactants)
         if not product or not reactants:
             continue
+        partition = _atom_contributing_reactant_partition(product, reactants)
+        reactants = list(partition["precursor_smiles"])
+        spectator_reactants = list(partition["spectator_smiles"])
+        reactant_labels, spectator_labels = _partition_reactant_labels(
+            raw_reactants,
+            row.get("reactant_labels"),
+            precursor_smiles=reactants,
+        )
         root_anchor = ""
         step_reasons: list[str] = []
         if index == 1:
@@ -82,6 +94,9 @@ def normalize_visual_observation(
         ):
             chain_prefix_eligible = False
             step_reasons.append("visual_chain_step_not_connected_to_prior_precursor")
+        if partition["accepted"] is not True:
+            chain_prefix_eligible = False
+            step_reasons.append("visual_precursor_partition_not_host_admitted")
         chain_reasons.extend(step_reasons)
         reaction_digest = canonical_reaction_digest(product, reactants)
         steps.append(
@@ -98,11 +113,9 @@ def normalize_visual_observation(
                 "product_smiles": product,
                 "precursor_smiles": reactants,
                 "product_label": str(row.get("product_label") or "")[:300],
-                "reactant_labels": [
-                    str(value)[:300]
-                    for value in row.get("reactant_labels") or []
-                    if str(value).strip()
-                ][:12],
+                "reactant_labels": reactant_labels,
+                "spectator_reactant_labels": spectator_labels,
+                "spectator_reactant_smiles": spectator_reactants,
                 "source_locator": str(row.get("source_locator") or "")[:500],
                 "condition_candidate": _condition_candidate(row),
                 "reaction_digest": reaction_digest,
@@ -110,9 +123,27 @@ def normalize_visual_observation(
                 "relation_type": "visual_candidate",
                 "allowed_use": "global_replan_hypothesis_only",
                 "host_smiles_parse_accepted": True,
+                "host_precursor_partition": partition,
                 "grants_exact_evidence": False,
                 "admission_eligible": chain_prefix_eligible,
                 "root_anchor": root_anchor,
+                "structure_derivation": dict(row.get("structure_derivation") or {}),
+                "stereochemistry_status": str(
+                    row.get("stereochemistry_status") or ""
+                )[:100],
+                "not_exact_literature_segment": bool(
+                    row.get("not_exact_literature_segment")
+                ),
+                "risk_flags": [
+                    str(value)[:200]
+                    for value in row.get("risk_flags") or []
+                    if str(value).strip()
+                ][:16],
+                "exact_structure_binding_candidate": bool(
+                    root_anchor == "exact_target_identity"
+                    and partition["accepted"] is True
+                    and str(row.get("source_locator") or "").strip()
+                ),
                 "chain_rejection_reasons": step_reasons,
             }
         )
@@ -139,7 +170,12 @@ def normalize_visual_observation(
         and all(row["admission_eligible"] is True for row in steps)
         and any(
             row["matched_current_edge_id"]
-            or row["root_anchor"] == "canonical_frontier_identity"
+            or row["root_anchor"]
+            in {
+                "exact_target_identity",
+                "target_connectivity_stereo_anchor",
+                "canonical_frontier_identity",
+            }
             for row in steps
         ),
         "chain_admission_reasons": sorted(set(chain_reasons)),
@@ -148,6 +184,14 @@ def normalize_visual_observation(
         ),
         "frontier_anchored_step_count": sum(
             row["root_anchor"] == "canonical_frontier_identity" for row in steps
+        ),
+        "target_anchored_step_count": sum(
+            row["root_anchor"]
+            in {"exact_target_identity", "target_connectivity_stereo_anchor"}
+            for row in steps
+        ),
+        "exact_structure_binding_candidate_count": sum(
+            row["exact_structure_binding_candidate"] is True for row in steps
         ),
         "semantics": {
             "model_output_is_advisory": True,
@@ -244,9 +288,103 @@ def _connectivity_smiles(value: Any) -> str:
 
 
 def _canonical_reactants(value: Any) -> list[str]:
-    values = [value] if isinstance(value, str) else list(value or [])
+    values = _raw_reactants(value)
     result = sorted(_canonical_smiles(row) for row in values)
     return result if result and all(result) else []
+
+
+def _raw_reactants(value: Any) -> list[str]:
+    return [value] if isinstance(value, str) else [str(row) for row in value or []]
+
+
+def _atom_contributing_reactant_partition(
+    product: str,
+    reactants: list[str],
+) -> dict[str, Any]:
+    full_audit = audit_retrosynthetic_candidate(product, reactants)
+    accepted_subsets = []
+    for count in range(len(reactants), 0, -1):
+        for subset in combinations(reactants, count):
+            audit = audit_retrosynthetic_candidate(product, list(subset))
+            if audit.get("accepted") is True:
+                product_counts = dict(audit.get("product_element_counts") or {})
+                precursor_counts = dict(audit.get("precursor_element_counts") or {})
+                surplus = sum(
+                    max(0, int(precursor_counts.get(element) or 0) - int(count_value))
+                    for element, count_value in product_counts.items()
+                ) + sum(
+                    int(count_value)
+                    for element, count_value in precursor_counts.items()
+                    if element not in product_counts
+                )
+                accepted_subsets.append(
+                    (
+                        (
+                            surplus,
+                            max(
+                                0,
+                                int(audit.get("precursor_heavy_atom_count") or 0)
+                                - int(audit.get("product_heavy_atom_count") or 0),
+                            ),
+                            -len(subset),
+                            tuple(sorted(subset)),
+                        ),
+                        tuple(sorted(subset)),
+                        audit,
+                    )
+                )
+    if accepted_subsets:
+        accepted_subsets.sort(key=lambda value: value[0])
+        _score, selected, _audit = accepted_subsets[0]
+        selected_counts = Counter(selected)
+        spectators = []
+        for reactant in reactants:
+            if selected_counts[reactant] > 0:
+                selected_counts[reactant] -= 1
+            else:
+                spectators.append(reactant)
+        return {
+            "schema_version": "visual_reactant_partition.v1",
+            "accepted": True,
+            "precursor_smiles": list(selected),
+            "spectator_smiles": sorted(spectators),
+            "partition_mode": (
+                "all_reactants_atom_contributing"
+                if not spectators
+                else "host_inventory_conserving_subset"
+            ),
+            "admission_reasons": [],
+        }
+    return {
+        "schema_version": "visual_reactant_partition.v1",
+        "accepted": False,
+        "precursor_smiles": list(reactants),
+        "spectator_smiles": [],
+        "partition_mode": "no_host_admitted_subset",
+        "admission_reasons": list(full_audit.get("reasons") or []),
+    }
+
+
+def _partition_reactant_labels(
+    raw_reactants: list[str],
+    raw_labels: Any,
+    *,
+    precursor_smiles: list[str],
+) -> tuple[list[str], list[str]]:
+    labels = [str(value)[:300] for value in raw_labels or []]
+    selected_counts = Counter(precursor_smiles)
+    selected_labels: list[str] = []
+    spectator_labels: list[str] = []
+    for index, raw in enumerate(raw_reactants):
+        canonical = _canonical_smiles(raw)
+        label = labels[index] if index < len(labels) else ""
+        if selected_counts[canonical] > 0:
+            selected_counts[canonical] -= 1
+            if label:
+                selected_labels.append(label)
+        elif label:
+            spectator_labels.append(label)
+    return selected_labels[:12], spectator_labels[:12]
 
 
 def _digest(value: Any) -> str:

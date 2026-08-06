@@ -1,130 +1,80 @@
-# CLAUDE.md
+# Repository Guidance
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This repository is a bounded V4 retrosynthesis system. The canonical operator
+surface is `python -m cascade_planner`; the active architecture is documented
+in `docs/MAINLINE.md`, `docs/RUNBOOK.md`, and
+`docs/architecture/CURRENT_ARCHITECTURE_STATUS.md`.
 
-## Project
-
-AutoPlanner is a chemo-enzymatic retrosynthesis planner. It combines enzymatic and chemical single-step models, multi-step tree search, reaction condition prediction, and a learned route optimization system called CascadeBoard++.
-
-Python 3.11. No setup.py/pyproject.toml — modules are run directly via `python -m`.
-
-## Common Commands
+## Canonical Commands
 
 ```bash
-# Data normalization (one-time)
-python -m cascade_planner.data.normalize_v2 --in cascade_dataset_v2.json --out cascade_dataset_v2.normalized.json --report cascade_dataset_v2.quality.json
-python -m cascade_planner.data.strict_filter_v2
+# Inspect the current V4 surface
+python -m cascade_planner --help
+python -m cascade_planner audit
 
-# Single-step evaluation (honest, K-budget-aware)
-python -m cascade_planner.eval.hybrid_multi_audited
+# Create and operate one bounded run
+python -m cascade_planner run --run-id target-001 --target-name TARGET --target-smiles SMILES
+python -m cascade_planner status target-001
+python -m cascade_planner validate target-001
+python -m cascade_planner replay target-001
+python -m cascade_planner export target-001 --output-dir local-export
 
-# Condition prediction evaluation
-python -m cascade_planner.eval.condition_diagnosis
+# Fresh target-only campaign
+python -m cascade_planner solve-target --target-name TARGET --target-smiles SMILES --run-id target-blind-001
 
-# EnzExpand reranker training
-python -m cascade_planner.expand.reranker --data cascade_dataset_v2.normalized.json --tag v2_mf2
-
-# Dual-tower contrastive model (requires GPU + ESM embeddings)
-python -m cascade_planner.expand.dual_tower --data cascade_dataset_v2.normalized.json --esm-cache results/shared/esm_cache/ --tag v1
-
-# OA-ARM Skeleton Inpainter (new, recommended)
-python -m cascade_planner.cascadeboard.skeleton_inpainter train --data cascade_dataset_v3.json --epochs 200
-python -m cascade_planner.cascadeboard.skeleton_inpainter predict --target "SMILES" --n-steps 3 --k 5
-
-# Learned Route Scorer
-python -m cascade_planner.cascadeboard.learned_scorer --data cascade_dataset_v3.json --epochs 150
-
-# Integrated benchmark (OA-ARM + Scorer, 100 targets)
-python -m cascade_planner.cascadeboard.integrated_benchmark
-
-# CascadeBoard++ legacy training
-python -m cascade_planner.cascadeboard.train
-
-# CascadeBoard++ planning (CLI)
-python -m cascade_planner.cascadeboard.cli --target "SMILES" --n-steps 3
-python -m cascade_planner.cascadeboard.cli --target "SMILES" --constraints '{"one_pot": true}' --objective green
-python -m cascade_planner.cascadeboard.cli --target "SMILES" --live --n-results 3
-
-# Multi-step benchmark (frozen 100-target)
-python -m cascade_planner.eval.run_benchmark_v2_100 --max-iter 100 --max-depth 6
+# Serve the canonical Web/API surface
+python -m cascade_planner serve
 ```
 
-## Architecture
+V4 owns one `RunKernel`, one canonical retrosynthesis hypergraph, one deficit
+frontier, one proof/acceptance pipeline, and one Workbench projection. CLI,
+API, Web, replay, and export are adapters over those state owners; they must
+not create parallel chemistry state.
 
-### Package layout (`cascade_planner/`)
+## Package Boundaries
 
-Six subpackages form a pipeline from raw data to planned routes:
+- `cascade_planner/application/`: canonical run, graph, frontier, proof,
+  acceptance, and program services.
+- `cascade_planner/interfaces/`: evidence, stock, source, target, and delivery
+  contracts.
+- `cascade_planner/orchestration/`: the V4 global campaign director.
+- `cascade_planner/route_tree/`: bounded search, candidate admission, and
+  route-tree runtime contracts.
+- `cascade_planner/cascade_search/`: reusable proposal, evidence, and model
+  contracts used by the current search path.
+- `cascade_planner/cascadeboard/`: current route-scoring, skeleton, and
+  benchmark adapters that remain explicitly consumed by V4.
+- `cascade_planner/eval/`: current V4 data/pack builders, artifact trainers,
+  benchmark gates, and conservative route audits. See its README for the
+  retained CLI contract list.
+- `cascade_planner/research/`: non-authoritative current research workers.
+- `cascade_planner/legacy/`: frozen V3, K2, Phase-II, report, replay, and
+  compatibility code. It is never imported by a fresh V4 run.
 
-**`data/`** — Dataset loading and normalization. `loader_v2.py` is the canonical loader producing `StepRow` and `StepPairRow` dataclasses from `cascade_dataset_v2.normalized.json`. `strict_filter_v2.py` produces the strict subset. `open_datasets.py` integrates EnzymeMap, ReactZyme, and USPTO-50K.
+## Legacy Rules
 
-**`expand/`** — Single-step retrosynthesis models. `enz_template.py` is the template-MLP EnzExpand model (Morgan2-2048 → template-id). `dual_tower.py` is the contrastive DRFP↔ESM-2 enzyme matcher. `reranker.py` / `reranker_v2.py` are LightGBM LambdaRank rerankers. `esm_embedder.py` generates ESM-2 enzyme embeddings. `retrochimera_policy.py` wraps the external RetroChimera chemical model.
+Historical entrypoints are physically moved under explicit legacy namespaces;
+old import paths are not kept as shims. Direct execution of archived research
+requires:
 
-**`conditions/`** — Reaction condition prediction. `predict_conditions.py` trains T/pH/solvent/catalyst classifiers (DRFP features, GroupKFold by DOI). `brenda_predictor.py` uses BRENDA enzyme data. `esm_condition_heads.py` adds ESM-2-based condition heads.
+```powershell
+$env:AUTOPLANNER_ALLOW_LEGACY_RESEARCH = "1"
+```
 
-**`multistep/`** — Tree search. `aiz_mcts_bridge.py` calls AiZynthFinder MCTS in a separate `.venv_aizynth` virtualenv via subprocess. `plan_route.py` is the end-to-end driver: MCTS → extract steps → predict conditions → output. `two_stage_search.py` combines chemical MCTS with enzymatic expansion.
+Use the old paths only to reproduce named reports or inspect saved runs. The
+old `expand`, `conditions`, `multistep`, and K2 report-card packages are not
+current modules. Their archived entrypoints live under
+`cascade_planner.legacy.eval_runtime`.
 
-**`training/`** — `featurize_v2.py` provides DRFP fingerprinting (`drfp_batch`, `drfp_one`). `run_baselines_v2.py` runs baseline models.
+## Verification
 
-### CascadeBoard++ (`cascadeboard/`)
+Focused contract checks:
 
-The core learned planning system. Current architecture is a **three-layer independent model pipeline**:
+```bash
+python -m pytest tests/test_legacy_namespace.py tests/test_runtime_model_contracts.py -q
+ruff check cascade_planner/eval --isolated --select E4,E7,E9,F
+```
 
-**Layer 1 — Skeleton Generation** (`skeleton_inpainter.py`):
-- OA-ARM Transformer (6-layer decoder, d=256, 8 heads, 6.5M params)
-- Trained with random permutation order on v3 3,810 routes + augmentation → 50K samples
-- Generates K diverse skeletons (reaction types, EC classes, T/pH) conditioned on target FP + domain + constraints
-- Val: rtype_acc=92.4%, ec1_acc=94.8%, T MAE=0.74°C
-
-**Layer 2 — Molecular Fill** (`skeleton_planner.py`, `live_retro.py`):
-- RetroChimera (chemical) + EnzExpand/Enzyformer (enzymatic) fill concrete reactions into skeleton slots
-- Greedy fill with diagnosis-driven refinement
-
-**Layer 3 — Route Scoring** (`learned_scorer.py`):
-- 4-layer Transformer encoder (d=128, 4 heads, 0.9M params)
-- Multi-task: route_score + compat + opmode + issues + yield/ee
-- Ranks filled routes for final selection
-
-**Legacy system** (still functional, used by `cli.py` cache mode):
-- `route_encoder.py` — `CascadeBoardTransformer` (v20, 3.92M params): edit policy + inpainting + real-label heads
-- `planner.py` — Particle-based refinement with candidate graph
-- `energy_api.py` — Rule-based energy scoring
-
-**Supporting modules:**
-- `constraint_compiler.py` — Compiles user constraints into masks/factors
-- `candidate_graph.py` — AND-OR candidate hypergraph from frozen retro experts
-- `train.py` / `training_data.py` — Training loop and data construction
-- `cli.py` — End-user CLI interface
-- `real_benchmark.py` / `integrated_benchmark.py` — Benchmarking
-
-### Key conventions
-
-- Results go under `results/v2/` (current) or `results/shared/` (cross-version). Controlled by `CASCADE_VERSION` env var and `paths.py`.
-- Every single-step metric must report `(model, baseline, lift = model / baseline)`. Reference evaluator: `eval/hybrid_multi_audited.py`.
-- Cross-validation uses `GroupKFold` by DOI to prevent data leakage.
-- Large weights/models are git-ignored and live outside the repo: `workspace/aizdata/`, `synth_weights/`, `data_external/`.
-- AiZynthFinder runs in a separate virtualenv (`.venv_aizynth/`) called via subprocess from `aiz_mcts_bridge.py`.
-- The canonical dataset is `cascade_dataset_v2.normalized.json` (8748 steps, 3028 trainable). The v3 dataset (`cascade_dataset_v3.json`, 3810 cascades, 8753 steps) adds compatibility/operation-mode annotations used by skeleton inpainter and scorer training.
-
-### Current performance (100-target benchmark, audited)
-
-Method E: 2-step requires 100% type match, 3-step ≥67%, 4+ step ≥50%
-
-| System | Plan rate | GT@5 | Random baseline | Lift | Fill quality | Avg time |
-|--------|-----------|------|-----------------|------|--------------|----------|
-| **OA-ARM + Enzyformer v4** | 99% | 75% | 19% | 4.0x | 99% | 0.81s |
-| CascadeBoard v20 (legacy) | 100% | 24% | - | - | - | ~10s |
-| MCTS-USPTO | 66% | 20% | - | - | - | ~30s |
-
-Statin side-chain cascade: 3/4 variants pass (skeleton 100% match + valid fill + stock-available endpoint)
-
-### Key data structures
-
-- `StepRow` / `StepPairRow` (`data/loader_v2.py`) — Flat row per reaction step / consecutive pair, used by all evaluators.
-- `Slot` / `CascadeBoard` (`cascadeboard/__init__.py`) — Board representation: linear chain of slots with molecules, enzyme/catalyst, conditions, candidates, energy terms, and fixed-field constraints.
-- `SlotFeatures` / `SkeletonSample` (`cascadeboard/skeleton_inpainter.py`) — Feature vectors for OA-ARM training and inference.
-- `SkeletonResult` / `ScoreResult` — Output dataclasses from skeleton generation and route scoring.
-
-## Authoritative docs
-
-- `CASCADEBOARD_TODO.md` — Task tracking and experiment history
-- `DATA_TEAM_REQUIREMENTS.md` — Data annotation requirements
+Canonical V4 import must leave both `cascade_planner.legacy` and
+`cascade_planner.research` absent from `sys.modules`. New features must enter
+through current V4 contracts and tests, not by reviving archived package paths.

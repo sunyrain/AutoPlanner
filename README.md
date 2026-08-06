@@ -101,7 +101,7 @@ python -m cascade_planner replay-case \
 从小型精确来源案卷一键完成 Artemisinin 编译、验收和离线展示：
 
 ```bash
-python -m cascade_planner solve-case \
+python -m cascade_planner replay-dossier \
   --dossier config/examples/artemisinin_v4_case_dossier.json \
   --run-id artemisinin-showcase \
   --output-dir local-showcase/artemisinin

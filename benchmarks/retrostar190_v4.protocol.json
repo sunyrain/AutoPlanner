@@ -1,0 +1,59 @@
+{
+  "benchmark": "Retro*-190 / USPTO-190",
+  "execution_profile": "standard",
+  "inputs": {
+    "independent_target_crosscheck": {
+      "cached_target_pages": 190,
+      "canonical_set_sha256": "601353b857d17d65746dd47af25a1cbd180c06f81f287913fe9518998ae15eb2",
+      "canonical_target_sets_equal": true,
+      "parsed_unique_targets": 190,
+      "source": "https://syntharena.ischemist.com/benchmarks/cmisbzsr30000xvdd613ymmbx"
+    },
+    "stock": {
+      "catalog_name": "Retro*-190 eMolecules ~23M",
+      "index_path": "data_external/retrostar190/retrostar_emolecules_stock.sqlite3",
+      "index_sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c",
+      "member_count": 23081629,
+      "source_md5": "140b886c41c74a9c01ced032edc92fdf",
+      "source_sha256": "a9736a965f85474a9fdabeb6c3f38ad4eaab7e3679b1ea40d05ec91280c997c7",
+      "source_url": "https://zenodo.org/api/records/14032990/files/origin_dict.csv/content"
+    },
+    "target_file": ".benchmark_cache/retro190.txt",
+    "target_md5": "aeb06abef693d3e77a881eb4239cbfab",
+    "target_sha256": "3ca2a47862ed31352711ae18009d5c311c48d7129d83a0361f0fe6527fcea90c",
+    "target_source": "https://zenodo.org/api/records/14032990/files/retro190.txt/content"
+  },
+  "manifest_sha256": "2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623",
+  "metrics": {
+    "proof_or_conditions_do_not_redefine_retrostar_solved": true,
+    "reported_separately": [
+      "structural_route_present",
+      "host_reaction_validated",
+      "official_stock_closed",
+      "configured_proof_policy_accepted",
+      "exact_source_grade",
+      "condition_completeness",
+      "model_calls_and_tokens",
+      "wall_time"
+    ],
+    "retrostar_comparable_primary": "at_least_one_host_structural_route_with_all_terminal_leaves_in_frozen_benchmark_stock"
+  },
+  "planner": {
+    "aizynthfinder_or_retrochimera_sidecar_loaded": false,
+    "reference_routes_visible_to_planner": false,
+    "retrostar_reaction_model_loaded": false,
+    "retrostar_templates_loaded": false,
+    "retrostar_value_network_loaded": false,
+    "system_under_test": "AutoPlanner V4 current mainline",
+    "target_names_are_opaque": true
+  },
+  "provenance": {
+    "independent_wrapper": "https://github.com/AustinT/syntheseus-retro-star-benchmark",
+    "official_repository": "https://github.com/binghong-ml/retro_star",
+    "paper": "https://proceedings.mlr.press/v119/chen20k.html",
+    "redistributed_data": "https://doi.org/10.5281/zenodo.14032990",
+    "redistributed_data_license": "CC-BY-4.0"
+  },
+  "schema_version": "retrostar190_autoplanner_protocol.v1",
+  "target_count": 190
+}

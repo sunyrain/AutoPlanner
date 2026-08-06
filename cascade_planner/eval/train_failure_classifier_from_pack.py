@@ -17,28 +17,20 @@ from typing import Any, Iterable
 import numpy as np
 import torch
 import torch.nn as nn
-from rdkit import Chem, DataStructs, RDLogger
-from rdkit.Chem import AllChem
+from rdkit import RDLogger
 from torch.utils.data import DataLoader, TensorDataset
 
+from cascade_planner.agent.failure_model_contract import (
+    DOMAIN_VALUES,
+    METRIC_KEYS,
+    FailureClassifier,
+    failure_row_features as row_features,
+)
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
 
 
 RDLogger.DisableLog("rdApp.*")
 
-DOMAIN_VALUES = ["all_chemical", "all_enzymatic", "chemoenzymatic", "hybrid_mimetic", "whole_cell_biocatalytic"]
-METRIC_KEYS = [
-    "plan",
-    "filled_route_any",
-    "strict_stock_solve_any",
-    "condition_window_success_any",
-    "cascade_compatibility_success_any",
-    "terminal_GT_reactant_in_top5",
-    "filled_type_GT@1",
-    "filled_type_GT@5",
-    "skeleton_type_GT@1",
-    "skeleton_type_GT@5",
-]
 DEFAULT_EXCLUDED_LABELS = ("no_professional_solved_route",)
 
 
@@ -49,22 +41,6 @@ class FailureDataset:
     y: np.ndarray
     labels: list[str]
     feature_schema: dict[str, Any]
-
-
-class FailureClassifier(nn.Module):
-    def __init__(self, in_dim: int, out_dim: int, hidden: int = 160):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden),
-            nn.GELU(),
-            nn.Dropout(0.10),
-            nn.Linear(hidden, max(32, hidden // 2)),
-            nn.GELU(),
-            nn.Linear(max(32, hidden // 2), out_dim),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
 
 
 def load_failure_rows(pack_dir: Path) -> list[dict[str, Any]]:
@@ -123,44 +99,6 @@ def build_dataset(
         labels=labels,
         feature_schema=schema,
     )
-
-
-def row_features(row: dict[str, Any], *, n_bits: int) -> np.ndarray:
-    target_fp = fp(row.get("target_smiles"), n_bits=n_bits)
-    mol = Chem.MolFromSmiles(row.get("target_smiles") or "")
-    heavy = float(mol.GetNumHeavyAtoms()) if mol is not None else 0.0
-    domain = row.get("route_domain") or ""
-    domain_vec = [1.0 if domain == value else 0.0 for value in DOMAIN_VALUES]
-    metrics = row.get("metrics") or {}
-    metric_vec = [bool_metric(metrics.get(key)) for key in METRIC_KEYS]
-    scalar = [
-        heavy / 80.0,
-        float(row.get("depth") or 0.0) / 10.0,
-        float(row.get("n_routes") or 0.0) / 10.0,
-        float(bool(row.get("has_failure_label"))),
-    ]
-    return np.concatenate([
-        target_fp,
-        np.asarray(domain_vec + metric_vec + scalar, dtype=np.float32),
-    ])
-
-
-def fp(smiles: str | None, *, n_bits: int) -> np.ndarray:
-    arr = np.zeros(n_bits, dtype=np.float32)
-    mol = Chem.MolFromSmiles(smiles or "")
-    if mol is None:
-        return arr
-    bv = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=n_bits)
-    DataStructs.ConvertToNumpyArray(bv, arr)
-    return arr
-
-
-def bool_metric(value: Any) -> float:
-    if value is True:
-        return 1.0
-    if value is False:
-        return -1.0
-    return 0.0
 
 
 def split_by_target(rows: list[dict[str, Any]], val_fraction: float = 0.2) -> tuple[list[int], list[int]]:

@@ -15,9 +15,9 @@ from typing import Any
 import torch
 
 from cascade_planner.agent.schemas import SearchSuggestion
-from cascade_planner.eval.train_failure_classifier_from_pack import (
+from cascade_planner.agent.failure_model_contract import (
     FailureClassifier,
-    row_features,
+    failure_row_features,
 )
 
 
@@ -133,7 +133,10 @@ def predict_failure_risk(
     model, schema = _load_model(str(path))
     n_bits = int(schema.get("n_bits") or 128)
     labels = list(schema.get("labels") or [])
-    x = torch.tensor(row_features(row, n_bits=n_bits), dtype=torch.float32).unsqueeze(0)
+    x = torch.tensor(
+        failure_row_features(row, n_bits=n_bits),
+        dtype=torch.float32,
+    ).unsqueeze(0)
     with torch.no_grad():
         probs = torch.sigmoid(model(x))[0].cpu().tolist()
     scored = [

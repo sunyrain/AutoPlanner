@@ -2089,6 +2089,13 @@ body.is-resizing * {
   stroke-width: 2px;
 }
 
+.graph-lane-decoration.is-priority rect {
+  fill: color-mix(in srgb, var(--accent-soft) 42%, var(--surface-raised));
+  stroke: color-mix(in srgb, var(--accent) 74%, var(--border));
+  stroke-dasharray: none;
+  stroke-width: 2px;
+}
+
 .graph-viewport[data-graph-mode="current"] .graph-lane-decoration rect {
   fill: color-mix(in srgb, var(--surface-raised) 82%, transparent);
   stroke: color-mix(in srgb, var(--accent) 20%, var(--border));
@@ -2117,6 +2124,42 @@ body.is-resizing * {
   letter-spacing: 0;
 }
 
+.graph-lane-decoration .graph-lane-priority-label {
+  fill: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.graph-lane-open-control {
+  cursor: pointer;
+  outline: none;
+}
+
+.graph-lane-open-control rect {
+  fill: var(--accent);
+  stroke: color-mix(in srgb, var(--accent) 74%, white);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+}
+
+.graph-lane-open-control text {
+  fill: #fff;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0;
+  pointer-events: none;
+}
+
+.graph-lane-open-control:hover rect,
+.graph-lane-open-control:focus-visible rect {
+  filter: brightness(1.08);
+  stroke: #fff;
+  stroke-width: 2px;
+}
+
 .minimap-svg {
   width: 100%;
   height: 100%;
@@ -2138,7 +2181,9 @@ body.is-resizing * {
 .trust-edge,
 .graph-edge {
   fill: none;
-  stroke: var(--tier-color, var(--text-faint));
+  /* One semantic source of truth: edge and marker both use producer hue.
+     Proof tiers control dash/width/labels only and must never recolor the edge. */
+  stroke: var(--edge-color, var(--text-faint));
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
@@ -2146,7 +2191,6 @@ body.is-resizing * {
 }
 
 .graph-edge.is-auxiliary {
-  stroke: color-mix(in srgb, var(--text-muted) 72%, transparent) !important;
   stroke-dasharray: 3 5 !important;
   opacity: 0.58;
 }
@@ -2160,7 +2204,7 @@ body.is-resizing * {
 .dependency-edge.is-selected,
 .trust-edge.is-selected,
 .graph-edge.is-selected {
-  filter: drop-shadow(0 0 3px var(--accent));
+  filter: drop-shadow(0 0 3px var(--edge-color, var(--accent)));
   opacity: 1 !important;
   stroke-width: max(3px, var(--edge-width, 2px));
 }
@@ -2173,16 +2217,32 @@ body.is-resizing * {
 .program-overlay-path {
   fill: none;
   stroke: #7c3aed;
-  stroke-width: 2.4px;
-  stroke-dasharray: 7 6;
+  stroke-width: 2.7px;
+  stroke-dasharray: 8 6;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
-  opacity: 0.78;
+  opacity: 0.86;
+}
+
+.program-comparison-lane {
+  fill: color-mix(in srgb, #f3e8ff 46%, var(--surface-raised));
+  stroke: rgba(124, 58, 237, 0.38);
+  stroke-width: 1.2px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.program-comparison-lane-label {
+  fill: #6d28d9 !important;
+  font-size: 8px;
+  font-weight: 740;
+  letter-spacing: 0.045em;
+  pointer-events: none;
 }
 
 .program-fallback-region {
-  fill: rgba(124, 58, 237, 0.028);
-  stroke: rgba(124, 58, 237, 0.34);
+  fill: color-mix(in srgb, var(--surface-subtle) 84%, transparent);
+  stroke: color-mix(in srgb, var(--border-strong) 70%, #7c3aed);
   stroke-width: 1.2px;
   stroke-dasharray: 5 5;
   vector-effect: non-scaling-stroke;
@@ -2190,11 +2250,10 @@ body.is-resizing * {
 }
 
 .program-fallback-region-label {
-  fill: #7c3aed !important;
+  fill: var(--text-muted) !important;
   font-size: 8px;
-  font-weight: 720;
+  font-weight: 740;
   letter-spacing: 0.055em;
-  opacity: 0.8;
   pointer-events: none;
 }
 
@@ -2211,15 +2270,15 @@ body.is-resizing * {
 }
 
 .program-overlay-card {
-  fill: color-mix(in srgb, #f3e8ff 70%, var(--surface-raised));
-  stroke: #8b5cf6;
-  stroke-width: 1.6px;
+  fill: color-mix(in srgb, #faf5ff 64%, var(--surface-raised));
+  stroke: #7c3aed;
+  stroke-width: 1.8px;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 7px 12px rgba(76, 29, 149, 0.12));
+  filter: drop-shadow(0 8px 14px rgba(76, 29, 149, 0.16));
 }
 
 .program-overlay-warning-stripe {
-  fill: #dc2626;
+  fill: #d97706;
   pointer-events: none;
 }
 
@@ -2230,9 +2289,9 @@ body.is-resizing * {
 
 .program-overlay-kicker {
   fill: #6d28d9 !important;
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 760;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.055em;
 }
 
 .program-overlay-title {
@@ -2243,7 +2302,7 @@ body.is-resizing * {
 
 .program-overlay-meta {
   fill: var(--text-muted) !important;
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 570;
 }
 
@@ -2259,6 +2318,160 @@ body.is-resizing * {
   font-weight: 720;
 }
 
+.program-boundary-label rect {
+  fill: color-mix(in srgb, #ede9fe 82%, var(--surface-raised));
+  stroke: #8b5cf6;
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.program-boundary-label text {
+  fill: #6d28d9 !important;
+  font-size: 7.4px;
+  font-weight: 760;
+  letter-spacing: 0.025em;
+}
+
+.program-baseline-toggle {
+  cursor: pointer;
+  outline: none;
+}
+
+.program-baseline-toggle rect {
+  fill: color-mix(in srgb, #ede9fe 76%, var(--surface-raised));
+  stroke: rgba(124, 58, 237, 0.46);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.program-baseline-toggle text {
+  fill: #5b21b6 !important;
+  font-size: 8px;
+  font-weight: 690;
+}
+
+.program-baseline-toggle:hover rect,
+.program-baseline-toggle:focus-visible rect {
+  fill: color-mix(in srgb, #ddd6fe 86%, var(--surface-raised));
+  stroke: #6d28d9;
+  stroke-width: 2px;
+}
+
+.program-fallback-drawer-tether {
+  fill: none;
+  stroke: color-mix(in srgb, #7c3aed 58%, var(--border-strong));
+  stroke-width: 1.4px;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.program-fallback-drawer {
+  fill: color-mix(in srgb, var(--surface-raised) 94%, #f8fafc);
+  stroke: color-mix(in srgb, var(--border-strong) 78%, #7c3aed);
+  stroke-width: 1.3px;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 7px 14px rgba(23, 32, 51, 0.1));
+  pointer-events: none;
+}
+
+.program-fallback-drawer-title {
+  fill: var(--text) !important;
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.program-fallback-drawer-meta {
+  fill: var(--text-muted) !important;
+  font-size: 8px;
+  font-weight: 560;
+}
+
+.program-fallback-authority {
+  fill: color-mix(in srgb, #e2e8f0 72%, var(--surface-raised));
+  stroke: var(--border-strong);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.program-fallback-authority-label {
+  fill: var(--text-secondary) !important;
+  font-size: 8px;
+  font-weight: 740;
+}
+
+.program-fallback-connector {
+  fill: none;
+  stroke: #94a3b8;
+  stroke-width: 1.4px;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.program-fallback-compact {
+  cursor: pointer;
+  outline: none;
+}
+
+.program-fallback-compact > rect {
+  fill: var(--surface-subtle);
+  stroke: var(--border);
+  stroke-width: 1.1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.program-fallback-compact > circle {
+  fill: #e2e8f0;
+  stroke: #94a3b8;
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.program-fallback-compact:hover > rect,
+.program-fallback-compact:focus-visible > rect,
+.program-fallback-compact.is-selected > rect {
+  fill: color-mix(in srgb, #f5f3ff 52%, var(--surface-raised));
+  stroke: #7c3aed;
+  stroke-width: 2px;
+}
+
+.program-fallback-compact.is-selected > circle {
+  fill: #7c3aed;
+  stroke: #6d28d9;
+}
+
+.program-fallback-number {
+  fill: var(--text-secondary) !important;
+  font-size: 8px;
+  font-weight: 780;
+}
+
+.program-fallback-compact.is-selected .program-fallback-number {
+  fill: #fff !important;
+}
+
+.program-fallback-title {
+  fill: var(--text) !important;
+  font-size: 9px;
+  font-weight: 720;
+}
+
+.program-fallback-detail,
+.program-fallback-proof {
+  fill: var(--text-muted) !important;
+  font-size: 7.5px;
+  font-weight: 550;
+}
+
+.program-fallback-proof {
+  fill: #6d28d9 !important;
+  font-weight: 690;
+}
+
 .program-overlay:hover .program-overlay-card,
 .program-overlay:focus-visible .program-overlay-card,
 .program-overlay.is-selected .program-overlay-card {
@@ -2270,6 +2483,10 @@ body.is-resizing * {
 .program-overlay.is-selected .program-overlay-path {
   opacity: 1;
   stroke-width: 3.2px;
+}
+
+.program-overlay.is-expanded .program-overlay-card {
+  filter: drop-shadow(0 6px 12px rgba(76, 29, 149, 0.12));
 }
 
 .mechanism-hypothesis-callout {
@@ -2355,8 +2572,8 @@ body.is-resizing * {
   outline: none;
 }
 
-.dependency-reaction rect,
-.dependency-molecule rect,
+.dependency-reaction .node-surface,
+.dependency-molecule .node-surface,
 .graph-node .node-surface,
 .graph-node--reaction .node-surface,
 .graph-node--molecule .node-surface {
@@ -2377,18 +2594,20 @@ body.is-resizing * {
 }
 
 .graph-node--reaction .node-surface {
-  fill: color-mix(in srgb, var(--tier-tint, var(--surface-subtle)) 72%, var(--surface-raised));
-  stroke: color-mix(in srgb, var(--tier-color, var(--border-strong)) 70%, var(--border));
+  fill: color-mix(in srgb, var(--surface-raised) 94%, var(--surface-subtle));
+  stroke: var(--origin-color, var(--border-strong));
+  stroke-width: 1.6px;
 }
 
 .graph-node--reaction.is-program-fallback .node-surface {
-  fill: color-mix(in srgb, #f5f3ff 38%, var(--surface-raised));
+  fill: color-mix(in srgb, var(--surface-subtle) 56%, var(--surface-raised));
   stroke-dasharray: 4 3;
 }
 
 .graph-node--reaction.is-program-active .node-surface {
-  stroke: #8b5cf6;
+  stroke: var(--origin-color, var(--border-strong));
   stroke-width: 2.6px;
+  filter: drop-shadow(0 0 4px var(--origin-color, var(--accent-ring)));
 }
 
 .graph-node--molecule.is-mechanism-anchor .node-surface {
@@ -2398,7 +2617,7 @@ body.is-resizing * {
 }
 
 .graph-edge.is-program-active {
-  filter: drop-shadow(0 0 3px rgba(124, 58, 237, 0.4));
+  filter: drop-shadow(0 0 3px var(--edge-color, var(--accent-ring)));
   opacity: 1 !important;
 }
 
@@ -2406,7 +2625,7 @@ body.is-resizing * {
   --origin-color: #64748b;
 }
 
-.graph-node--reaction.producer-codex { --origin-color: #2563eb; }
+.graph-node--reaction.producer-codex { --origin-color: #0369a1; }
 .graph-node--reaction.producer-chemenzy { --origin-color: #7c3aed; }
 .graph-node--reaction.producer-literature { --origin-color: #0f766e; }
 .graph-node--reaction.producer-self-evo { --origin-color: #c2410c; }
@@ -2420,9 +2639,15 @@ body.is-resizing * {
   pointer-events: none;
 }
 
+.reaction-proof-marker {
+  fill: var(--text-muted);
+  stroke: none;
+  pointer-events: none;
+}
+
 .graph-node-port {
   fill: var(--surface-raised);
-  stroke: var(--tier-color, var(--border-strong));
+  stroke: var(--origin-color, var(--border-strong));
   stroke-width: 2px;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
@@ -2437,26 +2662,39 @@ body.is-resizing * {
   cursor: pointer;
 }
 
-.dependency-reaction:hover rect,
-.dependency-molecule:hover rect,
+.dependency-reaction:hover .node-surface,
+.dependency-molecule:hover .node-surface,
 .graph-node:hover .node-surface,
 .graph-node--reaction:hover .node-surface,
 .graph-node--molecule:hover .node-surface {
   fill: var(--tier-tint, var(--surface-hover));
 }
 
-.dependency-reaction.is-selected rect,
-.dependency-molecule.is-selected rect,
+.graph-node--reaction:hover .node-surface {
+  fill: color-mix(in srgb, var(--origin-color, var(--text-muted)) 8%, var(--surface-raised));
+  stroke: var(--origin-color, var(--border-strong));
+}
+
+.dependency-reaction.is-selected .node-surface,
+.dependency-molecule.is-selected .node-surface,
 .graph-node.is-selected .node-surface,
 .graph-node--reaction.is-selected .node-surface,
 .graph-node--molecule.is-selected .node-surface,
-.dependency-reaction:focus-visible rect,
-.dependency-molecule:focus-visible rect,
+.dependency-reaction:focus-visible .node-surface,
+.dependency-molecule:focus-visible .node-surface,
 .graph-node:focus-visible .node-surface,
 .graph-node--reaction:focus-visible .node-surface,
 .graph-node--molecule:focus-visible .node-surface {
   filter: drop-shadow(0 0 4px var(--accent-ring));
   stroke: var(--accent);
+  stroke-width: 3px;
+}
+
+.graph-node--reaction.is-selected .node-surface,
+.graph-node--reaction:focus-visible .node-surface {
+  fill: color-mix(in srgb, var(--origin-color, var(--text-muted)) 10%, var(--surface-raised));
+  filter: drop-shadow(0 0 4px var(--origin-color, var(--accent-ring)));
+  stroke: var(--origin-color, var(--border-strong));
   stroke-width: 3px;
 }
 
@@ -2531,6 +2769,11 @@ body.is-resizing * {
   font-weight: 500 !important;
 }
 
+.reaction-producer-meta {
+  fill: var(--origin-color, var(--text-muted)) !important;
+  font-weight: 720 !important;
+}
+
 .reaction-condition-meta {
   fill: var(--text-muted) !important;
   font-size: 9.5px !important;
@@ -2539,7 +2782,7 @@ body.is-resizing * {
 
 .reaction-condition-meta.is-source-exact { fill: #0f766e !important; }
 .reaction-condition-meta.is-source-candidate { fill: #0369a1 !important; }
-.reaction-condition-meta.is-model-predicted { fill: #7c3aed !important; }
+.reaction-condition-meta.is-model-predicted { fill: #a16207 !important; }
 .reaction-condition-meta.is-missing { fill: #9a3412 !important; }
 
 .graph-viewport[data-label-mode="semantic"][data-zoom-band="overview"] .node-label,
@@ -2756,6 +2999,29 @@ body.is-resizing * {
 .source-observation-list {
   display: grid;
   gap: var(--space-2);
+}
+
+.condition-resolution {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 34%, var(--border));
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--warning-soft) 56%, var(--surface-raised));
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.condition-resolution strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.condition-resolution small {
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .condition-line {
@@ -3177,6 +3443,26 @@ body.is-resizing * {
 }
 
 .program-fallback-list { display: grid; gap: 7px; margin-top: 10px; }
+
+.program-detail-toggle {
+  margin-top: 4px;
+  border-color: color-mix(in srgb, #7c3aed 48%, var(--border));
+  color: #6d28d9;
+}
+
+.program-fallback-details {
+  margin-top: 10px;
+  border-top: 1px solid var(--divider);
+  padding-top: 8px;
+}
+
+.program-fallback-details summary {
+  width: fit-content;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 680;
+  cursor: pointer;
+}
 
 .program-fallback-row {
   display: grid;

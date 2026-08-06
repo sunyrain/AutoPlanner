@@ -9,7 +9,6 @@ from PIL import Image, ImageDraw
 import pytest
 
 from cascade_planner.interfaces import patent_evidence
-from cascade_planner.interfaces.live_evidence import LiveEvidenceConnectorError
 from cascade_planner.interfaces.patent_evidence import (
     BuiltinPatentEvidenceConfig,
     build_builtin_patent_evidence_connector,
@@ -73,6 +72,22 @@ def _patent_xml_bytes() -> bytes:
           in tetrahydrofuran. Compound 4 (1.3 g, 21.7 mmol) was added and the
           reaction mixture was stirred for 17 h at 4 degrees C to afford the
           product in 85% yield.</p>
+      </description>
+    </ep-patent-document>
+    """
+
+
+def _numbered_patent_xml_bytes() -> bytes:
+    return b"""<?xml version="1.0" encoding="UTF-8"?>
+    <ep-patent-document id="EP1234567A1" file="EP1234567NWA1.xml"
+      lang="en" country="EP" doc-number="1234567" kind="A1"
+      date-publ="20200101" status="n" dtd-version="ep-patent-document-v1-5">
+      <description id="desc" lang="en">
+        <heading id="h0001"><b>Example 1</b></heading>
+        <heading id="h0002"><b>(2) Butyl acetate</b></heading>
+        <p id="p0001" num="0001">Butan-1-ol (1.0 g, 13.5 mmol) and acetic
+          acid (1.3 g, 21.7 mmol) were combined. The reaction mixture was
+          stirred for 17 h to afford butyl acetate in 85 percent yield.</p>
       </description>
     </ep-patent-document>
     """
@@ -225,17 +240,90 @@ def test_builtin_patent_connector_reuses_hashed_source_bytes_across_runs(
     ]["target_derived_extraction_is_not_shared"] is True
 
 
-def test_builtin_patent_connector_refuses_unvalidated_edges(tmp_path: Path) -> None:
+def test_builtin_patent_connector_discovers_sources_for_unvalidated_edges(
+    tmp_path: Path,
+) -> None:
     connector = build_builtin_patent_evidence_connector(
-        BuiltinPatentEvidenceConfig(cache_dir=tmp_path),
-        candidate_provider=lambda _queries: [],
+        BuiltinPatentEvidenceConfig(cache_dir=tmp_path, max_patents=1),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": "US1234567A1",
+                "family_id": "family:unvalidated-discovery",
+                "title": "Process for preparation of ethyl acetate",
+                "snippet": "ethyl acetate synthesis",
+                "pdf_url": "https://source.invalid/one.pdf",
+            }
+        ],
+        bytes_fetcher=lambda _url, _timeout, _limit: _pdf_bytes(),
+        registry_compiler=_compiler,
     )
 
-    with pytest.raises(
-        LiveEvidenceConnectorError,
-        match="no_validated_edges",
-    ):
-        connector(_request(validated=False))
+    result = connector(_request(validated=False))
+
+    assert "document" not in result
+    assert result["discovery"]["sources"][0]["pdf_sha256"]
+    assert result["discovery"]["sources"][0]["exact_row_count"] == 0
+    assert result["receipt"]["semantics"][
+        "unvalidated_edge_discovery_only"
+    ] is True
+
+
+def test_unvalidated_edge_extracts_numbered_xml_procedure_as_route_observation(
+    tmp_path: Path,
+) -> None:
+    def fallback_must_not_run(*_args: Any) -> bytes:
+        raise AssertionError("PDF fallback must not run after XML materialization")
+
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(cache_dir=tmp_path, max_patents=1),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": "EP1234567A1",
+                "family_id": "family:numbered-xml",
+                "title": "Preparation of butyl acetate",
+                "xml_url": (
+                    "https://data.epo.org/publication-server/rest/v1.2/"
+                    "patents/EP1234567NWA1/document.xml"
+                ),
+                "_primary_xml_bytes": _numbered_patent_xml_bytes(),
+                "pdf_url": "https://source.invalid/must-not-run.pdf",
+            }
+        ],
+        bytes_fetcher=fallback_must_not_run,
+        html_fetcher=fallback_must_not_run,
+        structure_resolver=lambda name: {
+            "Butan-1-ol": "CCCCO",
+            "acetic acid": "CC(=O)O",
+        }.get(name, ""),
+        candidate_name_resolver=lambda _smiles: [],
+    )
+
+    request = _request(validated=False)
+    request["target_name"] = "butyl acetate"
+    request["target_smiles"] = "CCCCOC(C)=O"
+    request["edges"][0]["product_smiles"] = "CCCCOC(C)=O"
+    request["edges"][0]["precursor_smiles"] = ["CCCCO", "CC(=O)O"]
+    request["source_tasks"] = [{"query": "butyl acetate synthesis patent"}]
+    result = connector(request)
+
+    assert "document" not in result
+    source = result["discovery"]["sources"][0]
+    assert source["xml_sha256"]
+    assert source["procedure_inventory"][0]["name"] == "Butyl acetate"
+    assert source["source_route_proposal_count"] == 1
+    proposal = source["source_route_observation"]["proposals"][0]
+    assert proposal["product_smiles"] == "CCCCOC(C)=O"
+    assert set(proposal["precursor_smiles"]) == {"CCCCO", "CC(=O)O"}
+    assert source["structured_source_document_audit"] == {
+        "accepted": True,
+        "source_artifact_kind": "xml",
+        "procedure_count": 1,
+        "resolved_procedure_count": 1,
+        "reasons": [],
+    }
+    assert result["receipt"]["semantics"][
+        "unvalidated_edge_discovery_only"
+    ] is True
 
 
 def test_builtin_patent_connector_allows_authority_free_target_prefetch(

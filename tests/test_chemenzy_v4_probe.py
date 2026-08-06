@@ -7,7 +7,9 @@ from cascade_planner.interfaces.chemenzy_probe import (
     ChemEnzyProposalRequest,
     _guided_native_search_policy,
     _normalized_routes,
+    _provider_reaction_metadata,
     _provider_capability_snapshot,
+    _select_host_route_portfolio,
     _select_runtime,
 )
 from cascade_planner.interfaces.chemenzy_advisory import (
@@ -259,3 +261,69 @@ def test_guided_chemenzy_request_binds_canonical_frontier_and_stop_contract() ->
         "acyl substitution"
     ]
     assert policy["compiler_metadata"]["not_raw_reaction_injection"] is True
+
+
+def test_host_route_portfolio_prefers_stock_hints_and_route_diversity() -> None:
+    routes = _normalized_routes(
+        {
+            "routes": [
+                {
+                    "score": 0.9,
+                    "steps": [
+                        {
+                            "product": "CC(=O)OCC",
+                            "reactant_smiles": ["CCO", "CC(=O)Cl"],
+                            "stock_status": {"CCO": True, "CC(=O)Cl": True},
+                            "rxn_smiles": "CCO.CC(=O)Cl>>CC(=O)OCC",
+                        }
+                    ],
+                },
+                {
+                    "score": 0.8,
+                    "steps": [
+                        {
+                            "product": "CC(=O)OCC",
+                            "reactant_smiles": ["CCO", "CC(=O)Cl"],
+                            "stock_status": {"CCO": True, "CC(=O)Cl": True},
+                        }
+                    ],
+                },
+                {
+                    "score": 0.7,
+                    "steps": [
+                        {
+                            "product": "CC(=O)OCC",
+                            "reactant_smiles": ["CCO", "CC(=O)Br"],
+                            "stock_status": {"CCO": True, "CC(=O)Br": True},
+                        }
+                    ],
+                },
+            ]
+        },
+        target_smiles="CC(=O)OCC",
+    )
+
+    selected = _select_host_route_portfolio(routes, limit=2)
+
+    assert [route["route_index"] for route in selected] == [1, 3]
+
+
+def test_provider_reaction_metadata_is_content_addressed_and_non_authoritative() -> None:
+    metadata = _provider_reaction_metadata(
+        {
+            "rxn_smiles": "CCO.CC(=O)Cl>>CC(=O)OCC",
+            "source_model": "fixture-chemenzy",
+            "score": 0.91,
+            "stock_status": {"CCO": True},
+            "raw_backend_metadata": {
+                "template": {"reaction_smarts": "[C:1](=[O:2])Cl>>[C:1](=[O:2])O"},
+                "cost": 0.2,
+            },
+            "host_search_admission": {"accepted": True, "not_reaction_proof": True},
+        }
+    )
+
+    assert len(metadata["content_sha256"]) == 64
+    assert metadata["template"]["reaction_smarts"].endswith(")O")
+    assert metadata["semantics"]["host_template_replay_required_for_reaction_proof"]
+    assert metadata["semantics"]["provider_stock_status_is_not_stock_authority"]

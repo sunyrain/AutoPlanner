@@ -56,7 +56,7 @@ from cascade_planner.runtime.run_metrics import (
 
 REGISTRY_SCHEMA = "trusted_literature_step_registry.v1"
 AUDIT_SCHEMA = "deterministic_literature_registry_audit.v1"
-PARSER_AUTHORITY_ID = "autoplanner.opsin_pubchem_source_text.v13"
+PARSER_AUTHORITY_ID = "autoplanner.opsin_pubchem_source_text.v14"
 DEFAULT_OPSIN_BASE_URL = "https://opsin.ch.cam.ac.uk/opsin"
 DEFAULT_PUBCHEM_BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 _MAX_HEADING_PARSE_ATTEMPTS_PER_EDGE = 16
@@ -138,6 +138,58 @@ def extract_deterministic_source_document(
             "source_document_hash_replayed": True,
             "procedure_structures_are_observations": True,
             "grants_no_reaction_proof": True,
+            "normal_v4_admission_required": True,
+        },
+    }
+
+
+def extract_deterministic_structured_source_document(
+    companion: Mapping[str, Any],
+    *,
+    source_ref: str,
+    structure_resolver: StructureResolver,
+) -> dict[str, Any]:
+    """Replay one hash-bound primary XML/HTML artifact into observations.
+
+    Structured patent text uses the same deterministic procedure parser and
+    name-to-structure resolver as PDF replay.  The result remains an
+    observation: it cannot grant reaction validation or exact evidence by
+    itself and must enter the normal V4 admission and registry paths.
+    """
+
+    document = _build_primary_html_document_index(
+        companion,
+        source_ref=str(source_ref or "").strip().lower(),
+    )
+    procedures: list[dict[str, Any]] = []
+    for raw in document.get("procedures") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        row = dict(raw)
+        if row.get("declaration_only") is not True:
+            _resolve_procedure_structure(
+                row,
+                resolve_structure=structure_resolver,
+                source_aliases=dict(document.get("source_name_aliases") or {}),
+            )
+        procedures.append(row)
+    artifact_kind = str(document.get("source_artifact_kind") or "html")
+    return {
+        **document,
+        "source_location_kind": (
+            "xml_element_range"
+            if artifact_kind == "xml"
+            else "html_paragraph_range"
+        ),
+        "procedures": procedures,
+        "resolved_procedure_count": sum(
+            row.get("structure_parse_accepted") is True for row in procedures
+        ),
+        "semantics": {
+            "structured_source_hash_replayed": True,
+            "procedure_structures_are_observations": True,
+            "grants_no_reaction_proof": True,
+            "grants_no_exact_evidence": True,
             "normal_v4_admission_required": True,
         },
     }
@@ -1027,23 +1079,42 @@ def _extract_epo_xml_procedures(
                 }
             )
     rows: list[dict[str, Any]] = []
-    heading_pattern = re.compile(
+    synthesis_heading_pattern = re.compile(
         r"^(?:(?:Example|Step)\s*:?[ \t]*(?P<sequence>\d+[A-Za-z]?)"
         r"[ \t]*[.:]?[ \t]+)?"
         r"(?:Preparation|Synthesis)[ \t]+of[ \t]+"
         r"(?P<name>.+?)(?:[ \t]*\((?P<label>[TC]?\d+)\))?[ \t]*[.]?$",
         flags=re.IGNORECASE,
     )
+    numbered_heading_pattern = re.compile(
+        r"^(?:\((?P<paren_sequence>\d+[A-Za-z]?)\)|"
+        r"(?P<plain_sequence>\d+[A-Za-z]?)[.)])[ \t]+"
+        r"(?P<numbered_name>.+?)[ \t]*[.]?$",
+        flags=re.IGNORECASE,
+    )
     for index, element in enumerate(elements):
         if str(element.get("kind") or "") != "heading":
             continue
-        match = heading_pattern.fullmatch(
-            " ".join(str(element.get("text") or "").split())
-        )
-        if match is None:
+        heading = " ".join(str(element.get("text") or "").split())
+        match = synthesis_heading_pattern.fullmatch(heading)
+        numbered_match = numbered_heading_pattern.fullmatch(heading)
+        if match is None and numbered_match is None:
             continue
-        name = _clean_source_name(str(match.group("name") or ""))
-        label = str(match.group("label") or match.group("sequence") or "").upper()
+        if match is not None:
+            name = _clean_source_name(str(match.group("name") or ""))
+            label = str(
+                match.group("label") or match.group("sequence") or ""
+            ).upper()
+        else:
+            assert numbered_match is not None
+            name = _clean_source_name(
+                str(numbered_match.group("numbered_name") or "")
+            )
+            label = str(
+                numbered_match.group("paren_sequence")
+                or numbered_match.group("plain_sequence")
+                or ""
+            ).upper()
         if (
             len(name) < 3
             or len(name) > 1000
@@ -1363,6 +1434,50 @@ def _extract_labeled_procedures(
                 "name": name,
             }
         )
+    # Older organometallic patents often use a bare numbered product heading,
+    # for example ``(1) 6,6-pentamethylenefulvene``.  Journal scope tables use
+    # the related ``product (Entry 1). To a solution ...`` form.  These are
+    # explicit source headings, not inferred product mentions; the normal
+    # procedure, amount, structure, reactant, and page-evidence gates below
+    # still apply before they can authorize an exact row.
+    numbered_product_declaration = re.compile(
+        r"(?im)^[ \t]*\((?P<label>\d{1,3}[A-Za-z]?)\)[ \t]+"
+        r"(?P<name>[^\r\n]{3,180}?)[ \t]*$"
+    )
+    entry_product_declaration = re.compile(
+        r"(?im)^[ \t]*(?P<name>[^\r\n]{3,180}?)[ \t]*"
+        r"\([ \t]*Entry[ \t]+(?P<label>\d{1,3}[A-Za-z]?)[ \t]*\)"
+        r"[ \t]*[.:][ \t]*"
+        r"(?=(?:To\s+(?:a|an)\b|A\s+(?:stirred\s+)?"
+        r"(?:solution|suspension|mixture)\b|Into\s+(?:a|an)\b))"
+    )
+    for pattern, label_prefix in (
+        (numbered_product_declaration, ""),
+        (entry_product_declaration, "ENTRY"),
+    ):
+        for match in pattern.finditer(full_text):
+            name = _clean_source_name(str(match.group("name") or ""))
+            if (
+                len(name) < 3
+                or len(name) > 180
+                or not re.search(r"[A-Za-z]", name)
+                or _document_metadata_heading(name)
+            ):
+                continue
+            heading_candidates = [
+                row
+                for row in heading_candidates
+                if not match.start() <= int(row["start"]) < match.end()
+            ]
+            heading_candidates.append(
+                {
+                    "start": match.start(),
+                    "end": match.end(),
+                    "heading_start": match.start(),
+                    "label": label_prefix + str(match.group("label") or "").upper(),
+                    "name": name,
+                }
+            )
     # Some journal Experimental sections use only ``Compound 24. To a ...``
     # headings.  Bind these blocks explicitly; the generic SI ``name (T12)``
     # declaration cannot see a numeric label without parentheses.  A
@@ -1826,7 +1941,7 @@ def _match_reactant_in_procedure(
 
 
 def _source_amount_reagent_names(source_text: str) -> list[str]:
-    """Extract bounded source-authored names immediately followed by amounts."""
+    """Extract bounded source-authored names adjacent to reported amounts."""
 
     text = _compact_source_text(source_text)
     amount = re.compile(
@@ -1848,6 +1963,45 @@ def _source_amount_reagent_names(source_text: str) -> list[str]:
             out.append(segment)
         closing = text.find(")", match.end())
         previous_end = closing + 1 if closing >= 0 else match.end()
+    for segment in _source_inverted_amount_reagent_names(text):
+        if segment.casefold() not in {row.casefold() for row in out}:
+            out.append(segment)
+    return out[:32]
+
+
+def _source_inverted_amount_reagent_names(source_text: str) -> list[str]:
+    """Extract patent prose of the form ``5.0 g (...) of compound``."""
+
+    name = (
+        r"(?P<name>[A-Za-z0-9][A-Za-z0-9+\-',()\[\] /]{1,300}?)"
+        r"(?=,\s+(?:an?|the)\s|\s+(?:was|were|is|are|has|have|followed)\b|[.;])"
+    )
+    patterns = (
+        re.compile(
+            r"\b\d+(?:\.\d+)?\s*(?:mg|g|kg|ml|l|mmoles?|mmol|moles?|mol)"
+            r"\s*\([^)]{1,120}\)\s+of\s+" + name,
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            r"\(\s*\d+(?:\.\d+)?\s*(?:mg|g|kg|ml|l)"
+            r"[^)]{0,120}\)\s+of\s+" + name,
+            flags=re.IGNORECASE,
+        ),
+    )
+    rows: list[tuple[int, str]] = []
+    for pattern in patterns:
+        for match in pattern.finditer(source_text):
+            candidate = _clean_source_name(str(match.group("name") or ""))
+            if (
+                2 <= len(candidate) <= 300
+                and re.search(r"[A-Za-z]", candidate)
+                and not _procedural_name_fragment(candidate)
+            ):
+                rows.append((match.start(), candidate))
+    out: list[str] = []
+    for _, candidate in sorted(rows, key=lambda row: (row[0], row[1].casefold())):
+        if candidate.casefold() not in {row.casefold() for row in out}:
+            out.append(candidate)
     return out[:32]
 
 
@@ -1887,17 +2041,16 @@ def _source_amount_chemical_name(value: str) -> str:
     matches = list(boundaries.finditer(segment))
     if matches:
         segment = segment[matches[-1].end() :]
-    else:
-        # A sentence boundary is safe only when no stronger chemical
-        # introduction was found.  Decimal points are not followed by space
-        # plus an uppercase word and therefore remain intact.
-        sentences = re.split(r"(?<=[.!?])\s+", segment)
-        segment = sentences[-1]
+    # The amount being inspected belongs to the final sentence fragment.
+    # Decimal points are not followed by whitespace plus a new sentence and
+    # therefore remain intact.
+    sentences = re.split(r"(?<=[.!?])\s+", segment)
+    segment = sentences[-1]
     previous = ""
     while segment != previous:
         previous = segment
         segment = re.sub(
-            r"^(?:and|then|to|into|in|with)\s+",
+            r"^(?:and|then|to|into|in|with),?\s+",
             "",
             segment,
             flags=re.IGNORECASE,
@@ -1933,6 +2086,18 @@ def _source_amount_chemical_name(value: str) -> str:
             segment,
             flags=re.IGNORECASE,
         )
+    # A common patent formulation puts a mass or volume before the chemical
+    # name and a molar amount after it: ``7 g of substrate (71 mmol)``.  The
+    # parenthesised amount is the parser anchor, so strip the leading amount
+    # phrase before sending the source-authored name to a structure resolver.
+    segment = re.sub(
+        r"^\d+(?:\.\d+)?\s*"
+        r"(?:ng|ug|\u00b5g|mg|g|kg|ul|\u00b5l|ml|l|mmoles?|mmol|moles?|mol)"
+        r"\s+of\s+",
+        "",
+        segment,
+        flags=re.IGNORECASE,
+    )
     return segment.strip(" ,;.")
 
 

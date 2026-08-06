@@ -73,11 +73,41 @@ class RetrosynthesisRunBudget:
     max_visual_invocations: int = 1
     max_accepted_expansions: int = 8
     max_attempt_runs: int = 12
+    max_native_search_invocations: int | None = None
+    min_target_native_search_invocations: int | None = None
+    max_frontier_native_search_invocations: int | None = None
+    allow_frontier_native_search_borrowing: bool = True
     max_prompt_context_bytes: int = 96_000
     automatic_budget_extension: bool = False
     schema_version: str = RETROSYNTHESIS_RUN_BUDGET_SCHEMA
 
     def __post_init__(self) -> None:
+        max_native = (
+            self.max_attempt_runs
+            if self.max_native_search_invocations is None
+            else int(self.max_native_search_invocations)
+        )
+        min_target_native = (
+            (1 if max_native > 0 else 0)
+            if self.min_target_native_search_invocations is None
+            else int(self.min_target_native_search_invocations)
+        )
+        max_frontier_native = (
+            max(0, max_native - min_target_native)
+            if self.max_frontier_native_search_invocations is None
+            else int(self.max_frontier_native_search_invocations)
+        )
+        object.__setattr__(self, "max_native_search_invocations", max_native)
+        object.__setattr__(
+            self,
+            "min_target_native_search_invocations",
+            min_target_native,
+        )
+        object.__setattr__(
+            self,
+            "max_frontier_native_search_invocations",
+            max_frontier_native,
+        )
         integer_limits = {
             "max_model_invocations": self.max_model_invocations,
             "max_total_input_tokens": self.max_total_input_tokens,
@@ -85,10 +115,23 @@ class RetrosynthesisRunBudget:
             "max_visual_invocations": self.max_visual_invocations,
             "max_accepted_expansions": self.max_accepted_expansions,
             "max_attempt_runs": self.max_attempt_runs,
+            "max_native_search_invocations": max_native,
+            "min_target_native_search_invocations": min_target_native,
+            "max_frontier_native_search_invocations": max_frontier_native,
             "max_prompt_context_bytes": self.max_prompt_context_bytes,
         }
         if any(value < 0 for value in integer_limits.values()):
             raise ValueError("retrosynthesis run budget limits cannot be negative")
+        if min_target_native > max_native:
+            raise ValueError(
+                "min_target_native_search_invocations cannot exceed "
+                "max_native_search_invocations"
+            )
+        if max_frontier_native > max_native:
+            raise ValueError(
+                "max_frontier_native_search_invocations cannot exceed "
+                "max_native_search_invocations"
+            )
         if self.max_total_wall_time_s < 0:
             raise ValueError("max_total_wall_time_s cannot be negative")
 

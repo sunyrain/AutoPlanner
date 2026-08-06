@@ -24,6 +24,7 @@ from cascade_planner.harness.deterministic_literature_registry import (
     build_deterministic_literature_resolvers,
     compile_deterministic_literature_step_registry,
     extract_deterministic_source_document,
+    extract_deterministic_structured_source_document,
 )
 from cascade_planner.harness.deterministic_resolver_cache import (
     DeterministicResolverCache,
@@ -56,7 +57,7 @@ from cascade_planner.interfaces.patent_source_discovery import (
 
 
 BUILTIN_PATENT_PROVIDER_ID = "autoplanner.builtin_patent_evidence"
-BUILTIN_PATENT_PROVIDER_VERSION = "1.5.0"
+BUILTIN_PATENT_PROVIDER_VERSION = "1.7.0"
 SOURCE_DISCOVERY_OBSERVATION_SCHEMA = "source_discovery_observation.v1"
 PatentCandidateProvider = Callable[
     [Iterable[str]], Iterable[Mapping[str, Any]]
@@ -159,16 +160,13 @@ def build_builtin_patent_evidence_connector(
             for row in requested_edges
             if row.get("current_host_reaction_validated") is True
         ]
-        discovery_only = not requested_edges
+        unvalidated_edge_discovery_only = bool(requested_edges and not edges)
+        discovery_only = not edges
         discovery_pdf_allowed = not (
             discovery_only
             and str(dict(request.get("limits") or {}).get("source_fetch_policy") or "")
             == "html_first_no_pdf"
         )
-        if requested_edges and not edges:
-            raise LiveEvidenceConnectorError(
-                "builtin_patent_evidence_no_validated_edges"
-            )
         queries = evidence_queries(request, limit=config.max_search_queries)
         run_cache = cache_root / "runs" / hashlib.sha256(
             str(request.get("run_id") or "anonymous-run").encode("utf-8")
@@ -186,16 +184,42 @@ def build_builtin_patent_evidence_connector(
             )
         resolve_structure = structure_resolver
         resolve_names = candidate_name_resolver
+        source_route_resolve_structure = structure_resolver
         if discovery_only:
             # Target-only prefetch is allowed to freeze source bytes and build
             # a source inventory, but it cannot bind or promote a reaction.
-            # Avoid paying resolver latency until validated edges exist.
+            # Exact-row compilation therefore receives authority-free empty
+            # resolvers.  Source-route observation uses a lazy real resolver
+            # only when a frozen document actually contains procedures.
             resolve_structure = resolve_structure or (lambda _value: "")
             resolve_names = resolve_names or (lambda _value: [])
+            if source_route_resolve_structure is None:
+                def lazy_source_route_resolver(value: str) -> str:
+                    return default_resolvers()[0](value)
+
+                source_route_resolve_structure = lazy_source_route_resolver
         elif resolve_structure is None or resolve_names is None:
             default_structure, default_names = default_resolvers()
             resolve_structure = resolve_structure or default_structure
             resolve_names = resolve_names or default_names
+            source_route_resolve_structure = resolve_structure
+        source_route_resolve_structure = (
+            source_route_resolve_structure or resolve_structure
+        )
+
+        anchor_smiles = []
+        for value in [
+            request.get("target_smiles"),
+            *[row.get("product_smiles") for row in requested_edges],
+        ]:
+            smiles = str(value or "").strip()
+            if smiles and smiles not in anchor_smiles:
+                anchor_smiles.append(smiles)
+        source_target_terms = [
+            value
+            for value in [str(request.get("target_name") or ""), *queries]
+            if str(value).strip()
+        ]
 
         source_dir = run_cache / "sources"
         source_dir.mkdir(parents=True, exist_ok=True)
@@ -238,7 +262,11 @@ def build_builtin_patent_evidence_connector(
                     compile_registry=compile_registry,
                     resolve_structure=resolve_structure,
                     resolve_names=resolve_names,
-                    target_terms=queries,
+                    source_route_resolve_structure=source_route_resolve_structure,
+                    anchor_smiles=anchor_smiles,
+                    target_name=str(request.get("target_name") or ""),
+                    target_smiles=str(request.get("target_smiles") or ""),
+                    target_terms=source_target_terms,
                     ocr_runner=ocr_runner,
                 )
             except (OSError, RuntimeError, ValueError, requests.RequestException) as exc:
@@ -271,6 +299,9 @@ def build_builtin_patent_evidence_connector(
                     row.get("structured_text_sha256") or ""
                 ),
                 "html_audit": dict(row.get("html_audit") or {}),
+                "structured_source_document_audit": dict(
+                    row.get("structured_source_document_audit") or {}
+                ),
                 "pdf_sha256": str(row.get("pdf_sha256") or ""),
                 "source_byte_cache": dict(row.get("source_byte_cache") or {}),
                 "page_count": int(row.get("page_count") or 0),
@@ -343,6 +374,10 @@ def build_builtin_patent_evidence_connector(
                 "pdf_ocr_and_vision_are_unresolved_only_fallbacks": True,
                 "exact_rows_are_deterministically_reconstructed": True,
                 "target_only_prefetch_grants_no_evidence_authority": True,
+                "unvalidated_edges_fall_back_to_discovery_only": True,
+                "unvalidated_edge_discovery_only": (
+                    unvalidated_edge_discovery_only
+                ),
             },
         }
         receipt["content_sha256"] = _digest(receipt)
@@ -611,6 +646,10 @@ def _extract_candidate(
     compile_registry: RegistryCompiler,
     resolve_structure: StructureResolver,
     resolve_names: CandidateNameResolver,
+    source_route_resolve_structure: StructureResolver,
+    anchor_smiles: Iterable[str],
+    target_name: str,
+    target_smiles: str,
     target_terms: Iterable[str],
     ocr_runner: OcrRunner | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -618,6 +657,17 @@ def _extract_candidate(
     source_ref = f"patent:{publication}"
     patent_dir = output_dir / publication.lower()
     patent_dir.mkdir(parents=True, exist_ok=True)
+    target_name_key = _source_name_identity(target_name)
+
+    def resolve_source_name(name: str) -> str:
+        if (
+            target_smiles
+            and target_name_key
+            and _source_name_identity(name) == target_name_key
+        ):
+            return target_smiles
+        return source_route_resolve_structure(name)
+
     html_attempt = (
         attempt_primary_patent_html(
             candidate,
@@ -630,7 +680,7 @@ def _extract_candidate(
             fetch=fetch_html,
             fetch_xml=fetch_xml,
             compile_registry=compile_registry,
-            resolve_structure=resolve_structure,
+            resolve_structure=resolve_source_name,
             resolve_names=resolve_names,
             target_terms=target_terms,
         )
@@ -659,8 +709,28 @@ def _extract_candidate(
     ocr_audit: dict[str, Any] = {}
     pdf_registry: dict[str, Any] = {}
     source_route_observation: dict[str, Any] = {}
+    structured_source_document: dict[str, Any] = {}
     route_metadata: dict[str, dict[str, Any]] = {}
     html_materialization = dict(html_attempt.get("materialization") or {})
+    structured_companion = dict(html_materialization.get("companion") or {})
+    if (
+        str(html_materialization.get("artifact_sha256") or "")
+        and structured_companion
+    ):
+        structured_source_document = (
+            extract_deterministic_structured_source_document(
+                structured_companion,
+                source_ref=source_ref,
+                structure_resolver=resolve_source_name,
+            )
+        )
+        source_route_observation = (
+            compile_deterministic_source_route_observation(
+                structured_source_document,
+                structure_resolver=resolve_source_name,
+                anchor_smiles=anchor_smiles,
+            )
+        )
     if remaining_edges or (
         discovery_only
         and discovery_pdf_allowed
@@ -779,21 +849,29 @@ def _extract_candidate(
                 pdf_path,
                 source_ref=source_ref,
                 source_pdf_sha256=pdf_sha256,
-                structure_resolver=resolve_structure,
+                structure_resolver=resolve_source_name,
                 source_text_companions=companions,
             )
-            source_route_observation = (
+            pdf_source_route_observation = (
                 compile_deterministic_source_route_observation(
                     source_document,
-                    structure_resolver=resolve_structure,
+                    structure_resolver=resolve_source_name,
                     source_evidence=evidence,
                     anchor_smiles=[
-                        str(edge.get("product_smiles") or "")
-                        for edge in edges
-                        if str(edge.get("product_smiles") or "")
+                        *[str(value) for value in anchor_smiles if str(value)],
+                        *[
+                            str(edge.get("product_smiles") or "")
+                            for edge in edges
+                            if str(edge.get("product_smiles") or "")
+                        ],
                     ],
                 )
             )
+            if (
+                int(pdf_source_route_observation.get("proposal_count") or 0)
+                >= int(source_route_observation.get("proposal_count") or 0)
+            ):
+                source_route_observation = pdf_source_route_observation
             steps = _pdf_registry_steps(
                 remaining_edges,
                 source_ref=source_ref,
@@ -837,7 +915,7 @@ def _extract_candidate(
                 compile_registry(
                     steps,
                     registry_path=patent_dir / "pdf-deterministic-step-registry.json",
-                    structure_resolver=resolve_structure,
+                    structure_resolver=resolve_source_name,
                     candidate_name_resolver=resolve_names,
                     timeout_s=config.timeout_s,
                 )
@@ -888,7 +966,14 @@ def _extract_candidate(
         structured_artifact_kind=structured_artifact_kind,
         used_pdf=len(rows) > html_row_count,
     )
-    procedure_inventory = _procedure_inventory(html_registry, pdf_registry)
+    structured_inventory_audit = _source_document_inventory_audit(
+        structured_source_document
+    )
+    procedure_inventory = _procedure_inventory(
+        html_registry,
+        pdf_registry,
+        structured_inventory_audit,
+    )
     return source, {
         "publication_number": publication,
         "family_id": str(candidate.get("family_id") or ""),
@@ -928,6 +1013,19 @@ def _extract_candidate(
         "source_route_proposal_count": int(
             source_route_observation.get("proposal_count") or 0
         ),
+        "structured_source_document_audit": {
+            "accepted": structured_source_document.get("accepted") is True,
+            "source_artifact_kind": str(
+                structured_source_document.get("source_artifact_kind") or ""
+            ),
+            "procedure_count": int(
+                structured_source_document.get("procedure_count") or 0
+            ),
+            "resolved_procedure_count": int(
+                structured_source_document.get("resolved_procedure_count") or 0
+            ),
+            "reasons": list(structured_source_document.get("reasons") or [])[:16],
+        },
         "ocr_audit": _bounded_ocr_audit(ocr_audit),
         "visual_candidate_pages": _visual_candidate_pages(
             manifest,
@@ -1137,6 +1235,52 @@ def _procedure_inventory(
                 if len(rows) >= 64:
                     return rows
     return rows
+
+
+def _source_document_inventory_audit(
+    document: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Adapt direct structured-document replay to the bounded audit shape."""
+
+    procedures = [
+        {
+            "label": str(row.get("label") or "")[:80],
+            "name": " ".join(str(row.get("name") or "").split())[:1000],
+            "page_number": int(row.get("page_number") or 0),
+            "procedure_excerpt": " ".join(
+                str(row.get("procedure") or "").split()
+            )[:800],
+        }
+        for row in document.get("procedures") or []
+        if isinstance(row, Mapping)
+    ][:64]
+    if not procedures:
+        return {}
+    return {
+        "source_procedure_inventory": [
+            {
+                "source_ref": str(document.get("source_ref") or ""),
+                "source_artifact_kind": str(
+                    document.get("source_artifact_kind") or "html"
+                ),
+                "source_artifact_sha256": str(
+                    document.get("source_artifact_sha256") or ""
+                ),
+                "procedure_count": len(procedures),
+                "procedures": procedures,
+                "semantics": {
+                    "discovery_only": True,
+                    "grants_no_exact_reaction_evidence": True,
+                },
+            }
+        ]
+    }
+
+
+def _source_name_identity(value: Any) -> str:
+    return " ".join(
+        re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).split()
+    )
 
 
 def _bounded_html_audit(value: Mapping[str, Any]) -> dict[str, Any]:
