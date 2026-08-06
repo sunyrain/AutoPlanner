@@ -94,3 +94,5 @@ W8 只有在四臂均覆盖 190 个目标、所有失败保留、paired metrics 
 修复后的正式根目录为 `results/.autoplanner/retrostar190-w8-formal-20260806-b`。RunKernel 现在把广义 attempt budget 重新绑定为 target native 1、guided frontier 5、native total 6；首个正式 case 的不可变 run spec 已确认这些值。Adaptive 完成后，其余三臂由隐藏接续器顺序启动。
 
 首个正式 adaptive case 已完成：499.391 s，B1=true、B2=true、B4=true，5 条 target-rooted/materialized skeleton、1 条 reaction-validated skeleton、1 条 stock-closed skeleton；native-search 精确结算为 target 1 + frontier 5，未越界。B3/B5 仍为 false，未放宽科学门。
+
+第二个正式 adaptive case 已完成：508.562 s，B1=true、B4=true，5 条 target-rooted/materialized skeleton、3 条 stock-closed skeleton；native-search 同样精确结算为 target 1 + frontier 5，模型调用为 1。B2/B3/B5 均为 false，结果按冻结门原样保留；报告 SHA-256 为 `6174538f19de97f0f422ac8d2eea34d992d7fa87868c7a74f707a22f57565fb3`。当前 target 003 已自动接棒。

@@ -2,7 +2,7 @@
   "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
   "freeze_id": "retrostar190-w8-four-arm-20260806",
   "created_on": "2026-08-06",
-  "status": "four_arm_preflight_passed_formal_adaptive_active_first_case_complete",
+  "status": "four_arm_preflight_passed_formal_adaptive_active_two_cases_complete",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
     "commit": "f607b75b6b59a7ba172a637559da61e0448ac18a",
@@ -139,6 +139,7 @@
       "unified-round-robin"
     ],
     "remaining_arms_are_automatically_sequenced": true,
+    "completed_case_count_at_checkpoint": 2,
     "first_completed_case": {
       "case_id": "retrostar190-001-ddec287bee",
       "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 001/target-only-solve-report.json",
@@ -169,6 +170,38 @@
         "input_tokens": 25654,
         "output_tokens": 6545,
         "wall_time_s": 132.688
+      }
+    },
+    "second_completed_case": {
+      "case_id": "retrostar190-002-5e5138eaad",
+      "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 002/target-only-solve-report.json",
+      "report_sha256": "6174538f19de97f0f422ac8d2eea34d992d7fa87868c7a74f707a22f57565fb3",
+      "elapsed_s": 508.562,
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": false,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": true,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "route_counts": {
+        "target_rooted_distinct_skeletons": 5,
+        "materialized_skeletons": 5,
+        "reaction_validated_skeletons": 0,
+        "stock_closed_skeletons": 3
+      },
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 26079,
+        "output_tokens": 6480,
+        "wall_time_s": 133.391
       }
     }
   },
