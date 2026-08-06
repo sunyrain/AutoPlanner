@@ -666,7 +666,10 @@ def _partial_catalog(smiles: list[str], **_: Any) -> dict[str, Any]:
     timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     catalog["catalog_version"] = timestamp
     catalog["retrieved_at"] = timestamp
-    missing = sorted(set(smiles))[-1]
+    # Catalog membership is immutable across bounded query batches.  Making
+    # the miss depend on the current request set causes the same molecule to
+    # alternate between hit and miss as materialized route boundaries grow.
+    missing = "CCO"
     catalog["members"] = [
         row
         for row in catalog["members"]

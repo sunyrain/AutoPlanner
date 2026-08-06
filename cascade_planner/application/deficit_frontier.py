@@ -583,6 +583,16 @@ def compile_deficit_frontier(
             continue
         routes = _routes_for(route_index, molecule_id)
         selected = bool(set(routes) & selected_routes)
+        guided_expansion_observed = any(
+            str(hypothesis.get("product_smiles") or "")
+            == str(molecule.get("canonical_smiles") or "")
+            and str(origin.get("origin_kind") or "") == "chemenzy"
+            and str(origin.get("origin_ref") or "").startswith("chemenzy:guided-")
+            for hypothesis in dict(graph.get("hypotheses") or {}).values()
+            if isinstance(hypothesis, Mapping)
+            for origin in hypothesis.get("origin_records") or []
+            if isinstance(origin, Mapping)
+        )
         active_stock_id = str(molecule.get("active_stock_observation_id") or "")
         active_stock = dict(
             dict(graph.get("stock_observations") or {}).get(active_stock_id) or {}
@@ -638,7 +648,11 @@ def compile_deficit_frontier(
         # materialization.  Keep the frontier and worker authority aligned.
         if not selected or molecule_id not in selected_leaf_ids:
             continue
-        if active_stock_id and active_stock.get("accepted") is not True:
+        if (
+            active_stock_id
+            and active_stock.get("accepted") is not True
+            and not guided_expansion_observed
+        ):
             items.append(
                 _item(
                     DeficitKind.EXPANSION,

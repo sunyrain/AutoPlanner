@@ -707,6 +707,28 @@ def solve_target(
                 "status": "failed",
                 "reasons": ["chemenzy_frontier_action_scope_invalid"],
             }
+        current_graph = service.graph_store.load()
+        if any(
+            str(hypothesis.get("product_smiles") or "") == frontier_smiles
+            and any(
+                str(origin.get("origin_kind") or "") == "chemenzy"
+                and str(origin.get("origin_ref") or "").startswith("chemenzy:guided-")
+                for origin in hypothesis.get("origin_records") or []
+                if isinstance(origin, Mapping)
+            )
+            for hypothesis in dict(current_graph.get("hypotheses") or {}).values()
+            if isinstance(hypothesis, Mapping)
+        ):
+            return {
+                "status": "skipped",
+                "frontier_smiles": [frontier_smiles],
+                "proposal_count": 0,
+                "provider_invocation_count": 0,
+                "reasons": ["guided_frontier_already_attempted"],
+                "semantics": {
+                    "duplicate_guided_provider_call_suppressed": True,
+                },
+            }
         return run_chemenzy_guided_frontier_stage(
             service,
             target_name=case.target_name,
@@ -2360,15 +2382,43 @@ def solve_target(
             and str(dict(row.get("metadata") or {}).get("frontier_smiles") or "")
             in prior_attempted_frontiers
         )
-        guided_action_executions = project_action_results(
-            "chemenzy_guided_frontier_expand",
-            guided_chemenzy_action_runtime,
-            max_actions=initial_guided_limit,
-            excluded_action_ids=guided_excluded_action_ids,
+        stock_recovery_only = any(
+            row.get("kind") == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
+            and str(
+                dict(row.get("metadata") or {}).get("stock_observation_id") or ""
+            )
+            for row in guided_opportunities.get("actions") or []
+            if isinstance(row, Mapping)
+        ) or any(
+            str(dict(execution.get("action") or {}).get("kind") or "")
+            == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
+            and str(
+                dict(
+                    dict(execution.get("action") or {}).get("metadata") or {}
+                ).get("stock_observation_id")
+                or ""
+            )
+            for execution in preexecuted_action_backlog
+            if isinstance(execution, Mapping)
+        )
+        guided_action_executions = (
+            []
+            if stock_recovery_only
+            else project_action_results(
+                "chemenzy_guided_frontier_expand",
+                guided_chemenzy_action_runtime,
+                max_actions=initial_guided_limit,
+                excluded_action_ids=guided_excluded_action_ids,
+            )
         )
         guided_stage = _aggregate_guided_chemenzy_action_results(
             guided_action_executions
         )
+        if stock_recovery_only:
+            guided_stage["semantics"] = {
+                **dict(guided_stage.get("semantics") or {}),
+                "stock_recovery_frontiers_deferred_until_stock_stage": True,
+            }
         guided_stage["new_proposal_count"] = int(
             guided_stage.get("proposal_count") or 0
         )
