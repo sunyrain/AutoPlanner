@@ -21,6 +21,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
+    _bind_native_search_budget,
     _automatic_continuation_exhausted,
     _chemenzy_delegation_audit,
     _current_disposition,
@@ -51,6 +52,26 @@ TARGET = "CCOC(C)=O"
 
 def test_target_solver_enables_target_level_chemenzy_seed_by_default() -> None:
     assert TargetSolveConfig().enable_target_chemenzy_baseline is True
+
+
+def test_target_solver_binds_native_search_to_target_and_guided_caps() -> None:
+    broad = RetrosynthesisRunBudget(max_attempt_runs=192)
+
+    bounded = _bind_native_search_budget(
+        broad,
+        config=TargetSolveConfig(max_guided_chemenzy_frontiers=5),
+    )
+    disabled = _bind_native_search_budget(
+        broad,
+        config=TargetSolveConfig(enable_chemenzy=False),
+    )
+
+    assert bounded.max_native_search_invocations == 6
+    assert bounded.min_target_native_search_invocations == 1
+    assert bounded.max_frontier_native_search_invocations == 5
+    assert disabled.max_native_search_invocations == 0
+    assert disabled.min_target_native_search_invocations == 0
+    assert disabled.max_frontier_native_search_invocations == 0
 
 
 def test_replan_signal_gate_rejects_a_route_deficit_without_new_information() -> None:

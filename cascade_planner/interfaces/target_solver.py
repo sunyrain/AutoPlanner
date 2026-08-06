@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -326,7 +326,7 @@ def solve_target(
         minimum_independent_source_groups=2,
         require_distinct_edge_sets=True,
     )
-    resolved_budget = budget or RetrosynthesisRunBudget(
+    requested_budget = budget or RetrosynthesisRunBudget(
         max_model_invocations=2,
         max_total_input_tokens=50_000,
         max_total_output_tokens=14_000,
@@ -335,6 +335,10 @@ def solve_target(
         max_accepted_expansions=32,
         max_attempt_runs=72,
         max_prompt_context_bytes=96_000,
+    )
+    resolved_budget = _bind_native_search_budget(
+        requested_budget,
+        config=active,
     )
     supplied_name = " ".join(str(target_name or "").split())
     opaque_name = f"target-{hashlib.sha256(canonical.encode()).hexdigest()[:8]}"
@@ -4363,6 +4367,37 @@ def _budget_input(value: RetrosynthesisRunBudget) -> dict[str, Any]:
             "max_prompt_context_bytes",
         }
     }
+
+
+def _bind_native_search_budget(
+    value: RetrosynthesisRunBudget,
+    *,
+    config: TargetSolveConfig,
+) -> RetrosynthesisRunBudget:
+    """Bind broad attempt budgets to the configured target/guided call caps."""
+
+    requested_total = max(0, int(value.max_native_search_invocations or 0))
+    target_limit = int(
+        config.enable_chemenzy and config.enable_target_chemenzy_baseline
+    )
+    target_limit = min(target_limit, requested_total)
+    configured_frontier_limit = (
+        config.max_guided_chemenzy_frontiers
+        if config.enable_chemenzy and config.enable_guided_chemenzy
+        else 0
+    )
+    frontier_limit = min(
+        max(0, int(value.max_frontier_native_search_invocations or 0)),
+        max(0, int(configured_frontier_limit)),
+        max(0, requested_total - target_limit),
+    )
+    hard_total = target_limit + frontier_limit
+    return replace(
+        value,
+        max_native_search_invocations=hard_total,
+        min_target_native_search_invocations=target_limit,
+        max_frontier_native_search_invocations=frontier_limit,
+    )
 
 
 def _audit_stock_stage(
