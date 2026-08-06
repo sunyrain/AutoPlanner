@@ -1,7 +1,7 @@
 # Unified Anytime RetroStar-190 Protocol
 
 日期：2026-08-06  
-状态：W8 四臂冻结协议与 760/760 fresh preflight 已完成；首次 formal launch 发现并阻断 run-wide guided budget 未封顶问题，已修复为 target 1 + guided 5 的硬上限，等待在全新根目录重启。
+状态：W8 四臂冻结协议与 760/760 fresh preflight 已完成；run-wide guided budget 已修复为 target 1 + guided 5 的硬上限，`-b` 根目录的 `unified-adaptive` 正式全 190 正在运行。
 
 机器可读冻结清单：`benchmarks/retrostar190_w8_freeze_20260806.json`。
 
@@ -91,4 +91,4 @@ W8 只有在四臂均覆盖 190 个目标、所有失败保留、paired metrics 
 
 首次运行根目录 `results/.autoplanner/retrostar190-w8-formal-20260806-a` 只保留为预算失败审计，不进入任何结果。该运行在第一个目标观察到 14 次 frontier settlement，而配置值为 5，因此被立即停止。
 
-修复后的正式根目录为 `results/.autoplanner/retrostar190-w8-formal-20260806-b`。RunKernel 现在把广义 attempt budget 重新绑定为 target native 1、guided frontier 5、native total 6；所有入口共享这一硬约束。
+修复后的正式根目录为 `results/.autoplanner/retrostar190-w8-formal-20260806-b`。RunKernel 现在把广义 attempt budget 重新绑定为 target native 1、guided frontier 5、native total 6；首个正式 case 的不可变 run spec 已确认这些值。Adaptive 完成后，其余三臂由隐藏接续器顺序启动。

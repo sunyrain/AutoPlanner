@@ -2,7 +2,7 @@
   "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
   "freeze_id": "retrostar190-w8-four-arm-20260806",
   "created_on": "2026-08-06",
-  "status": "four_arm_preflight_passed_budget_cap_fixed_formal_restart_pending",
+  "status": "four_arm_preflight_passed_budget_capped_formal_adaptive_active",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
     "commit": "f607b75b6b59a7ba172a637559da61e0448ac18a",
@@ -122,7 +122,11 @@
   },
   "formal_run": {
     "root": "results/.autoplanner/retrostar190-w8-formal-20260806-b",
-    "status": "restart_pending",
+    "status": "unified_adaptive_running",
+    "active_arm": "unified-adaptive",
+    "snapshot_content_sha256": "1fcc776c58219cd33f13fccf6e9729314cff46db8e64fa24838126e537b89309",
+    "snapshot_file_sha256": "2b0d08d67a9c69cb3495b51c1ffd728f8e09c1333e74a9d179f1ca75f0c03fea",
+    "first_case_run_spec_file_sha256": "da570b1ac3541d6e381db96098a938f61b0e25687cc2f89635c3a0136884a649",
     "hard_native_search_limits": {
       "target": 1,
       "guided_frontier": 5,
@@ -133,7 +137,8 @@
       "chemenzy-only",
       "codex-only",
       "unified-round-robin"
-    ]
+    ],
+    "remaining_arms_are_automatically_sequenced": true
   },
   "constraints": {
     "target_grouping": false,
