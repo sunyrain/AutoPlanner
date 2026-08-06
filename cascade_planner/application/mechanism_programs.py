@@ -209,7 +209,7 @@ def _compile_proposal(
     innovation = dict(candidate["route_innovation"])
     identity = {
         "run_id": projection["run_id"],
-        "graph_revision": projection["source_graph_revision"],
+        "scientific_sha256": projection["source_graph_scientific_sha256"],
         "route_id": route.get("route_id"),
         "candidate_id": candidate.get("candidate_id"),
         "innovation_id": innovation.get("innovation_id"),

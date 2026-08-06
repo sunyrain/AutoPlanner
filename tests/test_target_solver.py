@@ -11,6 +11,9 @@ import fitz
 from PIL import Image, ImageDraw
 import cascade_planner.interfaces.target_solver as target_solver_module
 
+from cascade_planner.application.biocatalytic_program_contracts import (
+    with_biocatalysis_program_validation_digest,
+)
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
@@ -1944,6 +1947,287 @@ def test_target_solver_runs_program_discovery_without_implicit_store_admission(
     assert discovery["semantics"]["program_candidates_are_proposal_only"] is True
     assert review["store"]["status"]["event_count"] == 0
     assert not any(row["stage"] == "program_admission" for row in result["stages"])
+
+
+def test_completed_target_resume_ingests_new_feedback_and_rejects_invalid_feedback(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    feedback_target = "CCO"
+
+    def program_runner(
+        spec: AgentSpec, context: Any, mode: str, _config: Any
+    ) -> AgentResult:
+        precursors = (
+            ("family:carbonyl", "CC=O", "carbonyl reduction"),
+            ("family:ether", "COC", "ether rearrangement"),
+            ("family:epoxide", "C1CO1", "epoxide reduction"),
+        )
+        plan = {
+            "schema_version": "global_campaign_plan.v1",
+            "plan_id": f"program-feedback-plan:{mode}",
+            "run_id": context.run_id,
+            "mode": mode,
+            "context_sha256": context.content_sha256,
+            "graph_revision": context.revision.graph_revision,
+            "route_families": [
+                {
+                    "route_family_id": family_id,
+                    "title": strategy,
+                    "strategy": strategy,
+                    "target_smiles": feedback_target,
+                    "advantages": ["single precursor"],
+                    "risks": ["requires validation"],
+                    "diversity_basis": precursor,
+                }
+                for family_id, precursor, strategy in precursors
+            ],
+            "multi_step_skeletons": [
+                {
+                    "skeleton_id": f"program-feedback-skeleton:{index}",
+                    "route_family_id": family_id,
+                    "summary": strategy,
+                    "steps": [
+                        {
+                            "step_id": f"program-feedback-step:{index}",
+                            "product_smiles": feedback_target,
+                            "precursor_smiles": [precursor],
+                            "transformation_hypothesis": strategy,
+                            "strategic_role": "target convergence",
+                            "source_hints": [],
+                            "required_validation": ["atom mapping", "stock audit"],
+                            "hypothesis_only": True,
+                            "condition_predictions": [
+                                {
+                                    "reagents": ["screen catalyst"],
+                                    "solvent": "water",
+                                    "temperature_c": 25,
+                                    "time": "screen",
+                                    "authority_scope": "model_predicted_condition",
+                                    "not_reaction_proof": True,
+                                }
+                            ],
+                        }
+                    ],
+                }
+                for index, (family_id, precursor, strategy) in enumerate(
+                    precursors, start=1
+                )
+            ],
+            "strategic_disconnections": [],
+            "shared_intermediates": [],
+            "critical_unknowns": [],
+            "source_plan": [],
+            "fallback_strategies": [],
+            "frontier_priorities": [],
+            "pivot_conditions": [],
+            "stop_conditions": [],
+            "portfolio_rationale": "Three target-blind single-precursor families.",
+            "limitations": ["requires host validation"],
+        }
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:result",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.SUCCEEDED,
+            output=plan,
+            usage={
+                "model_invocations": 1,
+                "input_tokens": 500,
+                "output_tokens": 500,
+                "wall_time_s": 0.1,
+            },
+        )
+
+    def program_mapper(reactions: list[str]) -> list[str]:
+        mapped = {
+            "CC=O": "[CH3:1][CH:2]=[O:3]>>[CH3:1][CH2:2][OH:3]",
+            "COC": "[CH3:1][O:3][CH3:2]>>[CH3:1][CH2:2][OH:3]",
+            "C1CO1": "[CH2:1]1[CH2:2][O:3]1>>[CH3:1][CH2:2][OH:3]",
+        }
+        return [
+            next(
+                value
+                for precursor, value in mapped.items()
+                if reaction.startswith(precursor + ">>")
+            )
+            for reaction in reactions
+        ]
+
+    capability = {
+        "capability_id": "fixture:generic-program-capability",
+        "enzyme": {"classes": ["ketoreductase"]},
+        "match": {
+            "net_motif_delta": {"carbonyl": -1, "hydroxyl": 1},
+            "element_delta": {"C": 0, "O": 0},
+            "min_scaffold_similarity": 0.0,
+            "max_abs_heavy_atom_delta": 0,
+            "min_window_steps": 1,
+            "max_window_steps": 1,
+            "reject_unlisted_motif_changes": False,
+        },
+        "selectivity_objective": "Reduce the exact carbonyl boundary to ethanol.",
+        "substrate_scope_basis": "test exact-boundary screen",
+        "precedent_refs": ["doi:10.1000/program-fixture"],
+    }
+    acceptance = RetrosynthesisAcceptanceSpec(
+        minimum_complete_routes=1,
+        minimum_edge_proof_level=2,
+        stock_boundary="benchmark_search",
+        minimum_independent_source_groups=1,
+    )
+    config = TargetSolveConfig(
+        enable_chemenzy=False,
+        enable_web_search=False,
+        enable_replan=False,
+        enable_condition_enrichment=False,
+        enable_builtin_patent_evidence=False,
+        enable_program_discovery=True,
+        enable_program_review=True,
+        enable_program_admission=False,
+        enable_program_validation=True,
+        enable_experimental_claim_admission=False,
+    )
+    run_id = "program-feedback-terminal-resume"
+    first = gateway.solve_target(
+        target_name="program feedback target",
+        target_smiles=feedback_target,
+        run_id=run_id,
+        acceptance=acceptance,
+        config=config,
+        director_runner=program_runner,
+        atom_mapper=program_mapper,
+        stock_catalog_builder=_catalog,
+        program_capabilities=[capability],
+    )
+    discovery_results = next(
+        row for row in first["stages"] if row["stage"] == "program_discovery"
+    )["detail"]["results"]
+    discovery = next(
+        value
+        for value in discovery_results
+        if dict(
+            dict(value.get("program_review") or {}).get("program_bundle") or {}
+        ).get("program_proposals")
+    )
+    service = gateway._open(run_id, run_dir=first["run_dir"])
+    current_program_review = service.review_route_program_innovations(
+        discovery["route_id"],
+        capabilities=[capability],
+    )
+    proposal = next(
+        iter(current_program_review["program_bundle"]["program_proposals"].values())
+    )
+    validation = with_biocatalysis_program_validation_digest(
+        {
+            "schema_version": "biocatalysis_program_validation.v1",
+            "validation_id": "validation:terminal-resume:success",
+            "program_id": proposal["program_id"],
+            "innovation_id": proposal["source_innovation_id"],
+            "accepted": True,
+            "evidence_tier": "exact_substrate_screen",
+            "input_state_ids": proposal["input_state_ids"],
+            "output_state_ids": proposal["output_state_ids"],
+            "claim_refs": ["claim:terminal-resume:exact-boundary"],
+            "condition_record_ids": [],
+            "selectivity_assessed": True,
+            "cofactor_ledger_closed": True,
+            "outcome": {"conversion_fraction": 0.82},
+        }
+    )
+    scientific_before = service.graph_store.load()["scientific_sha256"]
+
+    resumed = gateway.solve_target(
+        target_name="program feedback target",
+        target_smiles=feedback_target,
+        run_id=run_id,
+        acceptance=acceptance,
+        config=config,
+        resume=True,
+        director_runner=program_runner,
+        atom_mapper=program_mapper,
+        stock_catalog_builder=_catalog,
+        program_capabilities=[capability],
+        program_validation_feedback=(
+            {"route_id": discovery["route_id"], "validation": validation},
+        ),
+    )
+    valid_feedback = [
+        row["detail"]
+        for row in resumed["stages"]
+        if row["stage"].startswith("campaign_action_unified_core_")
+        and dict(row["detail"].get("action") or {}).get("kind")
+        == "experiment_feedback_ingest"
+    ][-1]
+
+    assert first["stop_decision"]["decision"] == "completed"
+    assert any(
+        row["stage"] == "terminal_checkpoint_reopened"
+        for row in resumed["stages"]
+    )
+    assert valid_feedback["status"] == "completed"
+    assert (
+        valid_feedback["outcome"]["handler_result"]["validation_id"]
+        == validation["validation_id"]
+    )
+    assert (
+        gateway._open(run_id, run_dir=first["run_dir"])
+        .graph_store.load()["scientific_sha256"]
+        == scientific_before
+    )
+    assert gateway.experimental_claim_store(
+        run_id, run_dir=first["run_dir"]
+    )["replay"]["event_count"] == 0
+
+    invalid_material = {
+        key: value for key, value in validation.items() if key != "content_sha256"
+    }
+    invalid_material["validation_id"] = "validation:terminal-resume:invalid"
+    invalid_material["input_state_ids"] = ["chemical-state:tampered"]
+    invalid = with_biocatalysis_program_validation_digest(invalid_material)
+    rejected = gateway.solve_target(
+        target_name="program feedback target",
+        target_smiles=feedback_target,
+        run_id=run_id,
+        acceptance=acceptance,
+        config=config,
+        resume=True,
+        director_runner=program_runner,
+        atom_mapper=program_mapper,
+        stock_catalog_builder=_catalog,
+        program_capabilities=[capability],
+        program_validation_feedback=(
+            {"route_id": discovery["route_id"], "validation": invalid},
+        ),
+    )
+    invalid_feedback = [
+        row["detail"]
+        for row in rejected["stages"]
+        if row["stage"].startswith("campaign_action_unified_core_")
+        and dict(row["detail"].get("action") or {}).get("kind")
+        == "experiment_feedback_ingest"
+        and row["detail"]["outcome"]["handler_result"].get("validation_id")
+        == invalid["validation_id"]
+    ][-1]
+
+    assert invalid_feedback["status"] == "failed"
+    assert invalid_feedback["outcome"]["handler_result"]["reasons"] == [
+        "experiment_feedback_domain_gate_rejected"
+    ]
+    assert (
+        gateway._open(run_id, run_dir=first["run_dir"])
+        .graph_store.load()["scientific_sha256"]
+        == scientific_before
+    )
+    assert gateway.experimental_claim_store(
+        run_id, run_dir=first["run_dir"]
+    )["replay"]["event_count"] == 0
 
 
 def test_target_solver_can_close_procurement_from_frozen_supplier_snapshot(

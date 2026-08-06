@@ -1,7 +1,7 @@
 # AutoPlanner V4 统一 Anytime 架构优化 TODO
 
 更新日期：2026-08-06
-状态：实施中；W1–W4 已完成，当前进入 W5 兼容层、入口与 resume/trajectory 收束
+状态：实施中；W1–W5 已完成，当前进入 W6 embedded 首损边界定因
 适用范围：Canonical V4 主线、目标求解入口、ChemEnzy/Codex/文献/验证/Program 协同、RetroStar-190 评测
 
 计划口径：
@@ -89,9 +89,9 @@
 | W7 | 冻结与预评测门 | commit/config/stock/provider/scheduler manifest、全量离线门 | W6 | 除已批准延期的超行数预算项外全部通过 | 1–2 天 |
 | W8 | RetroStar-190 与论文防御包 | 四个全目标消融、paired metrics、失败分类、审稿材料 | W7 | 190 目标无挑样、无逐目标调参、结果可复现 | 2–4 天分析 + 机器运行 |
 
-剩余工程净工时粗估为 **6–12 人日**；W2/W3 的控制权收束与双初始 action 并发风险、W4 的 Program/实验权限边界已解除，当前主要结构风险转移到 W5 的入口/resume 兼容收束，W6 与 W8 的日历时间主要受 ChemEnzy/模型运行吞吐影响。
+剩余工程净工时粗估为 **4–9 人日 + 外部运行时间**；W2/W3 的控制权收束、W4 的 Program/实验权限边界和 W5 的终态恢复/兼容投影已解除，当前主要风险转移到 W6 的真实 embedded 首损定位、W7 冻结门和 W8 全量 190 运行及分析。W6 与 W8 的日历时间仍主要受 ChemEnzy/模型运行吞吐影响。
 
-当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本，默认不授予 Claim、不写 shadow，显式反馈重新经过现有 domain gate。canonical action-signal、Program、replan retention/gain 及 W3/W4 聚焦回归通过，相关文件通过 `py_compile`、Ruff 与 `git diff --check`。尚未运行完整离线测试或 RetroStar-190，本文件不得把 focused pass 表述为全系统完成。
+当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本，默认不授予 Claim、不写 shadow，显式反馈重新经过现有 domain gate。W5 已验证 completed checkpoint 新反馈重开、有效/无效反馈、科学图 digest 不变、Claim store 默认零写入、route-family rebound 和 Program ID 对 operational revision 稳定；最近聚焦组为 24、3、36、2 tests 全部通过，相关文件通过 `py_compile`、Ruff 与 `git diff --check`。尚未运行完整离线测试或 RetroStar-190，本文件不得把 focused pass 表述为全系统完成。
 
 ## 1. 不可破坏的架构约束
 
@@ -374,7 +374,7 @@ W2 验收门：
 - [ ] 记录 time-to-first-B1、time-to-first-host-valid-route、time-to-first-B4、time-to-B3/B5 和 Program milestones。
 - [ ] 每个 snapshot 绑定代码、配置、stock oracle、provider/model 和输入摘要。
 - [ ] resume 后继续同一 trajectory，不能从新的计时/预算基线伪造性能。
-- [ ] W5 必须允许“已完成 checkpoint 收到新的 canonical action signal/实验反馈”时重新进入同一 action loop；不能直接刷新旧终态报告而跳过反馈。
+- [x] W5 允许“已完成 checkpoint 收到新的 canonical action signal/实验反馈”时通过带工作指纹的 `run_reopened` 事件重新进入同一 action loop；不能直接刷新旧终态报告而跳过反馈。
 - [ ] benchmark harness 只读取固定 cutoff 的 trajectory projection，不向 solver 传 benchmark mode。
 - [ ] Workbench 同时展示当前最优路线和历史上曾达到的 milestone，避免后续 proof 撤销被最终状态掩盖。
 - [ ] 导出 action trace、失败 trace、route lineage 和资源曲线，供审稿复核。
@@ -520,7 +520,7 @@ W2 验收门：
 
 - [x] `CampaignAction` 与 runtime 基座已包住 materialization、validation、stock、conditions、ChemEnzy、Codex、evidence 和 Program discovery/review/admit。
 - [x] Program 专项 validation 与实验 feedback 已迁入同一 Action/RunKernel 账本，Claim/shadow/canonical 权限保持分离。
-- [ ] timeout/cancel/resource-release 与终态 checkpoint 新信号重开仍需在 W5 收束。
+- [x] 终态 checkpoint 新信号重开已在 W5 收束；timeout/cancel/resource-release 的完整组合回归仍留在后续运行门。
 - [ ] 门：无旁路 canonical write，W1–W4 完成后 replay/resume digest 稳定。
 
 ### Checkpoint D：接入 deficit-driven scheduler
@@ -571,5 +571,5 @@ W2 验收门：
 - [x] 第六刀（W2）：`target_solver.py` 只保留一个生产 `run_anytime()`；原 29 个 phase-level slice 已改为统一 trajectory/backlog 的兼容投影，replan retention/gain 审计也已绑定统一执行。
 - [x] 第七刀（W3）：Codex initial architecture 与 target ChemEnzy 已通过同一 runtime 的同 revision cohort 非阻塞启动；RunKernel 持有 durable in-flight reservation，稳定观察与 cache replay 已验证。
 - [x] 第八刀（W4）：已注册 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`；前者只形成待外部执行请求，后者复用现有 host gate/Claim store，默认不写 shadow 且不创建 canonical edge。
-- [ ] 第九刀（W5）：抽离 `target_solver_compat`，统一 CLI/API/Web/resume 的 trajectory 投影。
+- [x] 第九刀（W5）：抽离 `target_solver_compat`，统一旧 objective 展示、checkpoint cursor、外部反馈信号和 resume/trajectory 投影；新增 route-family rebound 与 scientific-content-bound Program ID，避免 operational revision 污染 Program 身份。
 - [ ] 第十刀（W6–W8）：定位真实 embedded failure，冻结协议后执行全量 190、全目标组件消融与审稿防御包。

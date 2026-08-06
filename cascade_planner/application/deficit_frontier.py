@@ -48,6 +48,8 @@ class DeficitKind(str, Enum):
     PROGRAM_DISCOVERY = "program_discovery"
     PROGRAM_REVIEW = "program_review"
     PROGRAM_ADMISSION = "program_admission"
+    PROGRAM_VALIDATION = "program_validation"
+    EXPERIMENT_FEEDBACK = "experiment_feedback"
 
 
 _KIND_ORDER = {
@@ -65,6 +67,8 @@ _KIND_ORDER = {
     DeficitKind.PROGRAM_DISCOVERY: 11,
     DeficitKind.PROGRAM_REVIEW: 12,
     DeficitKind.PROGRAM_ADMISSION: 13,
+    DeficitKind.PROGRAM_VALIDATION: 14,
+    DeficitKind.EXPERIMENT_FEEDBACK: 15,
 }
 
 

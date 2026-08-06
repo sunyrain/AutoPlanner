@@ -232,6 +232,44 @@ def test_kernel_creates_one_event_chain_snapshot_and_index(tmp_path: Path) -> No
     assert kernel.index.artifacts_for_run("run-1")[-1]["revision"] == 2
 
 
+def test_terminal_run_reopens_only_for_explicitly_bound_new_work(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    kernel.transition(
+        "completed",
+        idempotency_key="complete-before-external-feedback",
+    )
+    before = kernel.state
+
+    event = kernel.reopen_for_new_work(
+        work_fingerprint="feedback-sha256",
+        reasons=("new_program_validation_feedback",),
+        idempotency_key="reopen-for-feedback-sha256",
+    )
+
+    assert event.event_type == "run_reopened"
+    assert event.payload["from_status"] == "completed"
+    assert kernel.state.status == "running"
+    assert kernel.state.attempt_count == before.attempt_count
+    assert kernel.state.accepted_expansion_ids == before.accepted_expansion_ids
+    replayed_event = kernel.reopen_for_new_work(
+        work_fingerprint="feedback-sha256",
+        reasons=("new_program_validation_feedback",),
+        idempotency_key="reopen-for-feedback-sha256",
+    )
+    assert replayed_event.event_id == event.event_id
+
+    replayed = RunKernel(tmp_path / "runtime", tmp_path / "run")
+    assert replayed.state.status == "running"
+    with pytest.raises(RunKernelError, match="run_status_reopen_invalid"):
+        replayed.reopen_for_new_work(
+            work_fingerprint="other-work",
+            idempotency_key="cannot-reopen-running-run",
+        )
+
+
 def test_accepted_expansions_are_unique_and_attempts_are_independent(
     tmp_path: Path,
 ) -> None:

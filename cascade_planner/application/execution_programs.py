@@ -202,7 +202,7 @@ def _compile_proposal(
         raise ExecutionProgramError("execution_candidate_output_boundary_mismatch")
     identity = {
         "run_id": projection["run_id"],
-        "graph_revision": projection["source_graph_revision"],
+        "scientific_sha256": projection["source_graph_scientific_sha256"],
         "route_id": route.get("route_id"),
         "candidate_id": candidate.get("candidate_id"),
         "capability_sha256": capability["content_sha256"],

@@ -1356,6 +1356,8 @@ def _ingest_action_signal(
         "program_discovery",
         "program_review",
         "program_admission",
+        "program_validation",
+        "experiment_feedback",
     }:
         reasons.append("action_signal_kind_invalid")
     if status not in {"open", "resolved"}:

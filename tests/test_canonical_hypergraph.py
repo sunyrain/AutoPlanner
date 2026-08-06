@@ -133,6 +133,59 @@ def test_action_signal_is_canonical_frontier_work_not_scientific_fact(
     assert resolved["scientific_sha256"] == initial["scientific_sha256"]
 
 
+def test_program_validation_and_feedback_signals_reach_canonical_frontier(
+    tmp_path: Path,
+) -> None:
+    store = CanonicalHypergraphStore(_kernel(tmp_path))
+    initial = store.load()
+    target_id = str(initial["target_molecule_id"])
+    signals = (
+        {
+            "signal_id": "event-deficit:program-validation:test",
+            "kind": "program_validation",
+            "object_id": "experimental-work:test",
+            "entity_ids": ["program:test"],
+            "route_family_ids": ["route:test"],
+            "dependency_ids": [],
+            "deterministic": True,
+            "model_allowed": False,
+            "reason": "program_candidate_requires_specialized_validation",
+            "metadata": {"program_validation": True},
+        },
+        {
+            "signal_id": "event-deficit:experiment-feedback:test",
+            "kind": "experiment_feedback",
+            "object_id": "validation:test",
+            "entity_ids": ["program:test"],
+            "route_family_ids": ["route:test"],
+            "dependency_ids": [],
+            "deterministic": True,
+            "model_allowed": False,
+            "reason": "external_program_validation_feedback_available",
+            "metadata": {
+                "experiment_feedback": True,
+                "route_id": "route:test",
+                "validation": {"validation_id": "validation:test"},
+            },
+        },
+    )
+
+    result = store.apply(
+        CanonicalIngestionBatch(action_signals=signals),
+        idempotency_key="program-validation-feedback-signals",
+    )
+    graph = result["graph"]
+    frontier_by_id = {
+        row["deficit_id"]: row for row in graph["deficit_frontier"]["items"]
+    }
+
+    assert result["rejected"] == []
+    assert frontier_by_id[signals[0]["signal_id"]]["kind"] == "program_validation"
+    assert frontier_by_id[signals[1]["signal_id"]]["kind"] == "experiment_feedback"
+    assert graph["scientific_sha256"] == initial["scientific_sha256"]
+    assert target_id == graph["target_molecule_id"]
+
+
 def test_explicit_derived_projection_repair_restores_legacy_frontier(
     tmp_path: Path,
 ) -> None:

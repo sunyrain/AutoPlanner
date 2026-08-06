@@ -188,6 +188,7 @@ V4_MODULES = (
     "cascade_planner/providers/experiment.py",
     "cascade_planner/web/v4_target_runtime.py",
     "cascade_planner/interfaces/target_job_projection.py",
+    "cascade_planner/interfaces/target_solver_compat.py",
 )
 FORBIDDEN_V4_DEPENDENCIES = (
     "cascade_planner.legacy",

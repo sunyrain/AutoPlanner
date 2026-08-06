@@ -43,6 +43,7 @@ _NATIVE_SEARCH_RESOURCE_CLASSES = frozenset(
     {"native_search_target", "native_search_frontier"}
 )
 _TERMINAL_STATUSES = {"completed", "unresolved", "budget_exhausted", "cancelled", "failed"}
+_REOPENABLE_TERMINAL_STATUSES = {"completed", "unresolved", "budget_exhausted"}
 _STATUS_TRANSITIONS = {
     "created": {"running", "cancelled", "failed"},
     "running": _TERMINAL_STATUSES | {"paused"},
@@ -624,6 +625,59 @@ class RunKernel:
     def resume(self, *, idempotency_key: str = "run:resume") -> RunEvent:
         return self.transition("running", idempotency_key=idempotency_key)
 
+    def reopen_for_new_work(
+        self,
+        *,
+        work_fingerprint: str,
+        idempotency_key: str,
+        reasons: Iterable[str] = (),
+    ) -> RunEvent:
+        """Reopen an immutable terminal snapshot for newly arrived work.
+
+        This is deliberately narrower than ``resume``: only completed,
+        unresolved, or budget-exhausted runs may continue, and callers must
+        bind the event to a stable fingerprint of work that was not present at
+        the terminal checkpoint.  Scientific and resource counters are never
+        reset.
+        """
+
+        fingerprint = str(work_fingerprint or "").strip()
+        if not fingerprint:
+            raise ValueError("run_reopen_work_fingerprint_required")
+        normalized_reasons = sorted(
+            {str(value) for value in reasons if str(value).strip()}
+        )
+        existing = self._event_by_key(idempotency_key)
+        if existing is not None:
+            if (
+                existing.event_type != "run_reopened"
+                or str(existing.payload.get("work_fingerprint") or "")
+                != fingerprint
+                or list(existing.payload.get("reasons") or [])
+                != normalized_reasons
+            ):
+                raise RunKernelIdempotencyConflict(
+                    f"run_event_idempotency_conflict:{idempotency_key}"
+                )
+            return existing
+        current = self.state
+        if current.status not in _REOPENABLE_TERMINAL_STATUSES:
+            raise RunKernelError(
+                f"run_status_reopen_invalid:{current.status}->running"
+            )
+        payload = {
+            "from_status": current.status,
+            "work_fingerprint": fingerprint,
+            "reasons": normalized_reasons,
+            "semantics": {
+                "new_work_is_explicitly_bound": True,
+                "same_run_kernel_and_trajectory_continue": True,
+                "scientific_and_resource_counters_are_not_reset": True,
+                "cancelled_and_failed_runs_cannot_reopen": True,
+            },
+        }
+        return self._append("run_reopened", idempotency_key, payload)
+
     def extend_model_budget(
         self,
         budget: RetrosynthesisRunBudget,
@@ -1099,6 +1153,15 @@ class RunKernel:
             if target not in _STATUS_TRANSITIONS.get(state.status, set()):
                 raise RunKernelError(
                     f"run_status_transition_invalid:{state.status}->{target}"
+                )
+        elif event_type == "run_reopened":
+            if (
+                state.status not in _REOPENABLE_TERMINAL_STATUSES
+                or str(payload.get("from_status") or "") != state.status
+                or not str(payload.get("work_fingerprint") or "").strip()
+            ):
+                raise RunKernelError(
+                    f"run_status_reopen_invalid:{state.status}->running"
                 )
         elif event_type == "model_budget_extended":
             _model_budget_from_dict(dict(payload.get("budget") or {}))
@@ -1652,6 +1715,17 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
                 )
             state["status"] = target
             state["failure_reasons"] = list(payload.get("reasons") or [])
+        elif event.event_type == "run_reopened":
+            if (
+                state["status"] not in _REOPENABLE_TERMINAL_STATUSES
+                or str(payload.get("from_status") or "") != state["status"]
+                or not str(payload.get("work_fingerprint") or "").strip()
+            ):
+                raise RunKernelCorruptionError(
+                    f"replayed_status_reopen_invalid:{state['status']}->running"
+                )
+            state["status"] = "running"
+            state["failure_reasons"] = []
         elif event.event_type == "run_created":
             if event.sequence != 1:
                 raise RunKernelCorruptionError("run_created_event_not_first")

@@ -10,7 +10,7 @@ import math
 from pathlib import Path
 import re
 import time
-from typing import Any, Callable, Iterable, Literal, Mapping, TYPE_CHECKING
+from typing import Any, Callable, Iterable, Mapping, TYPE_CHECKING
 
 from cascade_planner.application.blind_acceptance import (
     compile_blind_acceptance_report,
@@ -85,6 +85,16 @@ from cascade_planner.interfaces.target_identity import (
     TARGET_IDENTITY_PROVIDER_VERSION,
     resolve_target_identity,
 )
+from cascade_planner.interfaces.target_solver_compat import (
+    TARGET_SOLVE_CHECKPOINT_SCHEMA,
+    TargetObjectiveMode,
+    build_target_resume_cursor,
+    classify_target_resume_work,
+    compile_program_validation_feedback_signals,
+    compile_target_claim_projection as _claim,
+    compile_target_solver_checkpoint,
+    validate_target_objective_mode,
+)
 from cascade_planner.interfaces.visual_evidence import (
     VisualEvidenceProvider,
     acquire_visual_evidence_candidates,
@@ -108,7 +118,6 @@ if TYPE_CHECKING:
 
 
 TARGET_SOLVE_REPORT_SCHEMA = "target_only_retrosynthesis_solve_report.v1"
-TARGET_SOLVE_CHECKPOINT_SCHEMA = "target_only_solve_checkpoint.v1"
 DEFAULT_TARGET_DIRECTOR_MODEL = "gpt-5.5"
 _DIRECTOR_TOPOLOGY_REASONS = frozenset(
     {
@@ -136,13 +145,6 @@ _REPLAN_ACTIONABLE_EVENTS = frozenset(
     }
 )
 _MAX_DIRECTOR_OUTCOMES = 10
-TargetObjectiveMode = Literal[
-    "benchmark_search",
-    "scientific_proof",
-    "procurement_delivery",
-]
-
-
 @dataclass(frozen=True, slots=True)
 class TargetSolveConfig:
     model: str = DEFAULT_TARGET_DIRECTOR_MODEL
@@ -208,12 +210,7 @@ class TargetSolveConfig:
             raise ValueError("target solver reasoning effort is invalid")
         if self.execution_profile not in {"fast", "standard", "proof"}:
             raise ValueError("target solver execution profile is invalid")
-        if self.objective_mode not in {
-            "benchmark_search",
-            "scientific_proof",
-            "procurement_delivery",
-        }:
-            raise ValueError("target solver objective mode is invalid")
+        validate_target_objective_mode(self.objective_mode)
         if self.max_atom_mapping_reactions < 1 or self.max_live_stock_molecules < 1:
             raise ValueError("target solver deterministic limits must be positive")
         if self.max_condition_prediction_reactions < 1:
@@ -557,6 +554,9 @@ def solve_target(
         for value in program_validation_feedback
         if isinstance(value, Mapping)
     )
+    resolved_feedback_signals = compile_program_validation_feedback_signals(
+        resolved_program_validation_feedback
+    )
     initial_director_context: Any | None = None
 
     def append_condition_stage(stage_name: str) -> dict[str, Any]:
@@ -760,12 +760,80 @@ def solve_target(
             },
         }
 
+    def resolve_program_route_binding(
+        action: CampaignAction,
+    ) -> dict[str, Any]:
+        requested_route_id = str(action.metadata.get("route_id") or "")
+        route_family_id = str(
+            action.metadata.get("route_family_id")
+            or next(iter(action.route_family_ids), "")
+        )
+        portfolio = compile_proof_portfolio(
+            service.graph_store.load(),
+            acceptance_spec=resolved_acceptance,
+        )
+        candidates = [
+            dict(value)
+            for value in portfolio.get("route_candidates") or []
+            if isinstance(value, Mapping)
+        ]
+        exact = next(
+            (
+                value
+                for value in candidates
+                if str(value.get("route_id") or "") == requested_route_id
+            ),
+            None,
+        )
+        if exact is not None:
+            return {
+                "status": "exact",
+                "requested_route_id": requested_route_id,
+                "route_id": requested_route_id,
+                "route_family_id": str(
+                    exact.get("route_family_id") or route_family_id
+                ),
+            }
+        family_candidates = sorted(
+            (
+                value
+                for value in candidates
+                if route_family_id
+                and str(value.get("route_family_id") or "") == route_family_id
+            ),
+            key=lambda value: (
+                value.get("selected") is not True,
+                str(value.get("route_id") or ""),
+            ),
+        )
+        if family_candidates:
+            rebound = family_candidates[0]
+            return {
+                "status": "route_family_rebound",
+                "requested_route_id": requested_route_id,
+                "route_id": str(rebound.get("route_id") or ""),
+                "route_family_id": route_family_id,
+                "semantics": {
+                    "signal_remains_bound_to_same_route_family": True,
+                    "latest_canonical_route_variant_is_used": True,
+                    "no_cross_family_retargeting": True,
+                },
+            }
+        return {
+            "status": "missing",
+            "requested_route_id": requested_route_id,
+            "route_id": "",
+            "route_family_id": route_family_id,
+        }
+
     def handle_program_discovery(action: CampaignAction) -> dict[str, Any]:
-        route_id = str(action.metadata.get("route_id") or "")
+        route_binding = resolve_program_route_binding(action)
+        route_id = str(route_binding.get("route_id") or "")
         if not route_id:
             return {
                 "status": "failed",
-                "reasons": ["program_discovery_route_id_missing"],
+                "reasons": ["program_discovery_route_binding_missing"],
+                "route_binding": route_binding,
             }
         program_review = service.review_route_program_innovations(
             route_id,
@@ -794,6 +862,7 @@ def solve_target(
                 else "reused_or_empty"
             ),
             "route_id": route_id,
+            "route_binding": route_binding,
             "candidate_count": int(discovery.get("candidate_count") or 0),
             "program_draft_candidate_ids": list(
                 discovery.get("program_draft_candidate_ids") or []
@@ -863,6 +932,35 @@ def solve_target(
                 "reasons": ["experiment_feedback_claim_projection_rejected"],
                 "claim_oracle": claim_oracle,
             }
+        experimental_claims = dict(
+            program_review.get("experimental_claims") or {}
+        )
+        validation_id = str(validation.get("validation_id") or "")
+        matching_claims = [
+            dict(value)
+            for value in dict(experimental_claims.get("claims") or {}).values()
+            if isinstance(value, Mapping)
+            and str(
+                dict(value.get("source_validation") or {}).get("validation_id")
+                or ""
+            )
+            == validation_id
+        ]
+        if not matching_claims:
+            return {
+                "status": "failed",
+                "reasons": ["experiment_feedback_domain_gate_rejected"],
+                "route_id": route_id,
+                "program_id": str(validation.get("program_id") or ""),
+                "validation_id": validation_id,
+                "experimental_claims": experimental_claims,
+                "experimental_claims_oracle": claim_oracle,
+                "semantics": {
+                    "invalid_feedback_is_fail_closed": True,
+                    "canonical_reaction_edges_are_not_created": True,
+                    "claim_store_is_not_written": True,
+                },
+            }
         shadow_admission = (
             service.admit_route_experimental_claims(
                 route_id,
@@ -898,10 +996,8 @@ def solve_target(
             "changed": False,
             "route_id": route_id,
             "program_id": program_id,
-            "validation_id": str(validation.get("validation_id") or ""),
-            "experimental_claims": dict(
-                program_review.get("experimental_claims") or {}
-            ),
+            "validation_id": validation_id,
+            "experimental_claims": experimental_claims,
             "experimental_claims_oracle": claim_oracle,
             "shadow_admission": shadow_admission,
             "resolved_program_validation_signal_ids": pending_signal_ids,
@@ -1039,6 +1135,36 @@ def solve_target(
         },
     )
 
+    resume_signal_kinds = {
+        **({"replan": True} if active.enable_replan else {}),
+        **(
+            {"program_discovery": True}
+            if active.enable_program_discovery
+            and (
+                bool(resolved_program_capabilities)
+                or bool(resolved_mechanism_proposals)
+            )
+            else {}
+        ),
+        **({"program_review": True} if active.enable_program_review else {}),
+        **(
+            {"program_admission": True}
+            if active.enable_program_admission
+            else {}
+        ),
+        **(
+            {"program_validation": True, "experiment_feedback": True}
+            if active.enable_program_validation
+            else {}
+        ),
+    }
+    resume_work = classify_target_resume_work(
+        checkpoint,
+        service.graph_store.load(),
+        feedback_signals=resolved_feedback_signals,
+        available_signal_kinds=resume_signal_kinds,
+    )
+
     if budget_extension_event is not None:
         stages.append(
             _stage(
@@ -1055,18 +1181,44 @@ def solve_target(
             )
         )
     if checkpoint.get("complete") is True and service.kernel.decide_stop().terminal:
-        return _refresh_terminal_report(
-            service,
-            identity=identity,
-            directory=directory,
-            canonical=canonical,
-            case=case,
-            preflight=preflight,
-            config=active,
-            acceptance=resolved_acceptance,
-            budget=resolved_budget,
-            stages=stages,
-            outcomes=outcomes,
+        if resume_work.get("has_new_work") is not True:
+            return _refresh_terminal_report(
+                service,
+                identity=identity,
+                directory=directory,
+                canonical=canonical,
+                case=case,
+                preflight=preflight,
+                config=active,
+                acceptance=resolved_acceptance,
+                budget=resolved_budget,
+                stages=stages,
+                outcomes=outcomes,
+            )
+        prior_status = service.kernel.state.status
+        reopen_event = service.kernel.reopen_for_new_work(
+            work_fingerprint=str(resume_work["work_fingerprint"]),
+            reasons=tuple(resume_work.get("reasons") or ()),
+            idempotency_key=(
+                "solve-target:terminal-reopen:"
+                + str(resume_work["work_fingerprint"])[:24]
+            ),
+        )
+        stages.append(
+            _stage(
+                "terminal_checkpoint_reopened",
+                "accepted",
+                {
+                    "prior_status": prior_status,
+                    "event": reopen_event.to_dict(),
+                    "resume_work": resume_work,
+                    "semantics": {
+                        "same_run_kernel_and_trajectory_continue": True,
+                        "new_work_reenters_single_anytime_loop": True,
+                        "terminal_report_is_not_refreshed_over_new_input": True,
+                    },
+                },
+            )
         )
     target_identity = _target_identity_stage(
         service,
@@ -1498,44 +1650,10 @@ def solve_target(
             )
 
     def publish_unified_experiment_feedback_signals() -> None:
-        signals = []
-        for envelope in resolved_program_validation_feedback:
-            route_id = str(envelope.get("route_id") or "")
-            validation = dict(envelope.get("validation") or {})
-            if not route_id or not validation:
-                raise ValueError("program validation feedback requires route_id and validation")
-            payload = {"route_id": route_id, "validation": validation}
-            payload_sha256 = _digest(payload)
-            program_id = str(validation.get("program_id") or payload_sha256)
-            signals.append(
-                {
-                    "signal_id": f"event-deficit:experiment-feedback:{payload_sha256}",
-                    "kind": "experiment_feedback",
-                    "object_id": str(validation.get("validation_id") or payload_sha256),
-                    "entity_ids": [program_id],
-                    "route_family_ids": [route_id],
-                    "dependency_ids": [],
-                    "deterministic": True,
-                    "model_allowed": False,
-                    "reason": "external_program_validation_feedback_available",
-                    "score": {
-                        "expected_portfolio_gain": 0.05,
-                        "distance_to_closure": 0.05,
-                        "evidence_gain": 0.75,
-                        "route_diversity_gain": 0.05,
-                        "cost_penalty": 0.02,
-                        "failure_risk_penalty": 0.05,
-                    },
-                    "metadata": {
-                        "experiment_feedback": True,
-                        **payload,
-                    },
-                }
-            )
-        if signals:
-            signals_sha256 = _digest(signals)
+        if resolved_feedback_signals:
+            signals_sha256 = _digest(resolved_feedback_signals)
             service.publish_action_signals(
-                signals,
+                resolved_feedback_signals,
                 idempotency_key=(
                     f"unified-experiment-feedback-signals:{signals_sha256[:24]}"
                 ),
@@ -3925,6 +4043,7 @@ def _persist_target_report(
         payload["stages"],
         outcomes,
         complete=True,
+        resume_cursor=build_target_resume_cursor(service.graph_store.load()),
     )
     return {
         **payload,
@@ -5500,72 +5619,6 @@ def _source_route_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]
     }
 
 
-def _claim(
-    gates: Mapping[str, Any],
-    acceptance: RetrosynthesisAcceptanceSpec,
-    resource_envelope: Mapping[str, Any],
-    *,
-    objective_mode: TargetObjectiveMode = "scientific_proof",
-    workbench: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    values = dict(gates.get("gates") or {})
-    scientifically_accepted = bool(
-        values.get("B5_configured_portfolio_acceptance") is True
-        and resource_envelope.get("within_budget") is True
-    )
-    stock_milestone_achieved = bool(
-        values.get("B4_stock_boundary") is True
-        and resource_envelope.get("within_budget") is True
-    )
-    acceptance_profile = {
-        "benchmark_search": "exploration_closed",
-        "procurement": "procurement_closed",
-        "in_house": "in_house_closed",
-    }.get(acceptance.stock_boundary, "configured_boundary_closed")
-    workbench_portfolio = dict(dict(workbench or {}).get("portfolio") or {})
-    profile_counts = {
-        str(key): int(value or 0)
-        for key, value in dict(
-            workbench_portfolio.get("acceptance_profile_counts") or {}
-        ).items()
-    }
-    achieved_profile = str(
-        workbench_portfolio.get("achieved_profile") or "unresolved"
-    )
-    return {
-        "generated_route_portfolio": values.get("B1_global_multi_route") is True,
-        "host_validated_route_portfolio": (
-            values.get("B2_host_validated_routes") is True
-        ),
-        "exact_multi_source_grade": values.get("B3_exact_multi_source") is True,
-        "configured_stock_boundary_closed": values.get("B4_stock_boundary") is True,
-        "accepted_under_configured_policy": scientifically_accepted,
-        "scientific_proof_accepted": scientifically_accepted,
-        "milestones": _campaign_milestones(gates),
-        "objective_mode": objective_mode,
-        "objective_gate": "B5_configured_portfolio_acceptance",
-        "objective_achieved": scientifically_accepted,
-        "benchmark_search_completed": stock_milestone_achieved,
-        "acceptance_profile": acceptance_profile,
-        "achieved_profile": achieved_profile,
-        "product_profile_counts": profile_counts,
-        "literature_grounded": profile_counts.get("literature_grounded", 0) > 0,
-        "procurement_ready": bool(
-            profile_counts.get("procurement_closed", 0) > 0
-        ),
-        "within_resource_budget": resource_envelope.get("within_budget") is True,
-        "condition_complete": profile_counts.get("condition_complete", 0) > 0,
-        "process_ready": profile_counts.get("process_ready", 0) > 0,
-        "no_unqualified_solved_claim": True,
-        "no_unqualified_complete_claim": True,
-        "semantics": {
-            "objective_mode_is_compatibility_metadata_only": True,
-            "B4_is_an_anytime_milestone_not_a_solver_terminal": True,
-            "one_configured_acceptance_rule_for_all_targets": True,
-        },
-    }
-
-
 def _workbench_campaign_summary(
     *,
     gates: Mapping[str, Any],
@@ -6014,13 +6067,12 @@ def _run_director_safely(
 
 
 def _empty_checkpoint(run_id: str) -> dict[str, Any]:
-    return {
-        "schema_version": TARGET_SOLVE_CHECKPOINT_SCHEMA,
-        "run_id": run_id,
-        "complete": False,
-        "stages": [],
-        "director_outcomes": [],
-    }
+    return compile_target_solver_checkpoint(
+        run_id,
+        (),
+        (),
+        complete=False,
+    )
 
 
 def _checkpoint(
@@ -6030,16 +6082,17 @@ def _checkpoint(
     outcomes: list[dict[str, Any]],
     *,
     complete: bool = False,
+    resume_cursor: Mapping[str, Any] | None = None,
 ) -> None:
     _write_json_atomic(
         path,
-        {
-            "schema_version": TARGET_SOLVE_CHECKPOINT_SCHEMA,
-            "run_id": run_id,
-            "complete": complete,
-            "stages": _deduplicate_stages(stages),
-            "director_outcomes": outcomes,
-        },
+        compile_target_solver_checkpoint(
+            run_id,
+            _deduplicate_stages(stages),
+            outcomes,
+            complete=complete,
+            resume_cursor=resume_cursor,
+        ),
     )
 
 
