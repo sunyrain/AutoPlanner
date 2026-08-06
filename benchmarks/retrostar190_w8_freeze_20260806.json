@@ -2,16 +2,16 @@
   "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
   "freeze_id": "retrostar190-w8-four-arm-20260806",
   "created_on": "2026-08-06",
-  "status": "four_arm_preflight_passed_unified_adaptive_formal_run_active",
+  "status": "four_arm_preflight_passed_budget_cap_fixed_formal_restart_pending",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
-    "commit": "c608f6f8cb06d5225c3358b2da9b6c5edf51cca3",
-    "tree": "dbc2029bd60568becc7cd1dd9c7d39014c9df882",
+    "commit": "f607b75b6b59a7ba172a637559da61e0448ac18a",
+    "tree": "ed61ade3512ee5f983be7fd99850c27b9c31b913",
     "critical_file_sha256": {
       "cascade_planner/application/action_scheduler.py": "27fd1bd0fe471bc8fda11497c9b589a6d02923d4cfee38cb3be763a6d95d0c2f",
       "cascade_planner/application/campaign_actions.py": "ebe967064b9c2efa2e88e1fbc9b582382d0a263f99b4e3f17742f9e25e58e5b2",
       "cascade_planner/interfaces/target_cli.py": "e1bccada2953ef6024f5ec04d9a27208d020200b6f6258a21d58903f581678c2",
-      "cascade_planner/interfaces/target_solver.py": "af1b0aefe461a083feeb311f311e5acf8ebb38f301474ce75873b2d85340852c",
+      "cascade_planner/interfaces/target_solver.py": "56faf3a4d24cdb5bf5f7ebfb59cc65d4bf1c738d5c191434691ae12a2fd71645",
       "cascade_planner/orchestration/unified_campaign_runtime.py": "79c0f3b684bc108bd3e63c0bce8719b113e23666e6cd819d150056a66cd8f76b",
       "scripts/run_retrostar190_w8.py": "7f1089fc8305de74cbb6e7cacd4b7eef62a2f46909d38f4f24276cc5bfaa996f",
       "scripts/run_v4_blind_panel.py": "c6825649a3fb44959150830cb022eb874906ba46325bd7fe184b5c50619eec00",
@@ -77,6 +77,7 @@
     "passed": 760,
     "failed": 0,
     "provider_calls": 0,
+    "reused_after_budget_binding_only_change": true,
     "parallel_arms": 4,
     "evidence": {
       "chemenzy-only": {
@@ -108,15 +109,27 @@
     "complete_case_pairing_only": true,
     "failed_and_incomplete_cases_remain_in_full_panel_denominator": true
   },
-  "formal_run": {
+  "aborted_budget_audit_run": {
     "root": "results/.autoplanner/retrostar190-w8-formal-20260806-a",
-    "active_arm": "unified-adaptive",
-    "status": "running",
-    "target_count": 190,
-    "panel_workers": 1,
-    "snapshot_content_sha256": "4599590aabda600a1bda948d1cc2ae1aa13ef1eea3fd45c8d3fb86de23f329de",
-    "snapshot_file_sha256": "9f6a61a88121dc5265d9fd45e30c2d5afb6694910c42370f7034c17e5ee5a80a",
-    "remaining_arms_start_after_active_arm": [
+    "arm": "unified-adaptive",
+    "result_eligible": false,
+    "reason": "configured guided frontier limit was not bound to the RunKernel native-search hard limit",
+    "configured_guided_frontiers": 5,
+    "observed_frontier_settled_before_stop": 14,
+    "observed_target_settled": 1,
+    "affected_target_count": 1,
+    "preserved_for_budget_failure_audit": true
+  },
+  "formal_run": {
+    "root": "results/.autoplanner/retrostar190-w8-formal-20260806-b",
+    "status": "restart_pending",
+    "hard_native_search_limits": {
+      "target": 1,
+      "guided_frontier": 5,
+      "total": 6
+    },
+    "planned_arm_order": [
+      "unified-adaptive",
       "chemenzy-only",
       "codex-only",
       "unified-round-robin"
@@ -125,6 +138,7 @@
   "constraints": {
     "target_grouping": false,
     "target_specific_tuning": false,
+    "aborted_budget_audit_run_included_in_results": false,
     "reference_routes_visible_to_planner": false,
     "B2_B3_B5_redefine_B4": false,
     "remote_model_weights_bitwise_frozen": false,
