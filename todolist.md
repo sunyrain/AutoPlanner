@@ -486,10 +486,10 @@ W2 验收门：
 
 交付物：
 
-- [ ] `docs/evaluation/UNIFIED_ANYTIME_RETROSTAR190_PROTOCOL.md`
-- [ ] `docs/evaluation/UNIFIED_ANYTIME_ABLATION_PLAN.md`
-- [ ] `docs/evaluation/REVIEWER_DEFENSE_CHECKLIST.md`
-- [ ] 机器可读 run manifest、per-target metrics、paired comparison 和 failure taxonomy。
+- [x] `docs/evaluation/UNIFIED_ANYTIME_RETROSTAR190_PROTOCOL.md`
+- [x] `docs/evaluation/UNIFIED_ANYTIME_ABLATION_PLAN.md`
+- [x] `docs/evaluation/REVIEWER_DEFENSE_CHECKLIST.md`
+- [ ] 机器可读 run manifest、per-target metrics、paired comparison 和 failure taxonomy；生成器 `scripts/summarize_retrostar190_w8.py` 已完成，等待四臂结果。
 
 ## 15. 文档与清理收束
 
