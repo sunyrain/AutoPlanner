@@ -304,6 +304,7 @@ def fork_target_validation(
     )
     resource_envelope = _resource_envelope(
         model_cost=service.kernel.state.model_totals,
+        native_search=service.kernel.native_search_budget(),
         attempt_count=service.kernel.state.attempt_count,
         accepted_expansion_count=service.kernel.state.accepted_expansion_count,
         budget=derived_budget,

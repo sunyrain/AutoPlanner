@@ -4753,9 +4753,11 @@ def _acquire_evidence_stage(
             document=dict(document),
             atom_mapper=atom_mapper,
             validation_runner=(
-                lambda edge_ids: _scope_validation_summary(
-                    dict(validation_runner("structured_evidence_revalidate")),
-                    edge_ids,
+                (
+                    lambda edge_ids: _scope_validation_summary(
+                        dict(validation_runner("structured_evidence_revalidate")),
+                        edge_ids,
+                    )
                 )
                 if validation_runner is not None
                 else None
