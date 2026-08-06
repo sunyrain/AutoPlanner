@@ -15,7 +15,7 @@
 ## 2. 冻结输入
 
 - Case：`retrostar190-001-ddec287bee`
-- Target：`C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S`
+- Target：仅记录 opaque case ID 与 digest；精确 SMILES 不写入仓库叙述文档，避免污染后续 blind preflight
 - Stock index SHA-256：`30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c`
 - ChemEnzy environment：`D:\conda\envs\py312`
 - Search preset：`standard`
