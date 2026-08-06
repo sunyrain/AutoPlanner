@@ -1,7 +1,7 @@
 # Unified Anytime RetroStar-190 Protocol
 
 日期：2026-08-06  
-状态：W8 四臂冻结协议已完成；`-b` 因未捕获全局预算终态而停止并排除，预算终止语义已修复；`-c` fresh preflight 因 tracked 审计收据中的 6 个 target-name 路径自污染而得到 736/760，零 provider/model 调用，已修正并准备从新根 `-d` 再次 fresh preflight。
+状态：W8 四臂冻结协议已完成；`-b` 因未捕获全局预算终态而停止并排除，预算终止语义已修复；`-c` 的 tracked 审计路径自污染已清除；`-d` fresh preflight 已通过 760/760，正式四臂运行将从全新根 `-e` 启动。
 
 机器可读冻结清单：`benchmarks/retrostar190_w8_freeze_20260806.json`。
 
@@ -110,3 +110,7 @@ Case 019 第三次复现同一异常：elapsed 929.593 s，settled tasks 256/256
 预算终止修复已冻结在实现提交 `68cd156`；核心 runtime SHA-256 为 `46625bf43cb126158362e32d63189efc85ba464c046f68b46791e7c9d49c7038`。新根 `-c` 不从 `-b` resume，下一步只执行四臂 fresh preflight。
 
 `-c` 四臂 fresh preflight 每臂均为 184 passed、6 failed，共 736/760；六个唯一失败 case 在四臂完全一致，且 planner/provider/model 均未启动。失败原因不是实现回归，而是 tracked freeze manifest 为审计方便写入了六条含目标名的旧运行目录路径，触发 `target_material_already_present_in_repository`。修复删除这些路径，仅保留 case ID、报告 SHA 与结构化指标；blind scan 白名单不变。`-c` 永久保留为失败预检审计，新根改为 `results/.autoplanner/retrostar190-w8-formal-20260806-d`。
+
+`-d` fresh preflight 已在 2026-08-06 完成：四臂各 190 passed、0 failed，共 760/760；所有 760 份 case receipt 均绑定到各自 arm 的 panel snapshot。四臂 manifest SHA-256 均为 `2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623`，stock SHA-256 均为 `30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c`，base environment SHA-256 均为 `0d5204f3178b5d292c19d51b0114e117774795ab454c25ae1f492abb38e6622f`。该目录为 preflight-only，completed count 为 0，且不存在 solve report、provider payload 或 RunKernel spec，因此 provider/model 调用为 0。
+
+`-d` 不直接转为正式运行：preflight-only 已为每个 case 建立预检目录，复用会破坏 fresh-run 证明。正式四臂根固定为 `results/.autoplanner/retrostar190-w8-formal-20260806-e`，不从 `-d` resume；按 `unified-adaptive`、`chemenzy-only`、`codex-only`、`unified-round-robin` 顺序串行执行，`parallel-arms=1`。正式根自身仍会在任何 provider 工作前重新执行同一 blind preflight。

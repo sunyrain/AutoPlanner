@@ -430,11 +430,48 @@
     },
     "next_formal_restart": {
       "root": "results/.autoplanner/retrostar190-w8-formal-20260806-d",
-      "status": "fresh_preflight_pending",
+      "status": "fresh_preflight_passed",
       "resume_from_c": false,
+      "preflight_only": true,
+      "orchestrator_returncode": 0,
       "target_named_tracked_artifact_paths_removed": true,
       "blind_scan_allowlist_changed": false,
-      "implementation_commit": "68cd15627e78e704129ad41a095b946abca91029"
+      "runtime_implementation_commit": "68cd15627e78e704129ad41a095b946abca91029",
+      "audit_path_cleanup_commit": "79cfe019f4276a421243a89a946400f805c65143",
+      "preflight_result": {
+        "passed_per_arm": 190,
+        "failed_per_arm": 0,
+        "passed_total": 760,
+        "failed_total": 0,
+        "provider_or_model_calls": 0,
+        "solve_reports": 0,
+        "provider_payloads": 0,
+        "run_kernel_specs": 0,
+        "case_receipts_per_arm": 190,
+        "case_receipts_bound_to_panel_snapshot_per_arm": 190,
+        "manifest_sha256": "2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623",
+        "benchmark_stock_index_sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c",
+        "base_environment_sha256": "0d5204f3178b5d292c19d51b0114e117774795ab454c25ae1f492abb38e6622f",
+        "panel_snapshot_sha256": {
+          "unified-adaptive": "5775e5d5aa1296694f32e9e98c1ab0415da9fe30cba7be2a509e64416c160f33",
+          "chemenzy-only": "9ee632897484c489654eae031e1adcaae6b3685b4addce48f145b3696f39911f",
+          "codex-only": "d6d96b7ced44ccb6bc8e165531e580816912a666f5a78972ce6c32a5aa2959ca",
+          "unified-round-robin": "e7f71c6edb3d96a601e03db959d545e035939f7d5e8b2848d684637e13b03389"
+        }
+      }
+    },
+    "formal_run": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-e",
+      "status": "pending_fresh_start",
+      "resume_from_d": false,
+      "fresh_root_required": true,
+      "parallel_arms": 1,
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ]
     }
   },
   "constraints": {
