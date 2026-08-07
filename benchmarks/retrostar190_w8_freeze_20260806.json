@@ -577,10 +577,12 @@
     },
     "next_formal_run_after_late_closeout_fix": {
       "root": "results/.autoplanner/retrostar190-w8-formal-20260806-g",
-      "status": "pending_fresh_start",
+      "status": "aborted_ineligible_budget_terminal_overwritten_by_unresolved_disposition",
+      "result_eligible": false,
       "resume_from_f": false,
       "fresh_root_required": true,
       "implementation_commit": "896ab1b0efd43fe1aca6a8aea5e846063cf7f5b3",
+      "launch_commit": "b940094f793341a1da9c07a85e028528482a81ec",
       "parallel_arms": 1,
       "arm_order": [
         "unified-adaptive",
@@ -607,6 +609,71 @@
         "B0_through_B5_preserved": true,
         "task_budget_limits_changed": false,
         "scheduler_or_scientific_gates_changed": false
+      },
+      "observed_result": {
+        "processed_case_count": 19,
+        "completed_case_count": 18,
+        "failed_case_count": 1,
+        "in_flight_case_aborted_count": 1,
+        "first_10_completed": 10,
+        "first_10_B4_true": 7,
+        "first_10_B4_false": 3,
+        "first_10_model_calls": 10,
+        "native_search_budget_violation_count": 0,
+        "failure": {
+          "case_id": "retrostar190-019-d3d229a647",
+          "elapsed_s": 972.359,
+          "error_class": "run_status_transition_invalid:budget_exhausted->unresolved",
+          "settled_tasks": 256,
+          "kernel_status_before_failure": "budget_exhausted",
+          "report_generated": false,
+          "task_counts": {
+            "model": 1,
+            "other": 137,
+            "proposal": 64,
+            "stock": 5,
+            "validation": 49
+          },
+          "native_search": {
+            "target_settled": 1,
+            "frontier_settled": 5
+          }
+        },
+        "root_cause": "director_outcome_limit_attempted_to_overwrite_an_existing_budget_exhausted_terminal_with_unresolved"
+      }
+    },
+    "next_formal_run_after_terminal_precedence_fix": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260807-h",
+      "status": "pending_fresh_start",
+      "resume_from_g": false,
+      "fresh_root_required": true,
+      "implementation_commit": "9671fb1d42da189942e4a09c57370275a942d5a1",
+      "parallel_arms": 1,
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ],
+      "fix_scope": "preserve_existing_kernel_terminal_over_later_unresolved_disposition_diagnostics",
+      "focused_verification": {
+        "passed": 3,
+        "tests": [
+          "test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+          "test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection",
+          "test_budget_terminal_is_not_overwritten_by_unresolved_disposition"
+        ]
+      },
+      "critical_file_sha256": {
+        "cascade_planner/interfaces/target_solver.py": "c74bc845f43b039ebc6abb8bea27c2cbf9c17a6fa2a13ea3005dbf9431bf92c2",
+        "tests/test_unified_campaign_runtime.py": "ae02350eb0a26e0edf3691eae0d7b00e4873a795138f45e45365c120b3073384"
+      },
+      "semantics": {
+        "existing_terminal_status_has_precedence": true,
+        "director_outcome_limit_diagnostic_is_preserved": true,
+        "automatic_continuation_diagnostic_is_preserved": true,
+        "task_budget_limits_changed": false,
+        "scheduler_or_scientific_gates_changed": false
       }
     }
   },
@@ -617,6 +684,7 @@
     "aborted_formal_b_included_in_results": false,
     "aborted_formal_e_included_in_results": false,
     "aborted_formal_f_included_in_results": false,
+    "aborted_formal_g_included_in_results": false,
     "reference_routes_visible_to_planner": false,
     "B2_B3_B5_redefine_B4": false,
     "remote_model_weights_bitwise_frozen": false,
