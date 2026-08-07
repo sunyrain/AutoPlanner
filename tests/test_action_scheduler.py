@@ -104,6 +104,28 @@ def test_action_scheduler_expands_one_deficit_into_provider_choices() -> None:
     assert resources["chemenzy_frontier_expand"] == "native_search_frontier"
 
 
+def test_scheduler_does_not_dispatch_unscoped_codex_replan() -> None:
+    opportunities = compile_action_opportunities(_frontier())
+
+    decision = schedule_next_action(
+        opportunities,
+        resource_availability={
+            "validation": True,
+            "native_search_frontier": True,
+            "model": True,
+        },
+    )
+
+    codex = next(
+        row
+        for row in decision["candidates"]
+        if row["kind"] == "codex_global_replan"
+    )
+    assert codex["eligible"] is False
+    assert "global_replan_scope_missing" in codex["blocked_reasons"]
+    assert decision["selected_action"]["kind"] != "codex_global_replan"
+
+
 def test_round_robin_scheduler_uses_frozen_kind_cursor_not_adaptive_score() -> None:
     opportunities = compile_action_opportunities(_frontier())
 

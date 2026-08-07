@@ -56,6 +56,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--panel-workers", type=int, choices=(1, 2), default=1)
     parser.add_argument("--parallel-arms", type=int, choices=(1, 2, 3, 4), default=1)
+    parser.add_argument(
+        "--max-targets",
+        type=int,
+        default=None,
+        help=(
+            "Run only the first N manifest-ordered targets in every arm. "
+            "The selected case IDs are frozen independently in each arm snapshot."
+        ),
+    )
     parser.add_argument("--arm", action="append", choices=W8_ARMS, default=[])
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
@@ -83,11 +92,13 @@ def main(argv: list[str] | None = None) -> int:
         "execution_profile": args.execution_profile,
         "panel_workers": args.panel_workers,
         "parallel_arms": min(args.parallel_arms, len(arms)),
+        "max_targets": args.max_targets,
         "arms": {arm: {"status": "queued"} for arm in arms},
         "semantics": {
             "same_target_manifest_for_every_arm": True,
             "same_stock_for_every_arm": True,
             "same_case_budget_for_every_arm": True,
+            "same_target_cutoff_for_every_arm": True,
             "target_grouping_or_target_specific_tuning": False,
             "arm_roots_are_isolated": True,
         },
@@ -122,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
             "--chemenzy-env-prefix",
             args.chemenzy_env_prefix,
         ]
+        if args.max_targets is not None:
+            command.extend(["--max-targets", str(args.max_targets)])
         if args.preflight_only:
             command.append("--preflight-only")
         if args.resume and (arm_root / "snapshots" / "benchmark-snapshot.json").is_file():

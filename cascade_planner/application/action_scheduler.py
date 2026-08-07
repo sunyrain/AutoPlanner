@@ -112,6 +112,19 @@ def schedule_next_action(
             blocked_reasons.append(f"handler_unavailable:{kind}")
         if resources.get(resource_class, True) is False:
             blocked_reasons.append(f"resource_unavailable:{resource_class}")
+        # A regular expansion may advertise Codex as a provider preference,
+        # but that is not a global replan contract.  The target runtime
+        # intentionally rejects such actions because only the bounded event
+        # replan signal carries the required ``global_replan`` scope.  Keep
+        # the opportunity visible for diagnostics, but never dispatch an
+        # action that the handler is guaranteed to reject.
+        if kind == "codex_global_replan":
+            metadata = dict(row.get("metadata") or {})
+            if (
+                row.get("global_replan") is not True
+                and metadata.get("global_replan") is not True
+            ):
+                blocked_reasons.append("global_replan_scope_missing")
         if pending_materialization and kind in {
             "acquire_exact_evidence",
             "bind_exact_evidence",
