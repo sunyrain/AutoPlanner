@@ -644,10 +644,12 @@
     },
     "next_formal_run_after_terminal_precedence_fix": {
       "root": "results/.autoplanner/retrostar190-w8-formal-20260807-h",
-      "status": "pending_fresh_start",
+      "status": "aborted_ineligible_global_cap_not_terminalized_before_final_disposition",
+      "result_eligible": false,
       "resume_from_g": false,
       "fresh_root_required": true,
       "implementation_commit": "9671fb1d42da189942e4a09c57370275a942d5a1",
+      "launch_commit": "151168b415eeb276a1686a5bef99611527e91660",
       "parallel_arms": 1,
       "arm_order": [
         "unified-adaptive",
@@ -674,6 +676,74 @@
         "automatic_continuation_diagnostic_is_preserved": true,
         "task_budget_limits_changed": false,
         "scheduler_or_scientific_gates_changed": false
+      },
+      "observed_result": {
+        "processed_case_count": 10,
+        "completed_case_count": 10,
+        "failed_case_count": 0,
+        "in_flight_case_aborted_count": 1,
+        "B4_true": 8,
+        "B4_false": 2,
+        "budget_terminal_case_count": 3,
+        "terminal_receipt_mismatch_count": 1,
+        "native_search_budget_violation_count": 0,
+        "mismatch": {
+          "case_id": "retrostar190-001-ddec287bee",
+          "settled_tasks": 256,
+          "kernel_status": "unresolved",
+          "stop_decision": "unresolved",
+          "canonical_closeout_decision": "budget_exhausted",
+          "B4": true,
+          "report_sha256": "ce4c3adfad37b2d5310d4b479a9ce93b52a837ec3652551638c8aae05560edc5",
+          "task_counts": {
+            "evidence": 2,
+            "model": 1,
+            "other": 141,
+            "proposal": 55,
+            "stock": 6,
+            "validation": 51
+          },
+          "native_search": {
+            "target_settled": 1,
+            "frontier_settled": 5
+          }
+        },
+        "root_cause": "the_global_cap_was_visible_to_closeout_but_no_later_worker_dispatch_terminalized_the_running_kernel_before_unresolved_disposition"
+      }
+    },
+    "next_formal_run_after_pre_disposition_terminalization": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260807-i",
+      "status": "pending_fresh_start",
+      "resume_from_h": false,
+      "fresh_root_required": true,
+      "implementation_commit": "a330a888d3c3466a0b6209f089651125aa0c8eaf",
+      "parallel_arms": 1,
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ],
+      "fix_scope": "use_one_service_global_budget_terminalization_api_before_worker_dispatch_and_before_final_disposition",
+      "focused_verification": {
+        "passed": 3,
+        "tests": [
+          "test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+          "test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection",
+          "test_budget_terminal_is_not_overwritten_by_unresolved_disposition"
+        ]
+      },
+      "critical_file_sha256": {
+        "cascade_planner/orchestration/retrosynthesis_service.py": "1e049d33f65c0aaad0f642b065596aabd7a6e558b681c88859ce816b9fde53b4",
+        "cascade_planner/interfaces/target_solver.py": "c274d408f58a17d6ffc07aa2ca6297f860e3db7a9128949f20d8b08b4e7af124",
+        "tests/test_unified_campaign_runtime.py": "c174a5ba5ce4aca57845d56ee94665147d96f2065b23032dcdf11def42f1263b"
+      },
+      "semantics": {
+        "one_global_budget_terminalization_authority": true,
+        "worker_dispatch_and_final_disposition_share_the_same_guard": true,
+        "existing_terminal_status_has_precedence": true,
+        "task_budget_limits_changed": false,
+        "scheduler_or_scientific_gates_changed": false
       }
     }
   },
@@ -685,6 +755,7 @@
     "aborted_formal_e_included_in_results": false,
     "aborted_formal_f_included_in_results": false,
     "aborted_formal_g_included_in_results": false,
+    "aborted_formal_h_included_in_results": false,
     "reference_routes_visible_to_planner": false,
     "B2_B3_B5_redefine_B4": false,
     "remote_model_weights_bitwise_frozen": false,

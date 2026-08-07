@@ -1,7 +1,7 @@
 # Unified Anytime RetroStar-190 Protocol
 
 日期：2026-08-07
-状态：W8 四臂冻结协议已完成；`-e`/`-f` 的预算终态边界已修复；`-g` 前 18 例正常 completed，但 Case 019 暴露终态被 unresolved disposition 覆盖的非法转换并已停止排除；终态优先级修复已冻结，下一次正式运行从全新根 `-h` 启动。
+状态：W8 四臂冻结协议已完成；`-g` 的终态覆盖异常已修复；`-h` 前 10 例均 completed，但 Case 001 暴露“无后续 worker dispatch 时全局上限未在最终 disposition 前终态化”的收据不一致并已停止排除；统一终态化 API 已冻结，下一次正式运行从全新根 `-i` 启动。
 
 机器可读冻结清单：`benchmarks/retrostar190_w8_freeze_20260806.json`。
 
@@ -126,3 +126,7 @@ Case 019 第三次复现同一异常：elapsed 929.593 s，settled tasks 256/256
 `-g` 前 18 个 adaptive case 均正常 completed；前 10 例为 B4 7/10、0 failed、10 次模型调用，所有 native search 均未超过 target 1 + frontier 5，已出现的 256-task 报告中 kernel、stop 与 canonical closeout 一致。Case 018 本轮以 213 tasks 正常 paused closeout，完整报告保留。
 
 Case 019 随后在 256/256 tasks 时先正确进入 RunKernel `budget_exhausted`，但最终 director outcome limit 分支仍尝试执行 `budget_exhausted -> unresolved`，触发 `run_status_transition_invalid`，未生成报告。该问题不涉及 provider、模型、scheduler、科学门或预算值，而是最终 disposition 的终态优先级错误。`-g` 因而在 18 completed、1 failed 后停止并永久排除；Case 020 在途停止，不恢复、不计分。提交 `9671fb1` 保留 director outcome/automatic continuation 诊断 stage，但已存在任意 RunKernel 终态时不再覆盖状态；聚焦回归 3 passed。新正式根为 `results/.autoplanner/retrostar190-w8-formal-20260807-h`。
+
+`-h` 前 10 个 adaptive case 均正常 completed、0 failed，B4=8/10，native search 无预算违规。Cases 005 等在 256 tasks 时已得到一致的 kernel/stop/closeout `budget_exhausted`，证明终态覆盖崩溃已消除。
+
+但 Case 001 在恰好完成最后一个任务后达到 256 tasks，后续没有新的 worker dispatch，因此 service dispatch guard 没有机会持久化终态；canonical closeout 已正确为 `budget_exhausted`，随后 director outcome limit 在仍为 running 的 kernel 上合法写入 `unresolved`，最终形成 closeout 与 kernel/stop 不一致。该问题不造成 CLI failed，但会污染 failure taxonomy，因此 `-h` 在 10 completed、0 failed 后停止并永久排除；Case 011 在途停止，不恢复、不计分。提交 `a330a88` 将全局 task/wall-time 上限终态化收束为单一 service API，并在 worker dispatch 前与最终 disposition 前共同调用。聚焦回归 3 passed；新正式根为 `results/.autoplanner/retrostar190-w8-formal-20260807-i`。
