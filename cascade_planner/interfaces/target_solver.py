@@ -3483,8 +3483,8 @@ def solve_target(
                 },
             )
         )
-        service.kernel.transition(
-            "unresolved",
+        _transition_unresolved_if_active(
+            service.kernel,
             idempotency_key=(
                 "solve-target:director-outcome-limit:"
                 f"{service.kernel.state.revision}"
@@ -3510,8 +3510,8 @@ def solve_target(
                 },
             )
         )
-        service.kernel.transition(
-            "unresolved",
+        _transition_unresolved_if_active(
+            service.kernel,
             idempotency_key=(
                 "solve-target:automatic-continuation-exhausted:"
                 f"{service.kernel.state.revision}"
@@ -4240,6 +4240,24 @@ def _automatic_continuation_exhausted(
         and not portfolio_accepted
         and dict(baseline) == dict(current)
     )
+
+
+def _transition_unresolved_if_active(
+    kernel: Any,
+    *,
+    idempotency_key: str,
+    reasons: tuple[str, ...],
+) -> bool:
+    """Preserve an existing terminal decision while retaining diagnostics."""
+
+    if kernel.state.terminal:
+        return False
+    kernel.transition(
+        "unresolved",
+        idempotency_key=idempotency_key,
+        reasons=reasons,
+    )
+    return True
 
 
 def _refresh_terminal_report(

@@ -16,6 +16,9 @@ from cascade_planner.application.worker_runtime import WorkerBudget, WorkerComma
 from cascade_planner.interfaces.target_solver_stages import (
     discover_director_source_hints,
 )
+from cascade_planner.interfaces.target_solver import (
+    _transition_unresolved_if_active,
+)
 from cascade_planner.orchestration.retrosynthesis_service import (
     RetrosynthesisCampaignService,
 )
@@ -439,6 +442,51 @@ def test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection(
         "run_total_task_budget_exhausted",
     )
     assert late_kernel.count_task_reservations(kind="evidence") == 0
+
+
+def test_budget_terminal_is_not_overwritten_by_unresolved_disposition(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path, max_total_tasks=1)
+    kernel.reserve_task(
+        task_id="prefill",
+        kind="other",
+        idempotency_key="prefill:reserve",
+        input_revision=0,
+    )
+    kernel.settle_task(
+        task_id="prefill",
+        idempotency_key="prefill:settle",
+        status="completed",
+    )
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.MATERIALIZE: lambda _action: {
+                "status": "completed",
+                "changed": True,
+            }
+        },
+    )
+    terminal = runtime.run_anytime(
+        opportunity_provider=_opportunity_set,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+    )
+    assert terminal["termination"] == "budget_exhausted"
+
+    transitioned = _transition_unresolved_if_active(
+        kernel,
+        idempotency_key="late-unresolved-disposition",
+        reasons=("director_outcome_limit_exhausted",),
+    )
+
+    assert transitioned is False
+    assert kernel.state.status == "budget_exhausted"
+    assert kernel.state.failure_reasons == (
+        "run_total_task_budget_exhausted",
+    )
 
 
 def test_same_revision_start_cohort_runs_peers_without_failure_cancellation(
