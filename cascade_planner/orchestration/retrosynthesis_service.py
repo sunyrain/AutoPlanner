@@ -394,25 +394,13 @@ class RetrosynthesisCampaignService:
     ) -> dict[str, Any]:
         command_rows = tuple(commands)
         state = self.kernel.state
-        limits = self.kernel.spec.limits
-        global_budget_reasons = []
-        if state.settled_task_count >= limits.max_total_tasks:
-            global_budget_reasons.append("run_total_task_budget_exhausted")
-        if state.task_wall_time_s >= limits.max_run_wall_time_s:
-            global_budget_reasons.append("run_wall_time_budget_exhausted")
-        if (
-            state.status == "running"
-            and global_budget_reasons
-        ):
-            self.kernel.transition(
-                "budget_exhausted",
-                idempotency_key=(
-                    "campaign-service:global-budget-terminal:"
-                    f"{state.revision}"
-                ),
-                reasons=global_budget_reasons,
+        self.terminalize_global_budget_if_reached(
+            idempotency_key=(
+                "campaign-service:global-budget-terminal:"
+                f"{state.revision}"
             )
-            state = self.kernel.state
+        )
+        state = self.kernel.state
         if state.status == "budget_exhausted":
             return {
                 "status": "budget_exhausted",
@@ -454,6 +442,33 @@ class RetrosynthesisCampaignService:
             "stopped_reasons": [],
             "material_events": sorted(material_events),
         }
+
+    def terminalize_global_budget_if_reached(
+        self,
+        *,
+        idempotency_key: str,
+    ) -> bool:
+        """Persist global task/wall-time exhaustion before later dispositions."""
+
+        state = self.kernel.state
+        if state.status == "budget_exhausted":
+            return True
+        if state.status != "running":
+            return False
+        limits = self.kernel.spec.limits
+        reasons = []
+        if state.settled_task_count >= limits.max_total_tasks:
+            reasons.append("run_total_task_budget_exhausted")
+        if state.task_wall_time_s >= limits.max_run_wall_time_s:
+            reasons.append("run_wall_time_budget_exhausted")
+        if not reasons:
+            return False
+        self.kernel.transition(
+            "budget_exhausted",
+            idempotency_key=idempotency_key,
+            reasons=reasons,
+        )
+        return True
 
     def apply_worker_results(
         self,

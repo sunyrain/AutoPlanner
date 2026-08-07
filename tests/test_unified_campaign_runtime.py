@@ -488,6 +488,32 @@ def test_budget_terminal_is_not_overwritten_by_unresolved_disposition(
         "run_total_task_budget_exhausted",
     )
 
+    late_kernel = _kernel(tmp_path / "pre-disposition", max_total_tasks=1)
+    late_kernel.reserve_task(
+        task_id="prefill",
+        kind="other",
+        idempotency_key="prefill:reserve",
+        input_revision=0,
+    )
+    late_kernel.settle_task(
+        task_id="prefill",
+        idempotency_key="prefill:settle",
+        status="completed",
+    )
+    late_service = RetrosynthesisCampaignService(late_kernel)
+    assert late_service.terminalize_global_budget_if_reached(
+        idempotency_key="pre-disposition-global-budget",
+    )
+    assert not _transition_unresolved_if_active(
+        late_kernel,
+        idempotency_key="late-unresolved-disposition",
+        reasons=("director_outcome_limit_exhausted",),
+    )
+    assert late_kernel.state.status == "budget_exhausted"
+    assert late_kernel.state.failure_reasons == (
+        "run_total_task_budget_exhausted",
+    )
+
 
 def test_same_revision_start_cohort_runs_peers_without_failure_cancellation(
     tmp_path: Path,

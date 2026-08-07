@@ -3457,6 +3457,12 @@ def solve_target(
                 replan_gain,
             )
         )
+    service.terminalize_global_budget_if_reached(
+        idempotency_key=(
+            "solve-target:pre-disposition-global-budget:"
+            f"{service.kernel.state.revision}"
+        )
+    )
     stop_preview = service.kernel.decide_stop().to_dict()
     continuation_exhausted = _automatic_continuation_exhausted(
         resumed_completed_checkpoint=resumed_completed_checkpoint,
