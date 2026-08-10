@@ -1,7 +1,17 @@
 # RetroStar-190 Reviewer Defense Checklist
 
-日期：2026-08-06  
-状态：运行前检查表；结果项待 W8 完成后填写。
+日期：2026-08-09
+
+状态：20/190 四臂 pilot 已完成；190×4 publication-scale 结果项仍未满足，当前延期。
+
+## Pilot disposition（不替代全量门）
+
+- [x] Manifest 固定顺序前 20 个目标在四臂使用完全相同的 case IDs。
+- [x] 四臂各 20 completed、0 failed/incomplete，timeout、空结果与失败类别均进入 20-case 分母。
+- [x] 已发布 pilot run manifest、逐目标指标、paired differences、5,000 次 paired bootstrap CI 和 failure taxonomy。
+- [x] 已明确披露该 panel 不是随机样本，结果不能外推到全部 190。
+- [x] 已明确披露 adaptive 与 round-robin 均为 B4 15/20，当前没有成功率增益；ChemEnzy-only 为 16/20。
+- [x] 结论与 SHA-256 固化于 `RETROSTAR190_W8_PILOT20_RESULTS_20260808.md`。
 
 ## 算法一致性
 
@@ -42,5 +52,6 @@
 - [x] 代码、配置、stock、环境和本地 executable 使用 SHA-256 冻结。
 - [x] Scheduler 系数、kind order 与 tie-break 已公开。
 - [x] 如实声明远端模型权重和 sampling 非位级冻结。
+- [x] 通用 Gateway 可为任意 target run 导出独立摘要绑定的 Action、失败、route lineage 与资源曲线审稿包。
 - [ ] 发布四臂 run manifest、panel status digest 与原始 action/resource traces。
 - [ ] 所有论文表格能够从机器可读汇总重新生成。

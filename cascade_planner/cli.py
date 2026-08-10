@@ -87,7 +87,10 @@ def build_parser() -> argparse.ArgumentParser:
     _add_run_reference(benchmark)
     benchmark.add_argument("--iterations", type=int, default=3)
 
-    export = sub.add_parser("export", help="export bounded JSON and offline HTML")
+    export = sub.add_parser(
+        "export",
+        help="export Workbench plus digest-bound reviewer traces",
+    )
     _add_run_reference(export)
     export.add_argument("--output-dir")
 

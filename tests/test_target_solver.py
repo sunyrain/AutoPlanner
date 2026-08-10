@@ -3,8 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 from io import BytesIO
+import json
 from pathlib import Path
+import shutil
 from threading import Event
+import time
 from typing import Any
 
 import fitz
@@ -14,6 +17,7 @@ import cascade_planner.interfaces.target_solver as target_solver_module
 from cascade_planner.application.biocatalytic_program_contracts import (
     with_biocatalysis_program_validation_digest,
 )
+from cascade_planner.application.campaign_actions import CampaignActionKind
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
@@ -21,6 +25,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
+    _campaign_action_handler_results,
     _bind_native_search_budget,
     _automatic_continuation_exhausted,
     _chemenzy_delegation_audit,
@@ -52,6 +57,32 @@ TARGET = "CCOC(C)=O"
 
 def test_target_solver_enables_target_level_chemenzy_seed_by_default() -> None:
     assert TargetSolveConfig().enable_target_chemenzy_baseline is True
+
+
+def test_action_handler_projection_preserves_failed_outcome_status_and_reasons() -> None:
+    results = _campaign_action_handler_results(
+        (
+            {
+                "status": "failed",
+                "action": {"kind": "chemenzy_target_expand"},
+                "outcome": {
+                    "status": "failed",
+                    "handler_result": {},
+                    "failure_reasons": [
+                        "campaign_action_handler_error:RuntimeError:boom"
+                    ],
+                },
+            },
+        ),
+        kind=CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+    )
+
+    assert results == [
+        {
+            "status": "failed",
+            "reasons": ["campaign_action_handler_error:RuntimeError:boom"],
+        }
+    ]
 
 
 def test_target_solver_binds_native_search_to_target_and_guided_caps() -> None:
@@ -838,6 +869,8 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
             use_coordinator=False,
             enable_web_search=False,
             enable_replan=True,
+            max_program_tasks=7,
+            max_experiment_tasks=3,
         ),
         director_runner=_runner,
         atom_mapper=_mapper,
@@ -855,6 +888,19 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
         "B4_stock_boundary": True,
         "B5_configured_portfolio_acceptance": True,
     }
+    assert set(result["quality_state"]["axes"]) == {
+        "topology",
+        "reaction_validation",
+        "exact_evidence",
+        "stock",
+        "conditions",
+        "procurement",
+        "program_validation",
+        "diversity",
+    }
+    assert result["quality_state"]["configured_acceptance"] is True
+    assert result["quality_state"]["axes"]["exact_evidence"]["state"] == "open"
+    assert result["quality_state"]["axes"]["conditions"]["state"] == "open"
     assert result["claim"]["generated_route_portfolio"] is True
     assert result["claim"]["host_validated_route_portfolio"] is True
     assert result["claim"]["exact_multi_source_grade"] is False
@@ -866,6 +912,14 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
     assert result["claim"]["condition_complete"] is False
     assert result["claim"]["process_ready"] is False
     assert result["current_disposition"]["state"] == "accepted"
+    resource_envelope = result["resource_envelope"]
+    assert resource_envelope["schema_version"] == "target_solve_resource_envelope.v1"
+    assert resource_envelope["observed"]["run_wall_time_s"] >= 0
+    dimensions = resource_envelope["task_budget"]["dimensions"]
+    assert dimensions["program"]["limit"] == 7
+    assert dimensions["experiment"]["limit"] == 3
+    assert dimensions["validation"]["settled"] >= 1
+    assert dimensions["total"]["settled"] >= dimensions["validation"]["settled"]
     assert Path(result["report_path"]).is_file()
     global_stage = next(
         row for row in result["stages"] if row["stage"] == "global_campaign"
@@ -882,6 +936,8 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
         config=TargetSolveConfig(
             use_coordinator=False,
             enable_web_search=False,
+            max_program_tasks=7,
+            max_experiment_tasks=3,
         ),
         resume=True,
         director_runner=_runner,
@@ -890,6 +946,15 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
     )
     assert resumed["model_cost"]["model_invocations"] == 1
     assert resumed["gates"]["gates"]["B5_configured_portfolio_acceptance"] is True
+    assert resumed["trajectory"]["content_sha256"] == result["trajectory"][
+        "content_sha256"
+    ]
+    assert resumed["trajectory"]["continuity"][
+        "resume_baseline_preserved"
+    ] is True
+    assert resumed["trajectory"]["time_to_first"]["B4"] == result[
+        "trajectory"
+    ]["time_to_first"]["B4"]
 
 
 def test_current_disposition_does_not_treat_stale_terminal_as_scientific_success() -> None:
@@ -1360,12 +1425,220 @@ def test_legacy_benchmark_label_does_not_short_circuit_unified_campaign(
     )
 
 
-def test_legacy_objective_labels_produce_the_same_campaign_trace(
+def test_b4_milestone_keeps_scientific_actions_on_the_same_trajectory(
     tmp_path: Path,
 ) -> None:
     gateway = CampaignGateway(_paths(tmp_path))
 
+    def director_without_condition_suggestions(
+        spec: AgentSpec, context: Any, mode: str, _config: Any
+    ) -> AgentResult:
+        plan = _plan(context, mode)
+        for skeleton in plan["multi_step_skeletons"]:
+            for step in skeleton["steps"]:
+                step.pop("condition_predictions", None)
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:result",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.SUCCEEDED,
+            output=plan,
+            usage={
+                "model_invocations": 1,
+                "input_tokens": 1_000,
+                "output_tokens": 700,
+                "wall_time_s": 1.0,
+            },
+        )
+
     def chemenzy_provider(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "completed",
+            "routes": [
+                {
+                    "score": 0.9,
+                    "steps": [
+                        {
+                            "product_smiles": TARGET,
+                            "reactant_smiles": ["CCO", "CC(=O)Cl"],
+                            "rxn_smiles": f"CCO.CC(=O)Cl>>{TARGET}",
+                            "source_model": "fixture-chemenzy",
+                            "score": 0.9,
+                            "stock_status": {"CCO": True, "CC(=O)Cl": True},
+                        }
+                    ],
+                }
+            ],
+        }
+
+    def condition_predictor(
+        _reaction_smiles: str, *, top_k: int = 2
+    ) -> list[dict[str, Any]]:
+        assert top_k == 2
+        return [
+            {
+                "temperature_c": 20,
+                "solvent": ["tetrahydrofuran"],
+                "reagents": ["base"],
+                "score": 0.8,
+            }
+        ]
+
+    result = gateway.solve_target(
+        target_name="post-B4 science trajectory",
+        target_smiles=TARGET,
+        run_id="post-b4-science-trajectory",
+        acceptance=RetrosynthesisAcceptanceSpec(
+            minimum_complete_routes=1,
+            minimum_edge_proof_level=3,
+            stock_boundary="benchmark_search",
+            minimum_independent_source_groups=2,
+        ),
+        config=TargetSolveConfig(
+            enable_target_identity=False,
+            enable_web_search=False,
+            enable_builtin_patent_evidence=False,
+            enable_patent_self_evolution=False,
+            provider_route_reserve=8,
+            host_route_portfolio=4,
+            display_route_limit=2,
+        ),
+        director_runner=director_without_condition_suggestions,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        chemenzy_provider=chemenzy_provider,
+        evidence_connector=_discovery_only_connector,
+        condition_predictor=condition_predictor,
+    )
+
+    stages = result["stages"]
+    core_actions = [
+        (
+            index,
+            str(dict(stage["detail"]["action"])["kind"]),
+        )
+        for index, stage in enumerate(stages)
+        if str(stage.get("stage") or "").startswith(
+            "campaign_action_unified_core_"
+        )
+    ]
+    first_b4_snapshot_index = next(
+        index
+        for index, stage in enumerate(stages)
+        if str(stage.get("stage") or "").startswith(
+            "campaign_snapshot_unified_core_"
+        )
+        and dict(stage["detail"]["milestones"]).get("B4_stock_boundary")
+        is True
+    )
+    action_kinds = {kind for _, kind in core_actions}
+    post_b4_action_kinds = {
+        kind for index, kind in core_actions if index > first_b4_snapshot_index
+    }
+
+    assert result["gates"]["gates"]["B4_stock_boundary"] is True
+    assert {
+        CampaignActionKind.CODEX_REPLAN.value,
+        CampaignActionKind.BIND_EVIDENCE.value,
+        CampaignActionKind.CONDITION_ENRICH.value,
+        CampaignActionKind.PROGRAM_REVIEW.value,
+    } <= action_kinds
+    assert {
+        CampaignActionKind.CONDITION_ENRICH.value,
+        CampaignActionKind.CODEX_REPLAN.value,
+        CampaignActionKind.PROGRAM_REVIEW.value,
+    } <= post_b4_action_kinds
+    assert result["gates"]["gates"]["B3_exact_multi_source"] is False
+    assert result["gates"]["gates"][
+        "B5_configured_portfolio_acceptance"
+    ] is False
+    assert result["model_cost"]["model_invocations"] == 2
+    assert any(
+        stage["stage"] == "replan_retention_audit"
+        and stage["status"] == "accepted"
+        for stage in stages
+    )
+    assert any(
+        stage["stage"] == "program_review"
+        and stage["detail"]["store"]["status"]["event_count"] == 0
+        for stage in stages
+    )
+    trajectory = result["trajectory"]
+    assert trajectory["schema_version"] == "campaign_trajectory.v2"
+    assert trajectory["continuity"]["resume_baseline_preserved"] is True
+    assert trajectory["time_to_first"]["B4"] is not None
+    assert trajectory["time_to_first"]["B4"]["elapsed_wall_time_s"] >= 0.0
+    assert all(
+        snapshot["schema_version"] == "campaign_anytime_snapshot.v2"
+        and snapshot["bindings"]["complete"] is True
+        and "tasks" in snapshot["resource_usage"]
+        and "native_search" in snapshot["resource_usage"]
+        and "candidate_route_count" in snapshot["route_counts"]
+        for snapshot in trajectory["snapshots"]
+    )
+    assert trajectory["snapshots"][-1]["action_counts"]["total"] == len(
+        core_actions
+    )
+    assert trajectory["snapshots"][-1]["pareto_archive"]
+    final_bindings = trajectory["snapshots"][-1]["bindings"]
+    assert final_bindings["code"]["value"]["source_bundle_complete"] is True
+    assert len(
+        final_bindings["input"]["value"]["campaign_spec_sha256"]
+    ) == 64
+    assert len(
+        final_bindings["stock_oracle"]["value"]["reference_sha256"]
+    ) == 64
+    assert final_bindings["providers"]["value"]["codex"]["model"]
+    assert final_bindings["providers"]["value"]["chemenzy"]["runtime"][
+        "provider_envelope"
+    ]["provider_id"] == "autoplanner.chemenzy_proposals"
+    workbench_history = gateway.workbench("post-b4-science-trajectory")["snapshot"][
+        "campaign_summary"
+    ]["trajectory_history"]
+    assert workbench_history["available"] is True
+    assert workbench_history["trajectory_sha256"] == trajectory["content_sha256"]
+    assert workbench_history["resource_curve"] == trajectory["resource_curve"]
+    exported = gateway.export(
+        "post-b4-science-trajectory",
+        output_dir=tmp_path / "post-b4-review-export",
+    )
+    review_bundle = json.loads(
+        Path(exported["files"]["review_bundle"]).read_text(encoding="utf-8")
+    )
+    assert review_bundle["available"] is True
+    assert review_bundle["source_report_digest_valid"] is True
+    assert review_bundle["report_sha256"] == result["content_sha256"]
+    assert review_bundle["components"]["action_trace"]["record_count"] > 0
+    assert any(
+        record["kind"] == "canonical_pareto_lineage"
+        for record in review_bundle["components"]["route_lineage"]["records"]
+    )
+    resource_export = review_bundle["components"]["resource_curve"]
+    assert resource_export["available"] is True
+    assert resource_export["trajectory_sha256"] == trajectory["content_sha256"]
+    assert resource_export["records"] == trajectory["resource_curve"]
+
+
+def test_legacy_objective_labels_produce_the_same_campaign_trace(
+    tmp_path: Path,
+) -> None:
+    delays = {"chemenzy": 0.0, "codex": 0.0}
+    provider_target_names: list[str] = []
+    gateways: dict[str, CampaignGateway] = {}
+
+    def director_runner(spec, context, mode, config):
+        time.sleep(delays["codex"])
+        return _runner(spec, context, mode, config)
+
+    def chemenzy_provider(**kwargs: Any) -> dict[str, Any]:
+        time.sleep(delays["chemenzy"])
+        provider_target_names.append(str(kwargs.get("target_name") or ""))
         return {
             "status": "completed",
             "routes": [
@@ -1385,10 +1658,19 @@ def test_legacy_objective_labels_produce_the_same_campaign_trace(
         }
 
     def solve(label: str) -> dict[str, Any]:
+        delays.update(
+            {"chemenzy": 0.04, "codex": 0.0}
+            if label == "benchmark_search"
+            else {"chemenzy": 0.0, "codex": 0.04}
+        )
+        run_root = tmp_path / f"fresh-{label}"
+        run_root.mkdir()
+        gateway = CampaignGateway(_paths(run_root))
+        gateways[label] = gateway
         return gateway.solve_target(
-            target_name="objective-blind target",
+            target_name="display-only compatibility target",
             target_smiles=TARGET,
-            run_id=f"objective-blind-{label}",
+            run_id="objective-blind-shared",
             config=TargetSolveConfig(
                 objective_mode=label,
                 enable_target_identity=False,
@@ -1400,7 +1682,7 @@ def test_legacy_objective_labels_produce_the_same_campaign_trace(
                 enable_condition_enrichment=False,
                 enable_chemenzy_condition_prediction=False,
             ),
-            director_runner=_runner,
+            director_runner=director_runner,
             atom_mapper=_mapper,
             stock_catalog_builder=_catalog,
             chemenzy_provider=chemenzy_provider,
@@ -1408,21 +1690,261 @@ def test_legacy_objective_labels_produce_the_same_campaign_trace(
 
     benchmark = solve("benchmark_search")
     scientific = solve("scientific_proof")
+    procurement = solve("procurement_delivery")
 
-    assert [row["stage"] for row in benchmark["stages"]] == [
-        row["stage"] for row in scientific["stages"]
-    ]
-    assert benchmark["gates"]["gates"] == scientific["gates"]["gates"]
-    assert benchmark["model_cost"] == scientific["model_cost"]
+    for comparison in (scientific, procurement):
+        assert [row["stage"] for row in benchmark["stages"]] == [
+            row["stage"] for row in comparison["stages"]
+        ]
+        assert benchmark["gates"]["gates"] == comparison["gates"]["gates"]
+        assert benchmark["model_cost"] == comparison["model_cost"]
     benchmark_lineage = next(
         row for row in benchmark["stages"] if row["stage"] == "chemenzy_baseline"
     )["detail"]["route_lineage"]
-    scientific_lineage = next(
-        row for row in scientific["stages"] if row["stage"] == "chemenzy_baseline"
-    )["detail"]["route_lineage"]
-    assert [row["normalized_route_sha256"] for row in benchmark_lineage] == [
-        row["normalized_route_sha256"] for row in scientific_lineage
-    ]
+    for comparison in (scientific, procurement):
+        comparison_lineage = next(
+            row
+            for row in comparison["stages"]
+            if row["stage"] == "chemenzy_baseline"
+        )["detail"]["route_lineage"]
+        assert [row["normalized_route_sha256"] for row in benchmark_lineage] == [
+            row["normalized_route_sha256"] for row in comparison_lineage
+        ]
+    assert len(set(provider_target_names)) == 1
+    assert provider_target_names[0].startswith("target-")
+    assert all("display-only" not in value for value in provider_target_names)
+
+    def action_decision_signature(
+        report: dict[str, Any],
+    ) -> list[tuple[str, str, str]]:
+        def selected_action_id(row: dict[str, Any]) -> str:
+            return str(
+                dict(row["detail"].get("decision") or {}).get(
+                    "selected_action_id"
+                )
+                or ""
+            )
+
+        return [
+            (
+                str(dict(row["detail"]["action"]).get("kind") or ""),
+                selected_action_id(row),
+                str(dict(row["detail"].get("outcome") or {}).get("status") or ""),
+            )
+            for row in report["stages"]
+            if str(row.get("stage") or "").startswith(
+                "campaign_action_unified_core_"
+            )
+        ]
+
+    def action_binding_signature(
+        report: dict[str, Any],
+    ) -> list[tuple[str, str, str]]:
+        return [
+            (
+                str(dict(row["detail"]["action"]).get("execution_id") or ""),
+                str(
+                    dict(row["detail"].get("decision") or {}).get(
+                        "selected_action_id"
+                    )
+                    or ""
+                ),
+                str(dict(row["detail"].get("outcome") or {}).get("status") or ""),
+            )
+            for row in report["stages"]
+            if str(row.get("stage") or "").startswith(
+                "campaign_action_unified_core_"
+            )
+        ]
+
+    def action_stage_names(report: dict[str, Any]) -> list[str]:
+        return [
+            str(row.get("stage") or "")
+            for row in report["stages"]
+            if str(row.get("stage") or "").startswith(
+                "campaign_action_unified_core_"
+            )
+        ]
+
+    def write_json(path: Path, value: dict[str, Any]) -> None:
+        path.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    for comparison in (scientific, procurement):
+        assert action_decision_signature(benchmark) == action_decision_signature(
+            comparison
+        )
+        assert action_binding_signature(benchmark) == action_binding_signature(
+            comparison
+        )
+    benchmark_graph = gateways["benchmark_search"]._open(
+        "objective-blind-shared",
+        run_dir=benchmark["run_dir"],
+    ).graph_store.load()
+    scientific_graph = gateways["scientific_proof"]._open(
+        "objective-blind-shared",
+        run_dir=scientific["run_dir"],
+    ).graph_store.load()
+    procurement_graph = gateways["procurement_delivery"]._open(
+        "objective-blind-shared",
+        run_dir=procurement["run_dir"],
+    ).graph_store.load()
+    assert {
+        benchmark_graph["scientific_sha256"],
+        scientific_graph["scientific_sha256"],
+        procurement_graph["scientific_sha256"],
+    } == {benchmark_graph["scientific_sha256"]}
+
+    base_run_dir = Path(benchmark["run_dir"])
+    legacy_run_dir = tmp_path / "saved-run-with-legacy-objective"
+    no_legacy_run_dir = tmp_path / "saved-run-without-legacy-objective"
+    shutil.copytree(base_run_dir, legacy_run_dir)
+    shutil.copytree(base_run_dir, no_legacy_run_dir)
+    base_before_actions = action_decision_signature(benchmark)
+    base_before_bindings = action_binding_signature(benchmark)
+
+    benchmark_checkpoint_path = (
+        legacy_run_dir / ".autoplanner" / "target-solver-checkpoint.json"
+    )
+    legacy_checkpoint = json.loads(
+        benchmark_checkpoint_path.read_text(encoding="utf-8")
+    )
+    legacy_checkpoint["objective_mode"] = "benchmark_search"
+    write_json(benchmark_checkpoint_path, legacy_checkpoint)
+
+    no_legacy_checkpoint_path = (
+        no_legacy_run_dir / ".autoplanner" / "target-solver-checkpoint.json"
+    )
+    no_legacy_checkpoint = json.loads(
+        no_legacy_checkpoint_path.read_text(encoding="utf-8")
+    )
+    no_legacy_checkpoint.pop("objective_mode", None)
+    if isinstance(no_legacy_checkpoint.get("config"), dict):
+        no_legacy_checkpoint["config"].pop("objective_mode", None)
+    write_json(no_legacy_checkpoint_path, no_legacy_checkpoint)
+
+    no_legacy_report_path = no_legacy_run_dir / "target-only-solve-report.json"
+    no_legacy_report = json.loads(
+        no_legacy_report_path.read_text(encoding="utf-8")
+    )
+    no_legacy_report.pop("content_sha256", None)
+    if isinstance(no_legacy_report.get("config"), dict):
+        no_legacy_report["config"].pop("objective_mode", None)
+    if isinstance(no_legacy_report.get("claim"), dict):
+        no_legacy_report["claim"].pop("objective_mode", None)
+    no_legacy_report["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            no_legacy_report,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    write_json(no_legacy_report_path, no_legacy_report)
+
+    resume_config = TargetSolveConfig(
+        objective_mode="procurement_delivery",
+        enable_target_identity=False,
+        enable_web_search=False,
+        enable_replan=False,
+        enable_live_benchmark_stock=False,
+        enable_builtin_patent_evidence=False,
+        enable_patent_self_evolution=False,
+        enable_condition_enrichment=False,
+        enable_chemenzy_condition_prediction=False,
+    )
+    delays.update({"chemenzy": 0.0, "codex": 0.0})
+    resume_gateway = gateways["benchmark_search"]
+    resumed_benchmark = resume_gateway.solve_target(
+        target_name="renamed compatibility view",
+        target_smiles=TARGET,
+        run_id="objective-blind-shared",
+        run_dir=legacy_run_dir,
+        resume=True,
+        config=resume_config,
+        director_runner=director_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        chemenzy_provider=chemenzy_provider,
+    )
+    delays.update({"chemenzy": 0.0, "codex": 0.0})
+    resumed_without_legacy = resume_gateway.solve_target(
+        target_name="renamed compatibility view",
+        target_smiles=TARGET,
+        run_id="objective-blind-shared",
+        run_dir=no_legacy_run_dir,
+        resume=True,
+        config=resume_config,
+        director_runner=director_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        chemenzy_provider=chemenzy_provider,
+    )
+
+    benchmark_after_actions = action_decision_signature(resumed_benchmark)
+    no_legacy_after_actions = action_decision_signature(resumed_without_legacy)
+    benchmark_after_bindings = action_binding_signature(resumed_benchmark)
+    no_legacy_after_bindings = action_binding_signature(resumed_without_legacy)
+    assert benchmark_after_actions[: len(base_before_actions)] == (
+        base_before_actions
+    )
+    assert no_legacy_after_actions[: len(base_before_actions)] == (
+        base_before_actions
+    )
+    assert benchmark_after_bindings[: len(base_before_bindings)] == (
+        base_before_bindings
+    )
+    assert no_legacy_after_bindings[: len(base_before_bindings)] == (
+        base_before_bindings
+    )
+    assert benchmark_after_actions == no_legacy_after_actions
+    assert benchmark_after_bindings == no_legacy_after_bindings
+    resumed_benchmark_graph = resume_gateway._open(
+        "objective-blind-shared",
+        run_dir=legacy_run_dir,
+    ).graph_store.load()
+    resumed_no_legacy_graph = resume_gateway._open(
+        "objective-blind-shared",
+        run_dir=no_legacy_run_dir,
+    ).graph_store.load()
+    assert resumed_benchmark_graph["scientific_sha256"] == (
+        resumed_no_legacy_graph["scientific_sha256"]
+    )
+    for after in (resumed_benchmark, resumed_without_legacy):
+        before_names = action_stage_names(benchmark)
+        after_names = action_stage_names(after)
+        assert after_names[: len(before_names)] == before_names
+        assert len(after_names) == len(set(after_names))
+
+    benchmark_compatibility = next(
+        row
+        for row in resumed_benchmark["stages"]
+        if row["stage"] == "saved_run_objective_compatibility"
+    )["detail"]
+    no_legacy_compatibility = next(
+        row
+        for row in resumed_without_legacy["stages"]
+        if row["stage"] == "saved_run_objective_compatibility"
+    )["detail"]
+    assert benchmark_compatibility["legacy_objective_present"] is True
+    assert no_legacy_compatibility["legacy_objective_present"] is False
+    assert benchmark_compatibility["requested_compatibility_view"] == (
+        "procurement_delivery"
+    )
+    assert no_legacy_compatibility["requested_compatibility_view"] == (
+        "procurement_delivery"
+    )
+    assert {
+        row["value"]
+        for row in benchmark_compatibility["legacy_objective_observations"]
+    } >= {"benchmark_search"}
+    assert no_legacy_compatibility["legacy_objective_observations"] == []
+    assert benchmark_compatibility["semantics"][
+        "resume_uses_current_unified_campaign_state_and_budget"
+    ] is True
 
 
 def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(

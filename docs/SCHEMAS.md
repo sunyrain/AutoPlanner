@@ -2,7 +2,34 @@
 
 | Schema | 权威范围 | 主要生产者 |
 | --- | --- | --- |
-| `autoplanner_run_spec.v1` | 目标、验收、硬预算 | `RunKernel` |
+| `autoplanner_run_spec.v2` | 嵌入统一 Campaign 输入的运行身份与兼容验收面；新运行唯一写入版本 | `RunKernel` |
+| `autoplanner_run_spec.v1` | 旧目标、验收、硬预算；仅保摘要验证后的迁移读取 | `RunKernel` compatibility reader |
+| `unified_campaign_spec.v1` | canonical target、不可变 stock-oracle reference、约束和多维资源预算；不含名称、dataset、objective 或 acceptance | API/CLI/Web adapters |
+| `stock_oracle_reference.v1` | 冻结库存摘要或活解析器合同的内容寻址绑定 | stock adapter / provider registry |
+| `target_constraints.v1` | 禁用试剂、最大步数、允许执行域、安全限制和库存来源 | API/CLI/Web adapters |
+| `campaign_resource_budget.v1` | model/visual、native search、evidence、stock、validation、Program、experiment、total task 与 campaign wall-time 的运行预算向量 | API/CLI/Web adapters |
+| `campaign_task_budget.v1` | evidence、stock、validation、Program、experiment 与 total task 的 settled/reserved/remaining 可重放投影 | `RunKernel` / status / reports |
+| `campaign_action.v2` | revision-bound Action，包含 reservation 前固定的类级资源估计；v1 只允许按旧摘要严格兼容读取 | action scheduler / runtime |
+| `campaign_action_estimate.v1` | reservation 前冻结的成功概率区间、route/proof/diversity 与依赖解除预期、成本和显式不确定性；未评估概率保留 `[0,1]`，不做伪校准 | action binder |
+| `campaign_action_resource_estimate.v1` | target-blind resource-class 估计：wrapper/child task、native、model 与未知 token 维度 | action binder |
+| `campaign_action_resource_usage.v1` | 按 action execution ID 从 RunKernel 事件链归因的实际 task/native/model/墙钟消耗 | `RunKernel` |
+| `campaign_action_resource_accounting.v1` | 同一 Action 的预计、实际与逐维 variance；不授予科学权威 | action runtime |
+| `campaign_action_result.v1` | revision-bound Action 收据：不可变工件引用、实际资源、状态、material events、候选/事实增量与失败类型；事实增量只认 RunKernel canonical graph revision，失败/timeout/cancel/partial 会释放该 Action 遗留子任务 | action runtime |
+| `active_campaign_action.v1` | 从 RunKernel in-flight wrapper reservation 投影的当前 Action 身份、类别、producer 与资源类；child task 不重复展示，不是第二队列 | campaign service status |
+| `campaign_action_timeline.v1` | 将 checkpoint 中已结算 Action 与 RunKernel 当前 reservation 合并为 ChemEnzy/Codex/evidence/validation/condition/stock/Program/experiment 的统一只读时间线 | Web job progress |
+| `saved_run_objective_compatibility.v1` | saved-run 恢复时记录 checkpoint/report 中旧 objective 字段及当前兼容视图；历史值只作 provenance，不能启停、排序或绑定 Action | target solver compatibility reader |
+| `campaign_unexecuted_action_set.v1` | anytime 终态仍未执行的最终 revision 候选及 scheduler/loop 原因 | action runtime / target report |
+| `campaign_quality_state.v1` | topology、reaction validation、exact evidence、stock、conditions、procurement、Program validation、diversity 八个独立质量轴 | campaign status / target report / Workbench |
+| `campaign_trajectory_bindings.v1` | 每个 anytime snapshot 的控制面源码 bundle、配置、统一输入、stock oracle 与 provider/model 身份；缺失项显式为未观察，绑定变化形成新 epoch | target solver / trajectory compiler |
+| `campaign_anytime_snapshot.v2` | event/graph revision、累计 RunKernel wall time、完整多维资源、Action/路线计数、紧凑 Pareto archive、B0–B5/Program milestones 与运行绑定；内容寻址工件不得经过有损 stage 裁剪 | target solver |
+| `campaign_trajectory.v2` | 从 v1/v2 snapshot 重建首达时间、binding epochs、resume 连续性和资源曲线；v1 只兼容读取且不伪造缺失墙钟或绑定 | trajectory compiler / target report |
+| `campaign_trajectory_cutoff_projection.v1` | 对内容寻址 trajectory 按冻结的累计 wall/task/model/token/search 等上限选择最后一个合法 v2 snapshot；截断后里程碑、路线、成本均不读取未来状态，资源回退时拒绝投影 | evaluation harness / reporting |
+| `workbench_trajectory_history.v1` | Workbench 的只读轨迹摘要：当前/历史失效/未达到三态里程碑、首达时间、binding epochs 与完整资源曲线；历史达成不恢复已撤销 proof | route workbench / HTML / API |
+| `campaign_review_bundle.v1` | 从摘要验证通过的 target solve report 生成四个独立内容寻址的审稿投影；报告损坏或缺失时失败关闭，不读取未验证 stage | campaign export / Gateway |
+| `campaign_action_trace.v1` | 按报告 stage 顺序去重的 Action execution、reservation 前 estimate、scheduler decision 与不可变 outcome；不授予科学权威 | review bundle |
+| `campaign_failure_trace.v1` | 显式 Action/stage failure、timeout、cancel、partial 与终态原因；开放的科学门不会被改写成运行失败 | review bundle |
+| `campaign_route_lineage_export.v1` | provider raw/normalized/admitted/materialized lineage 与最终 canonical Pareto lineage 的分层只读导出 | review bundle |
+| `campaign_resource_curve_export.v1` | 经 trajectory 内容摘要验证的累计资源曲线、首达时间、resume continuity 与 binding epochs；不从零散 stage timing 重算 | review bundle |
 | `autoplanner_run_event.v1` | 可重放运行事件 | `RunKernel` |
 | `global_campaign_plan.v1` | 全局路线族和多步骨架 proposal | Global Director / replay |
 | `canonical_retrosynthesis_hypergraph.v1` | 分子、超边、来源、库存和拓扑 | canonical ingestion |
@@ -38,7 +65,7 @@
 | `experiment_execution_result.v1` / audit | 绑定 request、executor、原始工件 SHA-256、成功/失败/不确定/中止状态和一个领域验证候选；audit 只允许把候选交给既有领域 gate，不直接授予验证或 Claim | experiment executor adapter |
 | `experiment_executor_policy.v1` / `experiment_executor_selection.v1` | 配置驱动的 provider allowlist、domain/network/cost 上限与宿主信任选择结果；调用方策略不能注册 provider 或提升 trust/kind/capability | host provider registry |
 | `experiment_dispatch_handoff.v1` | 绑定 dispatch/request/executor 的人工或外部执行交接；`awaiting_external_result` 不表示实验完成，也不授予验证 | experiment executor provider |
-| `experiment_dispatch_task.v1` | 嵌入 RunKernel validation reservation metadata 的 request/provider/selection/CAS 绑定；不是第二队列 | RunKernel operational ledger |
+| `experiment_dispatch_task.v1` | 嵌入 RunKernel experiment reservation metadata 的 request/provider/selection/CAS 绑定；不是第二队列 | RunKernel operational ledger |
 | `experiment_dispatch_receipt.v1` | 内容寻址的 handoff 或 settlement 收据；pointer 只作可重建恢复索引，settlement 仍只释放领域 gate 候选 | experiment dispatch runtime |
 | `autoplanner_task_lifecycle.v1` | 从 RunKernel 事件链投影单个任务的 absent/in-flight/settled 生命周期；无科学权威 | RunKernel |
 | `execution_program_proposal.v1` | whole-cell/hybrid 连续区间的非权威 Program，显式记录 actors、operation、辅因子/载体与验证计划 | execution Program compiler |

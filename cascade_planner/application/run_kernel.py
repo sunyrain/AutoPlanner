@@ -9,6 +9,7 @@ configured acceptance report.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
@@ -24,6 +25,11 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
 )
+from cascade_planner.application.unified_campaign_spec import (
+    CampaignResourceBudget,
+    StockOracleReference,
+    UnifiedCampaignSpec,
+)
 from cascade_planner.runtime.artifact_store import ArtifactRef, ArtifactStore
 from cascade_planner.runtime.run_index import (
     RUN_MANIFEST_SCHEMA,
@@ -31,14 +37,25 @@ from cascade_planner.runtime.run_index import (
 )
 
 
-RUN_SPEC_SCHEMA = "autoplanner_run_spec.v1"
+LEGACY_RUN_SPEC_SCHEMA = "autoplanner_run_spec.v1"
+RUN_SPEC_SCHEMA = "autoplanner_run_spec.v2"
 RUN_LIMITS_SCHEMA = "autoplanner_run_limits.v1"
 RUN_EVENT_SCHEMA = "autoplanner_run_event.v1"
 RUN_STATE_SCHEMA = "autoplanner_run_state.v1"
 RUN_REVISION_SCHEMA = "autoplanner_run_revision.v1"
 DEFICIT_SCHEMA = "autoplanner_deficit.v1"
 STOP_DECISION_SCHEMA = "autoplanner_stop_decision.v1"
-_TASK_KINDS = {"model", "evidence", "stock", "validation", "proposal", "other"}
+CAMPAIGN_ACTION_RESOURCE_USAGE_SCHEMA = "campaign_action_resource_usage.v1"
+_TASK_KINDS = {
+    "model",
+    "evidence",
+    "stock",
+    "validation",
+    "program",
+    "experiment",
+    "proposal",
+    "other",
+}
 _NATIVE_SEARCH_RESOURCE_CLASSES = frozenset(
     {"native_search_target", "native_search_frontier"}
 )
@@ -54,6 +71,10 @@ _STATUS_TRANSITIONS = {
     "cancelled": set(),
     "failed": set(),
 }
+_ACTION_RESOURCE_CONTEXT: ContextVar[Mapping[str, Any] | None] = ContextVar(
+    "autoplanner_action_resource_context",
+    default=None,
+)
 
 
 class RunKernelError(RuntimeError):
@@ -228,6 +249,7 @@ class RunSpec:
         default_factory=RetrosynthesisAcceptanceSpec
     )
     limits: RunLimits = field(default_factory=RunLimits)
+    campaign_spec: UnifiedCampaignSpec | None = None
     producer: str = "autoplanner"
     created_at: str = ""
     schema_version: str = RUN_SPEC_SCHEMA
@@ -235,6 +257,27 @@ class RunSpec:
     def __post_init__(self) -> None:
         if not self.run_id or not self.target_name or not self.target_smiles:
             raise ValueError("run spec identity and target are required")
+        campaign_spec = self.campaign_spec
+        if campaign_spec is None:
+            campaign_spec = UnifiedCampaignSpec(
+                target_smiles=self.target_smiles,
+                stock_oracle=StockOracleReference.compatibility_unbound(
+                    boundary=self.acceptance.stock_boundary
+                ),
+                resource_budget=CampaignResourceBudget.from_dict(
+                    self.limits.to_dict()
+                ),
+            )
+            object.__setattr__(self, "campaign_spec", campaign_spec)
+        if campaign_spec.target_smiles != self.target_smiles:
+            raise ValueError("run spec target conflicts with unified campaign spec")
+        if not _campaign_budget_matches_limits(
+            campaign_spec.resource_budget,
+            self.limits,
+        ):
+            raise ValueError("run limits conflict with unified campaign resource budget")
+        if self.schema_version not in {RUN_SPEC_SCHEMA, LEGACY_RUN_SPEC_SCHEMA}:
+            raise ValueError("run spec schema is invalid")
 
     def to_dict(self) -> dict[str, Any]:
         row = {
@@ -246,19 +289,30 @@ class RunSpec:
             "limits": self.limits.to_dict(),
             "producer": self.producer,
             "created_at": self.created_at,
-            "semantics": {
+        }
+        if self.schema_version == LEGACY_RUN_SPEC_SCHEMA:
+            row["semantics"] = {
                 "one_kernel_per_run": True,
                 "workers_cannot_extend_limits": True,
                 "acceptance_is_scientific_completion_authority": True,
-            },
-        }
+            }
+        else:
+            row["campaign_spec"] = self.campaign_spec.to_dict()
+            row["semantics"] = {
+                "one_kernel_per_run": True,
+                "workers_cannot_extend_limits": True,
+                "campaign_spec_is_algorithm_input": True,
+                "target_name_is_display_metadata": True,
+                "acceptance_is_quality_audit_input": True,
+            }
         row["content_sha256"] = _digest(row)
         return row
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RunSpec":
         row = dict(value)
-        if row.get("schema_version") != RUN_SPEC_SCHEMA:
+        schema_version = str(row.get("schema_version") or "")
+        if schema_version not in {RUN_SPEC_SCHEMA, LEGACY_RUN_SPEC_SCHEMA}:
             raise RunKernelCorruptionError("run_spec_schema_invalid")
         supplied_digest = str(row.pop("content_sha256", ""))
         if supplied_digest != _digest(row):
@@ -266,15 +320,26 @@ class RunSpec:
         acceptance_row = dict(row.get("acceptance") or {})
         acceptance_row.pop("schema_version", None)
         acceptance_row.pop("content_sha256", None)
-        return cls(
-            run_id=str(row.get("run_id") or ""),
-            target_name=str(row.get("target_name") or ""),
-            target_smiles=str(row.get("target_smiles") or ""),
-            acceptance=RetrosynthesisAcceptanceSpec(**acceptance_row),
-            limits=RunLimits.from_dict(dict(row.get("limits") or {})),
-            producer=str(row.get("producer") or "autoplanner"),
-            created_at=str(row.get("created_at") or ""),
-        )
+        try:
+            return cls(
+                run_id=str(row.get("run_id") or ""),
+                target_name=str(row.get("target_name") or ""),
+                target_smiles=str(row.get("target_smiles") or ""),
+                acceptance=RetrosynthesisAcceptanceSpec(**acceptance_row),
+                limits=RunLimits.from_dict(dict(row.get("limits") or {})),
+                campaign_spec=(
+                    UnifiedCampaignSpec.from_dict(
+                        dict(row.get("campaign_spec") or {})
+                    )
+                    if schema_version == RUN_SPEC_SCHEMA
+                    else None
+                ),
+                producer=str(row.get("producer") or "autoplanner"),
+                created_at=str(row.get("created_at") or ""),
+                schema_version=schema_version,
+            )
+        except (TypeError, ValueError) as exc:
+            raise RunKernelCorruptionError("run_spec_contract_invalid") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -556,6 +621,135 @@ class RunKernel:
             },
         }
 
+    @contextmanager
+    def action_resource_scope(
+        self,
+        *,
+        action_execution_id: str,
+        expected_resources_sha256: str,
+    ) -> Iterator[None]:
+        """Bind child task reservations to one Action execution."""
+
+        execution_id = str(action_execution_id or "").strip()
+        estimate_sha256 = str(expected_resources_sha256 or "").strip()
+        if not execution_id or not estimate_sha256:
+            raise ValueError("action resource scope identity is incomplete")
+        inherited = _ACTION_RESOURCE_CONTEXT.get()
+        if inherited is not None and inherited.get(
+            "campaign_action_execution_id"
+        ) != execution_id:
+            raise RunKernelError("nested_campaign_action_resource_scope_conflict")
+        token = _ACTION_RESOURCE_CONTEXT.set(
+            {
+                "campaign_action_execution_id": execution_id,
+                "campaign_action_expected_resources_sha256": estimate_sha256,
+            }
+        )
+        try:
+            yield
+        finally:
+            _ACTION_RESOURCE_CONTEXT.reset(token)
+
+    def action_resource_usage(
+        self,
+        action_execution_id: str,
+        *,
+        pending_task_id: str = "",
+        pending_status: str = "",
+        pending_elapsed_s: float = 0.0,
+    ) -> dict[str, Any]:
+        """Project actual resources from Action-bound task events."""
+
+        execution_id = str(action_execution_id or "").strip()
+        if not execution_id:
+            raise ValueError("action_execution_id is required")
+        with self._locked():
+            events = self._read_events()
+        reservations = {
+            str(event.payload.get("task_id") or ""): dict(event.payload)
+            for event in events
+            if event.event_type == "task_reserved"
+            and dict(event.payload.get("metadata") or {}).get(
+                "campaign_action_execution_id"
+            )
+            == execution_id
+        }
+        settlements = {
+            str(event.payload.get("task_id") or ""): dict(event.payload)
+            for event in events
+            if event.event_type == "task_settled"
+            and str(event.payload.get("task_id") or "") in reservations
+        }
+        pending_id = str(pending_task_id or "").strip()
+        if pending_id:
+            if pending_id not in reservations:
+                raise RunKernelError("pending_action_task_reservation_missing")
+            if pending_id not in settlements:
+                settlements[pending_id] = {
+                    "task_id": pending_id,
+                    "status": str(pending_status or "completed"),
+                    "model_usage": _normalized_model_usage(None),
+                    "elapsed_s": _finite_nonnegative_float(
+                        pending_elapsed_s,
+                        field_name="pending_elapsed_s",
+                    ),
+                    "projected_pending_settlement": True,
+                }
+        task_counts: dict[str, int] = {}
+        model_usage = _normalized_model_usage(None)
+        task_elapsed_s = 0.0
+        for task_id, settlement in settlements.items():
+            reservation = reservations[task_id]
+            kind = str(reservation.get("kind") or "other")
+            task_counts[kind] = int(task_counts.get(kind) or 0) + 1
+            task_elapsed_s += float(settlement.get("elapsed_s") or 0.0)
+            usage = _normalized_model_usage(
+                dict(settlement.get("model_usage") or {})
+            )
+            for key, value in usage.items():
+                model_usage[key] = model_usage[key] + value
+        native_search_units = {
+            "target": sum(
+                int(row.get("resource_units") or 0)
+                for row in reservations.values()
+                if row.get("resource_class") == "native_search_target"
+            ),
+            "frontier": sum(
+                int(row.get("resource_units") or 0)
+                for row in reservations.values()
+                if row.get("resource_class") == "native_search_frontier"
+            ),
+        }
+        native_search_units["total"] = sum(native_search_units.values())
+        in_flight_task_ids = sorted(set(reservations) - set(settlements))
+        result = {
+            "schema_version": CAMPAIGN_ACTION_RESOURCE_USAGE_SCHEMA,
+            "action_execution_id": execution_id,
+            "reserved_task_count": len(reservations),
+            "settled_task_count": len(settlements),
+            "in_flight_task_count": len(in_flight_task_ids),
+            "task_counts": dict(sorted(task_counts.items())),
+            "task_elapsed_s": round(task_elapsed_s, 6),
+            "native_search_units": native_search_units,
+            "model_usage": model_usage,
+            "task_ids": sorted(reservations),
+            "in_flight_task_ids": in_flight_task_ids,
+            "semantics": {
+                "event_log_is_operational_authority": True,
+                "child_tasks_are_bound_by_action_execution_id": True,
+                "pending_wrapper_settlement_is_projected": bool(
+                    pending_id and pending_id not in {
+                        str(event.payload.get("task_id") or "")
+                        for event in events
+                        if event.event_type == "task_settled"
+                    }
+                ),
+                "grants_no_scientific_authority": True,
+            },
+        }
+        result["content_sha256"] = _digest(result)
+        return result
+
     def native_search_budget(self) -> dict[str, Any]:
         """Project the replayable target/frontier native-search envelope."""
 
@@ -563,6 +757,47 @@ class RunKernel:
             self.state,
             self.spec.limits.model,
         )
+
+    def task_budget(self) -> dict[str, Any]:
+        """Project replayable per-class task budgets, including reservations."""
+
+        state = self.state
+        limits = _task_kind_limits(self.spec)
+        dimensions = {}
+        for kind, limit in limits.items():
+            spent = int(state.task_counts.get(kind) or 0)
+            reserved = sum(
+                str(value.get("kind") or "") == kind
+                for value in state.in_flight_tasks.values()
+            )
+            dimensions[kind] = {
+                "limit": limit,
+                "settled": spent,
+                "reserved": reserved,
+                "remaining": max(0, limit - spent - reserved),
+                "available": spent + reserved < limit,
+            }
+        total_reserved = len(state.in_flight_tasks)
+        total_limit = self.spec.limits.max_total_tasks
+        dimensions["total"] = {
+            "limit": total_limit,
+            "settled": state.settled_task_count,
+            "reserved": total_reserved,
+            "remaining": max(
+                0,
+                total_limit - state.settled_task_count - total_reserved,
+            ),
+            "available": state.settled_task_count + total_reserved < total_limit,
+        }
+        return {
+            "schema_version": "campaign_task_budget.v1",
+            "dimensions": dimensions,
+            "semantics": {
+                "settled_and_reserved_are_both_capacity_committed": True,
+                "replay_state_is_authority": True,
+                "program_and_experiment_are_independent": True,
+            },
+        }
 
     def release_native_target_reserve(
         self,
@@ -771,6 +1006,16 @@ class RunKernel:
                 raise ValueError("native search resource units must be positive")
         elif normalized_resource_units != 0:
             raise ValueError("resource units require a native search resource class")
+        resolved_metadata = _safe_mapping(metadata)
+        inherited_metadata = _ACTION_RESOURCE_CONTEXT.get()
+        if inherited_metadata is not None:
+            for key, value in inherited_metadata.items():
+                supplied = resolved_metadata.get(key)
+                if supplied is not None and supplied != value:
+                    raise RunKernelError(
+                        f"campaign_action_resource_metadata_conflict:{key}"
+                    )
+            resolved_metadata = {**resolved_metadata, **inherited_metadata}
         payload = {
             "task_id": str(task_id),
             "kind": normalized_kind,
@@ -778,7 +1023,7 @@ class RunKernel:
             "uses_model": bool(uses_model),
             "visual": bool(visual),
             "prompt_context_bytes": max(0, int(prompt_context_bytes)),
-            "metadata": _safe_mapping(metadata),
+            "metadata": resolved_metadata,
         }
         if normalized_resource_class in _NATIVE_SEARCH_RESOURCE_CLASSES:
             payload.update(
@@ -833,35 +1078,39 @@ class RunKernel:
         failure_reasons: Iterable[str] = (),
         model_usage: Mapping[str, Any] | None = None,
         elapsed_s: float = 0.0,
+        resource_usage: Mapping[str, Any] | None = None,
     ) -> RunEvent:
         state = self.state
         reservation = dict(state.in_flight_tasks.get(str(task_id)) or {})
         if not reservation:
             existing = self._event_by_key(idempotency_key)
             if existing is not None:
+                replay_payload = {
+                    "task_id": str(task_id),
+                    "status": str(status),
+                    "accepted_expansion_ids": sorted(
+                        set(
+                            str(item)
+                            for item in accepted_expansion_ids
+                            if str(item).strip()
+                        )
+                    ),
+                    "output_sha256": str(output_sha256),
+                    "failure_reasons": sorted(
+                        set(str(item) for item in failure_reasons)
+                    ),
+                    "model_usage": _normalized_model_usage(model_usage),
+                    "elapsed_s": _finite_nonnegative_float(
+                        elapsed_s,
+                        field_name="elapsed_s",
+                    ),
+                }
+                if resource_usage is not None:
+                    replay_payload["resource_usage"] = _safe_mapping(resource_usage)
                 return self._assert_idempotent_event(
                     existing,
                     event_type="task_settled",
-                    payload={
-                        "task_id": str(task_id),
-                        "status": str(status),
-                        "accepted_expansion_ids": sorted(
-                            set(
-                                str(item)
-                                for item in accepted_expansion_ids
-                                if str(item).strip()
-                            )
-                        ),
-                        "output_sha256": str(output_sha256),
-                        "failure_reasons": sorted(
-                            set(str(item) for item in failure_reasons)
-                        ),
-                        "model_usage": _normalized_model_usage(model_usage),
-                        "elapsed_s": _finite_nonnegative_float(
-                            elapsed_s,
-                            field_name="elapsed_s",
-                        ),
-                    },
+                    payload=replay_payload,
                 )
             raise RunKernelError(f"task_not_reserved:{task_id}")
         payload = {
@@ -882,6 +1131,8 @@ class RunKernel:
                 field_name="elapsed_s",
             ),
         }
+        if resource_usage is not None:
+            payload["resource_usage"] = _safe_mapping(resource_usage)
         return self._append("task_settled", idempotency_key, payload)
 
     def publish_graph_revision(
@@ -1243,11 +1494,7 @@ class RunKernel:
             for row in state.in_flight_tasks.values()
             if str(row.get("kind") or "") == kind
         )
-        kind_limits = {
-            "evidence": self.spec.limits.max_evidence_tasks,
-            "stock": self.spec.limits.max_stock_tasks,
-            "validation": self.spec.limits.max_validation_tasks,
-        }
+        kind_limits = _task_kind_limits(self.spec)
         if kind in kind_limits and kind_count >= kind_limits[kind]:
             reasons.append(f"run_{kind}_task_budget_exhausted")
         if (
@@ -1405,6 +1652,9 @@ class RunKernel:
             native.get("target_minimum_service") or 0
         ):
             reasons.append("run_native_target_reserve_release_violated")
+        for kind, limit in _task_kind_limits(self.spec).items():
+            if int(state.task_counts.get(kind) or 0) > limit:
+                reasons.append(f"run_{kind}_task_budget_violated")
         return sorted(reasons)
 
     def _persist_state(self, state: RunState) -> ArtifactRef:
@@ -1831,7 +2081,44 @@ def _spec_with_model_budget(
     spec: RunSpec,
     budget: RetrosynthesisRunBudget,
 ) -> RunSpec:
-    return replace(spec, limits=replace(spec.limits, model=budget))
+    limits = replace(spec.limits, model=budget)
+    campaign_spec = replace(
+        spec.campaign_spec,
+        resource_budget=replace(
+            spec.campaign_spec.resource_budget,
+            model=budget,
+        ),
+    )
+    return replace(spec, limits=limits, campaign_spec=campaign_spec)
+
+
+def _task_kind_limits(spec: RunSpec) -> dict[str, int]:
+    campaign_budget = spec.campaign_spec.resource_budget
+    return {
+        "evidence": int(campaign_budget.max_evidence_tasks),
+        "stock": int(campaign_budget.max_stock_tasks),
+        "validation": int(campaign_budget.max_validation_tasks),
+        "program": int(campaign_budget.max_program_tasks),
+        "experiment": int(campaign_budget.max_experiment_tasks),
+    }
+
+
+def _campaign_budget_matches_limits(
+    campaign_budget: CampaignResourceBudget,
+    limits: RunLimits,
+) -> bool:
+    legacy_budget = CampaignResourceBudget.from_dict(limits.to_dict())
+    return all(
+        getattr(campaign_budget, name) == getattr(legacy_budget, name)
+        for name in (
+            "model",
+            "max_total_tasks",
+            "max_evidence_tasks",
+            "max_stock_tasks",
+            "max_validation_tasks",
+            "max_run_wall_time_s",
+        )
+    )
 
 
 def _spec_with_replayed_budget_extensions(

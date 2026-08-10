@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from cascade_planner.application.action_scheduler import schedule_next_action
 from cascade_planner.application.campaign_actions import compile_action_opportunities
 from cascade_planner.application.campaign_trajectory import (
@@ -89,6 +91,21 @@ def test_action_scheduler_is_invariant_to_legacy_view_metadata() -> None:
     assert first["selected_action"]["kind"] == "reaction_validate"
 
 
+def test_scheduler_is_a_read_only_projection_of_canonical_opportunities() -> None:
+    opportunities = compile_action_opportunities(_frontier())
+    frozen = deepcopy(opportunities)
+
+    decision = schedule_next_action(
+        opportunities,
+        milestones={"B1_global_multi_route": True},
+        resource_availability={"validation": True},
+    )
+
+    assert opportunities == frozen
+    assert decision["semantics"]["scheduler_does_not_execute_or_mutate_actions"]
+    assert decision["semantics"]["stock_oracle_names_are_not_scheduler_inputs"]
+
+
 def test_action_scheduler_expands_one_deficit_into_provider_choices() -> None:
     opportunities = compile_action_opportunities(_frontier())
 
@@ -167,6 +184,102 @@ def test_target_native_search_has_a_distinct_protected_resource_class() -> None:
         opportunities["actions"][0]["resource_class"]
         == "native_search_target"
     )
+
+
+def test_adaptive_score_exposes_complete_value_and_cost_components() -> None:
+    frontier = _frontier()
+    frontier["items"] = [
+        {
+            **frontier["items"][0],
+            "deficit_id": "deficit:validation:low",
+            "object_id": "edge:low",
+            "entity_ids": ["edge:low"],
+            "route_family_ids": ["route-family:low"],
+            "priority": 0.0,
+            "score": {},
+        },
+        {
+            **frontier["items"][0],
+            "deficit_id": "deficit:validation:high",
+            "object_id": "edge:high",
+            "entity_ids": ["edge:high"],
+            "route_family_ids": ["route-family:high"],
+            "priority": 0.0,
+            "score": {
+                "expected_portfolio_gain": 0.4,
+                "evidence_gain": 0.3,
+                "route_diversity_gain": 0.2,
+                "dependency_unblock_count": 2,
+                "novelty_gain": 0.5,
+                "success_probability_interval": [0.6, 0.9],
+                "cost_penalty": 0.1,
+                "failure_risk_penalty": 0.2,
+            },
+        },
+    ]
+
+    decision = schedule_next_action(compile_action_opportunities(frontier))
+
+    assert decision["selected_action"]["deficit_id"] == (
+        "deficit:validation:high"
+    )
+    components = decision["selected_action"]["schedule_components"]
+    assert components["route_gain"] == 36.0
+    assert components["proof_gain"] == 24.0
+    assert components["diversity_gain"] == 14.0
+    assert components["dependency_unblock_gain"] == 120.0
+    assert components["novelty_gain"] == 22.5
+    assert components["success_likelihood_gain"] == 30.0
+    assert components["cost_penalty"] == 6.5
+    assert components["risk_penalty"] == 17.0
+    assert decision["selected_action"]["selection_reasons"] == [
+        "highest_ranked_eligible_action"
+    ]
+    unselected = next(
+        row
+        for row in decision["candidates"]
+        if row["deficit_id"] == "deficit:validation:low"
+    )
+    assert unselected["not_selected_reasons"] == ["lower_deterministic_rank"]
+
+
+def test_equal_scores_use_stable_action_id_tie_break() -> None:
+    frontier = _frontier()
+    shared = {
+        **frontier["items"][0],
+        "priority": 0.0,
+        "score": {},
+    }
+    first = {
+        **shared,
+        "deficit_id": "deficit:validation:a",
+        "object_id": "edge:a",
+        "entity_ids": ["edge:a"],
+        "route_family_ids": ["route-family:a"],
+    }
+    second = {
+        **shared,
+        "deficit_id": "deficit:validation:b",
+        "object_id": "edge:b",
+        "entity_ids": ["edge:b"],
+        "route_family_ids": ["route-family:b"],
+    }
+    forward = compile_action_opportunities(
+        {"content_sha256": "tie", "items": [first, second]}
+    )
+    reversed_input = compile_action_opportunities(
+        {"content_sha256": "tie", "items": [second, first]}
+    )
+
+    left = schedule_next_action(forward)
+    right = schedule_next_action(reversed_input)
+
+    expected = min(row["action_id"] for row in forward["actions"])
+    assert left["selected_action_id"] == expected
+    assert right["selected_action_id"] == expected
+    assert [row["action_id"] for row in left["candidates"]] == [
+        row["action_id"] for row in right["candidates"]
+    ]
 
 
 def test_route_materialization_precedes_same_route_validation_and_stock() -> None:

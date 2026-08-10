@@ -24,6 +24,7 @@ from cascade_planner.orchestration.global_campaign_director import (
     GlobalCampaignPlan,
     GlobalCampaignPlanValidationError,
     ReplayDirectorRunner,
+    director_plan_provenance_sha256,
     director_trigger_reasons,
     director_prompt,
     director_web_search_enabled,
@@ -289,6 +290,38 @@ def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str
         "portfolio_rationale": "Preserve two strategically distinct families sharing one audited feedstock.",
         "limitations": ["all steps require deterministic validation"],
     }
+
+
+def test_director_plan_provenance_ignores_runtime_binding_but_not_chemistry(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    first = GlobalCampaignPlan.from_dict(_plan(context))
+    rebound_payload = json.loads(json.dumps(first.to_dict()))
+    rebound_payload.pop("content_sha256", None)
+    rebound_payload.update(
+        {
+            "plan_id": "plan:rebound",
+            "run_id": "campaign-replayed",
+            "context_sha256": "f" * 64,
+            "graph_revision": 99,
+        }
+    )
+    rebound = GlobalCampaignPlan.from_dict(rebound_payload)
+
+    assert director_plan_provenance_sha256(first) == (
+        director_plan_provenance_sha256(rebound)
+    )
+
+    changed_payload = json.loads(json.dumps(rebound.to_dict()))
+    changed_payload.pop("content_sha256", None)
+    changed_payload["multi_step_skeletons"][0]["steps"][0][
+        "transformation_hypothesis"
+    ] = "different proposed transformation"
+    changed = GlobalCampaignPlan.from_dict(changed_payload)
+    assert director_plan_provenance_sha256(first) != (
+        director_plan_provenance_sha256(changed)
+    )
 
 
 def _runner(plan: dict[str, Any]):
@@ -1109,6 +1142,28 @@ def test_director_defers_web_tools_until_evidence_informed_replan(
     assert (
         director_web_search_enabled(opted_in, mode="initial_architecture") is True
     )
+
+
+def test_director_prompt_does_not_expose_display_target_name(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+
+    initial = director_prompt(
+        context,
+        mode="initial_architecture",
+        config=DirectorConfig(),
+    )
+    replan = director_prompt(
+        context,
+        mode="event_replan",
+        config=DirectorConfig(enable_web_search=True),
+    )
+
+    assert "example target" not in initial
+    assert "example target" not in replan
+    assert context.target["canonical_smiles"] in initial
+    assert context.target["canonical_smiles"] in replan
 
 
 def test_director_long_route_profile_requests_explicit_uncompressed_steps(

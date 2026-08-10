@@ -146,12 +146,31 @@ def schedule_next_action(
         state_bonus = _state_bonus(kind, gates)
         deterministic_bonus = 30.0 if row.get("deterministic") is True else 0.0
         dependency_penalty = min(120.0, 30.0 * len(row.get("dependency_ids") or []))
+        route_gain = 90.0 * float(row.get("expected_route_gain") or 0.0)
+        proof_gain = 80.0 * float(row.get("expected_proof_gain") or 0.0)
+        diversity_gain = 70.0 * float(
+            row.get("expected_diversity_gain") or 0.0
+        )
+        dependency_unblock_gain = 60.0 * float(
+            row.get("expected_dependency_unblock_count") or 0.0
+        )
+        novelty_gain = 45.0 * float(row.get("expected_novelty_gain") or 0.0)
+        success_likelihood_gain = (
+            50.0 * float(row.get("success_probability_low") or 0.0)
+            if row.get("success_probability_assessed") is True
+            else 0.0
+        )
+        cost_penalty = 65.0 * float(row.get("cost_penalty") or 0.0)
+        risk_penalty = 85.0 * float(row.get("failure_risk_penalty") or 0.0)
         marginal_value = (
-            90.0 * float(row.get("expected_route_gain") or 0.0)
-            + 80.0 * float(row.get("expected_proof_gain") or 0.0)
-            + 70.0 * float(row.get("expected_diversity_gain") or 0.0)
-            - 65.0 * float(row.get("cost_penalty") or 0.0)
-            - 85.0 * float(row.get("failure_risk_penalty") or 0.0)
+            route_gain
+            + proof_gain
+            + diversity_gain
+            + dependency_unblock_gain
+            + novelty_gain
+            + success_likelihood_gain
+            - cost_penalty
+            - risk_penalty
         )
         total = round(
             base
@@ -171,6 +190,20 @@ def schedule_next_action(
                     "base_priority": base,
                     "state_bonus": state_bonus,
                     "deterministic_bonus": deterministic_bonus,
+                    "route_gain": round(route_gain, 6),
+                    "proof_gain": round(proof_gain, 6),
+                    "diversity_gain": round(diversity_gain, 6),
+                    "dependency_unblock_gain": round(
+                        dependency_unblock_gain,
+                        6,
+                    ),
+                    "novelty_gain": round(novelty_gain, 6),
+                    "success_likelihood_gain": round(
+                        success_likelihood_gain,
+                        6,
+                    ),
+                    "cost_penalty": round(cost_penalty, 6),
+                    "risk_penalty": round(risk_penalty, 6),
                     "marginal_value": round(marginal_value, 6),
                     "dependency_penalty": dependency_penalty,
                 },
@@ -200,11 +233,44 @@ def schedule_next_action(
                 str(row.get("action_id") or ""),
             ),
         )
-    selected = next((dict(row) for row in ranked if row.get("eligible") is True), {})
+    selected_action_id = str(
+        next(
+            (
+                row.get("action_id")
+                for row in ranked
+                if row.get("eligible") is True
+            ),
+            "",
+        )
+        or ""
+    )
+    explained = []
+    for row in ranked:
+        candidate = dict(row)
+        selected_candidate = candidate.get("action_id") == selected_action_id
+        candidate["selected"] = selected_candidate
+        candidate["selection_reasons"] = (
+            ["highest_ranked_eligible_action"] if selected_candidate else []
+        )
+        candidate["not_selected_reasons"] = (
+            []
+            if selected_candidate
+            else (
+                list(candidate.get("blocked_reasons") or [])
+                if candidate.get("eligible") is not True
+                else ["lower_deterministic_rank"]
+            )
+        )
+        explained.append(candidate)
+    ranked = explained
+    selected = next(
+        (dict(row) for row in ranked if row.get("selected") is True),
+        {},
+    )
     result = {
         "schema_version": ACTION_SCHEDULE_DECISION_SCHEMA,
         "opportunity_set_sha256": str(opportunity_set.get("content_sha256") or ""),
-        "selected_action_id": str(selected.get("action_id") or ""),
+        "selected_action_id": selected_action_id,
         "selected_action": selected,
         "candidate_count": len(ranked),
         "eligible_candidate_count": sum(
@@ -224,6 +290,8 @@ def schedule_next_action(
             "B5_is_milestone_not_scheduler_stop": True,
             "route_dependencies_precede_validation_and_stock": True,
             "selection_grants_no_scientific_authority": True,
+            "stock_oracle_names_are_not_scheduler_inputs": True,
+            "scheduler_does_not_execute_or_mutate_actions": True,
             "round_robin_ignores_adaptive_value_score_for_ordering": (
                 scheduler_policy == "round_robin"
             ),

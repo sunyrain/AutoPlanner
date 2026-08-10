@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,23 @@ from cascade_planner.application.run_kernel import (
     RunRevision,
     RunSpec,
 )
+from cascade_planner.application.unified_campaign_spec import (
+    CampaignResourceBudget,
+    StockOracleReference,
+    UnifiedCampaignSpec,
+)
+
+
+def _digest(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _spec(
@@ -64,10 +82,117 @@ def _kernel(tmp_path: Path, **kwargs) -> RunKernel:
     )
 
 
+def test_new_run_spec_embeds_unified_campaign_contract() -> None:
+    spec = _spec()
+
+    row = spec.to_dict()
+
+    assert row["schema_version"] == "autoplanner_run_spec.v2"
+    assert row["campaign_spec"]["target"] == {"canonical_smiles": "CCO"}
+    assert "target_name" not in row["campaign_spec"]
+    assert "acceptance" not in row["campaign_spec"]
+    assert RunSpec.from_dict(row).to_dict() == row
+
+
+def test_program_and_experiment_task_budgets_are_independent_and_replayable(
+    tmp_path: Path,
+) -> None:
+    limits = RunLimits()
+    campaign_budget = replace(
+        CampaignResourceBudget.from_dict(limits.to_dict()),
+        max_program_tasks=1,
+        max_experiment_tasks=1,
+    )
+    spec = RunSpec(
+        run_id="task-dimensions",
+        target_name="target",
+        target_smiles="CCO",
+        limits=limits,
+        campaign_spec=UnifiedCampaignSpec(
+            target_smiles="CCO",
+            stock_oracle=StockOracleReference.compatibility_unbound(
+                boundary="procurement"
+            ),
+            resource_budget=campaign_budget,
+        ),
+    )
+    kernel = RunKernel(tmp_path / "runtime", tmp_path / "run", spec=spec)
+    kernel.start()
+
+    for kind in ("program", "experiment"):
+        kernel.reserve_task(
+            task_id=f"{kind}:1",
+            kind=kind,
+            idempotency_key=f"{kind}:reserve:1",
+            input_revision=0,
+        )
+        kernel.settle_task(
+            task_id=f"{kind}:1",
+            idempotency_key=f"{kind}:settle:1",
+            status="completed",
+        )
+        with pytest.raises(
+            RunKernelBudgetError,
+            match=f"run_{kind}_task_budget_exhausted",
+        ):
+            kernel.reserve_task(
+                task_id=f"{kind}:2",
+                kind=kind,
+                idempotency_key=f"{kind}:reserve:2",
+                input_revision=0,
+            )
+
+    projection = kernel.task_budget()["dimensions"]
+    assert projection["program"]["settled"] == 1
+    assert projection["program"]["available"] is False
+    assert projection["experiment"]["settled"] == 1
+    assert projection["experiment"]["available"] is False
+    reopened = RunKernel(tmp_path / "runtime", tmp_path / "run")
+    assert reopened.task_budget() == kernel.task_budget()
+
+
+def test_legacy_run_spec_v1_digest_and_projection_remain_readable() -> None:
+    current = _spec()
+    row = {
+        "schema_version": "autoplanner_run_spec.v1",
+        "run_id": current.run_id,
+        "target_name": current.target_name,
+        "target_smiles": current.target_smiles,
+        "acceptance": current.acceptance.to_dict(),
+        "limits": current.limits.to_dict(),
+        "producer": current.producer,
+        "created_at": current.created_at,
+        "semantics": {
+            "one_kernel_per_run": True,
+            "workers_cannot_extend_limits": True,
+            "acceptance_is_scientific_completion_authority": True,
+        },
+    }
+    row["content_sha256"] = _digest(row)
+
+    restored = RunSpec.from_dict(row)
+
+    assert restored.to_dict() == row
+    assert restored.campaign_spec.target_smiles == "CCO"
+    assert restored.campaign_spec.stock_oracle.binding["positive_authority"] is False
+
+
 def test_explicit_model_budget_extension_is_durable_and_preserves_usage(
     tmp_path: Path,
 ) -> None:
-    kernel = _kernel(tmp_path, model_invocations=1)
+    spec = _spec(model_invocations=1)
+    spec = replace(
+        spec,
+        campaign_spec=replace(
+            spec.campaign_spec,
+            resource_budget=replace(
+                spec.campaign_spec.resource_budget,
+                max_program_tasks=7,
+                max_experiment_tasks=3,
+            ),
+        ),
+    )
+    kernel = RunKernel(tmp_path / "runtime", tmp_path / "run", spec=spec)
     kernel.start()
     kernel.reserve_task(
         task_id="model-1",
@@ -114,6 +239,8 @@ def test_explicit_model_budget_extension_is_durable_and_preserves_usage(
 
     reopened = RunKernel(tmp_path / "runtime", tmp_path / "run")
     assert reopened.spec.limits.model.max_model_invocations == 2
+    assert reopened.spec.campaign_spec.resource_budget.max_program_tasks == 7
+    assert reopened.spec.campaign_spec.resource_budget.max_experiment_tasks == 3
     assert reopened.state.model_totals["model_invocations"] == 1
     assert reopened.task_lifecycle("model-2")["status"] == "in_flight"
 

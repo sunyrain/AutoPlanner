@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from cascade_planner.application.campaign_context import CampaignContext, CampaignContextCompiler
+from cascade_planner.application.campaign_quality_state import (
+    compile_campaign_quality_state,
+)
+from cascade_planner.application.campaign_action_status import (
+    compile_active_campaign_actions,
+)
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalHypergraphStore,
     CanonicalIngestionBatch,
@@ -34,6 +40,7 @@ from cascade_planner.orchestration.global_campaign_director import (
     DirectorOutcome,
     DirectorRunner,
     GlobalCampaignDirector,
+    director_plan_provenance_sha256,
 )
 from cascade_planner.orchestration import route_innovation_runtime
 from cascade_planner.orchestration import program_innovation_runtime
@@ -185,12 +192,15 @@ class RetrosynthesisCampaignService:
         *,
         mode: str,
         force: bool = False,
+        before_plan_admission: Callable[[], None] | None = None,
         idempotency_key: str,
     ) -> DirectorOutcome:
         """Run against an already frozen canonical context and merge by union."""
 
         outcome = self.director.run(context, mode=mode, force=force)
         self._previous_context = context
+        if before_plan_admission is not None:
+            before_plan_admission()
         if outcome.plan is not None and outcome.status == "accepted":
             admitted_ids = sorted(
                 str(row.get("proposal_id") or "")
@@ -202,9 +212,8 @@ class RetrosynthesisCampaignService:
                 idempotency_key=f"{idempotency_key}:plan",
                 proposal_origin_kind="codex_global_director",
                 proposal_origin_ref=(
-                    f"director_task:{outcome.task_id}"
-                    if outcome.task_id
-                    else f"director_context:{outcome.context_sha256}"
+                    "director_plan:"
+                    f"{director_plan_provenance_sha256(outcome.plan)}"
                 ),
             )
         if mode == "initial_architecture" and outcome.status in {
@@ -562,6 +571,8 @@ class RetrosynthesisCampaignService:
             graph,
             acceptance_spec=self.kernel.spec.acceptance,
         )
+        workbench = compile_route_workbench(graph, portfolio)
+        quality_state = compile_campaign_quality_state(workbench=workbench)
         state = self.kernel.state
         return {
             "schema_version": CAMPAIGN_SERVICE_STATUS_SCHEMA,
@@ -573,8 +584,12 @@ class RetrosynthesisCampaignService:
             "accepted_expansion_count": state.accepted_expansion_count,
             "model_totals": dict(state.model_totals),
             "native_search": self.kernel.native_search_budget(),
+            "task_budget": self.kernel.task_budget(),
+            "active_actions": compile_active_campaign_actions(state.in_flight_tasks),
             "frontier": list(state.deficits),
             "portfolio": portfolio,
+            "campaign_spec": self.kernel.spec.campaign_spec.to_dict(),
+            "quality_state": quality_state,
             "stop_decision": self.kernel.decide_stop().to_dict(),
             "semantics": {
                 "single_kernel": True,
@@ -598,9 +613,13 @@ class RetrosynthesisCampaignService:
             acceptance_spec=self.kernel.spec.acceptance,
         )
         snapshot = compile_route_workbench(graph, portfolio, campaign_summary=campaign_summary)
+        quality_state = dict((campaign_summary or {}).get("quality_state") or {})
+        if not quality_state:
+            quality_state = compile_campaign_quality_state(workbench=snapshot)
         return {
             "snapshot": snapshot,
             "delta": compile_route_workbench_delta(previous, snapshot),
+            "quality_state": quality_state,
         }
 
     def program_projection(self) -> dict[str, Any]:

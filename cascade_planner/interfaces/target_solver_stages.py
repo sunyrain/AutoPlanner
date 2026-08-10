@@ -39,6 +39,9 @@ from cascade_planner.application.retrosynthesis_workers import (
     condition_prediction_commands_for_edges,
     materialization_commands_for_proposals,
 )
+from cascade_planner.application.unified_campaign_spec import (
+    stock_oracle_reference_from_builder,
+)
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
 from cascade_planner.interfaces.live_stock import build_pubchem_vendor_catalog
 from cascade_planner.orchestration.retrosynthesis_service import (
@@ -51,6 +54,23 @@ from cascade_planner.source_locators import (
 
 StockCatalogBuilder = Callable[..., Mapping[str, Any]]
 InventorySnapshotBuilder = Callable[..., Mapping[str, Any]]
+
+
+def _assert_stock_oracle_builder_binding(
+    service: RetrosynthesisCampaignService,
+    *,
+    builder: Any,
+    boundary: str,
+) -> None:
+    campaign_spec = service.kernel.spec.campaign_spec
+    if campaign_spec is None:
+        return
+    expected = campaign_spec.stock_oracle
+    if expected.binding.get("kind") == "compatibility_unbound":
+        return
+    observed = stock_oracle_reference_from_builder(builder, boundary=boundary)
+    if expected.to_dict()["content_sha256"] != observed.to_dict()["content_sha256"]:
+        raise ValueError("stock_oracle_runtime_binding_mismatch")
 
 
 def _stable_digest(value: Any) -> str:
@@ -1018,6 +1038,11 @@ def audit_live_benchmark_stock(
         for molecule_id in query_candidate_ids
     ]
     builder = catalog_builder or build_pubchem_vendor_catalog
+    _assert_stock_oracle_builder_binding(
+        service,
+        builder=builder,
+        boundary="benchmark_search",
+    )
     catalog = dict(builder(candidate_smiles, max_molecules=max_molecules))
     ref = service.kernel.artifacts.put_json(
         catalog,
@@ -1163,6 +1188,11 @@ def audit_authoritative_inventory_stock(
         graph["molecules"][molecule_id]["canonical_smiles"]
         for molecule_id in query_candidate_ids
     ]
+    _assert_stock_oracle_builder_binding(
+        service,
+        builder=inventory_builder,
+        boundary=required_boundary,
+    )
     inventory = dict(
         inventory_builder(
             candidate_smiles,

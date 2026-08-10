@@ -24,9 +24,13 @@ V4_MODULES = (
     "cascade_planner/application/canonical_identity.py",
     "cascade_planner/application/canonical_hypergraph.py",
     "cascade_planner/application/campaign_actions.py",
+    "cascade_planner/application/campaign_action_status.py",
     "cascade_planner/application/campaign_work_policy.py",
     "cascade_planner/application/campaign_trajectory.py",
+    "cascade_planner/application/campaign_review_bundle.py",
+    "cascade_planner/application/campaign_quality_state.py",
     "cascade_planner/application/action_scheduler.py",
+    "cascade_planner/application/unified_campaign_spec.py",
     "cascade_planner/orchestration/unified_campaign_runtime.py",
     "cascade_planner/application/candidate_innovation_screen.py",
     "cascade_planner/application/candidate_programs.py",
@@ -187,6 +191,7 @@ V4_MODULES = (
     "cascade_planner/runtime/immutable_json_events.py",
     "cascade_planner/providers/experiment.py",
     "cascade_planner/web/v4_target_runtime.py",
+    "cascade_planner/interfaces/campaign_action_timeline.py",
     "cascade_planner/interfaces/target_job_projection.py",
     "cascade_planner/interfaces/target_solver_compat.py",
 )
@@ -196,6 +201,10 @@ FORBIDDEN_V4_DEPENDENCIES = (
     "cascade_planner.web",
 )
 FOCUSED_LINE_BUDGETS = {
+    "cascade_planner/application/campaign_action_status.py": 70,
+    "cascade_planner/application/campaign_review_bundle.py": 340,
+    "cascade_planner/application/campaign_quality_state.py": 280,
+    "cascade_planner/application/unified_campaign_spec.py": 400,
     "cascade_planner/application/biocatalytic_program_contracts.py": 320,
     "cascade_planner/application/biocatalysis_validation_frontier.py": 220,
     "cascade_planner/application/biocatalytic_programs.py": 400,
@@ -364,6 +373,7 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/web/security.py": 80,
     "cascade_planner/web/server.py": 80,
     "cascade_planner/web/v4_target_runtime.py": 520,
+    "cascade_planner/interfaces/campaign_action_timeline.py": 200,
     "cascade_planner/interfaces/target_job_projection.py": 100,
     "cascade_planner/orchestration/retrosynthesis_service.py": 430,
     "cascade_planner/orchestration/biocatalytic_program_admission_runtime.py": 70,
@@ -427,6 +437,8 @@ def test_unified_action_core_has_no_dataset_specific_control_tokens() -> None:
     protected = (
         ROOT / "cascade_planner/application/campaign_actions.py",
         ROOT / "cascade_planner/application/action_scheduler.py",
+        ROOT / "cascade_planner/application/run_kernel.py",
+        ROOT / "cascade_planner/orchestration/unified_campaign_runtime.py",
     )
     forbidden = (
         "benchmark_search",
@@ -442,6 +454,37 @@ def test_unified_action_core_has_no_dataset_specific_control_tokens() -> None:
             if token in text:
                 violations.append(f"{path.name}:{token}")
     assert violations == []
+
+
+def test_benchmark_harness_does_not_pass_a_result_view_into_the_solver() -> None:
+    panel_path = ROOT / "scripts/run_v4_blind_panel.py"
+    tree = ast.parse(panel_path.read_text(encoding="utf-8"))
+    run_case = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_case"
+    )
+    string_literals = {
+        node.value
+        for node in ast.walk(run_case)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    w8_source = (ROOT / "scripts/run_retrostar190_w8.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--objective-mode" not in string_literals
+    assert "--objective-mode" not in w8_source
+    assert "--fixed-cutoff-wall-time-s" in w8_source
+
+
+def test_action_runtime_cannot_write_the_canonical_graph_directly() -> None:
+    imported = _imports(
+        ROOT / "cascade_planner/orchestration/unified_campaign_runtime.py"
+    )
+
+    assert "cascade_planner.application.canonical_hypergraph" not in imported
+    assert "cascade_planner.orchestration.retrosynthesis_service" not in imported
 
 
 def test_new_focused_modules_stay_within_practical_line_budgets() -> None:

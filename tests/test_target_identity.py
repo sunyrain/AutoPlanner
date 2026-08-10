@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any, Mapping
+from unittest.mock import patch
 
 from cascade_planner.interfaces.target_identity import resolve_target_identity
 from cascade_planner.interfaces.target_solver import (
+    _target_identity_stage,
     _target_name_requires_identity_resolution,
 )
 
@@ -16,6 +19,65 @@ def test_opaque_hash_label_still_triggers_structure_identity_lookup() -> None:
     assert _target_name_requires_identity_resolution("target-ae21163b")
     assert _target_name_requires_identity_resolution("blind target")
     assert not _target_name_requires_identity_resolution("public compound name")
+
+
+def test_target_identity_stage_never_passes_display_name_to_lookup() -> None:
+    artifact = SimpleNamespace(to_dict=lambda: {"sha256": "a" * 64})
+    service = SimpleNamespace(
+        kernel=SimpleNamespace(
+            artifacts=SimpleNamespace(put_json=lambda *_args, **_kwargs: artifact)
+        )
+    )
+    observation = {
+        "schema_version": "target_identity_observation.v1",
+        "status": "unresolved",
+        "reason": "fixture",
+        "provider_id": "pubchem.pug_rest",
+        "provider_version": "fixture",
+        "content_sha256": "b" * 64,
+    }
+
+    with patch(
+        "cascade_planner.interfaces.target_solver.resolve_target_identity",
+        return_value=observation,
+    ) as resolver:
+        result = _target_identity_stage(
+            service,
+            stages=(),
+            target_name="display-only secret name",
+            target_smiles=TARGET,
+            enabled=True,
+            resolve_named=True,
+            lookup_now=True,
+        )
+
+    resolver.assert_called_once_with(TARGET)
+    assert result["semantics"]["user_supplied_name_not_used_for_lookup"]
+    assert "display-only secret name" not in json.dumps(result)
+
+
+def test_target_identity_network_is_deferred_until_evidence_action() -> None:
+    service = SimpleNamespace(kernel=SimpleNamespace())
+
+    with patch(
+        "cascade_planner.interfaces.target_solver.resolve_target_identity"
+    ) as resolver:
+        result = _target_identity_stage(
+            service,
+            stages=(),
+            target_name="display-only secret name",
+            target_smiles=TARGET,
+            enabled=True,
+            resolve_named=True,
+            lookup_now=False,
+        )
+
+    resolver.assert_not_called()
+    assert result["status"] == "pending"
+    assert result["reason"] == "target_identity_deferred_to_evidence_action"
+    assert result["semantics"][
+        "initial_route_search_does_not_wait_for_identity_network"
+    ]
 
 
 def _response(value: Mapping[str, Any]) -> bytes:

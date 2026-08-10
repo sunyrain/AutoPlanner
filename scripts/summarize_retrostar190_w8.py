@@ -100,6 +100,16 @@ def _validate_contract(statuses: Mapping[str, Mapping[str, Any]]) -> None:
         values = {str(row.get(key) or "") for row in frozen.values()}
         if len(values) != 1 or not next(iter(values), ""):
             raise RuntimeError(f"w8_arm_frozen_contract_mismatch:{key}")
+    cutoff_policies = {
+        json.dumps(
+            dict(status.get("fixed_cutoff_policy") or {}),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        for status in statuses.values()
+    }
+    if len(cutoff_policies) != 1 or cutoff_policies == {"{}"}:
+        raise RuntimeError("w8_arm_fixed_cutoff_policies_do_not_match")
 
 
 def _per_target(
@@ -115,9 +125,12 @@ def _per_target(
     ]
     return _digest_bound(
         {
-            "schema_version": "retrostar190_w8_per_target_metrics.v1",
+            "schema_version": "retrostar190_w8_per_target_metrics.v2",
             "target_count": len(values),
             "targets": values,
+            "semantics": {
+                "all_score_fields_come_from_fixed_cutoff_projections": True,
+            },
         }
     )
 
@@ -172,12 +185,15 @@ def _paired(rows: Mapping[str, Mapping[str, Mapping[str, Any]]]) -> dict[str, An
         }
     return _digest_bound(
         {
-            "schema_version": "retrostar190_w8_paired_comparison.v1",
+            "schema_version": "retrostar190_w8_paired_comparison.v2",
             "paired_target_count": len(case_ids),
             "reference_arm": "unified-adaptive",
             "bootstrap_seed": BOOTSTRAP_SEED,
             "bootstrap_replicates": BOOTSTRAP_REPLICATES,
             "comparisons": comparisons,
+            "semantics": {
+                "paired_outcomes_use_the_same_fixed_cutoff_policy": True,
+            },
         }
     )
 
@@ -201,7 +217,7 @@ def _failure_taxonomy(
         }
     return _digest_bound(
         {
-            "schema_version": "retrostar190_w8_failure_taxonomy.v1",
+            "schema_version": "retrostar190_w8_failure_taxonomy.v2",
             "arms": by_arm,
             "semantics": {
                 "categories_are_derived_from_saved_reports": True,
@@ -265,8 +281,11 @@ def _run_manifest(
 ) -> dict[str, Any]:
     return _digest_bound(
         {
-            "schema_version": "retrostar190_w8_run_manifest.v1",
+            "schema_version": "retrostar190_w8_run_manifest.v2",
             "w8_root": str(root),
+            "fixed_cutoff_policy": dict(
+                statuses["unified-adaptive"].get("fixed_cutoff_policy") or {}
+            ),
             "arms": {
                 arm: {
                     "panel_status_path": str(root / arm / "panel-status.json"),

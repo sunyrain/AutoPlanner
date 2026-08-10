@@ -4,6 +4,10 @@ from copy import deepcopy
 
 import pytest
 
+from cascade_planner.application.campaign_trajectory import (
+    compile_campaign_snapshot,
+    compile_campaign_trajectory,
+)
 from cascade_planner.application.route_workbench import (
     MAX_VISIBLE_ROUTES,
     ROUTE_WORKBENCH_DELTA_SCHEMA,
@@ -717,6 +721,59 @@ def test_workbench_projects_independent_campaign_gates_without_granting_proof() 
     payload = build_route_forest_delivery_payload(forest)
     assert payload["campaign_summary"] == summary
     assert route_forest_delivery_integrity_reasons(payload, source_forest=forest) == []
+
+
+def test_workbench_keeps_revoked_milestones_separate_from_current_gates() -> None:
+    reached = compile_campaign_snapshot(
+        phase="host-proof-reached",
+        observed_at="2026-08-10T00:00:04Z",
+        event_sequence=4,
+        graph_revision=2,
+        wall_time_s=4.0,
+        gates={
+            "gates": {"B2_host_validated_routes": True},
+            "counts": {"reaction_validated_skeletons": 1},
+        },
+        resource_usage={"settled_task_count": 4},
+        route_counts={"host_validated_route_count": 1},
+    )
+    revoked = compile_campaign_snapshot(
+        phase="host-proof-revoked",
+        observed_at="2026-08-10T00:00:08Z",
+        event_sequence=8,
+        graph_revision=3,
+        wall_time_s=8.0,
+        gates={
+            "gates": {"B2_host_validated_routes": False},
+            "counts": {"reaction_validated_skeletons": 0},
+        },
+        resource_usage={"settled_task_count": 8},
+        route_counts={"host_validated_route_count": 0},
+    )
+    trajectory = compile_campaign_trajectory([revoked, reached])
+
+    projection = compile_route_workbench(
+        _graph(),
+        _portfolio(),
+        campaign_summary={
+            "gates": {"B2_host_validated_routes": False},
+            "trajectory": trajectory,
+        },
+    )
+
+    history = projection["campaign_summary"]["trajectory_history"]
+    b2 = next(
+        row for row in history["milestones"] if row["milestone"] == "B2_host_validated_routes"
+    )
+    assert history["available"] is True
+    assert b2["ever_achieved"] is True
+    assert b2["currently_active"] is False
+    assert b2["historical_only"] is True
+    assert b2["elapsed_wall_time_s"] == 4.0
+    assert projection["campaign_summary"]["gates"]["B2_host_validated_routes"] is False
+    html = render_v4_route_workbench_html(projection)
+    assert "当前状态与历史里程碑" in html
+    assert '"historical_only":true' in html
 
 
 def test_workbench_inspectors_expose_proof_sources_stock_rejections_and_conflicts() -> None:

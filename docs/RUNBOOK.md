@@ -46,6 +46,36 @@ python -m cascade_planner solve-target \
   --run-id target-blind-001
 ```
 
+新运行直接配置库存、验收和预算，不再选择“benchmark/scientific/procurement 求解模式”。
+`--objective-mode` 只为旧脚本保留到 2026-10-01；显式使用会在 stderr 发出
+`FutureWarning`，且不会改变 Action 集合、scheduler 或停止规则。迁移时使用：
+
+- `--stock-boundary` 或冻结 stock/inventory 输入表达叶节点可用性；
+- `--forbidden-reagent`、`--max-route-steps`、`--allowed-execution-domain`、
+  `--safety-limit KEY=JSON_VALUE` 与 `--stock-source-id` 表达 target 约束；
+- `--minimum-complete-routes`、`--minimum-edge-proof-level` 和
+  `--minimum-source-groups` 表达验收；
+- model、native search、evidence、validation、visual、Program、experiment 和 wall-time 参数表达资源；
+- `--max-program-tasks` 与 `--max-experiment-tasks` 分别设置独立任务上限；两者不会借用
+  validation 或 native-search 配额；
+- 从最终 report 的 `milestones`、trajectory 与 Workbench 选择结果视图。
+
+新 run 写入 `autoplanner_run_spec.v2` 和 `unified_campaign_spec.v1`。CLI 摘要、API job result、
+运行 status 与完整报告都包含 campaign contract/Stock Oracle digest 及八轴
+`campaign_quality_state.v1`。`resource_envelope.task_budget` 同时报告各任务类的 settled、reserved、
+remaining 和 available；`model_wall_time_s` 与 `run_wall_time_s` 分别表示模型调用和整个 campaign
+任务耗时。B5 是快照审计结果，不会提前截断 Action loop；需要首次闭合即停的
+产品流程应监听 milestone 后显式取消。契约与旧 v1 迁移规则见
+[`UNIFIED_CAMPAIGN_CONTRACT.md`](architecture/UNIFIED_CAMPAIGN_CONTRACT.md)。
+
+恢复旧 `solve-target` 运行时，历史 checkpoint/report 中的 `objective_mode` 不需要人工迁移或删除：
+求解器会在报告 stage 中写入 `saved_run_objective_compatibility.v1`，仅记录字段位置和值。旧值、未知值
+或字段缺失都不参与 Action 注册、排序和停止。恢复产生的新 `campaign_action_unified_core_NN` 会接在
+原最大序号之后；若看到序号从 01 重新开始，应视为不兼容实现或损坏的历史投影，停止使用该报告。
+
+完整兼容期限见
+[`OBJECTIVE_MODE_COMPATIBILITY.md`](architecture/OBJECTIVE_MODE_COMPATIBILITY.md)。
+
 正常成本是一轮 `gpt-5.5` low-reasoning 全局路线组合；本地物化、映射、验证、库存审计
 以及来源解析都不调用模型。专利证据按固定阶梯处理：官方 Google Patents 完整 HTML
 → 仅未闭合边的 PDF 原生文本 → 仅低文本页的 Tesseract OCR → 可选稀疏视觉候选。
@@ -448,6 +478,13 @@ python -m cascade_planner gc --dry-run --minimum-age-hours 24
 python -m cascade_planner audit
 ```
 
+`export` 会同时生成 `route_workbench.json`、delta、离线 HTML，以及
+`campaign_review_bundle.json`、`campaign_action_trace.json`、
+`campaign_failure_trace.json`、`campaign_route_lineage.json` 和
+`campaign_resource_curve.json`。审稿包及四个组件均带独立 `content_sha256`；若运行没有
+target solve report，或 report/trajectory 摘要无效，文件仍会写出但明确标记 `available=false`，
+不会用最终状态猜测缺失历史。
+
 默认启动隔离的 Canonical V4 surface，不装载旧 Blackboard compiler 或旧 campaign。
 统一工作区为 `/v4`，SMILES 运行控制台为 `/v4/console`，集中展示页为 `/v4/showcase`；三者
 共用 `/api/v4/workspace`、`/api/v4/showcase`、`/api/v4/runs` 和同一 Workbench read model。
@@ -465,8 +502,15 @@ python -m cascade_planner serve --server flask --host 127.0.0.1 --port 8878
 浏览器打开 `http://127.0.0.1:8878/v4`，再从右上角进入“启动新任务”；控制台表单会
 `POST /api/v4/jobs`，页面每 2 秒轮询
 `/api/v4/jobs` 与单任务进度；首次路线、ChemEnzy provider 调用、来源数、exact rows、视觉
-调用和 token 分开显示。历史卡片是停止执行的不可变快照，内核原始状态只作审计，不能被
+调用和 token 分开显示。运行详情的“统一 Action 时间线”每 2.5 秒从同一 checkpoint/RunKernel 状态更新，
+把 ChemEnzy、Codex、证据、验证、条件、库存及 Program/实验显示为已完成、执行中、部分完成或失败；
+它不是第二个任务队列。历史卡片是停止执行的不可变快照，内核原始状态只作审计，不能被
 理解为仍有后台线程或已经达到 B3/L4。
+
+Canonical Web 不发送 `objective_mode`。旧 API 客户端仍可暂时传入该字段，但
+`POST /api/v4/solve-target` 和 `POST /api/v4/jobs` 会返回 `Deprecation: true`、HTTP
+`Warning: 299`，async job 还会在 `request_warnings[]` 中保留收据。调用方必须在
+2026-10-01 前迁移到显式 stock、acceptance 和 budget 参数。
 
 仅在需要旧 Agent/Statin/RouteForest 综合界面时显式启动兼容 surface：
 

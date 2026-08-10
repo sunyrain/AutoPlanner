@@ -1387,6 +1387,21 @@ def proposal_ids(plan: GlobalCampaignPlan) -> list[str]:
     return sorted(set(identities))
 
 
+def director_plan_provenance_sha256(plan: GlobalCampaignPlan) -> str:
+    """Bind canonical proposal origins to plan content, not runtime receipts."""
+
+    payload = plan.to_dict()
+    for field in (
+        "content_sha256",
+        "plan_id",
+        "run_id",
+        "context_sha256",
+        "graph_revision",
+    ):
+        payload.pop(field, None)
+    return _digest(payload)
+
+
 def director_prompt(
     context: CampaignContext,
     *,
@@ -1394,7 +1409,6 @@ def director_prompt(
     config: DirectorConfig,
 ) -> str:
     target = str(context.target.get("canonical_smiles") or "")
-    target_name = " ".join(str(context.target.get("name") or "").split())
     context_payload = _director_prompt_context(context, mode=mode)
     web_search_enabled = director_web_search_enabled(config, mode=mode)
     return "\n".join(
@@ -1405,7 +1419,6 @@ def director_prompt(
             "All molecules and reactions are hypothesis-only and must request host validation.",
             "Never claim proof, validation, stock closure, route completion, or solved status.",
             "Coordinate route families, multi-step skeletons, shared intermediates, evidence acquisition, fallbacks, pivots, and portfolio tradeoffs together.",
-            f"Exact campaign target name: {target_name or 'not supplied'}",
             f"Exact campaign target: {target}",
             "Every route_family.target_smiles must equal the exact campaign target; put disconnection precursors only in skeleton step precursor_smiles.",
             "Every declared route family must have at least one multi-step skeleton; omit an unexpanded family instead of returning metadata without chemistry.",
@@ -1418,7 +1431,7 @@ def director_prompt(
             "Be compact: use no more than two short entries in descriptive lists, avoid repeating rationale across sections, and keep ordinary prose fields below 180 characters.",
             "Source hints are acquisition hints only. Prefer real DOI, patent publication, or primary-source URL identifiers and explicitly expose uncertainty.",
             (
-                "Live search is enabled. Before finalizing route chemistry, autonomously search the exact target name plus distinctive named fragments for original synthesis patents or papers; do not wait for a supplied publication number. Then search the two highest-priority route families. Put every verified DOI, patent publication, or primary-source URL identifier in source_plan.source_refs and the matching skeleton step source_hints so the host can download the primary source. Use an empty list and state the limitation when no identifier was verified. Never invent an identifier."
+                "Live search is enabled. Before finalizing route chemistry, autonomously search the exact structure and any exact-InChIKey structure-resolved identity names in CampaignContext plus distinctive fragments for original synthesis patents or papers; do not use the display label as a chemistry input and do not wait for a supplied publication number. Then search the two highest-priority route families. Put every verified DOI, patent publication, or primary-source URL identifier in source_plan.source_refs and the matching skeleton step source_hints so the host can download the primary source. Use an empty list and state the limitation when no identifier was verified. Never invent an identifier."
                 if web_search_enabled
                 else (
                     "Live search is deferred from this first-route pass. Keep source_plan.source_refs empty unless an identifier already appears in CampaignContext; never invent an identifier. The evidence connector runs independently and any new source material may trigger an evidence-informed global replan."
@@ -1495,15 +1508,27 @@ def _director_prompt_context(
     mode: str,
 ) -> dict[str, Any]:
     if mode != "event_replan":
-        return context.to_dict()
+        payload = context.to_dict()
+        payload["run_id"] = _prompt_campaign_id(context)
+        payload["target"] = {
+            "canonical_smiles": str(
+                context.target.get("canonical_smiles") or ""
+            )
+        }
+        payload.pop("content_sha256", None)
+        payload["prompt_context_sha256"] = _digest(payload)
+        return payload
     topology = dict(context.topology or {})
     portfolio = dict(context.route_portfolio or {})
     payload = {
         "schema_version": "autoplanner_campaign_context_prompt_view.v1",
-        "run_id": context.run_id,
-        "target": dict(context.target),
+        "run_id": _prompt_campaign_id(context),
+        "target": {
+            "canonical_smiles": str(
+                context.target.get("canonical_smiles") or ""
+            )
+        },
         "revision": context.revision.to_dict(),
-        "context_sha256": context.content_sha256,
         "topology": {
             "target_molecule_id": topology.get("target_molecule_id"),
             "molecules": {
@@ -1638,10 +1663,17 @@ def _director_prompt_context(
             "read_only_projection": True,
             "complete_topology_relationships_preserved": True,
             "verbose_provenance_and_worker_payloads_omitted": True,
-            "full_context_bound_by_context_sha256": True,
+            "full_context_bound_outside_prompt": True,
+            "prompt_projection_has_opaque_identity": True,
         },
     }
+    payload["prompt_context_sha256"] = _digest(payload)
     return payload
+
+
+def _prompt_campaign_id(context: CampaignContext) -> str:
+    target = str(context.target.get("canonical_smiles") or "")
+    return f"campaign-{hashlib.sha256(target.encode('utf-8')).hexdigest()[:12]}"
 
 
 def _selected_fields(value: Any, names: tuple[str, ...]) -> dict[str, Any]:
@@ -1993,6 +2025,7 @@ __all__ = [
     "GlobalCampaignPlan",
     "GlobalCampaignPlanValidationError",
     "ReplayDirectorRunner",
+    "director_plan_provenance_sha256",
     "director_prompt",
     "director_trigger_reasons",
     "normalize_director_usage",

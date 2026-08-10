@@ -111,14 +111,21 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
             ),
             "within_resource_budget": row.get("within_resource_budget") is True,
             "elapsed_s": row.get("elapsed_s"),
+            "runner_elapsed_s": row.get("runner_elapsed_s"),
             "model_cost": dict(row.get("model_cost") or {}),
+            "fixed_cutoff_projection_sha256": str(
+                dict(row.get("fixed_cutoff_projection") or {}).get(
+                    "content_sha256"
+                )
+                or ""
+            ),
             "report_path": str(row.get("report_path") or ""),
             "error": str(row.get("error") or "")[:1000],
         }
         for name, row in sorted(target_rows.items())
     ]
     body = {
-        "schema_version": "v4_blind_panel_summary.v1",
+        "schema_version": "v4_blind_panel_summary.v2",
         "panel": {
             "manifest_path": str(status.get("manifest_path") or ""),
             "output_root": str(status.get("output_root") or ""),
@@ -126,6 +133,9 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
             "execution_profile": str(status.get("execution_profile") or ""),
             "ablation": str(status.get("ablation") or ""),
             "worker_count": int(status.get("worker_count") or 0),
+            "fixed_cutoff_policy": dict(
+                status.get("fixed_cutoff_policy") or {}
+            ),
             "started_at": str(status.get("started_at") or ""),
             "finished_at": str(status.get("finished_at") or ""),
             "complete": status.get("complete") is True,
@@ -149,6 +159,8 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
             "retrostar_solved_requires_target_rooted_host_admitted_structure": True,
             "proof_and_condition_metrics_are_reported_separately": True,
             "full_panel_denominator_includes_failed_and_incomplete_targets": True,
+            "score_fields_are_fixed_cutoff_trajectory_projections": True,
+            "final_solver_state_is_not_used_for_scoring": True,
         },
     }
     body["content_sha256"] = _digest(body)

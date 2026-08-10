@@ -48,14 +48,9 @@ def inventory_snapshot_builder(payload: Mapping[str, Any]) -> Any:
     path = str(payload.get("inventory_snapshot_path") or "").strip()
     if not path:
         return None
-    from cascade_planner.interfaces.live_stock import load_versioned_inventory_snapshot
+    from cascade_planner.interfaces.live_stock import FrozenInventorySnapshotBuilder
 
-    frozen = load_versioned_inventory_snapshot(path)
-
-    def builder(_smiles: Any, **_kwargs: Any) -> Any:
-        return frozen
-
-    return builder
+    return FrozenInventorySnapshotBuilder(path)
 
 
 __all__ = [

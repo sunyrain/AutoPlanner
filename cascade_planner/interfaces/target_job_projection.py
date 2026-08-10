@@ -11,6 +11,10 @@ from uuid import uuid4
 def compact_solve_result(value: Mapping[str, Any]) -> dict[str, Any]:
     gates = dict(value.get("gates") or {})
     claim = dict(value.get("claim") or {})
+    campaign_spec = dict(value.get("campaign_spec") or {})
+    stock_oracle = dict(campaign_spec.get("stock_oracle") or {})
+    stock_binding = dict(stock_oracle.get("binding") or {})
+    resource = dict(value.get("resource_envelope") or {})
     return {
         "run_id": str(value.get("run_id") or ""),
         "report_path": str(value.get("report_path") or ""),
@@ -20,7 +24,22 @@ def compact_solve_result(value: Mapping[str, Any]) -> dict[str, Any]:
         "highest_contiguous_gate": str(gates.get("highest_contiguous_gate") or "none"),
         "gates": dict(gates.get("gates") or {}),
         "counts": dict(gates.get("counts") or {}),
+        "quality_state": dict(value.get("quality_state") or {}),
         "model_cost": dict(value.get("model_cost") or {}),
+        "resource_envelope": {
+            "within_budget": resource.get("within_budget") is True,
+            "observed": dict(resource.get("observed") or {}),
+            "task_budget": dict(resource.get("task_budget") or {}),
+            "violations": list(resource.get("violations") or []),
+        },
+        "campaign_contract": {
+            "content_sha256": str(campaign_spec.get("content_sha256") or ""),
+            "stock_oracle_id": str(stock_oracle.get("oracle_id") or ""),
+            "stock_oracle_binding_sha256": str(
+                stock_binding.get("content_sha256") or ""
+            ),
+            "constraints": dict(campaign_spec.get("constraints") or {}),
+        },
         "workbench_url": (
             "/api/v4/runs/"
             + quote(str(value.get("run_id") or ""), safe="")
@@ -44,6 +63,7 @@ def job_projection(value: Mapping[str, Any]) -> dict[str, Any]:
             "updated_at",
             "elapsed_s",
             "continuation_pass_count",
+            "request_warnings",
             "error",
             "result",
         )

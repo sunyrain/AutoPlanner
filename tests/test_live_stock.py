@@ -4,15 +4,23 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+from types import SimpleNamespace
 from typing import Any, Mapping
 
 from cascade_planner.interfaces.live_stock import (
     FrozenBenchmarkStockIndex,
+    FrozenInventorySnapshotBuilder,
     build_pubchem_vendor_catalog,
     load_versioned_inventory_snapshot,
 )
 from cascade_planner.interfaces.target_solver_stages import (
+    _assert_stock_oracle_builder_binding,
     _selected_stock_audit_molecules,
+)
+from cascade_planner.application.unified_campaign_spec import (
+    StockOracleReference,
+    UnifiedCampaignSpec,
+    stock_oracle_reference_from_builder,
 )
 
 
@@ -90,6 +98,13 @@ def test_versioned_inventory_loader_is_bounded_and_schema_typed(tmp_path: Path) 
 
     assert load_versioned_inventory_snapshot(path) == expected
 
+    builder = FrozenInventorySnapshotBuilder(path)
+    binding = builder.stock_oracle_binding
+    assert builder(["CCO"]) == expected
+    assert binding["kind"] == "frozen_inventory_snapshot"
+    assert binding["snapshot_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert len(binding["content_sha256"]) == 64
+
 
 def test_frozen_benchmark_stock_index_is_hashed_read_only_membership(
     tmp_path: Path,
@@ -161,3 +176,56 @@ def test_selected_stock_leaves_above_one_batch_are_not_globally_rejected() -> No
     assert selection["audit_batch_limit"] == 24
     assert selection["leaf_molecule_ids"] == leaf_ids
     assert selection["stock_candidate_molecule_ids"] == leaf_ids
+
+
+def test_stock_stage_rejects_a_runtime_resolver_different_from_run_spec() -> None:
+    def configured_resolver(_smiles, **_kwargs):
+        return {}
+
+    def substituted_resolver(_smiles, **_kwargs):
+        return {"substituted": True}
+
+    campaign_spec = UnifiedCampaignSpec(
+        target_smiles="CCO",
+        stock_oracle=stock_oracle_reference_from_builder(
+            configured_resolver,
+            boundary="benchmark_search",
+        ),
+    )
+    service = SimpleNamespace(
+        kernel=SimpleNamespace(spec=SimpleNamespace(campaign_spec=campaign_spec))
+    )
+
+    _assert_stock_oracle_builder_binding(
+        service,
+        builder=configured_resolver,
+        boundary="benchmark_search",
+    )
+    try:
+        _assert_stock_oracle_builder_binding(
+            service,
+            builder=substituted_resolver,
+            boundary="benchmark_search",
+        )
+    except ValueError as exc:
+        assert str(exc) == "stock_oracle_runtime_binding_mismatch"
+    else:
+        raise AssertionError("a substituted stock resolver was accepted")
+
+    legacy = SimpleNamespace(
+        kernel=SimpleNamespace(
+            spec=SimpleNamespace(
+                campaign_spec=UnifiedCampaignSpec(
+                    target_smiles="CCO",
+                    stock_oracle=StockOracleReference.compatibility_unbound(
+                        boundary="benchmark_search"
+                    ),
+                )
+            )
+        )
+    )
+    _assert_stock_oracle_builder_binding(
+        legacy,
+        builder=substituted_resolver,
+        boundary="benchmark_search",
+    )

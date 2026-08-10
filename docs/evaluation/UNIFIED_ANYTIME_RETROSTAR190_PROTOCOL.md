@@ -1,7 +1,7 @@
 # Unified Anytime RetroStar-190 Protocol
 
-日期：2026-08-07
-状态：W8 四臂冻结协议已完成；`-g` 的终态覆盖异常已修复；`-h` 前 10 例均 completed，但 Case 001 暴露“无后续 worker dispatch 时全局上限未在最终 disposition 前终态化”的收据不一致并已停止排除；统一终态化 API 已冻结，下一次正式运行从全新根 `-i` 启动。
+日期：2026-08-09
+状态：W8 四臂冻结协议已完成；manifest-prefix 前 20/190 四臂 pilot 已完成并形成工程停止判定。190×4 publication-scale 运行按当前范围决策延期，pilot 不满足本协议的全量完成门。
 
 机器可读冻结清单：`benchmarks/retrostar190_w8_freeze_20260806.json`。
 
@@ -66,6 +66,13 @@ python scripts/run_retrostar190_w8.py \
 - action kind counts、失败、resume 和总 wall time；
 - raw → normalized → selected → materialized → B4 的首损边界。
 
+自 2026-08-10 起，新评测根的得分字段只允许来自
+`campaign_trajectory_cutoff_projection.v1`：四臂在启动前冻结相同 wall/task cutoff，每个 case 再绑定
+同一 manifest budget 的 attempt、expansion、model、token 与 model-wall 上限。harness 不向 solver
+传 `--objective-mode`；stock boundary 只描述库存 oracle 的类别，不拥有 action 调度权。最终 solver
+状态仍保留作诊断，但不得覆盖 cutoff snapshot。缺少 v2 trajectory、digest 不合法或 resume 资源回退
+均记为 projection unavailable，并进入完整分母。
+
 聚合报告使用完整 190 分母，并给出 `unified-adaptive` 相对另外三臂的逐目标 paired difference、adaptive wins/losses/ties 和固定种子 paired bootstrap 95% CI。
 
 ## 6. 失败分类
@@ -86,6 +93,20 @@ Host chemistry rejection 作为独立科学诊断报告，但不能把 B2=false 
 ## 7. 完成门
 
 W8 只有在四臂均覆盖 190 个目标、所有失败保留、paired metrics 与 failure taxonomy 生成、配置/输入/环境哈希一致、且审稿检查表通过后才完成。在此之前不得宣称 benchmark-wide improvement。
+
+### 7.1 20-target pilot disposition
+
+`results/.autoplanner/retrostar190-w8-pilot-20260807-a` 已完成 manifest 固定顺序前 20 个目标的四臂运行：四臂均为 20 completed、0 failed/incomplete。B4 为 ChemEnzy-only 16/20、Codex-only 1/20、unified round-robin 15/20、unified adaptive 15/20。Adaptive 相对 round-robin 的 paired success-rate difference 为 0 percentage points，95% paired-bootstrap CI 为 [-15, 15] pp；相对 ChemEnzy-only 为 -5 pp，CI 为 [-15, 0] pp。
+
+该 pilot 已足以支持当前工程判断：ChemEnzy native search 是 B4 主贡献，adaptive 的局部收益是资源效率而非成功率，继续扩展到 190 的当前边际信息不足。因此 2026-08-09 将工程范围停在 20/190。完整结论、限制和产物哈希见 `docs/evaluation/RETROSTAR190_W8_PILOT20_RESULTS_20260808.md`。
+
+该 pilot 在 cutoff projection v1 合入前已经冻结，其既有摘要和哈希保持不变，不用新代码回填或重释。
+未来若恢复 publication-scale 运行，必须从 fresh root 使用上述 trajectory cutoff 合同，不能把历史 pilot
+或中断根拼入新结果。
+
+这不是统计代表性的 190-target 子样本，也不修改上面的 publication-scale 完成门。任何论文中的 benchmark-wide 主张仍须重启 fresh 190×4 运行。
+
+`results/.autoplanner/retrostar190-w8-formal-20260807-i` 在 adaptive 完成 21 个目标、第 22 个目标处被外部中断，orchestrator 没有终止收据，永久排除且不得 resume 或拼入 pilot。`results/.autoplanner/retrostar190-w8-formal-20260809-j` 在范围缩减后于 0 个完整 case 时主动停止，`manual-stop-receipt.json` 明确标记不进入任何指标。
 
 运行前证据：`results/.autoplanner/retrostar190-w8-preflight-20260806-a` 中四个 arm 各通过 190/190，合计 760 passed、0 failed、0 provider calls；四臂的 manifest、stock 与 base environment hashes 一致。
 

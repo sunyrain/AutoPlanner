@@ -38,6 +38,16 @@ ROUTE_WORKBENCH_SCHEMA = "retrosynthesis_route_workbench.v1"
 ROUTE_WORKBENCH_DELTA_SCHEMA = "retrosynthesis_route_workbench_delta.v1"
 MAX_VISIBLE_ROUTES = 5
 MAX_VISIBLE_HYPOTHESES = 48
+_CAMPAIGN_MILESTONE_LABELS = (
+    ("B0_blind_input", "B0", "盲测输入已冻结"),
+    ("route:first_target_rooted", "首条路线", "首次形成目标根路线"),
+    ("B1_global_multi_route", "B1", "全局多路线"),
+    ("route:first_host_validated", "首条主机验证路线", "首次形成主机验证路线"),
+    ("B2_host_validated_routes", "B2", "主机反应验证"),
+    ("B3_exact_multi_source", "B3", "精确多来源证据"),
+    ("B4_stock_boundary", "B4", "库存边界闭合"),
+    ("B5_configured_portfolio_acceptance", "B5", "配置科学门通过"),
+)
 class RouteWorkbenchProjectionError(ValueError):
     """The graph/portfolio pair cannot form one authoritative UI revision."""
 def compile_route_workbench(
@@ -388,12 +398,123 @@ def _campaign_summary(value: Mapping[str, Any] | None) -> dict[str, Any]:
         "current_disposition": _copy_json(
             source.get("current_disposition") or {}
         ),
+        "trajectory_history": _trajectory_history(
+            source.get("trajectory") or source.get("trajectory_history"),
+            current_gates=gates,
+        ),
         "semantics": {
             "measurement_only": True,
             "independent_gates_may_pass_after_a_contiguous_gap": True,
             "branch_counts_never_grant_completion": True,
+            "historical_milestones_do_not_restore_revoked_proof": True,
         },
     }
+
+
+def _trajectory_history(
+    value: Any,
+    *,
+    current_gates: Mapping[str, bool],
+) -> dict[str, Any]:
+    trajectory = dict(value) if isinstance(value, Mapping) else {}
+    reason = ""
+    if not trajectory:
+        reason = "trajectory_not_published"
+    elif trajectory.get("schema_version") == "workbench_trajectory_history.v1":
+        unsigned = dict(trajectory)
+        supplied = str(unsigned.pop("content_sha256", ""))
+        if supplied and supplied == _digest(unsigned):
+            return _copy_json(trajectory)
+        reason = "workbench_trajectory_history_digest_invalid"
+    elif trajectory.get("schema_version") != "campaign_trajectory.v2":
+        reason = "trajectory_v2_required"
+    else:
+        unsigned = dict(trajectory)
+        supplied = str(unsigned.pop("content_sha256", ""))
+        if not supplied or supplied != _digest(unsigned):
+            reason = "trajectory_digest_invalid"
+    if reason:
+        result = {
+            "schema_version": "workbench_trajectory_history.v1",
+            "available": False,
+            "unavailable_reason": reason,
+            "milestones": [],
+            "resource_curve": [],
+            "semantics": {
+                "missing_history_does_not_change_current_scientific_state": True,
+            },
+        }
+        result["content_sha256"] = _digest(result)
+        return result
+
+    snapshots = [
+        dict(row)
+        for row in trajectory.get("snapshots") or []
+        if isinstance(row, Mapping)
+        and row.get("schema_version") == "campaign_anytime_snapshot.v2"
+    ]
+    latest = snapshots[-1] if snapshots else {}
+    current = dict(latest.get("milestones") or {})
+    current.update({str(key): item is True for key, item in current_gates.items()})
+    first = {
+        str(key): dict(item)
+        for key, item in dict(trajectory.get("first_achieved") or {}).items()
+        if isinstance(item, Mapping)
+    }
+    definitions = list(_CAMPAIGN_MILESTONE_LABELS)
+    definitions.extend(
+        (key, "Program", key.removeprefix("program:").replace("_", " "))
+        for key in sorted(set(first) | set(current))
+        if key.startswith("program:")
+    )
+    milestones = []
+    for key, short_label, label in definitions:
+        observation = first.get(key, {})
+        active = current.get(key) is True
+        achieved = key in first or active
+        milestones.append(
+            {
+                "milestone": key,
+                "short_label": short_label,
+                "label": label,
+                "ever_achieved": achieved,
+                "currently_active": active,
+                "historical_only": achieved and not active,
+                "state": (
+                    "current"
+                    if active
+                    else "historical_only"
+                    if achieved
+                    else "not_achieved"
+                ),
+                "first_observed_at": str(observation.get("observed_at") or ""),
+                "first_event_sequence": observation.get("event_sequence"),
+                "first_graph_revision": observation.get("graph_revision"),
+                "elapsed_wall_time_s": observation.get("elapsed_wall_time_s"),
+                "first_snapshot_sha256": str(
+                    observation.get("snapshot_sha256") or ""
+                ),
+            }
+        )
+    result = {
+        "schema_version": "workbench_trajectory_history.v1",
+        "available": True,
+        "trajectory_sha256": str(trajectory.get("content_sha256") or ""),
+        "snapshot_count": int(trajectory.get("snapshot_count") or len(snapshots)),
+        "latest_snapshot_sha256": str(latest.get("content_sha256") or ""),
+        "milestones": milestones,
+        "time_to_first": _copy_json(trajectory.get("time_to_first") or {}),
+        "continuity": _copy_json(trajectory.get("continuity") or {}),
+        "binding_epochs": _copy_json(trajectory.get("binding_epochs") or []),
+        "resource_curve": _copy_json(trajectory.get("resource_curve") or []),
+        "semantics": {
+            "current_state_and_historical_first_achievement_are_separate": True,
+            "historical_only_never_restores_revoked_proof": True,
+            "resource_curve_is_read_only": True,
+        },
+    }
+    result["content_sha256"] = _digest(result)
+    return result
 
 
 def _validate_bindings(graph: Mapping[str, Any], portfolio: Mapping[str, Any]) -> None:

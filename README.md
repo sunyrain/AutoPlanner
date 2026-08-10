@@ -50,6 +50,13 @@ python -m cascade_planner solve-target \
   --run-id target-blind-001
 ```
 
+新任务没有 benchmark/scientific 两套求解模式：所有输入进入同一 anytime trajectory，
+B1–B5 只是不同成熟度投影。旧 `--objective-mode` 仅为兼容保留到 2026-10-01，显式使用会
+发出弃用警告；应改用 stock boundary、acceptance 和多维 budget 参数表达真实要求。
+新运行以 `UnifiedCampaignSpec` 固定 canonical target、Stock Oracle、目标约束和预算；报告始终
+输出 topology、reaction validation、exact evidence、stock、conditions、procurement、Program
+validation、diversity 八个独立质量轴。B4/B5 不会提前结束统一 Action loop。
+
 默认只进行全局文本规划和确定性证据处理，视觉调用为 0。内置 patent connector
 先冻结官方 Google Patents 完整 HTML，再从哈希绑定的段落范围确定性重建产物和反应物；
 HTML 已闭合的边不会下载或渲染 PDF。只有未闭合边才依次回退到 PDF 原生文本、本机

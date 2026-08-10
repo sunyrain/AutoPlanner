@@ -118,6 +118,9 @@ def test_cli_run_status_validate_replay_benchmark_export_and_gc(
     assert main([*base, "export", "cli-example", "--output-dir", str(destination)]) == 0
     exported = json.loads(capsys.readouterr().out)
     assert Path(exported["files"]["html"]).is_file()
+    assert Path(exported["files"]["review_bundle"]).is_file()
+    assert Path(exported["files"]["action_trace"]).is_file()
+    assert len(exported["review_bundle_sha256"]) == 64
 
     assert main([*base, "gc", "--dry-run", "--minimum-age-hours", "0"]) == 0
     gc = json.loads(capsys.readouterr().out)

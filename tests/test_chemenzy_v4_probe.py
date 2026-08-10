@@ -9,6 +9,7 @@ from cascade_planner.interfaces.chemenzy_probe import (
     _normalized_routes,
     _provider_reaction_metadata,
     _provider_capability_snapshot,
+    _opaque_target_name,
     _select_host_route_portfolio,
     _select_runtime,
 )
@@ -261,6 +262,12 @@ def test_guided_chemenzy_request_binds_canonical_frontier_and_stop_contract() ->
         "acyl substitution"
     ]
     assert policy["compiler_metadata"]["not_raw_reaction_injection"] is True
+
+
+def test_provider_target_label_is_derived_only_from_structure() -> None:
+    assert _opaque_target_name("CCO") == _opaque_target_name("OCC")
+    assert _opaque_target_name("CCO").startswith("target-")
+    assert "ethanol" not in _opaque_target_name("CCO")
 
 
 def test_host_route_portfolio_prefers_stock_hints_and_route_diversity() -> None:

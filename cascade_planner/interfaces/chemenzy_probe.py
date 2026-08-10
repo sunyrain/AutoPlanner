@@ -12,6 +12,7 @@ import threading
 import time
 from typing import Any, Callable, Mapping
 
+from cascade_planner.application.blind_benchmark_contract import canonical_smiles
 from cascade_planner.application.canonical_hypergraph import CanonicalIngestionBatch
 from cascade_planner.application.route_innovation_chemenzy import (
     route_innovation_from_chemenzy_step,
@@ -147,8 +148,9 @@ def run_chemenzy_proposal_stage(
             "disabled", mode=mode, scope=scope, limits=limits,
             reason="chemenzy_disabled"
         )
+    provider_target_name = _opaque_target_name(target_smiles)
     request = ChemEnzyProposalRequest(
-        target_name=target_name,
+        target_name=provider_target_name,
         target_smiles=target_smiles,
         mode=mode,
         frontier_smiles=(target_smiles,) if mode == "guided_frontier" else (),
@@ -165,7 +167,7 @@ def run_chemenzy_proposal_stage(
     raw = (
         dict(
             provider(
-                target_name=target_name,
+                target_name=provider_target_name,
                 target_smiles=target_smiles,
                 limits=limits,
                 request=request.to_dict(),
@@ -174,7 +176,7 @@ def run_chemenzy_proposal_stage(
         if provider is not None
         else _run_builtin_probe(
             service.kernel.run_dir,
-            target_name=target_name,
+            target_name=provider_target_name,
             target_smiles=target_smiles,
             proposal_request=request,
             scope=scope,
@@ -203,7 +205,7 @@ def run_chemenzy_proposal_stage(
     advisory = quarantined_routes[: limits["max_host_routes"]]
     provider_envelope, provider_registration = _provider_admission(
         service,
-        target_name=target_name,
+        target_name=provider_target_name,
         target_smiles=target_smiles,
         routes=accepted,
         limits=limits,
@@ -1181,6 +1183,12 @@ def _proposal_reactants(step: Mapping[str, Any]) -> list[str]:
     return [str(value).strip() for value in values if str(value).strip()]
 
 
+def _opaque_target_name(target_smiles: str) -> str:
+    canonical = canonical_smiles(str(target_smiles or ""))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"target-{digest[:8]}"
+
+
 def _result(status: str, **values: Any) -> dict[str, Any]:
     extra_semantics = dict(values.pop("semantics", {}) or {})
     return {
@@ -1201,6 +1209,7 @@ def _result(status: str, **values: Any) -> dict[str, Any]:
 __all__ = [
     "ChemenzyProposalProvider",
     "ChemEnzyProposalRequest",
+    "_opaque_target_name",
     "compile_chemenzy_route_fingerprints",
     "run_chemenzy_guided_frontier_stage",
     "run_chemenzy_proposal_stage",

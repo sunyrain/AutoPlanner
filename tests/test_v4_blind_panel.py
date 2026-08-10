@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 
 from cascade_planner.application.blind_benchmark_contract import BlindCase
+from cascade_planner.application.campaign_trajectory import (
+    compile_campaign_snapshot,
+    compile_campaign_trajectory,
+)
 from scripts.run_v4_blind_panel import (
     _ablation_cli_args,
     _acceptance_cli_args,
@@ -144,9 +148,39 @@ def test_panel_snapshot_keeps_ablation_out_of_base_environment_but_binds_workers
     assert baseline["base_environment_sha256"] != two_workers["base_environment_sha256"]
 
 
-def test_panel_summary_reports_benchmark_objective_without_claiming_B5(
+def test_panel_summary_scores_only_the_fixed_cutoff_trajectory_projection(
     tmp_path: Path,
 ) -> None:
+    snapshot = compile_campaign_snapshot(
+        phase="fixed-cutoff-observation",
+        observed_at="2026-08-10T00:00:00Z",
+        event_sequence=3,
+        graph_revision=2,
+        wall_time_s=10.0,
+        gates={
+            "gates": {
+                "B0_blind_input": True,
+                "B4_stock_boundary": True,
+                "B5_configured_portfolio_acceptance": False,
+            },
+            "counts": {"stock_closed_skeletons": 3},
+        },
+        resource_usage={
+            "model": {
+                "model_invocations": 1,
+                "visual_invocations": 0,
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "wall_time_s": 2.0,
+            },
+            "tasks": {"dimensions": {"total": {"settled": 3}}},
+            "attempt_count": 3,
+            "accepted_expansion_count": 2,
+            "settled_task_count": 3,
+        },
+        route_counts={"stock_closed_route_count": 3},
+    )
+    trajectory = compile_campaign_trajectory([snapshot])
     report_path = tmp_path / "target-only-solve-report.json"
     report_path.write_text(
         json.dumps(
@@ -180,6 +214,7 @@ def test_panel_summary_reports_benchmark_objective_without_claiming_B5(
                     }
                 ],
                 "resource_envelope": {"within_budget": True},
+                "trajectory": trajectory,
             }
         ),
         encoding="utf-8",
@@ -189,10 +224,17 @@ def test_panel_summary_reports_benchmark_objective_without_claiming_B5(
         report_path,
         elapsed_s=12.5,
         reused=False,
+        cutoff={"wall_time_s": 20.0, "settled_task_count": 8},
     )
 
-    assert summary["claim"] == "benchmark_search_completed"
-    assert summary["objective_achieved"] is True
+    assert summary["claim"] == "fixed_cutoff_stock_closed"
+    assert "objective_mode" not in summary
     assert summary["accepted_under_configured_policy"] is False
+    assert summary["route_counts"]["stock_closed_skeletons"] == 3
+    assert summary["model_cost"]["model_invocations"] == 1
+    assert summary["elapsed_s"] == 10.0
+    assert summary["runner_elapsed_s"] == 12.5
+    assert summary["fixed_cutoff_projection"]["available"] is True
+    assert summary["final_state"]["claim"]["objective_mode"] == "benchmark_search"
     assert summary["chemenzy"]["status"] == "completed"
     assert summary["chemenzy"]["proposal_count"] == 17

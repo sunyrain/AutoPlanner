@@ -159,6 +159,19 @@ def test_gateway_runs_every_operator_operation_without_model_calls(
 
     assert created["status"]["graph_revision"] == 2
     assert created["status"]["model_totals"]["model_invocations"] == 0
+    assert created["status"]["campaign_spec"]["target"] == {
+        "canonical_smiles": "CCOC(C)=O"
+    }
+    assert set(created["status"]["quality_state"]["axes"]) == {
+        "topology",
+        "reaction_validation",
+        "exact_evidence",
+        "stock",
+        "conditions",
+        "procurement",
+        "program_validation",
+        "diversity",
+    }
     assert Path(created["run_dir"]).is_relative_to(paths.runs_root)
     assert paths.artifact_store_root.is_dir()
     assert paths.run_index_path.is_file()
@@ -179,6 +192,17 @@ def test_gateway_runs_every_operator_operation_without_model_calls(
         assert Path(path).is_file()
     snapshot = json.loads(Path(exported["files"]["snapshot"]).read_text("utf-8"))
     assert snapshot["schema_version"] == "retrosynthesis_route_workbench.v1"
+    review_bundle = json.loads(
+        Path(exported["files"]["review_bundle"]).read_text("utf-8")
+    )
+    assert review_bundle["schema_version"] == "campaign_review_bundle.v1"
+    assert review_bundle["available"] is False
+    assert review_bundle["unavailable_reason"] == "target_solve_report_missing"
+    assert exported["review_bundle_sha256"] == review_bundle["content_sha256"]
+    for name in ("action_trace", "failure_trace", "route_lineage", "resource_curve"):
+        component = json.loads(Path(exported["files"][name]).read_text("utf-8"))
+        assert component == review_bundle["components"][name]
+        assert component["content_sha256"] == review_bundle["component_sha256"][name]
 
     gc = gateway.gc_plan(minimum_age_s=0)
     assert gc["dry_run"] is True
@@ -205,6 +229,46 @@ def test_gateway_applies_a_later_global_plan_through_same_graph(tmp_path: Path) 
     assert applied["status"]["graph_revision"] == 2
     assert applied["status"]["accepted_expansion_count"] == 1
     assert applied["status"]["model_totals"]["model_invocations"] == 0
+
+
+def test_gateway_status_projects_only_active_action_wrapper_reservations(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    gateway.create_run(
+        run_id="active-action-status",
+        target_name="ethanol",
+        target_smiles="CCO",
+    )
+    service = gateway._open("active-action-status")
+    service.kernel.reserve_task(
+        task_id="campaign-action:fixture",
+        kind="other",
+        idempotency_key="active-action:reserve",
+        input_revision=0,
+        metadata={
+            "campaign_action_id": "action:program_review:fixture",
+            "campaign_action_execution_id": "campaign-action:fixture",
+            "campaign_action_kind": "program_review",
+            "producer": "program_host",
+        },
+    )
+    service.kernel.reserve_task(
+        task_id="program-child",
+        kind="program",
+        idempotency_key="active-action:child:reserve",
+        input_revision=0,
+        metadata={
+            "campaign_action_execution_id": "campaign-action:fixture",
+        },
+    )
+
+    active = gateway.status("active-action-status")["status"]["active_actions"]
+
+    assert len(active) == 1
+    assert active[0]["execution_id"] == "campaign-action:fixture"
+    assert active[0]["kind"] == "program_review"
+    assert active[0]["semantics"]["not_a_second_queue"] is True
 
 
 def test_gateway_program_store_requires_explicit_enablement_and_preserves_graph(
@@ -478,7 +542,7 @@ def test_gateway_dispatches_recovers_and_settles_on_single_kernel_ledger(
     ] is True
     assert service.kernel.task_lifecycle(dispatched["task_id"])["status"] == "in_flight"
     assert service.kernel.count_task_reservations(
-        kind="validation", metadata={"dispatch_id": dispatched["dispatch_id"]}
+        kind="experiment", metadata={"dispatch_id": dispatched["dispatch_id"]}
     ) == 1
 
     metadata = service.kernel.task_lifecycle(dispatched["task_id"])["reservation"][

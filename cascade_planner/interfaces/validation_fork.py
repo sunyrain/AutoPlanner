@@ -10,7 +10,7 @@ presents itself as a fresh blind generation campaign.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 from pathlib import Path
@@ -18,6 +18,9 @@ from typing import Any, Mapping
 
 from cascade_planner.application.blind_acceptance import (
     compile_blind_acceptance_report,
+)
+from cascade_planner.application.campaign_quality_state import (
+    compile_campaign_quality_state,
 )
 from cascade_planner.application.reaction_mapping import ReactionMapper
 from cascade_planner.application.reaction_proof_versions import (
@@ -27,6 +30,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
 )
+from cascade_planner.application.unified_campaign_spec import UnifiedCampaignSpec
 from cascade_planner.interfaces.live_evidence import EvidenceConnector
 from cascade_planner.interfaces.patent_self_evolution import (
     PatentSelfEvolutionSession,
@@ -141,6 +145,18 @@ def fork_target_validation(
         source_report,
         max_visual_invocations=active.max_visual_invocations,
     )
+    source_campaign_spec = source_service.kernel.spec.campaign_spec
+    if source_campaign_spec is None:
+        raise TargetValidationForkError("validation_fork_source_campaign_spec_missing")
+    derived_campaign_spec = UnifiedCampaignSpec(
+        target_smiles=target_smiles,
+        stock_oracle=source_campaign_spec.stock_oracle,
+        constraints=source_campaign_spec.constraints,
+        resource_budget=replace(
+            source_campaign_spec.resource_budget,
+            model=derived_budget,
+        ),
+    )
     identity = gateway._normalize_run_id(
         run_id or gateway._new_run_id(f"{target_name}-validation", target_smiles)
     )
@@ -157,6 +173,9 @@ def fork_target_validation(
             source_graph.get("scientific_sha256") or ""
         ),
         "source_graph_revision": int(source_graph.get("revision") or 0),
+        "source_campaign_spec_sha256": source_campaign_spec.to_dict()[
+            "content_sha256"
+        ],
         "source_model_cost": dict(source_report.get("model_cost") or {}),
         "replayed_plan_sha256": sorted(
             _digest(dict(row["plan"])) for row in accepted_outcomes
@@ -181,6 +200,7 @@ def fork_target_validation(
         run_dir=directory,
         acceptance=acceptance,
         budget=derived_budget,
+        campaign_spec=derived_campaign_spec,
     )
     service = gateway._open(identity, run_dir=directory)
     self_evo = PatentSelfEvolutionSession.create(
@@ -305,11 +325,19 @@ def fork_target_validation(
     resource_envelope = _resource_envelope(
         model_cost=service.kernel.state.model_totals,
         native_search=service.kernel.native_search_budget(),
+        task_budget=service.kernel.task_budget(),
+        run_wall_time_s=service.kernel.state.task_wall_time_s,
         attempt_count=service.kernel.state.attempt_count,
         accepted_expansion_count=service.kernel.state.accepted_expansion_count,
         budget=derived_budget,
+        max_run_wall_time_s=service.kernel.spec.limits.max_run_wall_time_s,
     )
     stop_preview = service.kernel.decide_stop().to_dict()
+    profile_projection = service.workbench()["snapshot"]
+    quality_state = compile_campaign_quality_state(
+        workbench=profile_projection,
+        gates=gates,
+    )
     claim = _claim(gates, acceptance, resource_envelope)
     disposition = _current_disposition(
         kernel_status=service.kernel.state.status,
@@ -325,6 +353,7 @@ def fork_target_validation(
             stop_decision=stop_preview,
             claim=claim,
             current_disposition=disposition,
+            quality_state=quality_state,
         )
     )
     stop = service.kernel.apply_stop_decision(
@@ -335,6 +364,7 @@ def fork_target_validation(
         "run_id": identity,
         "run_dir": str(directory),
         "target": {"name": target_name, "canonical_smiles": target_smiles},
+        "campaign_spec": service.kernel.spec.campaign_spec.to_dict(),
         "lineage": lineage,
         "lineage_ref": lineage_ref.to_dict(),
         "acceptance": acceptance.to_dict(),
@@ -342,6 +372,7 @@ def fork_target_validation(
         "director_outcomes_replayed": outcomes,
         "stages": stages,
         "gates": gates,
+        "quality_state": quality_state,
         "model_cost": dict(service.kernel.state.model_totals),
         "resource_envelope": resource_envelope,
         "attempt_count": service.kernel.state.attempt_count,

@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import argparse
 
+import pytest
+
 from cascade_planner.interfaces.target_cli import (
     _compact_target_result,
+    _parse_safety_limits,
+    _resolve_objective_compatibility_view,
     add_target_commands,
 )
 
@@ -20,10 +24,18 @@ def test_compact_target_result_omits_route_and_stage_payloads() -> None:
             },
             "claim": {"accepted_under_configured_policy": False},
             "current_disposition": {"state": "unresolved"},
+            "quality_state": {
+                "schema_version": "campaign_quality_state.v1",
+                "axes": {"topology": {"state": "satisfied"}},
+            },
             "model_cost": {"model_invocations": 1},
             "resource_envelope": {
                 "within_budget": True,
                 "observed": {"input_tokens": 10},
+                "task_budget": {
+                    "schema_version": "campaign_task_budget.v1",
+                    "dimensions": {"program": {"limit": 7}},
+                },
                 "violations": [],
             },
             "attempt_count": 4,
@@ -39,6 +51,10 @@ def test_compact_target_result_omits_route_and_stage_payloads() -> None:
     assert summary["schema_version"] == "target_solve_cli_summary.v1"
     assert summary["highest_contiguous_gate"] == "B0"
     assert summary["report_sha256"] == "a" * 64
+    assert summary["quality_state"]["axes"]["topology"]["state"] == "satisfied"
+    assert summary["resource_envelope"]["task_budget"]["dimensions"]["program"] == {
+        "limit": 7
+    }
     assert "director_outcomes" not in summary
     assert "stages" not in summary
 
@@ -68,6 +84,32 @@ def test_target_cli_visual_evidence_is_explicitly_opt_in_and_bounded() -> None:
     assert opted_in.max_visual_pages == 2
 
 
+def test_target_cli_objective_mode_is_deprecated_compatibility_only() -> None:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command")
+    add_target_commands(commands)
+
+    default = parser.parse_args(["solve-target", "--target-smiles", "CCO"])
+    legacy = parser.parse_args(
+        [
+            "solve-target",
+            "--target-smiles",
+            "CCO",
+            "--objective-mode",
+            "benchmark_search",
+        ]
+    )
+
+    assert default.objective_mode is None
+    assert _resolve_objective_compatibility_view(default.objective_mode) == (
+        "scientific_proof"
+    )
+    with pytest.warns(FutureWarning, match="compatibility metadata"):
+        assert _resolve_objective_compatibility_view(legacy.objective_mode) == (
+            "benchmark_search"
+        )
+
+
 def test_target_cli_exposes_planning_depth_and_prompt_budget() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command")
@@ -82,11 +124,69 @@ def test_target_cli_exposes_planning_depth_and_prompt_budget() -> None:
             "20",
             "--max-prompt-context-bytes",
             "256000",
+            "--max-total-tasks",
+            "300",
+            "--max-evidence-tasks",
+            "20",
+            "--max-stock-tasks",
+            "30",
+            "--max-validation-tasks",
+            "40",
+            "--max-program-tasks",
+            "12",
+            "--max-experiment-tasks",
+            "5",
+            "--max-run-wall-time-s",
+            "1800",
         ]
     )
 
     assert args.minimum_planning_route_steps == 20
     assert args.max_prompt_context_bytes == 256000
+    assert args.max_total_tasks == 300
+    assert args.max_evidence_tasks == 20
+    assert args.max_stock_tasks == 30
+    assert args.max_validation_tasks == 40
+    assert args.max_program_tasks == 12
+    assert args.max_experiment_tasks == 5
+    assert args.max_run_wall_time_s == 1800
+
+
+def test_target_cli_exposes_dataset_blind_campaign_constraints() -> None:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command")
+    add_target_commands(commands)
+
+    args = parser.parse_args(
+        [
+            "solve-target",
+            "--target-smiles",
+            "CCO",
+            "--forbidden-reagent",
+            "benzene",
+            "--max-route-steps",
+            "8",
+            "--allowed-execution-domain",
+            "chemical",
+            "--allowed-execution-domain",
+            "hybrid",
+            "--safety-limit",
+            "max_temperature_c=120",
+            "--safety-limit",
+            "allow_explosive_intermediates=false",
+            "--stock-source-id",
+            "inventory-v2",
+        ]
+    )
+
+    assert args.forbidden_reagent == ["benzene"]
+    assert args.max_route_steps == 8
+    assert args.allowed_execution_domain == ["chemical", "hybrid"]
+    assert args.stock_source_id == ["inventory-v2"]
+    assert _parse_safety_limits(args.safety_limit) == {
+        "max_temperature_c": 120,
+        "allow_explosive_intermediates": False,
+    }
 
 
 def test_target_cli_exposes_frozen_benchmark_stock_index() -> None:

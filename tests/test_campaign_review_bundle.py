@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+from copy import deepcopy
+import hashlib
+import json
+
+from cascade_planner.application.campaign_review_bundle import (
+    compile_campaign_review_bundle,
+)
+from cascade_planner.application.campaign_trajectory import (
+    compile_campaign_snapshot,
+    compile_campaign_trajectory,
+)
+
+
+def _with_digest(value: dict) -> dict:
+    result = deepcopy(value)
+    result.pop("content_sha256", None)
+    result["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            result,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return result
+
+
+def _report() -> dict:
+    snapshot = compile_campaign_snapshot(
+        phase="closeout",
+        observed_at="2026-08-10T00:00:00Z",
+        event_sequence=2,
+        graph_revision=1,
+        wall_time_s=3.0,
+        gates={
+            "gates": {"B1_global_multi_route": True},
+            "counts": {"target_rooted_distinct_skeletons": 1},
+        },
+        resource_usage={
+            "model": {"model_invocations": 1},
+            "settled_task_count": 2,
+        },
+        action_counts={"total": 1},
+        route_counts={"target_rooted_route_count": 1},
+        pareto_archive=[{"route_id": "route:1", "edge_ids": ["edge:1"]}],
+    )
+    return _with_digest({
+        "run_id": "review-example",
+        "trajectory": compile_campaign_trajectory([snapshot]),
+        "stages": [
+            {
+                "stage": "campaign_action_unified_core_01",
+                "status": "failed",
+                "detail": {
+                    "action": {
+                        "execution_id": "action:1",
+                        "kind": "reaction_validate",
+                    },
+                    "outcome": {
+                        "action_execution_id": "action:1",
+                        "status": "failed",
+                        "failure_type": "host_rejected",
+                        "failure_reasons": ["atom_balance_failed"],
+                    },
+                },
+            },
+            {
+                "stage": "chemenzy_baseline",
+                "status": "completed",
+                "detail": {
+                    "route_lineage": [
+                        {
+                            "raw_route_sha256": "1" * 64,
+                            "normalized_route_sha256": "2" * 64,
+                        }
+                    ]
+                },
+            },
+        ],
+        "stop_decision": {
+            "decision": "budget_exhausted",
+            "terminal": True,
+            "reasons": ["run_total_task_budget_exhausted"],
+        },
+    })
+
+
+def test_review_bundle_exports_all_four_independently_hashed_traces() -> None:
+    bundle = compile_campaign_review_bundle(_report())
+
+    assert bundle["schema_version"] == "campaign_review_bundle.v1"
+    assert set(bundle["components"]) == {
+        "action_trace",
+        "failure_trace",
+        "route_lineage",
+        "resource_curve",
+    }
+    assert all(len(value) == 64 for value in bundle["component_sha256"].values())
+    assert bundle["components"]["action_trace"]["record_count"] == 1
+    assert bundle["components"]["failure_trace"]["record_count"] == 2
+    assert bundle["components"]["route_lineage"]["record_count"] == 2
+    assert bundle["components"]["resource_curve"]["available"] is True
+    assert bundle["components"]["resource_curve"]["records"][0][
+        "wall_time_s"
+    ] == 3.0
+
+
+def test_review_bundle_fails_closed_for_a_tampered_trajectory() -> None:
+    report = _report()
+    report["trajectory"] = deepcopy(report["trajectory"])
+    report["trajectory"]["resource_curve"][0]["wall_time_s"] = 999.0
+    report = _with_digest(report)
+
+    bundle = compile_campaign_review_bundle(report)
+
+    resource = bundle["components"]["resource_curve"]
+    assert resource["available"] is False
+    assert resource["records"] == []
+    assert resource["unavailable_reason"] == "trajectory_digest_invalid_or_missing"
+
+
+def test_review_bundle_fails_closed_for_a_tampered_report() -> None:
+    report = _report()
+    report["stages"][0]["detail"]["outcome"]["status"] = "completed"
+
+    bundle = compile_campaign_review_bundle(report)
+
+    assert bundle["available"] is False
+    assert bundle["source_report_digest_valid"] is False
+    assert bundle["components"]["action_trace"]["record_count"] == 0
+    assert bundle["components"]["resource_curve"]["records"] == []
+    assert bundle["unavailable_reason"] == "target_solve_report_digest_invalid"
+
+
+def test_open_scientific_gate_is_not_exported_as_a_runtime_failure() -> None:
+    report = _report()
+    report["stages"].append(
+        {
+            "stage": "exact_evidence_binding",
+            "status": "unresolved",
+            "detail": {"reasons": ["exact_evidence_missing"]},
+        }
+    )
+    report = _with_digest(report)
+
+    bundle = compile_campaign_review_bundle(report)
+
+    records = bundle["components"]["failure_trace"]["records"]
+    assert all(record.get("stage") != "exact_evidence_binding" for record in records)

@@ -4,7 +4,7 @@
 > [Program 创新与自进化完成切片](PROGRAM_INNOVATION_SELF_EVOLUTION_STATUS_20260716.md)。这里的“完成”指代码架构与耐久边界完成，
 > 不代表尚未执行的真实底物实验已经成功，也不改变生产路线的 `edge_ids[]` 权威。
 
-状态基线：2026-07-17
+状态基线：2026-08-09
 适用范围：仓库当前工作区；用于回答“现在已经完成到哪里”和“一个 SMILES 当前如何被处理”。
 下一代目标：[通用逆合成创新架构（GRIA）](GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)
 
@@ -37,8 +37,46 @@
 > cache replay 复用同一 cohort/action identity 且不重复结算。W4 现已注册 `PROGRAM_VALIDATE` 与
 > `EXPERIMENT_FEEDBACK_INGEST`：专项验证 Action 只形成绑定现有 experimental work item 的待执行请求，
 > 不授予 Claim；反馈 Action 复用既有三域 validation gate、experiment dispatch/settlement 和 experimental
-> Claim store，默认不写 shadow，任何结果都不直接创建 canonical reaction edge。当前进入 W5：终态
-> checkpoint 收到新 action signal/实验反馈时必须重开同一 loop，并统一 CLI/API/Web 的 trajectory 投影。
+> Claim store，默认不写 shadow，任何结果都不直接创建 canonical reaction edge。终态 checkpoint 收到
+> 新 action signal/实验反馈时会重开同一 loop；CLI/API/Web 已统一消费该 trajectory 投影。
+
+> 2026-08-09 W5/入口收束增量：生产 `target_solver` 已只保留一个 `run_anytime()`；CLI、API 与 Web
+> 通过同一 Gateway 装配该 runtime。Canonical Web 新任务不再发送 `objective_mode`；旧 CLI/API 字段
+> 仅作为兼容元数据，分别发出 `FutureWarning` 或 `Deprecation`/HTTP 299 收据，并计划于
+> 2026-10-01 从新请求契约移除。W8 manifest-prefix 前 20/190 四臂 pilot 已完成，但 full-190
+> publication-scale 门按当前范围决策延期，不能把 pilot 外推为 benchmark-wide 结论。
+
+> 2026-08-09 科学层回归增量：initial architecture 的 depth/topology replan 信号已在 Action 结算时进入
+> 唯一 anytime loop，修复了旧投影层“门通过但未真实调度”的空 replan。集成回归确认 B4 首次为真后，
+> 同一 run 仍执行 replan、condition 与 Program review；discovery-only evidence 不会被升级成 B3/B5。
+> 三个官方 EPO procedure 案卷已迁移到 parser authority v14，并再次通过严格离线 replay；酶阳性仍只指
+> 结构适用候选，真实 exact-substrate 实验继续开放。详见
+> [统一 anytime 科学层回归门](SCIENTIFIC_LAYER_REGRESSION_20260809.md)。
+
+> 2026-08-10 trajectory v2 增量：每个生产 Action snapshot 已绑定累计 RunKernel wall time、完整资源
+> 向量、Action/route counts、当前 Pareto archive、B0–B5/Program milestones，以及控制面源码、配置、
+> UnifiedCampaignSpec、stock oracle 和 provider/model 身份。trajectory 直接给出 first-route、B1、
+> first-host-valid-route、B2–B5 和 Program 首达时间、资源曲线与 binding epochs；terminal resume 保留
+> 原 trajectory digest，新工作 resume 继续同一 event/time 基线。旧 v1 只兼容读取，不补造未知时间。
+
+> 2026-08-10 审稿导出增量：Gateway export 已把同一 target report 拆成独立内容寻址的 Action trace、
+> 失败 trace、provider/canonical route lineage 与 trajectory 资源曲线。Target report 与 trajectory 均先做
+> 摘要验证，损坏输入失败关闭；开放科学门不被伪装成运行失败。生产集成门已验证导出资源曲线与
+> Workbench/target report 使用同一个 trajectory digest。
+
+> 2026-08-10 Web Action 时间线增量：运行中心现把 ChemEnzy、Codex、证据、reaction validation、
+> conditions、stock 和 Program/experiment Action 放在同一个实时列表。已完成项来自 checkpoint，执行中
+> 项来自 RunKernel wrapper reservation；子任务不会重复显示，页面轮询不拥有队列或科学写入权威。
+
+> 2026-08-10 saved-run 兼容增量：恢复时会生成 `saved_run_objective_compatibility.v1`，把旧
+> checkpoint/report 中的 objective 值保留为只读来源；未知值或字段完全缺失均不会改变当前统一
+> Action 调度。恢复后的 Action/snapshot stage 从历史最大序号继续，避免旧 execution 被投影去重覆盖。
+> 同一保存状态双克隆回归已验证旧字段存在/缺失时 Action binding 前缀与恢复后缀完全一致。
+
+> 2026-08-10 canonical identity 增量：Director proposal 不再用绑定 run/context 的 task ID 作为科学
+> 来源身份，而改用剔除运行绑定字段的 `director_plan:<digest>`。三种旧 objective fresh run、交换
+> ChemEnzy/Codex 完成顺序、replay 与保存态双克隆 resume 已验证 exact Action binding 和 canonical
+> scientific digest 一致；实际 transformation 内容变化仍会改变 plan provenance digest。历史产物不改写。
 
 ## 1. 结论
 
@@ -159,7 +197,8 @@ Blackboard 都不能自行把 proposal 提升为事实。
 
 | 能力 | 状态 | 当前生产语义与代码证据 | 距 GRIA 的差距 |
 | --- | --- | --- | --- |
-| SMILES 运行入口与硬预算 | 已实现 | `application/run_kernel.py` 的 `RunSpec` / `RunKernel` | 当前目标仍主要是 canonical molecule identity，不是完整 `ChemicalState` |
+| 统一 Campaign 输入与硬预算 | 已实现 | `unified_campaign_spec.v1` 只含 canonical target、不可变 Stock Oracle、约束和预算；`autoplanner_run_spec.v2` 嵌入该契约，v1 仅兼容读取；`campaign_task_budget.v1` 独立约束 evidence、stock、validation、Program、experiment 和 total task；`campaign_action.v2` 在 reservation 前声明类级估计，settlement 按 execution ID 记录实际资源与 variance | 当前目标仍主要是 canonical molecule identity，不是完整 `ChemicalState`；模型 token 的 Action 级预测目前标记为 unknown，尚未形成校准器 |
+| 八轴 Campaign 质量状态 | 已实现 | `campaign_quality_state.v1` 在 service status、Workbench、target report、validation fork、CLI/API 中统一输出；acceptance 不提前终止 Action loop | Program validation 无运行数据时如实为 `not_assessed` |
 | 全局路线策略 | 已实现 | `global_campaign_director.py`；输出 proposal，由 host 准入 | 尚未在 program graph 上统一比较所有执行程序 |
 | 长路线与共享后缀 | 已实现主干修复 | proof profile 最多 24 个显式反应；路线族可共享 target-forming edge，并按上游 reaction program 去重；Simvastatin V6 已物化 12 步 skeleton，并在最终 Workbench 分层保留完整规划路线 | 仍需以更多 20+ 步 fresh run 校准 director 深度、来源覆盖和逐边验证吞吐；12 步规划可见不等于 B3/条件/工艺闭合 |
 | Canonical AND/OR 反应图 | 已实现 | `application/canonical_hypergraph.py`，schema `canonical_retrosynthesis_hypergraph.v1` | 路线仍以 `edge_ids[]` 表示 |
@@ -219,7 +258,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 
 ### 5.1 已实现路径
 
-1. API/CLI/Web 把 SMILES、名称、acceptance 与资源上限编译为 `RunSpec`；
+1. API/CLI/Web 把 SMILES、不可变 Stock Oracle、目标约束和资源上限编译为 `UnifiedCampaignSpec`，再嵌入 `RunSpec v2`；名称只作展示，acceptance 只作质量审计输入；
 2. `RunKernel` 建立可恢复 run，记录任务、事件、attempt、accepted expansion 和所有资源消耗；
 3. Campaign context 将目标、当前图、证明、缺口和预算压缩给 Global Director；
 4. Director 选择路线族、provider 和证据策略，只返回 proposal；
@@ -227,7 +266,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 6. 所有结果通过同一个 canonical ingestion；身份错误、循环、重复和越权 proof 失败关闭，身份有效但元素库存异常的 Director step 只保留为红色 L0 planning fact，不生成 canonical edge；
 7. hypergraph 重算来源、条件、反应 proof、库存叶和 route closure；
 8. DeficitFrontier 决定继续抽取、补验证、扩展上游、查库存，或在预算/信息耗尽时诚实停止；
-9. proof portfolio 依据最弱边和最弱叶输出多样路线，并由 acceptance 决定是否完成；
+9. proof portfolio 依据最弱边和最弱叶输出多样路线，并编译八轴质量状态和 acceptance 快照；B4/B5 不触发 Action loop 专用 return；
 10. Workbench 从同一 revision 生成只读展示，低证据路线保留警示，不因 UI 颜色获得权威。
 
 ### 5.2 目标 GRIA 路径

@@ -42,6 +42,26 @@ _V4_EXPORTS = {
         "cascade_planner.application.campaign_context",
         "CampaignContextTooLargeError",
     ),
+    "compile_campaign_quality_state": (
+        "cascade_planner.application.campaign_quality_state",
+        "compile_campaign_quality_state",
+    ),
+    "CampaignResourceBudget": (
+        "cascade_planner.application.unified_campaign_spec",
+        "CampaignResourceBudget",
+    ),
+    "StockOracleReference": (
+        "cascade_planner.application.unified_campaign_spec",
+        "StockOracleReference",
+    ),
+    "TargetConstraints": (
+        "cascade_planner.application.unified_campaign_spec",
+        "TargetConstraints",
+    ),
+    "UnifiedCampaignSpec": (
+        "cascade_planner.application.unified_campaign_spec",
+        "UnifiedCampaignSpec",
+    ),
     "unified_frontier_acceptance": (
         "cascade_planner.application.campaign_work_policy",
         "unified_frontier_acceptance",
@@ -131,6 +151,26 @@ _V4_EXPORTS = {
     "compile_campaign_trajectory": (
         "cascade_planner.application.campaign_trajectory",
         "compile_campaign_trajectory",
+    ),
+    "compile_action_counts": (
+        "cascade_planner.application.campaign_trajectory",
+        "compile_action_counts",
+    ),
+    "compile_route_snapshot": (
+        "cascade_planner.application.campaign_trajectory",
+        "compile_route_snapshot",
+    ),
+    "compile_trajectory_bindings": (
+        "cascade_planner.application.campaign_trajectory",
+        "compile_trajectory_bindings",
+    ),
+    "project_campaign_trajectory_at_cutoff": (
+        "cascade_planner.application.campaign_trajectory",
+        "project_campaign_trajectory_at_cutoff",
+    ),
+    "compile_campaign_review_bundle": (
+        "cascade_planner.application.campaign_review_bundle",
+        "compile_campaign_review_bundle",
     ),
     "compile_proof_portfolio": (
         "cascade_planner.application.proof_portfolio",

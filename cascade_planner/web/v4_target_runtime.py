@@ -12,6 +12,10 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
 )
+from cascade_planner.application.unified_campaign_spec import TargetConstraints
+from cascade_planner.interfaces.campaign_action_timeline import (
+    compile_campaign_action_timeline,
+)
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.interfaces.target_solver import (
     DEFAULT_TARGET_DIRECTOR_MODEL,
@@ -54,6 +58,7 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
         evidence_connector=evidence_connector,
         visual_evidence_provider=visual_provider,
         inventory_snapshot_builder=inventory_builder,
+        constraints=_target_constraints(payload),
         acceptance=RetrosynthesisAcceptanceSpec(
             minimum_complete_routes=_int(payload, "minimum_complete_routes", 2),
             minimum_edge_proof_level=_int(payload, "minimum_edge_proof_level", 2),
@@ -138,6 +143,15 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_patent_sources=_int(payload, "max_patent_sources", 3),
             max_self_evo_template_candidates=_int(
                 payload, "max_self_evo_template_candidates", 12
+            ),
+            max_total_tasks=_int(payload, "max_total_tasks", 256),
+            max_evidence_tasks=_int(payload, "max_evidence_tasks", 64),
+            max_stock_tasks=_int(payload, "max_stock_tasks", 128),
+            max_validation_tasks=_int(payload, "max_validation_tasks", 128),
+            max_program_tasks=_int(payload, "max_program_tasks", 64),
+            max_experiment_tasks=_int(payload, "max_experiment_tasks", 32),
+            max_run_wall_time_s=float(
+                payload.get("max_run_wall_time_s", 7_200.0)
             ),
             provider_route_reserve=_int(
                 payload, "provider_route_reserve", 16
@@ -359,6 +373,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         "model_cost": {},
         "frontier_counts": {},
         "stages": [],
+        "action_timeline": compile_campaign_action_timeline(()),
         "delivery": _delivery_projection([], job_status=str(job.get("status") or "")),
     }
     if job.get("status") == "running" and job.get("started_at"):
@@ -404,9 +419,15 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
     )
     run_dir = Path(str(status_result.get("run_dir") or ""))
     checkpoint = run_dir / ".autoplanner" / "target-solver-checkpoint.json"
+    timeline_stages: list[dict[str, Any]] = []
     if checkpoint.is_file():
         try:
             value = json.loads(checkpoint.read_text(encoding="utf-8"))
+            timeline_stages = [
+                dict(row)
+                for row in value.get("stages") or []
+                if isinstance(row, dict)
+            ]
             stages = [
                 {
                     "stage": str(row.get("stage") or ""),
@@ -416,8 +437,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
                     "completed_at": str(row.get("completed_at") or ""),
                     "metrics": _stage_progress_metrics(row),
                 }
-                for row in value.get("stages") or []
-                if isinstance(row, dict)
+                for row in timeline_stages
             ]
             result["stages"] = stages
             if stages:
@@ -447,6 +467,14 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
                     pass
         except (OSError, json.JSONDecodeError):
             pass
+    result["action_timeline"] = compile_campaign_action_timeline(
+        timeline_stages,
+        active_actions=(
+            dict(row)
+            for row in status.get("active_actions") or []
+            if isinstance(row, Mapping)
+        ),
+    )
     job_status = str(job.get("status") or "")
     final_projection = job_status not in {"queued", "running"}
     if final_projection:
@@ -581,6 +609,7 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
         },
         "frontier_counts": deficits,
         "stages": [],
+        "action_timeline": compile_campaign_action_timeline(()),
         "delivery": {
             "state": "historical",
             "execution_active": False,
@@ -627,6 +656,27 @@ def _string_list(value: Any) -> list[str]:
     if isinstance(value, list | tuple):
         return [str(item).strip() for item in value if str(item).strip()]
     raise ValueError("expected_string_or_list")
+
+
+def _target_constraints(payload: Mapping[str, Any]) -> TargetConstraints:
+    safety = payload.get("safety_limits") or {}
+    if not isinstance(safety, Mapping):
+        raise ValueError("safety_limits_must_be_an_object")
+    max_route_steps = payload.get("max_route_steps")
+    return TargetConstraints(
+        forbidden_reagents=tuple(_string_list(payload.get("forbidden_reagents"))),
+        max_route_steps=(
+            None
+            if max_route_steps in {None, ""}
+            else _int(payload, "max_route_steps", 0)
+        ),
+        allowed_execution_domains=tuple(
+            _string_list(payload.get("allowed_execution_domains"))
+            or TargetConstraints().allowed_execution_domains
+        ),
+        safety_limits=dict(safety),
+        stock_source_ids=tuple(_string_list(payload.get("stock_source_ids"))),
+    )
 
 
 def _int(value: Mapping[str, Any], key: str, default: int) -> int:

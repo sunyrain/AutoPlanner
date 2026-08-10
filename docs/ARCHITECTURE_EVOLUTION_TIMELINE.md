@@ -553,6 +553,20 @@ Blackboard 时代把协作记录和化学状态放在一起，容易产生状态
 - 失败必须带具名原因和 receipt；
 - 预算耗尽只改变停止原因，不改变 proof 门槛。
 
+### 6.7 控制面：从 objective branching 到 target-blind anytime
+
+早期 target solver 把 `benchmark_search`、`scientific_proof` 和采购目标同时当作产品标签与控制流开关。这会让同一个 SMILES 因调用入口不同而启用不同能力、在 B4 或 B5 不同位置提前结束，也无法解释组件消融究竟比较了算法还是模式配置。
+
+2026-08-06 至 2026-08-09 的统一化把这些分支降为兼容投影：
+
+- 所有目标进入同一个 RunKernel、canonical hypergraph、deficit frontier 和 Action runtime；
+- ChemEnzy、Codex、evidence、validation、conditions 与 Program 由 canonical deficits 注册，不由 objective 标签开关；
+- B1–B5 在同一 trajectory 连续记录，达到某个 milestone 不再选择另一套 finalize；
+- benchmark harness 只在固定 cutoff 读取 B4，不能向 scheduler 暴露 dataset 或 target index；
+- Web 新任务不再发送 `objective_mode`，旧 CLI/API 字段只保留带警告的限期兼容。
+
+这样做不是把 scientific work 降级成 benchmark search，而是把“运行什么能力”与“从哪条轴查看结果”分开。库存闭合、反应验证、exact evidence、条件和 Program validation 可以在同一运行中独立进展，缺一轴不会删除另一轴已经成立的事实。
+
 ## 7. 当前架构快照
 
 截至审阅基线，主链可概括为：

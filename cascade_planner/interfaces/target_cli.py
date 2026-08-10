@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import json
+import warnings
 from typing import Any
 
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
 )
+from cascade_planner.application.unified_campaign_spec import TargetConstraints
 from cascade_planner.interfaces.live_evidence import (
     HttpEvidenceConnectorConfig,
     build_http_evidence_connector,
@@ -15,7 +18,7 @@ from cascade_planner.interfaces.live_evidence import (
 )
 from cascade_planner.interfaces.live_stock import (
     FrozenBenchmarkStockIndex,
-    load_versioned_inventory_snapshot,
+    FrozenInventorySnapshotBuilder,
 )
 from cascade_planner.interfaces.target_solver import (
     DEFAULT_TARGET_DIRECTOR_MODEL,
@@ -80,7 +83,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument(
         "--objective-mode",
         choices=("benchmark_search", "scientific_proof", "procurement_delivery"),
-        default="scientific_proof",
+        default=None,
         help=(
             "deprecated compatibility view only; all values run the same "
             "target-blind campaign and differ only in downstream presentation"
@@ -255,6 +258,44 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         choices=("benchmark_search", "procurement", "in_house"),
         default="benchmark_search",
     )
+    solve.add_argument(
+        "--forbidden-reagent",
+        action="append",
+        default=[],
+        help="repeatable reagent name or SMILES forbidden by campaign policy",
+    )
+    solve.add_argument(
+        "--max-route-steps",
+        type=int,
+        choices=range(1, 65),
+        default=None,
+        help="hard route-length constraint; independent of search depth",
+    )
+    solve.add_argument(
+        "--allowed-execution-domain",
+        action="append",
+        choices=(
+            "chemical",
+            "biocatalytic",
+            "whole_cell",
+            "hybrid",
+            "mechanistic",
+        ),
+        default=[],
+    )
+    solve.add_argument(
+        "--safety-limit",
+        action="append",
+        default=[],
+        metavar="KEY=JSON_VALUE",
+        help="repeatable safety restriction, for example max_temperature_c=120",
+    )
+    solve.add_argument(
+        "--stock-source-id",
+        action="append",
+        default=[],
+        help="repeatable allowed source id within the configured stock oracle",
+    )
     solve.add_argument("--max-model-invocations", type=int, default=2)
     solve.add_argument("--max-input-tokens", type=int, default=50_000)
     solve.add_argument("--max-output-tokens", type=int, default=14_000)
@@ -270,6 +311,13 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--max-visual-pages", type=int, choices=range(1, 13), default=6)
     solve.add_argument("--max-accepted-expansions", type=int, default=32)
     solve.add_argument("--max-attempt-runs", type=int, default=72)
+    solve.add_argument("--max-total-tasks", type=int, default=256)
+    solve.add_argument("--max-evidence-tasks", type=int, default=64)
+    solve.add_argument("--max-stock-tasks", type=int, default=128)
+    solve.add_argument("--max-validation-tasks", type=int, default=128)
+    solve.add_argument("--max-program-tasks", type=int, default=64)
+    solve.add_argument("--max-experiment-tasks", type=int, default=32)
+    solve.add_argument("--max-run-wall-time-s", type=float, default=7_200.0)
     solve.add_argument("--max-map-reactions", type=int, default=48)
     solve.add_argument("--max-stock-molecules", type=int, default=24)
     solve.add_argument("--max-patent-sources", type=int, default=3)
@@ -444,6 +492,9 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         return result if args.full_output else _compact_validation_fork_result(result)
     if args.command != "solve-target":
         raise ValueError(f"unsupported_target_command:{args.command}")
+    objective_compatibility_view = _resolve_objective_compatibility_view(
+        args.objective_mode
+    )
     evidence_connector = None
     if args.evidence_endpoint:
         evidence_connector = build_http_evidence_connector(
@@ -519,10 +570,9 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
     if args.inventory_snapshot:
         if args.stock_boundary != "procurement":
             raise ValueError("inventory_snapshot_requires_procurement_boundary")
-        frozen_inventory = load_versioned_inventory_snapshot(args.inventory_snapshot)
-
-        def inventory_snapshot_builder(_smiles: Any, **_kwargs: Any) -> Any:
-            return frozen_inventory
+        inventory_snapshot_builder = FrozenInventorySnapshotBuilder(
+            args.inventory_snapshot
+        )
 
     visual_evidence_provider = None
     if args.max_visual_invocations:
@@ -551,6 +601,17 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         visual_evidence_provider=visual_evidence_provider,
         stock_catalog_builder=stock_catalog_builder,
         inventory_snapshot_builder=inventory_snapshot_builder,
+        constraints=TargetConstraints(
+            forbidden_reagents=tuple(args.forbidden_reagent),
+            max_route_steps=args.max_route_steps,
+            allowed_execution_domains=(
+                tuple(args.allowed_execution_domain)
+                if args.allowed_execution_domain
+                else TargetConstraints().allowed_execution_domains
+            ),
+            safety_limits=_parse_safety_limits(args.safety_limit),
+            stock_source_ids=tuple(args.stock_source_id),
+        ),
         acceptance=RetrosynthesisAcceptanceSpec(
             minimum_complete_routes=args.minimum_complete_routes,
             minimum_edge_proof_level=args.minimum_edge_proof_level,
@@ -571,7 +632,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             model=args.model,
             reasoning_effort=args.reasoning_effort,
             execution_profile=args.execution_profile,
-            objective_mode=args.objective_mode,
+            objective_mode=objective_compatibility_view,
             use_coordinator=args.coordinator and not args.single_agent,
             enable_web_search=not args.no_web_search,
             enable_initial_director_web_search=(
@@ -603,6 +664,13 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_live_stock_molecules=args.max_stock_molecules,
             max_patent_sources=args.max_patent_sources,
             max_self_evo_template_candidates=args.max_self_evo_candidates,
+            max_total_tasks=args.max_total_tasks,
+            max_evidence_tasks=args.max_evidence_tasks,
+            max_stock_tasks=args.max_stock_tasks,
+            max_validation_tasks=args.max_validation_tasks,
+            max_program_tasks=args.max_program_tasks,
+            max_experiment_tasks=args.max_experiment_tasks,
+            max_run_wall_time_s=args.max_run_wall_time_s,
             provider_route_reserve=args.chemenzy_provider_route_reserve,
             host_route_portfolio=args.chemenzy_host_route_portfolio,
             display_route_limit=args.display_route_limit,
@@ -621,6 +689,21 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
     return result if args.full_output else _compact_target_result(result)
 
 
+def _resolve_objective_compatibility_view(value: str | None) -> str:
+    """Resolve the legacy CLI view without granting it control-flow authority."""
+
+    if value is None:
+        return "scientific_proof"
+    warnings.warn(
+        "--objective-mode is deprecated and is retained only as output "
+        "compatibility metadata; configure stock, acceptance and budgets "
+        "directly instead",
+        FutureWarning,
+        stacklevel=2,
+    )
+    return str(value)
+
+
 def _parse_chemenzy_stock_paths(values: list[str] | tuple[str, ...]) -> tuple[tuple[str, str], ...]:
     parsed: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -637,19 +720,51 @@ def _parse_chemenzy_stock_paths(values: list[str] | tuple[str, ...]) -> tuple[tu
     return tuple(parsed)
 
 
+def _parse_safety_limits(values: list[str] | tuple[str, ...]) -> dict[str, Any]:
+    parsed: dict[str, Any] = {}
+    for raw in values:
+        key, separator, value = str(raw).partition("=")
+        key = key.strip()
+        value = value.strip()
+        if not separator or not key or not value:
+            raise ValueError("safety_limit_must_be_KEY_EQUALS_JSON_VALUE")
+        if key in parsed:
+            raise ValueError(f"duplicate_safety_limit:{key}")
+        try:
+            parsed[key] = json.loads(value)
+        except json.JSONDecodeError:
+            parsed[key] = value
+    return parsed
+
+
 def _compact_target_result(result: Any) -> dict[str, Any]:
     row = dict(result)
     gates = dict(row.get("gates") or {})
     resource = dict(row.get("resource_envelope") or {})
+    campaign_spec = dict(row.get("campaign_spec") or {})
+    stock_oracle = dict(campaign_spec.get("stock_oracle") or {})
+    stock_binding = dict(stock_oracle.get("binding") or {})
     return {
         "schema_version": "target_solve_cli_summary.v1",
         "run_id": str(row.get("run_id") or ""),
         "target": dict(row.get("target") or {}),
+        "campaign_contract": {
+            "content_sha256": str(campaign_spec.get("content_sha256") or ""),
+            "stock_oracle_id": str(stock_oracle.get("oracle_id") or ""),
+            "stock_oracle_binding_sha256": str(
+                stock_binding.get("content_sha256") or ""
+            ),
+            "constraints": dict(campaign_spec.get("constraints") or {}),
+            "resource_budget": dict(
+                campaign_spec.get("resource_budget") or {}
+            ),
+        },
         "gates": dict(gates.get("gates") or {}),
         "highest_contiguous_gate": str(
             gates.get("highest_contiguous_gate") or "none"
         ),
         "counts": dict(gates.get("counts") or {}),
+        "quality_state": dict(row.get("quality_state") or {}),
         "claim": dict(row.get("claim") or {}),
         "planning_depth": dict(row.get("planning_depth") or {}),
         "current_disposition": dict(row.get("current_disposition") or {}),
@@ -670,6 +785,7 @@ def _compact_target_result(result: Any) -> dict[str, Any]:
         "resource_envelope": {
             "within_budget": resource.get("within_budget") is True,
             "observed": dict(resource.get("observed") or {}),
+            "task_budget": dict(resource.get("task_budget") or {}),
             "violations": list(resource.get("violations") or []),
         },
         "attempt_count": int(row.get("attempt_count") or 0),

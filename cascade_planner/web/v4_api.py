@@ -25,6 +25,7 @@ from cascade_planner.web.v4_target_runtime import (
     new_run_id as _new_run_id,
     run_target_job as _run_target_job,
     solve_target_request as _solve_target_request,
+    _target_constraints,
     utc_now as _utc_now,
 )
 from cascade_planner.web.v4_experiment_api import register_experiment_routes
@@ -51,6 +52,10 @@ from cascade_planner.web.workspace_visibility import (
 
 
 GatewayFactory = Callable[[], CampaignGateway]
+_OBJECTIVE_MODE_DEPRECATION = (
+    "objective_mode is deprecated compatibility metadata; configure stock, "
+    "acceptance and budgets directly. It does not change the unified solver."
+)
 
 
 def create_v4_blueprint(
@@ -139,6 +144,7 @@ def create_v4_blueprint(
                 max_accepted_expansions=_int(payload, "max_accepted_expansions", 8),
                 max_attempt_runs=_int(payload, "max_attempt_runs", 12),
             ),
+            constraints=_target_constraints(payload),
             global_plan=plan,
             materialize=payload.get("materialize") is True,
             closeout=payload.get("closeout") is True,
@@ -149,7 +155,8 @@ def create_v4_blueprint(
     def solve_target():
         payload = _payload()
         result = _solve_target_request(factory(), payload)
-        return jsonify(result), 200 if payload.get("resume") is True else 201
+        response = _with_objective_mode_deprecation(jsonify(result), payload)
+        return response, 200 if payload.get("resume") is True else 201
 
     @blueprint.post("/api/v4/jobs")
     def start_target_job():
@@ -161,11 +168,15 @@ def create_v4_blueprint(
         )
         job_id = f"solve:{run_id}"
         payload = {**payload, "run_id": run_id}
+        request_warnings = _compatibility_warnings(payload)
         now = _utc_now()
         with jobs_lock:
             existing = jobs.get(job_id)
             if existing and existing.get("status") in {"queued", "running"}:
-                return jsonify(_job_projection(existing)), 200
+                response = _with_objective_mode_deprecation(
+                    jsonify(_job_projection(existing)), payload
+                )
+                return response, 200
             jobs[job_id] = {
                 "job_id": job_id,
                 "run_id": run_id,
@@ -177,6 +188,7 @@ def create_v4_blueprint(
                 "finished_at": "",
                 "updated_at": now,
                 "elapsed_s": 0.0,
+                "request_warnings": request_warnings,
                 "error": "",
                 "result": {},
             }
@@ -187,7 +199,10 @@ def create_v4_blueprint(
             daemon=True,
             name=f"autoplanner-{run_id[:32]}",
         ).start()
-        return jsonify(_job_projection(row)), 202
+        response = _with_objective_mode_deprecation(
+            jsonify(_job_projection(row)), payload
+        )
+        return response, 202
 
     @blueprint.get("/api/v4/jobs")
     def list_target_jobs():
@@ -414,6 +429,27 @@ def create_v4_blueprint(
         return response
 
     return blueprint
+
+
+def _compatibility_warnings(payload: Mapping[str, Any]) -> list[str]:
+    return (
+        [_OBJECTIVE_MODE_DEPRECATION]
+        if "objective_mode" in payload
+        else []
+    )
+
+
+def _with_objective_mode_deprecation(
+    response: Response,
+    payload: Mapping[str, Any],
+) -> Response:
+    if "objective_mode" not in payload:
+        return response
+    response.headers["Deprecation"] = "true"
+    response.headers["Warning"] = (
+        '299 AutoPlanner "objective_mode is deprecated compatibility metadata"'
+    )
+    return response
 
 
 def _workbench_error_html(run_id: str, reason: str) -> str:

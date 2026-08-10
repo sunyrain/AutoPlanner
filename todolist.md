@@ -1,7 +1,7 @@
 # AutoPlanner V4 统一 Anytime 架构优化 TODO
 
-更新日期：2026-08-07
-状态：实施中；W1–W7 已完成；`-g` 的终态覆盖异常已修复；`-h` 前 10 例均 completed，但 Case 001 暴露无后续 dispatch 时最终 disposition 前未终态化，已收束为单一 service API 并准备从全新根 `-i` 重启
+更新日期：2026-08-10
+状态：实施中；W1–W7 已完成；W8 当前范围已在前 20/190 四臂 pilot 形成可用工程结论后收口；剩余 170 个目标及 190×4 全量运行不属于本轮待办，不得把 pilot 表述为全量结果
 适用范围：Canonical V4 主线、目标求解入口、ChemEnzy/Codex/文献/验证/Program 协同、RetroStar-190 评测
 
 计划口径：
@@ -72,7 +72,8 @@
 - [x] 已以 Nirmatrelvir 完成 raw → normalized → selected → materialized → validated → B4 成对首损报告；确认 ChemEnzy 39/39 parity，B4 下降来自 stock/materialization 边界错位而非 provider 退化。
 - [x] 不重复运行已完成 parity 的 RetroStar-001；其证据只作为 ChemEnzy 未被 V4 改坏的阳性基线。
 - [x] P0–P2 门通过后已冻结 commit/config/stock/scheduler 权重；最终零模型回放已关闭 W7。
-- [ ] 对全部 190 目标运行统一组件消融，不做目标分组、不挑样、不逐目标调参。
+- [x] 对 manifest 顺序前 20 个目标完成四臂统一组件 pilot，不做结果后挑样、不逐目标调参，并生成 paired metrics 与 failure taxonomy。
+- [x] 当前工程范围在 20/190 四臂 pilot 后按停止判定收口；190×4 publication-scale 评测仅保留为未来独立科学门，不作为本轮未完成项。
 
 ## 当前关键路径与工作量预估
 
@@ -87,11 +88,12 @@
 | W5 | 兼容层与入口收束 | `target_solver_compat`、CLI/API/Web 映射、resume/trajectory 一致性 | W2–W4 | 所有入口只装配同一 runtime；旧 objective 仅为展示兼容 | 2–3 天 |
 | W6 | embedded 首损边界定因 | 真实失败目标复现包、逐层 route diff、修复与回归 | W1–W5 | standalone host-audited 路线在 unified trajectory 可追踪或有确定性拒绝证据 | 1–3 天 + 外部运行 |
 | W7 | 冻结与预评测门 | commit/config/stock/provider/scheduler manifest、全量离线门 | W6 | 除已批准延期的超行数预算项外全部通过 | 1–2 天 |
-| W8 | RetroStar-190 与论文防御包 | 四个全目标消融、paired metrics、失败分类、审稿材料 | W7 | 190 目标无挑样、无逐目标调参、结果可复现 | 2–4 天分析 + 机器运行 |
+| W8-P | RetroStar-190 前 20 目标 pilot | 四臂 pilot、paired metrics、失败分类、停止判定 | W7 | 四臂各 20 completed、结果可复现、论断不外推 190 | 已完成 |
+| W8-F | RetroStar-190 publication-scale 防御包 | 四个全目标消融与审稿材料 | W8-P | 190 目标无挑样、无逐目标调参、结果可复现 | 非当前范围；未来独立立项时再评估 |
 
-剩余工程净工时粗估为 **2–4 人日 + 外部运行时间**，全部集中在 W8 全量 190、全目标组件消融、paired metrics、失败分析与审稿材料。日历时间仍主要受 ChemEnzy/模型运行吞吐影响。
+当前批准范围内的 W8-P 已完成，W8-F 不再计入本轮剩余工作量。若未来为 benchmark-wide 论文主张独立启动 W8-F，必须从新的 fresh root 按原冻结门执行 190×4，不能把 20-target pilot 或任何中断根拼入全量结果。
 
-当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 已实现四臂。`-d` fresh preflight 为 760/760。`-g` 的非法终态覆盖已由 `9671fb1` 修复。`-h` 前 10 例为 10 completed、0 failed、B4=8/10、native 无违规；Case 001 达到 256 tasks 时 closeout 为 `budget_exhausted`，但因无后续 worker dispatch，kernel 在最终 disposition 前仍为 running 并被写成 `unresolved`。该根已停止排除。提交 `a330a88` 将全局上限终态化收束为单一 service API，dispatch 与最终 disposition 共用，聚焦回归 3 passed。下一步从全新 `-i` 根串行重启四臂。
+当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，分别进入 Program/experiment 独立 RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 四臂和汇总器已实现，`-d` fresh preflight 为 760/760。提交 `a330a88` 收束预算终态后，`-i` 因外部中断保留为非结果审计。提交 `225df39` 支持冻结的 manifest-prefix pilot；`retrostar190-w8-pilot-20260807-a` 四臂各 20 completed、0 failed，B4 分别为 ChemEnzy-only 16/20、Codex-only 1/20、round-robin 15/20、adaptive 15/20。2026-08-09 启动的 `-j` 在 0 个完整 case 时因范围缩减主动停止并排除。Checkpoint F 已补齐 B4 后同轨迹 science Action 集成门，官方 EPO 三案例迁移至 parser v14 后通过严格离线 replay。2026-08-10 已完成 `UnifiedCampaignSpec`/`RunSpec v2`、不可变 Stock Oracle 绑定、八轴 `CampaignQualityState`、B4/B5 非早停、ChemEnzy/Codex 并发计算后的确定性 canonical admission、可配置且可重放的多维资源账本、Action v2 预计/实际资源归因，以及 `campaign_action_estimate.v1`/`campaign_action_result.v1` 完整契约；最终仓库门为 2697 passed、3 skipped、1 个已批准延期的行数预算门 deselected、2 subtests passed；Director plan provenance 已与运行 task/context receipt 分离，三种旧 objective、交换并发完成顺序、replay 与 resume 的 Action binding/canonical scientific digest 回归通过。目标结构身份解析已延迟到统一证据 Action，安全的匿名证据预取仍与全局规划并行。当前评测结论见 `docs/evaluation/RETROSTAR190_W8_PILOT20_RESULTS_20260808.md`，统一输入契约见 `docs/architecture/UNIFIED_CAMPAIGN_CONTRACT.md`，科学层门见 `docs/architecture/SCIENTIFIC_LAYER_REGRESSION_20260809.md`。
 
 ## 1. 不可破坏的架构约束
 
@@ -127,18 +129,18 @@
 
 ### 1.2 目标盲化
 
-- [ ] scheduler、RunKernel、action scorer 和 provider admission 不得读取 dataset ID、target index、target name、`RetroStar`、`benchmark_search` 或类似标签。
-- [ ] target name 只用于显示、日志和目录索引，不参与候选生成、排序、预算和停止。
-- [ ] benchmark stock、采购 stock、in-house stock 统一实现为不可变 Stock Oracle 输入；核心只能读取逐分子的可用性、价格或来源事实，不能读取库存的用途标签。
+- [x] scheduler、RunKernel、action scorer 和 provider admission 由静态/契约门禁止读取 dataset ID、target index、target name、`RetroStar`、`benchmark_search` 等控制标签。
+- [x] target name 只用于显示、日志和目录索引；Director prompt/run identity 与 ChemEnzy request 均使用结构派生 opaque identity，结构身份查询延后到 evidence Action，只有 exact-InChIKey 解析名可作为检索提示。
+- [x] benchmark stock、采购 stock、in-house stock 统一绑定为不可变 Stock Oracle；核心只读取逐分子事实和 oracle digest，不读取用途标签。
 - [x] 为 scheduler 核心目录增加静态禁词测试，阻止以后重新引入 dataset/objective 特判。
-- [ ] 同一 canonical 状态、同一预算向量、同一 provider 结果必须产生相同 action 排序，与旧 `objective_mode` 值无关。
+- [x] 同一 canonical 状态、预算向量和 provider 结果在不同显示名、旧 `objective_mode` 与并发完成顺序下产生相同 Action 轨迹/排序。
 
 ### 1.3 单一算法与 anytime 语义
 
 - [x] 所有 proof axes 始终计算和报告，不再按模式禁用 reaction validation、evidence、conditions、self-evolution 或 Program review。
 - [x] B0–B5 是同一运行轨迹上的成熟度快照，不是互斥模式。
-- [ ] 内核只因预算耗尽、无可执行动作、连续低边际收益、显式用户取消或不可恢复错误而终止。
-- [ ] 达到 B4 或 B5 只记录 milestone，不在核心内触发模式专用 return。
+- [x] 长期 loop 将固定 action cutoff/资源预算耗尽、无可执行动作、连续低边际收益、显式用户取消和不可恢复 Kernel 错误投影为互斥终止类型；paused 只暂停派发且不伪装科学终态。
+- [x] 达到 B4 或 B5 只记录 milestone，不在核心内触发模式专用 return；运行时回归已证明 B4/B5 同时为真时仍执行后续 Action。
 - [ ] 产品侧“拿到第一条库存闭合路线后停止/通知”实现为外部订阅或取消策略；论文评测使用固定预算 cutoff。
 
 ## 2. 完成定义
@@ -150,7 +152,7 @@
 - [ ] ChemEnzy 在相同请求、随机种子和环境下的原始 proposal 集合与独立运行一致。
 - [ ] 嵌入 V4 后，ChemEnzy 已发现且通过统一 host gate 的路线不会因缺证据、缺条件或 Codex 未选择而消失。
 - [x] Codex 初始全局规划不阻塞目标级 ChemEnzy 搜索，后续 replan 由状态事件触发而非目标类别触发。
-- [ ] 同一运行可连续导出 time-to-first-route、B1、B2、B3、B4、B5 和 Program milestone。
+- [x] 同一运行可连续导出 time-to-first-route、B1、B2、B3、B4、B5 和 Program milestone。
 - [ ] RetroStar-190 对 190 个目标使用同一 commit、同一配置、同一 scheduler、同一预算规则和冻结 stock hash。
 - [ ] 完成 ChemEnzy-only、Codex-only、固定调度和统一自适应调度的全目标组件消融。
 - [x] 除已延期的超行数预算模块外，focused tests、完整离线测试、Ruff、架构门和 `git diff --check` 全部通过。
@@ -180,30 +182,30 @@
 - [x] 将 `TargetObjectiveMode` 标记为兼容输入，不再传入 scheduler、replan、acceptance recording 或 stop decision。
 - [x] 删除 `_objective_gate_name()` 和 `_objective_gate_achieved()` 对运行控制的作用。
 - [x] 删除 `_finalize_benchmark_search_objective()` 及其专用 closeout 路径。
-- [ ] 删除 `benchmark_search_can_finish_at_B4` 等会改变控制流的语义字段；B4 改为通用 milestone。
+- [x] 删除 `benchmark_search_can_finish_at_B4` 等会改变控制流的语义字段；B4 改为通用 milestone。
 - [x] 删除 `objective_mode != "benchmark_search"` 对 self-evolution、evidence、conditions 和 replan 的开关。
 - [x] 删除 `benchmark_search_completed` 作为独立终态；兼容字段只表达 B4 milestone，不再控制 kernel 或 disposition。
-- [ ] CLI/API/Web 暂时接受旧 objective 值，但只能转换为展示视图、通知阈值或兼容字段，并记录 deprecation warning。
-- [ ] 最终从 V4 新建运行表单移除“求解算法模式”，改为“结果视图/运行预算/库存来源/约束”。
+- [x] CLI/API 暂时接受旧 objective 值，但只能转换为兼容字段，并记录 `FutureWarning` 或 HTTP `Deprecation`/299 收据；Canonical Web 不再发送该字段。
+- [x] 已从 V4 新建运行表单移除“求解算法模式”；表单只保留目标、执行档位、运行预算、库存来源和能力约束，结果成熟度在运行后查看。
 
 ### 4.2 新的通用输入
 
-- [ ] 定义 `UnifiedCampaignSpec`，只包含 target、不可变 stock-oracle reference、约束和多维资源预算。
-- [ ] target 约束允许表达禁用试剂、最大步数、允许执行域、安全限制和库存来源，但不得表达 dataset 名称。
-- [ ] 将现有 `RetrosynthesisAcceptanceSpec` 改为质量审计/里程碑编译输入，不再直接选择算法分支。
-- [ ] 所有 runs 始终产生完整 `CampaignQualityState`：topology、reaction validation、exact evidence、stock、conditions、procurement、Program validation、diversity。
-- [ ] acceptance 可以在任意 snapshot 上被判定为 true，但不自动终止 action loop。
+- [x] 定义 `UnifiedCampaignSpec`，只包含 target、不可变 stock-oracle reference、约束和多维资源预算；新 `RunSpec v2` 嵌入该契约，v1 摘要验证后兼容读取。
+- [x] target 约束允许表达禁用试剂、最大步数、允许执行域、安全限制和库存来源，并在契约层拒绝 dataset/objective/benchmark 控制标签。
+- [x] `RetrosynthesisAcceptanceSpec` 只作为质量审计/里程碑编译输入，不再选择 Action 集、scheduler 或 replan 分支。
+- [x] 所有 runs 始终产生完整 `CampaignQualityState`：topology、reaction validation、exact evidence、stock、conditions、procurement、Program validation、diversity；无数据轴为 `not_assessed`，不伪造结论。
+- [x] acceptance 可以在任意 snapshot 上被判定为 true，但不自动终止 action loop。
 
 ### 4.3 多维资源账本
 
-- [ ] 把预算明确拆成 native search、model、evidence、validation、visual、Program/experiment 和 total wall-time 维度。
+- [x] 把预算明确拆成 native search、model、evidence、stock、validation、visual、Program/experiment、total task 和 total wall-time 维度；`campaign_task_budget.v1` 记录 settled/reserved/remaining，CLI/API/Web 与完整报告使用同一投影，模型预算扩展与 resume 不重置 Program/experiment 上限。
 - [x] 将当前单一 `native_search` resource class 拆为 `native_search_target` 与 `native_search_frontier`；二者共享硬总上限，但拥有不同 reservation 规则。
 - [x] 在 `RetrosynthesisRunBudget` 增加 target-native 最低服务、guided 上限/可借额度和借用策略字段；旧配置缺省时由 `max_attempt_runs` 派生兼容值。
 - [x] target reserve 只有通过显式 release 事件才改变保护量；guided borrow 在 task reservation 中记录额度、原因和绑定的账本摘要。
 - [x] Codex、evidence、validation、visual 和 Program 不写入 native-search 账本，也不会隐式减少 native expansion reserve。
-- [ ] 每种 Action 在 reservation 前声明预计资源，在 settlement 后记录实际资源。
+- [x] 每种新 `campaign_action.v2` 在 reservation 前声明类级预计资源；handler 子任务自动继承 execution ID，settlement 从 RunKernel 事件链记录实际 task/native/model/墙钟用量与 variance；并发 Action 隔离归因，v1 receipt/in-flight reservation 仅在旧 SHA 精确匹配时兼容恢复。
 - [x] 不允许文献/模型 Token 消耗隐式减少 ChemEnzy expansion 限额。
-- [ ] 不允许 ChemEnzy 超时吞掉未启动的 Codex/验证任务状态；所有未执行动作保留明确原因。
+- [x] ChemEnzy timeout 只结算自己的 Action，不取消同 revision cohort 的 Codex；最终 revision 的未执行 validation/其他候选写入 `campaign_unexecuted_action_set.v1`，逐项保留 scheduler blocker、caller exclusion、已尝试/no-gain 或 action-limit/low-gain/budget 终止原因。
 - [x] 所有目标使用同一 native-search 借用规则；借用留痕且硬总上限由 RunKernel 强制执行。其他资源维度的通用借用继续在 W2/W4 后扩展。
 
 W1 验收不变量：
@@ -219,13 +221,13 @@ W1 验收不变量：
 ### 5.1 通用契约
 
 - [x] `CampaignAction` 执行契约的 revision-bound identity、reservation/execute/settle、cache replay 和 fail-closed artifact binding 已通过聚焦验证。
-- [ ] 新增 `ActionEstimate`：成功概率区间、预期 route/proof/diversity 增益、依赖解除量、成本和不确定性。
-- [ ] 新增 `ActionResult`：不可变工件引用、实际资源、状态、material events、候选/事实增量和失败类型。
+- [x] 新增 `campaign_action_estimate.v1`：reservation 前冻结成功概率区间、预期 route/proof/diversity 增益、依赖解除量、成本和不确定性；缺少校准依据时显式保留 `[0,1]`，不伪造点估计。
+- [x] 新增 `campaign_action_result.v1`：不可变工件引用、实际资源/预计差异、状态、material events、候选/事实增量和失败类型；v1 outcome 仅在旧 Action SHA 与内容摘要精确匹配时兼容读取。
 - [x] materialization、reaction validation、stock、conditions、evidence acquire/bind、target/guided ChemEnzy、Codex architecture/replan 与 Program discover/review/admit 已通过 RunKernel Action wrapper。
 - [x] Program 专项 validation、实验 feedback 与后续新增能力也必须通过 RunKernel reserve → execute → settle，不得绕过账本直接修改 canonical graph。
-- [ ] 只有 host canonical ingestion 能把 proposal 提升为图事实；Action producer 永远没有直接 authority。
+- [x] 只有 host canonical ingestion 能把 proposal 提升为图事实；`ActionResult.fact_delta.changed` 只认 RunKernel 的 canonical graph revision，producer 自报 `changed` 仅作无权威诊断字段。
 - [x] stale revision、cache replay、handler failure、CAS 摘要篡改和完整 canonical outcome replay 已由聚焦单测锁定。
-- [ ] 部分失败、timeout、取消、资源释放和跨进程恢复策略随 W1–W4 补齐。
+- [x] 部分失败、timeout、取消和 handler failure 均写入标准失败类型并结算该 Action 遗留子任务；严格绑定的 in-flight Action 已通过重建 RunKernel 的跨进程恢复测试。
 
 ### 5.2 适配现有能力
 
@@ -247,7 +249,7 @@ W1 验收不变量：
 - [x] `cascade_planner/application/action_scheduler.py`
 - [x] `cascade_planner/application/campaign_trajectory.py`
 - [x] `cascade_planner/orchestration/unified_campaign_runtime.py` 已实现并纳入 V4 架构门。
-- [ ] `cascade_planner/interfaces/target_solver_compat.py`
+- [x] `cascade_planner/interfaces/target_solver_compat.py` 已承接旧 objective 展示、checkpoint cursor、外部反馈信号和 resume/trajectory 投影；生产 solver 仅导入兼容接口。
 
 ### 5.3 单一长期 Action Loop
 
@@ -270,10 +272,10 @@ W2 验收门：
 
 ### 6.1 输入和禁区
 
-- [ ] scheduler 只读取 canonical state、deficit frontier、route Pareto archive、最近 action outcomes 和剩余预算。
-- [ ] scheduler 不读取 objective、dataset、target label、benchmark manifest path 或 UI view。
-- [ ] stock oracle 名称在进入 scheduler 前移除，只保留 molecule-level facts 和 oracle digest。
-- [ ] scheduler 输出 Action 排序与解释，不直接执行动作或修改图。
+- [x] scheduler 只读取 canonical deficit/action 投影、milestones、资源可用量、handler/in-flight 状态和冻结策略；不拥有第二状态源。
+- [x] scheduler/action core 由静态门保证不读取 objective、dataset、target label、benchmark manifest path 或 UI view；旧 view metadata 变化不改变排序。
+- [x] canonical stock deficit 只携带 molecule/observation identity；Stock Oracle 名称不进入 scheduler，运行绑定只保留不可变 oracle digest。
+- [x] scheduler 是只读确定性投影，只输出 Action 排序与解释，不执行动作或修改输入/图。
 
 ### 6.2 通用优先级
 
@@ -287,12 +289,12 @@ W2 验收门：
 
 ### 6.3 排序模型
 
-- [ ] 使用可解释的确定性初版，而不是立即训练黑箱 scheduler。
-- [ ] 初版分数至少包含 route closure gain、proof gain、diversity gain、dependency unblock、novelty、success likelihood、cost 和 risk。
+- [x] 使用可解释的确定性初版，而不是立即训练黑箱 scheduler。
+- [x] 初版分数显式记录 route closure、proof、diversity、dependency unblock、novelty、校准成功概率下界、cost 和 risk；未评估 `[0,1]` 不产生伪成功率奖励。
 - [x] 所有权重在运行 RetroStar-190 全集前冻结并写入 manifest。
-- [ ] 对相同分数使用稳定 action ID 做 deterministic tie-break。
-- [ ] 每次选择记录候选 actions、各分量、被选原因和未选原因。
-- [ ] 增加连续低收益检测；达到阈值后记录 `converged_low_marginal_gain`，而不是伪造 acceptance。
+- [x] 对相同分数使用稳定 action ID 做 deterministic tie-break，并验证输入顺序变化不改变排序。
+- [x] 每次选择记录全部候选、各分量、被选原因和未选原因。
+- [x] 连续低收益达到阈值后记录 `converged_low_marginal_gain` 和未执行原因，不伪造 acceptance。
 
 ### 6.4 公平调度而非样本分组
 
@@ -314,7 +316,7 @@ W2 验收门：
 - [ ] 路线排序使用多维向量/Pareto dominance；不得用一个科学成熟度总分提前淘汰结构上有效的路线。
 - [ ] 路线向量至少包含 topology closure、stock closure、reaction feasibility、proof/evidence、conditions、diversity、cost/length 和 Program readiness。
 - [ ] 只在所有关键维度被另一候选支配，或明确违反硬化学约束时淘汰候选。
-- [ ] 保留 conventional edge route 作为 enzyme/mechanism/whole-cell superstep 的显式 fallback。
+- [x] 保留 conventional edge route 作为 enzyme/mechanism/whole-cell superstep 的显式 fallback。
 
 ## 8. ChemEnzy 性能保护与嵌入不变量
 
@@ -355,60 +357,60 @@ W2 验收门：
 ### 9.2 状态触发重规划
 
 - [ ] replan 触发器只依赖物质事件和状态变化：关键边拒绝、新路线族、新 exact evidence、库存变化、共享瓶颈、搜索停滞和路线多样性不足。
-- [ ] 去除 benchmark 模式对 depth、validation、evidence replan reason 的屏蔽。
-- [ ] replan 输出只能追加候选、调整优先级或提出替换 Program；不能删除既有 canonical 路线。
-- [ ] 每次 replan 报告前后 route family、edge、stock closure、proof 和资源增量。
-- [ ] `no_gain`、失败和超时作为 scheduler 学习/审计信号保留，不倒推污染已有事实。
+- [x] 去除 benchmark 模式对 depth、validation、evidence replan reason 的屏蔽。
+- [x] replan 输出只能追加候选、调整优先级或提出替换 Program；不能删除既有 canonical 路线。
+- [x] 每次 replan 报告前后 route family、edge、stock closure、proof 和资源增量。
+- [x] `no_gain`、失败和超时作为 scheduler 学习/审计信号保留，不倒推污染已有事实。
 
 ### 9.3 文献与创新
 
 - [ ] Codex 负责 source-consistent 文献路线假设和检索策略；exact authority 仍由 host 文献 connector 和绑定门授予。
 - [ ] Codex 负责识别可被酶、whole-cell/hybrid 或机理一跳替换的长区间；Program 编译和专项验证继续由 host 严格执行。
 - [ ] 文献外假设永远标为 hypothesis，不因 Codex 自信表达升级 proof。
-- [ ] Program 候选必须精确绑定输入/输出状态、replaced-edge span、capability/precedent、验证计划和 conventional fallback。
+- [x] Program 候选必须精确绑定输入/输出状态、replaced-edge span、capability/precedent、验证计划和 conventional fallback。
 
 ## 10. Anytime 轨迹、里程碑与输出
 
-- [x] `campaign_trajectory.v1` 已在每个 Action settlement 后追加 snapshot，并记录 milestone、资源与 action decision。
-- [ ] 每个 snapshot 记录 graph revision、wall time、各资源维度、action counts、route counts、Pareto archive 和 B0–B5。
-- [ ] 记录 time-to-first-B1、time-to-first-host-valid-route、time-to-first-B4、time-to-B3/B5 和 Program milestones。
-- [ ] 每个 snapshot 绑定代码、配置、stock oracle、provider/model 和输入摘要。
-- [ ] resume 后继续同一 trajectory，不能从新的计时/预算基线伪造性能。
+- [x] `campaign_trajectory.v2` 已在每个 Action settlement 后追加内容寻址 snapshot，并记录 milestone、资源、action decision、binding epochs 与资源曲线；v1 仅兼容读取。
+- [x] 每个 snapshot 记录 graph/event revision、累计 RunKernel wall time、各资源维度、action counts、route counts、Pareto archive 和 B0–B5。
+- [x] 记录 time-to-first-route/B1、time-to-first-host-valid-route/B2、time-to-B3/B4/B5 和 Program milestones。
+- [x] 每个 snapshot 绑定控制面源码 bundle、配置、stock oracle、provider/model 和 UnifiedCampaignSpec/目标结构摘要。
+- [x] resume 后继续同一 trajectory；event sequence 与累计 wall time 连续性显式审计，terminal no-op resume 保留原 trajectory digest。
 - [x] W5 允许“已完成 checkpoint 收到新的 canonical action signal/实验反馈”时通过带工作指纹的 `run_reopened` 事件重新进入同一 action loop；不能直接刷新旧终态报告而跳过反馈。
-- [ ] benchmark harness 只读取固定 cutoff 的 trajectory projection，不向 solver 传 benchmark mode。
-- [ ] Workbench 同时展示当前最优路线和历史上曾达到的 milestone，避免后续 proof 撤销被最终状态掩盖。
-- [ ] 导出 action trace、失败 trace、route lineage 和资源曲线，供审稿复核。
+- [x] benchmark harness 只读取固定 cutoff 的 trajectory projection，不向 solver 传 benchmark mode；旧 panel `--objective-mode` 仅警告并忽略，W8 四臂命令不再携带该参数，评分只读 `campaign_trajectory_cutoff_projection.v1`，最终状态单列为诊断。
+- [x] Workbench 同时展示当前最优路线和历史上曾达到的 milestone；`workbench_trajectory_history.v1` 区分当前成立、历史达到但当前失效、从未达到，并保留首达 snapshot 和资源曲线，历史状态不恢复撤销 proof。
+- [x] Gateway export 从摘要验证的 target report 导出独立内容寻址的 action trace、失败 trace、provider/canonical route lineage 和 trajectory 资源曲线；报告/轨迹损坏失败关闭，开放科学门不伪装成运行失败。
 
 ## 11. CLI、API 与 Web 迁移
 
-- [ ] CLI 新建运行参数改为 target、stock oracle、constraints、budget 和可选通知条件。
-- [ ] 保留旧 `--objective-mode` 一段兼容窗口，但将其转换为 client view，不进入 `solve_target()` 核心。
-- [ ] API request schema 将 objective 标为 deprecated；response 返回统一 milestones 和 trajectory links。
-- [ ] Web 的“Benchmark 检索闭合/科学证明/采购交付”改为结果查看深度或提醒条件，并明确不会改变算法。
-- [ ] Web 可实时显示 ChemEnzy、Codex、evidence、validation、Program actions 在同一时间线中的状态。
-- [ ] 所有入口经同一个 `UnifiedCampaignSpec` 和 `unified_campaign_runtime`，不得在 Web/CLI 复制调度逻辑。
-- [ ] saved-run 恢复兼容旧 objective 字段，但 replay 后的动作决策必须使用新统一规则。
+- [x] CLI 新建运行参数使用 target、stock oracle、constraints 和多维 budget；通知/展示从统一 trajectory 派生。
+- [x] 旧 `--objective-mode` 保留至 2026-10-01 兼容窗口，显式使用发出警告，只进入 claim projection，不进入 `solve_target()` 调度核心。
+- [x] API 将 `objective_mode` 标为 deprecated：同步/异步入口返回 `Deprecation` 与 299，async response 另保留 `request_warnings[]`；结果继续返回统一 gates/milestones 与 Workbench link。
+- [x] Web 已删除“Benchmark 检索闭合/科学证明/采购交付”新建任务选择；同一 trajectory 在结果页按库存、证据和科学成熟度轴查看。
+- [x] Web 运行中心通过 `campaign_action_timeline.v1` 实时合并 checkpoint 已结算 Action 与 RunKernel 当前 wrapper reservation，在同一时间线显示 ChemEnzy、Codex、evidence、validation、conditions、stock、Program/experiment；child task 不重复，投影不是第二队列。
+- [x] CLI/API/Web 均经同一 `CampaignGateway.solve_target()` 和 `unified_campaign_runtime`；入口只装配参数，不复制调度逻辑。`UnifiedCampaignSpec` 的显式值对象仍在 4.2 单独跟踪。
+- [x] saved-run 恢复兼容旧 objective 字段：`saved_run_objective_compatibility.v1` 仅保留历史来源；同一保存状态保留/删除旧字段的双克隆恢复得到相同 Action binding 后缀，且 stage 连续编号不覆盖旧 execution。
 
 ## 12. 测试设计
 
 ### 12.1 架构与静态门
 
-- [ ] scheduler/RunKernel/action modules 禁止出现 dataset 和 objective 特判字符串。
-- [ ] `target_solver.py` 不再包含 benchmark 专用 finalize 或 B4 early return。
-- [ ] V4 主线不得重新依赖 legacy frontier、Blackboard、旧 route portfolio 或旧 controller。
-- [ ] 新 Action modules 不能绕过 RunKernel 或 canonical ingestion。
-- [ ] 继续执行现有 V4 dependency gate；超行数预算项按已批准决定单独跳过，不借机扩大豁免范围。
+- [x] scheduler、RunKernel、Action compiler/runtime 均由静态禁词门阻止 dataset/objective/target-index 特判字符串。
+- [x] `target_solver.py` 不再包含 benchmark 专用 finalize 或 B4 early return。
+- [x] V4 dependency gate 禁止主线重新导入 legacy frontier、Blackboard、旧 route portfolio 或旧 controller。
+- [x] application Action modules 禁止反向依赖 orchestration；统一 Action runtime 不导入 canonical graph/service，不能自行写图，只能由注册的 host handler 经 canonical ingestion 提交。
+- [x] 继续执行现有 V4 dependency gate；仅既有超行数预算项按批准决定单独 deselect，未扩大豁免范围。
 
 ### 12.2 单元测试
 
 - [x] 相同 state/budget、不同旧 objective 值产生相同 action candidates 和排序的 focused test。
-- [ ] 相同 state 在 replay、resume 和并发完成顺序变化下产生相同 canonical digest。
+- [x] 相同 state 在 replay、resume 和并发完成顺序变化下产生相同 canonical digest；回归覆盖 replay digest、保存态双克隆 resume，以及交换 ChemEnzy/Codex 完成先后后的 exact Action binding 与 scientific digest。
 - [ ] Pareto archive 保留 topology-valid/evidence-open 路线。
-- [ ] 缺证据、条件或 Program validation 不删除 B1/B4 路线。
+- [x] 缺证据、条件或 Program validation 不删除 B1/B4 路线。
 - [ ] Codex 未选择的 ChemEnzy route 仍可继续 materialize/validate/stock audit。
 - [ ] guided ChemEnzy 不替换 target-level route pool。
 - [ ] stock oracle digest 改变只更新 stock facts 和后续 deficits，不改变代码路径。
-- [ ] budget timeout 和 cancellation 仍需在长期 loop 中闭合；native borrowing、reservation、settlement 已可重放。
+- [x] budget/timeout/cancellation 已在长期 loop 闭合：budget 进入 Kernel 终态，Action timeout 标准结算，显式 cancel 不再派发并写入 backlog；native borrowing、reservation、settlement 均可重放。
 - [x] milestone 达成不触发核心 early return。
 - [x] `CampaignAction` binding 对同 revision/decision 稳定，对 revision 变化生成新 execution identity。
 - [x] `CampaignActionRuntime` reserve/settle、cache replay、stale revision、handler unavailable 和 digest tamper 行为稳定。
@@ -416,10 +418,10 @@ W2 验收门：
 
 ### 12.3 集成测试
 
-- [ ] 用旧 benchmark/scientific/procurement 标签启动同一输入，在相同预算前缀内 action trace 完全一致。
+- [x] 用旧 benchmark/scientific/procurement 标签启动同一输入，在相同预算前缀内 action trace 完全一致；三种 fresh run 同时交换 provider 完成顺序，仍得到相同 Action decision/binding、route digest、gates、成本与 canonical scientific digest。
 - [ ] ChemEnzy 与 Codex 初始动作互不阻塞；任一失败时另一方结果仍可进入 graph。
-- [ ] 文献获取、reaction validation、stock audit 和 condition enrichment 都由 open deficits 触发。
-- [ ] conventional route 与 enzyme/mechanism Program 在同一 campaign 中共存且 fallback 不丢失。
+- [x] 文献获取、reaction validation、stock audit 和 condition enrichment 都由 open deficits 触发。
+- [x] conventional route 与 enzyme/mechanism Program 在同一 campaign 中共存且 fallback 不丢失。
 - [ ] B4 后继续运行可自然获得 B3/B5，不创建第二个 run。
 - [ ] resume、checkpoint、API、Web、CLI 和 artifact export 读取同一 trajectory。
 
@@ -428,13 +430,22 @@ W2 验收门：
 - [ ] 当前成功的 3 个 RetroStar smoke 目标继续成功。
 - [x] standalone 成功而 embedded 失败的 Nirmatrelvir 代表目标已完成定因和通用修复。
 - [x] Nirmatrelvir current-V4 zero-model replay 保持 raw/normalized parity，B4=true。
-- [ ] 至少一个文献驱动真实目标保留 exact-source 路径。
-- [ ] 至少一个 enzyme superstep 阳性候选和一个无适用酶负对照保持严格语义。
-- [ ] Program shadow store、实验 Claim 和 canonical graph digest 不受统一 scheduler 重构污染。
+- [x] 至少一个文献驱动真实目标保留 exact-source 路径；官方 EPO 三案例 `v14` 在线迁移后已再次通过严格离线 replay。
+- [x] 至少一个 enzyme superstep 阳性候选和一个无适用酶负对照保持严格语义；阳性仅表示结构适用候选，不伪装成 exact-substrate 实验阳性。
+- [x] Program shadow store、实验 Claim 和 canonical graph digest 不受统一 scheduler 重构污染。
 
-## 13. RetroStar-190 全量评测
+## 13. RetroStar-190 评测
 
-### 13.1 冻结协议
+### 13.0 当前范围：前 20/190 四臂 pilot
+
+- [x] 使用 manifest 固定顺序前 20 个目标，四臂 case IDs 完全一致，未按结果挑样。
+- [x] ChemEnzy-only、Codex-only、Unified round-robin、Unified adaptive 均为 20 completed、0 failed/incomplete。
+- [x] 生成 run manifest、per-target metrics、paired comparison、failure taxonomy 和 panel summaries。
+- [x] 形成停止判定：adaptive B4=15/20，与 round-robin 持平且低于 ChemEnzy-only 16/20；继续扩展到 190 的当前工程信息增益不足。
+- [x] 明确 pilot 不是随机样本，不外推 190，不宣称 benchmark-wide improvement。
+- [x] 本轮以 20/190 四臂结果和停止判定完成收口；190×4 仅保留为未来独立科学门，不是当前待执行任务。
+
+### 13.1 未来 publication-scale 冻结协议（非当前施工范围）
 
 - [x] 继续使用 `retrostar190_v4.protocol.json` 中冻结的 190 targets 和约 23M eMolecules stock，并重新验证 hash。
 - [x] 190/190 fresh preflight 证明 planner 输入只含 opaque target SMILES、stock oracle 和统一预算，不暴露 reference route、target index 或 dataset name。
@@ -482,22 +493,24 @@ W2 验收门：
 - [x] 对 scheduler 权重说明开发/冻结过程；禁止在 RetroStar-190 test targets 上逐目标调参。
 - [ ] 明确 Codex 输出只具有 proposal authority，exact evidence 和 reaction proof 由独立 host gate 授予。
 - [ ] 明确 enzyme/mechanism Program 是创新候选，未验证时不伪装成普通已证反应边，并保留 conventional fallback。
-- [x] 如实报告目前只完成的 smoke 数量；全 190 完成前不得宣称 benchmark 整体提升。
+- [x] 如实报告目前完成的是 manifest-prefix 20/190 四臂 pilot；全 190 完成前不得宣称 benchmark 整体提升。
 
 交付物：
 
 - [x] `docs/evaluation/UNIFIED_ANYTIME_RETROSTAR190_PROTOCOL.md`
 - [x] `docs/evaluation/UNIFIED_ANYTIME_ABLATION_PLAN.md`
 - [x] `docs/evaluation/REVIEWER_DEFENSE_CHECKLIST.md`
-- [ ] 机器可读 run manifest、per-target metrics、paired comparison 和 failure taxonomy；生成器 `scripts/summarize_retrostar190_w8.py` 已完成，等待四臂结果。
+- [x] Pilot 机器可读 run manifest、per-target metrics、paired comparison 和 failure taxonomy 已生成并重新校验。
+- [x] Pilot 结论与产物哈希：`docs/evaluation/RETROSTAR190_W8_PILOT20_RESULTS_20260808.md`。
+- [x] 当前交付范围不包含 Full-190 结果；若未来需要 benchmark-wide 主张，则另行重启 publication-scale reviewer package。
 
 ## 15. 文档与清理收束
 
 - [x] 更新 `docs/MAINLINE.md`：从固定 Codex-first 阶段图改为同一事件循环中的全局 Director + native search + unified Action frontier。
 - [x] 更新 `CURRENT_ARCHITECTURE_STATUS.md`，明确当前实现与统一架构完成度。
-- [ ] 更新 CLI/API/Web 文档，删除“benchmark 到 B4、scientific 到 B5 是两套运行模式”的表述。
-- [ ] 更新架构演化时间线，解释为什么从阶段式 objective branching 转向 target-blind anytime scheduler。
-- [ ] 归档旧 objective compatibility 说明和迁移期限。
+- [x] 更新 CLI/API/Web 文档，删除“benchmark 到 B4、scientific 到 B5 是两套运行模式”的表述。
+- [x] 更新架构演化时间线，解释为什么从阶段式 objective branching 转向 target-blind anytime scheduler。
+- [x] 归档旧 objective compatibility 说明并冻结 2026-10-01 新请求字段移除期限。
 - [ ] 新统一主线稳定后删除临时 shadow scheduler/feature flag；最终仓库只能保留一个生产控制流。
 - [ ] 不恢复已迁入 legacy 的旧 frontier scheduler、Blackboard controller 或旧 acceptance 实现。
 - [ ] 保持旧代码物理归档边界，不在本轮重新混入主线。
@@ -538,12 +551,13 @@ W2 验收门：
 
 ### Checkpoint F：科学层与 Program 回归
 
-- [ ] B4 后继续同一 run 完成 evidence、conditions、replan 和 Program 工作。
-- [ ] conventional fallback、proof authority 和 Program shadow 边界不变。
-- [ ] 门：真实文献案卷与 enzyme positive/negative controls 通过。
+- [x] B4 后继续同一 run 完成 evidence、conditions、replan 和 Program 工作；集成门观测到 B4 后的 replan、condition 与 Program Action，evidence material 保持在同一 trajectory。
+- [x] conventional fallback、proof authority 和 Program shadow 边界不变。
+- [x] 门：真实文献案卷与 enzyme positive/negative controls 通过；范围与限制见 `docs/architecture/SCIENTIFIC_LAYER_REGRESSION_20260809.md`。
 
 ### Checkpoint G：全量 190 与论文包
 
+- [x] 完成固定 manifest-prefix 20/190 四臂 pilot、paired metrics、失败分类与明确停止判定。
 - [ ] 冻结 commit/config 后运行四个全目标组件消融。
 - [ ] 汇总 anytime、资源、召回损失和失败类型。
 - [ ] 门：结果可复现、无目标特判、无挑样报告、审稿防御材料完整。
@@ -552,10 +566,10 @@ W2 验收门：
 
 - [ ] 不为 RetroStar-190 编写目标 ID、SMILES、名称或 reference-route 特判。
 - [ ] 不按“简单分子/复杂分子”“benchmark/scientific”人工分配不同 planner。
-- [ ] 不用 B4 早停掩盖后续科学证明缺口。
-- [ ] 不让 evidence/condition 缺失删除结构有效路线。
+- [x] 不用 B4 早停掩盖后续科学证明缺口。
+- [x] 不让 evidence/condition 缺失删除结构有效路线。
 - [ ] 不让 Codex 计划覆盖 ChemEnzy native frontier。
-- [ ] 不把 enzyme/mechanism superstep 伪装成已验证普通 reaction edge。
+- [x] 不把 enzyme/mechanism superstep 伪装成已验证普通 reaction edge。
 - [ ] 不通过恢复 legacy scheduler 或 Blackboard 快速绕过统一设计。
 - [ ] 不在全 190 test targets 上边看结果边逐目标调参。
 - [ ] 不在本轮处理已明确延期的新聚焦模块超行数预算。
@@ -573,4 +587,4 @@ W2 验收门：
 - [x] 第七刀（W3）：Codex initial architecture 与 target ChemEnzy 已通过同一 runtime 的同 revision cohort 非阻塞启动；RunKernel 持有 durable in-flight reservation，稳定观察与 cache replay 已验证。
 - [x] 第八刀（W4）：已注册 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`；前者只形成待外部执行请求，后者复用现有 host gate/Claim store，默认不写 shadow 且不创建 canonical edge。
 - [x] 第九刀（W5）：抽离 `target_solver_compat`，统一旧 objective 展示、checkpoint cursor、外部反馈信号和 resume/trajectory 投影；新增 route-family rebound 与 scientific-content-bound Program ID，避免 operational revision 污染 Program 身份。
-- [ ] 第十刀（W6–W8）：W6 真实 embedded failure 已定位并修复；W7 冻结清单、完整离线门、190/190 preflight 与最终零模型回放均已完成；W8 的预算终态、late-cap closeout、终态覆盖与无后续 dispatch 时序问题均已逐层修复并保留审计，当前准备从全新 `-i` 根执行全量 190、全目标组件消融与审稿防御包。
+- [x] 第十刀（W6–W8-P）：W6 真实 embedded failure 已定位并修复；W7 冻结清单、完整离线门、190/190 preflight 与最终零模型回放均已完成；W8 的预算终态问题已逐层修复并保留审计；前 20/190 四臂 pilot 与机器可读汇总已完成。全量 W8-F 按 2026-08-09 范围决策延期。

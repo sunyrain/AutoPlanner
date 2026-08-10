@@ -9,6 +9,9 @@ import time
 import tracemalloc
 from typing import Any
 
+from cascade_planner.application.campaign_review_bundle import (
+    compile_campaign_review_bundle,
+)
 from cascade_planner.harness.v4_route_workbench import (
     render_v4_route_workbench_html,
 )
@@ -88,6 +91,28 @@ def export_campaign(
         html_path,
         render_v4_route_workbench_html(published["snapshot"]),
     )
+    report_path = service.kernel.run_dir / "target-only-solve-report.json"
+    report = {}
+    if report_path.is_file():
+        try:
+            value = json.loads(report_path.read_text(encoding="utf-8"))
+            report = dict(value) if isinstance(value, dict) else {}
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            report = {}
+    review_bundle = compile_campaign_review_bundle(report)
+    review_paths = {
+        "review_bundle": destination / "campaign_review_bundle.json",
+        "action_trace": destination / "campaign_action_trace.json",
+        "failure_trace": destination / "campaign_failure_trace.json",
+        "route_lineage": destination / "campaign_route_lineage.json",
+        "resource_curve": destination / "campaign_resource_curve.json",
+    }
+    _write_text(review_paths["review_bundle"], _pretty_json(review_bundle))
+    for name in ("action_trace", "failure_trace", "route_lineage", "resource_curve"):
+        _write_text(
+            review_paths[name],
+            _pretty_json(dict(review_bundle["components"])[name]),
+        )
     return {
         "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
         "operation": "export",
@@ -97,7 +122,9 @@ def export_campaign(
             "snapshot": str(snapshot_path),
             "delta": str(delta_path),
             "html": str(html_path),
+            **{name: str(path) for name, path in review_paths.items()},
         },
+        "review_bundle_sha256": str(review_bundle.get("content_sha256") or ""),
     }
 
 

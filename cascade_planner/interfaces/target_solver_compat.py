@@ -19,6 +19,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 TARGET_SOLVE_CHECKPOINT_SCHEMA = "target_only_solve_checkpoint.v1"
 TARGET_RESUME_CURSOR_SCHEMA = "target_solver_resume_cursor.v1"
 TARGET_RESUME_WORK_SCHEMA = "target_solver_resume_work.v1"
+SAVED_RUN_OBJECTIVE_COMPATIBILITY_SCHEMA = "saved_run_objective_compatibility.v1"
 TargetObjectiveMode = Literal[
     "benchmark_search",
     "scientific_proof",
@@ -266,6 +267,65 @@ def compile_target_solver_checkpoint(
     return result
 
 
+def compile_saved_run_objective_compatibility(
+    checkpoint: Mapping[str, Any],
+    prior_report: Mapping[str, Any],
+    *,
+    requested_objective_mode: str,
+) -> dict[str, Any]:
+    """Retain legacy labels as provenance while denying control authority."""
+
+    checkpoint_config = checkpoint.get("config")
+    report_config = prior_report.get("config")
+    report_claim = prior_report.get("claim")
+    candidates = (
+        ("checkpoint.objective_mode", checkpoint.get("objective_mode")),
+        (
+            "checkpoint.config.objective_mode",
+            (
+                checkpoint_config.get("objective_mode")
+                if isinstance(checkpoint_config, Mapping)
+                else None
+            ),
+        ),
+        (
+            "report.config.objective_mode",
+            (
+                report_config.get("objective_mode")
+                if isinstance(report_config, Mapping)
+                else None
+            ),
+        ),
+        (
+            "report.claim.objective_mode",
+            (
+                report_claim.get("objective_mode")
+                if isinstance(report_claim, Mapping)
+                else None
+            ),
+        ),
+    )
+    observations = [
+        {"location": location, "value": str(value)}
+        for location, value in candidates
+        if value not in {None, ""}
+    ]
+    result = {
+        "schema_version": SAVED_RUN_OBJECTIVE_COMPATIBILITY_SCHEMA,
+        "legacy_objective_present": bool(observations),
+        "legacy_objective_observations": observations,
+        "requested_compatibility_view": str(requested_objective_mode or ""),
+        "semantics": {
+            "historical_values_are_read_only_provenance": True,
+            "legacy_objective_is_not_a_scheduler_input": True,
+            "legacy_objective_cannot_enable_or_disable_actions": True,
+            "resume_uses_current_unified_campaign_state_and_budget": True,
+        },
+    }
+    result["content_sha256"] = _digest(result)
+    return result
+
+
 def _digest(value: Any) -> str:
     payload = json.dumps(
         value,
@@ -277,6 +337,7 @@ def _digest(value: Any) -> str:
 
 
 __all__ = [
+    "SAVED_RUN_OBJECTIVE_COMPATIBILITY_SCHEMA",
     "TARGET_RESUME_CURSOR_SCHEMA",
     "TARGET_RESUME_WORK_SCHEMA",
     "TARGET_SOLVE_CHECKPOINT_SCHEMA",
@@ -284,6 +345,7 @@ __all__ = [
     "build_target_resume_cursor",
     "classify_target_resume_work",
     "compile_program_validation_feedback_signals",
+    "compile_saved_run_objective_compatibility",
     "compile_target_claim_projection",
     "compile_target_solver_checkpoint",
     "validate_target_objective_mode",

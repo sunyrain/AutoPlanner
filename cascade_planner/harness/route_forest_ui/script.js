@@ -784,6 +784,41 @@
         <span>${esc(label)}</span><strong>${esc(value)}</strong>
       </span>`).join('');
 
+    const trajectoryHistory = campaignSummary.trajectory_history || {};
+    const trajectoryMilestones = Array.isArray(trajectoryHistory.milestones)
+      ? trajectoryHistory.milestones : [];
+    const trajectoryAvailable = deliveryBytesVerified
+      && trajectoryHistory.available === true;
+    const formatMilestoneTime = value => {
+      if (value === null || value === undefined || !Number.isFinite(Number(value))) return '时间未知';
+      const seconds = Number(value);
+      if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+      return `${(seconds / 60).toFixed(seconds < 600 ? 1 : 0)} min`;
+    };
+    element('trajectoryHistoryMeta').textContent = trajectoryAvailable
+      ? `${Number(trajectoryHistory.snapshot_count || 0)} 个快照 · 历史达到不恢复已撤销 proof`
+      : `历史轨迹不可用 · ${trajectoryHistory.unavailable_reason || '未发布'}`;
+    element('trajectoryMilestones').innerHTML = trajectoryAvailable
+      ? trajectoryMilestones.map(row => {
+          const state = String(row.state || 'not_achieved');
+          const stateLabel = state === 'current'
+            ? '当前成立'
+            : state === 'historical_only'
+              ? '历史达到 · 当前失效'
+              : '尚未达到';
+          const time = row.ever_achieved === true
+            ? `首次 ${formatMilestoneTime(row.elapsed_wall_time_s)}` : '无首达记录';
+          const title = [row.label, stateLabel, row.first_observed_at || '', row.first_snapshot_sha256 || '']
+            .filter(Boolean).join(' · ');
+          return `<span class="trajectory-milestone" data-state="${esc(state)}" title="${esc(title)}">
+            <strong>${esc(row.short_label || row.milestone || '里程碑')}</strong>
+            <span>${esc(stateLabel)}</span><small>${esc(time)}</small>
+          </span>`;
+        }).join('')
+      : `<span class="trajectory-milestone" data-state="unavailable">
+          <strong>历史</strong><span>不可用</span><small>当前路线仍按 canonical 状态展示</small>
+        </span>`;
+
     const ledgerState = value => authoritative ? (value === true ? 'closed' : 'open') : 'unknown';
     const ledgerValue = (value, positive, negative) => authoritative
       ? (value === true ? positive : negative) : '账本缺失';

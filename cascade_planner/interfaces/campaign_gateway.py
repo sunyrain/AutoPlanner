@@ -13,6 +13,12 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisRunBudget,
 )
 from cascade_planner.application.run_kernel import RunLimits, RunSpec
+from cascade_planner.application.unified_campaign_spec import (
+    CampaignResourceBudget,
+    StockOracleReference,
+    TargetConstraints,
+    UnifiedCampaignSpec,
+)
 from cascade_planner.interfaces.campaign_operations import (
     benchmark_campaign,
     export_campaign,
@@ -40,7 +46,9 @@ from cascade_planner.orchestration.retrosynthesis_service import (
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.runtime.run_index import RunIndex
 from cascade_planner.providers.builtins import build_default_provider_registry
+from cascade_planner.providers.contracts import ProviderKind
 from cascade_planner.providers.registry import ProviderRegistry
+from cascade_planner.providers.stock import stock_provider_set_authority_binding
 
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -71,6 +79,9 @@ class CampaignGateway(CampaignProgramGatewayMixin):
         run_dir: str | Path | None = None,
         acceptance: RetrosynthesisAcceptanceSpec | None = None,
         budget: RetrosynthesisRunBudget | None = None,
+        campaign_spec: UnifiedCampaignSpec | None = None,
+        constraints: TargetConstraints | None = None,
+        stock_oracle_reference: StockOracleReference | None = None,
         global_plan: Mapping[str, Any] | None = None,
         materialize: bool = False,
         closeout: bool = False,
@@ -79,6 +90,49 @@ class CampaignGateway(CampaignProgramGatewayMixin):
         target_smiles = str(target_smiles or "").strip()
         if not target_name or not target_smiles:
             raise CampaignGatewayError("target_name_and_smiles_required")
+        resolved_acceptance = acceptance or RetrosynthesisAcceptanceSpec()
+        resolved_limits = (
+            RunLimits.from_dict(campaign_spec.resource_budget.to_dict())
+            if campaign_spec is not None
+            else RunLimits(
+                model=budget or RetrosynthesisRunBudget(max_model_invocations=0)
+            )
+        )
+        if budget is not None and resolved_limits.model != budget:
+            raise CampaignGatewayError("campaign_spec_model_budget_conflict")
+        resolved_campaign_spec = campaign_spec or UnifiedCampaignSpec(
+            target_smiles=target_smiles,
+            stock_oracle=(
+                stock_oracle_reference
+                or self._default_stock_oracle_reference(
+                    boundary=resolved_acceptance.stock_boundary
+                )
+            ),
+            constraints=constraints or TargetConstraints(),
+            resource_budget=CampaignResourceBudget.from_dict(
+                resolved_limits.to_dict()
+            ),
+        )
+        if resolved_campaign_spec.target_smiles != target_smiles:
+            raise CampaignGatewayError("campaign_spec_target_conflict")
+        if resolved_campaign_spec.stock_oracle.boundary != (
+            resolved_acceptance.stock_boundary
+        ):
+            raise CampaignGatewayError("campaign_spec_stock_boundary_conflict")
+        legacy_budget = CampaignResourceBudget.from_dict(resolved_limits.to_dict())
+        resource_budget = resolved_campaign_spec.resource_budget
+        if any(
+            getattr(resource_budget, name) != getattr(legacy_budget, name)
+            for name in (
+                "model",
+                "max_total_tasks",
+                "max_evidence_tasks",
+                "max_stock_tasks",
+                "max_validation_tasks",
+                "max_run_wall_time_s",
+            )
+        ):
+            raise CampaignGatewayError("campaign_spec_budget_conflict")
         identity = self._normalize_run_id(run_id or self._new_run_id(target_name, target_smiles))
         directory = self._run_dir(identity, explicit=run_dir, require=False)
         spec_path = directory / ".autoplanner" / "kernel" / "run_spec.json"
@@ -97,10 +151,9 @@ class CampaignGateway(CampaignProgramGatewayMixin):
                     run_id=identity,
                     target_name=target_name,
                     target_smiles=target_smiles,
-                    acceptance=acceptance or RetrosynthesisAcceptanceSpec(),
-                    limits=RunLimits(
-                        model=budget or RetrosynthesisRunBudget(max_model_invocations=0)
-                    ),
+                    acceptance=resolved_acceptance,
+                    limits=resolved_limits,
+                    campaign_spec=resolved_campaign_spec,
                     created_at=utc_now(),
                 ),
                 artifact_store_root=self.paths.artifact_store_root,
@@ -333,9 +386,26 @@ class CampaignGateway(CampaignProgramGatewayMixin):
             "operation": operation,
             "run_id": service.kernel.spec.run_id,
             "run_dir": str(service.kernel.run_dir),
+            "campaign_spec": service.kernel.spec.campaign_spec.to_dict(),
             "status": service.status(),
             "operations": dict(operations or {}),
         }
+
+    def _default_stock_oracle_reference(
+        self,
+        *,
+        boundary: str,
+    ) -> StockOracleReference:
+        providers = [
+            self.providers.get(descriptor.provider_id)
+            for descriptor in self.providers.descriptors(kind=ProviderKind.STOCK)
+        ]
+        binding = stock_provider_set_authority_binding(providers)
+        return StockOracleReference.from_binding(
+            oracle_id=f"provider-set:{binding['content_sha256'][:24]}",
+            boundary=boundary,
+            binding=binding,
+        )
 
 
 def _digest(value: Any) -> str:

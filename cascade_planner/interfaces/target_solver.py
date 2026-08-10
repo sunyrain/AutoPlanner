@@ -9,6 +9,7 @@ import json
 import math
 from pathlib import Path
 import re
+from threading import Event
 import time
 from typing import Any, Callable, Iterable, Mapping, TYPE_CHECKING
 
@@ -27,6 +28,9 @@ from cascade_planner.application.blind_benchmark_contract import (
     canonical_smiles,
 )
 from cascade_planner.application.campaign_context import CampaignContextTooLargeError
+from cascade_planner.application.campaign_quality_state import (
+    compile_campaign_quality_state,
+)
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalIngestionBatch,
     molecule_identity,
@@ -37,8 +41,11 @@ from cascade_planner.application.campaign_actions import (
     compile_action_opportunities,
 )
 from cascade_planner.application.campaign_trajectory import (
+    compile_action_counts,
     compile_campaign_snapshot,
     compile_campaign_trajectory,
+    compile_route_snapshot,
+    compile_trajectory_bindings,
     snapshots_from_stages,
 )
 from cascade_planner.application.retrosynthesis_run_contract import (
@@ -49,6 +56,13 @@ from cascade_planner.application.route_innovation_discovery import (
     canonical_innovation_batch,
 )
 from cascade_planner.application.run_kernel import RunKernelBudgetError
+from cascade_planner.application.unified_campaign_spec import (
+    CampaignResourceBudget,
+    StockOracleReference,
+    TargetConstraints,
+    UnifiedCampaignSpec,
+    stock_oracle_reference_from_builder,
+)
 from cascade_planner.application.reaction_mapping import ReactionMapper
 from cascade_planner.application.proof_portfolio import (
     PortfolioConfig,
@@ -69,6 +83,7 @@ from cascade_planner.interfaces.live_evidence import (
     acquire_structured_evidence,
     compile_evidence_acquisition_request,
 )
+from cascade_planner.interfaces.live_stock import build_pubchem_vendor_catalog
 from cascade_planner.interfaces.patent_self_evolution import (
     PatentSelfEvolutionSession,
 )
@@ -95,6 +110,7 @@ from cascade_planner.interfaces.target_solver_compat import (
     build_target_resume_cursor,
     classify_target_resume_work,
     compile_program_validation_feedback_signals,
+    compile_saved_run_objective_compatibility,
     compile_target_claim_projection as _claim,
     compile_target_solver_checkpoint,
     validate_target_objective_mode,
@@ -191,6 +207,13 @@ class TargetSolveConfig:
     max_patent_sources: int = 3
     max_self_evo_template_candidates: int = 12
     max_program_routes: int = 4
+    max_total_tasks: int = 256
+    max_evidence_tasks: int = 64
+    max_stock_tasks: int = 128
+    max_validation_tasks: int = 128
+    max_program_tasks: int = 64
+    max_experiment_tasks: int = 32
+    max_run_wall_time_s: float = 7_200.0
     provider_route_reserve: int = 16
     host_route_portfolio: int = 8
     display_route_limit: int = 4
@@ -233,6 +256,20 @@ class TargetSolveConfig:
             raise ValueError("target solver self-evolution candidate limit is invalid")
         if not 1 <= self.max_program_routes <= 8:
             raise ValueError("target solver Program route limit is invalid")
+        task_limits = (
+            self.max_total_tasks,
+            self.max_evidence_tasks,
+            self.max_stock_tasks,
+            self.max_validation_tasks,
+            self.max_program_tasks,
+            self.max_experiment_tasks,
+        )
+        if any(isinstance(value, bool) or int(value) < 0 for value in task_limits):
+            raise ValueError("target solver task limits are invalid")
+        if not math.isfinite(float(self.max_run_wall_time_s)) or (
+            self.max_run_wall_time_s < 0
+        ):
+            raise ValueError("target solver run wall-time limit is invalid")
         if not 1 <= self.provider_route_reserve <= 32:
             raise ValueError("target solver ChemEnzy provider reserve is invalid")
         if not 1 <= self.host_route_portfolio <= 16:
@@ -297,6 +334,8 @@ def solve_target(
     run_dir: str | Path | None = None,
     acceptance: RetrosynthesisAcceptanceSpec | None = None,
     budget: RetrosynthesisRunBudget | None = None,
+    constraints: TargetConstraints | None = None,
+    stock_oracle_reference: StockOracleReference | None = None,
     config: TargetSolveConfig | None = None,
     manifest_path: str | Path | None = None,
     resume: bool = False,
@@ -340,6 +379,44 @@ def solve_target(
         requested_budget,
         config=active,
     )
+    oracle_builder: Any | None = None
+    if resolved_acceptance.stock_boundary == "benchmark_search":
+        if stock_catalog_builder is not None:
+            oracle_builder = stock_catalog_builder
+        elif active.enable_live_benchmark_stock:
+            oracle_builder = build_pubchem_vendor_catalog
+    elif inventory_snapshot_builder is not None:
+        oracle_builder = inventory_snapshot_builder
+    resolved_stock_oracle = stock_oracle_reference
+    if resolved_stock_oracle is None:
+        resolved_stock_oracle = (
+            stock_oracle_reference_from_builder(
+                oracle_builder,
+                boundary=resolved_acceptance.stock_boundary,
+            )
+            if oracle_builder is not None
+            else gateway._default_stock_oracle_reference(
+                boundary=resolved_acceptance.stock_boundary
+            )
+        )
+    if resolved_stock_oracle.boundary != resolved_acceptance.stock_boundary:
+        raise BlindBenchmarkError("stock_oracle_acceptance_boundary_conflict")
+    resource_budget = CampaignResourceBudget(
+        model=resolved_budget,
+        max_total_tasks=active.max_total_tasks,
+        max_evidence_tasks=active.max_evidence_tasks,
+        max_stock_tasks=active.max_stock_tasks,
+        max_validation_tasks=active.max_validation_tasks,
+        max_program_tasks=active.max_program_tasks,
+        max_experiment_tasks=active.max_experiment_tasks,
+        max_run_wall_time_s=active.max_run_wall_time_s,
+    )
+    resolved_campaign_spec = UnifiedCampaignSpec(
+        target_smiles=canonical,
+        stock_oracle=resolved_stock_oracle,
+        constraints=constraints or TargetConstraints(),
+        resource_budget=resource_budget,
+    )
     supplied_name = " ".join(str(target_name or "").split())
     opaque_name = f"target-{hashlib.sha256(canonical.encode()).hexdigest()[:8]}"
     campaign_name = (
@@ -367,12 +444,19 @@ def solve_target(
     )
     checkpoint_path = directory / ".autoplanner" / "target-solver-checkpoint.json"
     preflight_path = directory / ".autoplanner" / "blind-preflight.json"
+    target_report_path = directory / "target-only-solve-report.json"
     existing = (directory / ".autoplanner" / "kernel" / "run_spec.json").is_file()
+    prior_saved_report: dict[str, Any] = {}
     if existing and not resume:
         raise BlindBenchmarkError("blind_run_exists_use_resume")
     if existing:
         checkpoint = _read_checkpoint(checkpoint_path)
         preflight = _read_json_object(preflight_path, "blind_preflight_missing_on_resume")
+        if target_report_path.is_file():
+            prior_saved_report = _read_json_object(
+                target_report_path,
+                "target_solve_report_missing_on_resume",
+            )
         if (
             dict(preflight.get("case") or {}).get("target_smiles") != canonical
             or preflight.get("accepted") is not True
@@ -399,6 +483,7 @@ def solve_target(
             run_dir=directory,
             acceptance=resolved_acceptance,
             budget=resolved_budget,
+            campaign_spec=resolved_campaign_spec,
         )
         _write_json_atomic(preflight_path, preflight)
         _write_json_atomic(checkpoint_path, checkpoint)
@@ -537,6 +622,18 @@ def solve_target(
         )
     stages = list(checkpoint.get("stages") or [])
     outcomes = list(checkpoint.get("director_outcomes") or [])
+    if resume:
+        stages.append(
+            _stage(
+                "saved_run_objective_compatibility",
+                "observed",
+                compile_saved_run_objective_compatibility(
+                    checkpoint,
+                    prior_saved_report,
+                    requested_objective_mode=active.objective_mode,
+                ),
+            )
+        )
     resolved_condition_predictor = condition_predictor
     condition_predictor_error = ""
     if (
@@ -570,6 +667,7 @@ def solve_target(
         resolved_program_validation_feedback
     )
     initial_director_context: Any | None = None
+    latest_campaign_portfolio: dict[str, Any] = {}
 
     def append_condition_stage(stage_name: str) -> dict[str, Any]:
         if not active.enable_condition_enrichment:
@@ -594,18 +692,27 @@ def solve_target(
     def scheduler_resources() -> dict[str, bool]:
         model_totals = dict(service.kernel.state.model_totals)
         native_search = service.kernel.native_search_budget()
+        task_budget = dict(service.kernel.task_budget().get("dimensions") or {})
         target_native = dict(native_search.get("target") or {})
         frontier_native = dict(native_search.get("frontier") or {})
         return {
             "deterministic": True,
-            "validation": True,
-            "stock": True,
-            "evidence": resolved_evidence_connector is not None,
+            "validation": dict(task_budget.get("validation") or {}).get(
+                "available"
+            ) is True,
+            "stock": dict(task_budget.get("stock") or {}).get("available") is True,
+            "evidence": bool(
+                resolved_evidence_connector is not None
+                and dict(task_budget.get("evidence") or {}).get("available") is True
+            ),
             "condition": bool(
                 active.enable_condition_enrichment
                 and resolved_condition_predictor is not None
             ),
-            "program": True,
+            "program": dict(task_budget.get("program") or {}).get("available") is True,
+            "experiment": dict(task_budget.get("experiment") or {}).get(
+                "available"
+            ) is True,
             "model": int(model_totals.get("model_invocations") or 0)
             < resolved_budget.max_model_invocations,
             "native_search_target": bool(
@@ -643,6 +750,8 @@ def solve_target(
             acceptance_spec=resolved_acceptance,
             config=_portfolio_config(active, resolved_acceptance),
         )
+        latest_campaign_portfolio.clear()
+        latest_campaign_portfolio.update(portfolio)
         return compile_blind_acceptance_report(
             preflight=preflight,
             director_outcomes=outcomes,
@@ -686,13 +795,21 @@ def solve_target(
             edge_ids=action.subject_ids,
         )
 
+    def run_initial_chemenzy_and_signal(
+        operation: Callable[[], dict[str, Any]],
+    ) -> dict[str, Any]:
+        try:
+            return operation()
+        finally:
+            initial_chemenzy_admission_complete.set()
+
     def handle_target_chemenzy(action: CampaignAction) -> dict[str, Any]:
         if action.metadata.get("target_level_native_search") is not True:
             return {
                 "status": "failed",
                 "reasons": ["chemenzy_target_action_scope_invalid"],
             }
-        return run_chemenzy_proposal_stage(
+        return run_initial_chemenzy_and_signal(lambda: run_chemenzy_proposal_stage(
             service,
             target_name=case.target_name,
             target_smiles=canonical,
@@ -715,7 +832,7 @@ def solve_target(
             enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
             enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
             pandarallel_workers=active.chemenzy_pandarallel_workers,
-        )
+        ))
 
     def handle_guided_chemenzy(action: CampaignAction) -> dict[str, Any]:
         frontier_smiles = str(action.metadata.get("frontier_smiles") or "")
@@ -788,6 +905,11 @@ def solve_target(
                 "chemenzy_provider_observation": chemenzy_observation,
             },
             context=initial_director_context,
+            before_plan_admission=(
+                initial_chemenzy_admission_complete.wait
+                if ordered_initial_admission
+                else None
+            ),
             idempotency_key="solve-target:director:initial",
         )
 
@@ -1268,6 +1390,7 @@ def solve_target(
         target_smiles=canonical,
         enabled=active.enable_target_identity,
         resolve_named=active.resolve_named_target_identity,
+        lookup_now=False,
     )
     identity_stage = _stage(
         "target_identity", target_identity["status"], target_identity
@@ -1325,6 +1448,79 @@ def solve_target(
     )
     initial_template_observation = self_evo.observation()
     chemenzy_observation: dict[str, Any] = {}
+    trajectory_code_binding = _target_control_plane_code_binding(
+        gateway.paths.repository_root
+    )
+
+    def current_trajectory_bindings() -> dict[str, Any]:
+        return _compile_target_trajectory_bindings(
+            code_binding=trajectory_code_binding,
+            campaign_spec=service.kernel.spec.campaign_spec.to_dict(),
+            config=active,
+            director_config=director_config,
+            chemenzy_provider=chemenzy_provider,
+            evidence_connector=resolved_evidence_connector,
+            condition_predictor=resolved_condition_predictor,
+            program_capabilities=resolved_program_capabilities,
+            chemenzy_observation=chemenzy_observation,
+            chemenzy_runtime_binding=_latest_chemenzy_runtime_binding(stages),
+        )
+
+    def current_campaign_snapshot(
+        *,
+        phase: str,
+        gates: Mapping[str, Any],
+        portfolio: Mapping[str, Any] | None = None,
+        action_decision: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        graph = service.graph_store.load()
+        resolved_portfolio = dict(portfolio or latest_campaign_portfolio)
+        if int(resolved_portfolio.get("graph_revision") or -1) != int(
+            graph.get("revision") or 0
+        ):
+            resolved_portfolio = compile_proof_portfolio(
+                graph,
+                acceptance_spec=resolved_acceptance,
+                config=_portfolio_config(active, resolved_acceptance),
+            )
+        route_state = compile_route_snapshot(
+            graph=graph,
+            portfolio=resolved_portfolio,
+            gates=gates,
+        )
+        return compile_campaign_snapshot(
+            phase=phase,
+            observed_at=_utc_now(),
+            event_sequence=service.kernel.state.event_count,
+            graph_revision=service.kernel.state.graph_revision,
+            wall_time_s=service.kernel.state.task_wall_time_s,
+            gates=gates,
+            resource_usage={
+                "model": dict(service.kernel.state.model_totals),
+                "native_search": service.kernel.native_search_budget(),
+                "tasks": service.kernel.task_budget(),
+                "attempt_count": service.kernel.state.attempt_count,
+                "accepted_expansion_count": (
+                    service.kernel.state.accepted_expansion_count
+                ),
+                "settled_task_count": service.kernel.state.settled_task_count,
+                "in_flight_task_count": len(
+                    service.kernel.state.in_flight_tasks
+                ),
+                "cumulative_task_wall_time_s": (
+                    service.kernel.state.task_wall_time_s
+                ),
+            },
+            action_counts=compile_action_counts(
+                _campaign_action_executions_from_stages(stages)
+            ),
+            route_counts=dict(route_state["counts"]),
+            pareto_archive=route_state["pareto_archive"],
+            bindings=current_trajectory_bindings(),
+            program_milestones=_program_milestones_from_stages(stages),
+            action_decision=action_decision,
+        )
+
     initial_director_context = service.compile_global_context(
         evidence_observations={
             **dict(initial_template_observation),
@@ -1336,15 +1532,67 @@ def solve_target(
     evidence_action_completed = False
     unified_material_events: set[str] = set()
     unified_replan_audit_contexts: dict[str, dict[str, Any]] = {}
+    initial_chemenzy_admission_complete = Event()
+    initial_resources = scheduler_resources()
+    initial_action_kinds = {
+        str(value.get("kind") or "")
+        for value in compile_action_opportunities(
+            dict(service.graph_store.load().get("deficit_frontier") or {})
+        ).get("actions")
+        or []
+        if isinstance(value, Mapping)
+    }
+    ordered_initial_admission = bool(
+        active.action_scheduler_policy == "adaptive"
+        and active.enable_chemenzy
+        and active.enable_target_chemenzy_baseline
+        and active.enable_codex
+        and initial_resources.get("native_search_target") is True
+        and initial_resources.get("model") is True
+        and CampaignActionKind.CHEMENZY_TARGET_EXPAND.value
+        in initial_action_kinds
+        and CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE.value
+        in initial_action_kinds
+    )
+    if not ordered_initial_admission:
+        initial_chemenzy_admission_complete.set()
 
     def handle_unified_evidence(_action: CampaignAction) -> dict[str, Any]:
         nonlocal evidence_action_completed, latest_evidence_action_result
+        nonlocal resolved_target_name, target_identity
         if evidence_action_completed:
             return {
                 "status": "reused",
                 "changed": False,
                 "reason": "unified_evidence_action_already_executed",
             }
+        target_identity = _target_identity_stage(
+            service,
+            stages=stages,
+            target_name=case.target_name,
+            target_smiles=canonical,
+            enabled=active.enable_target_identity,
+            resolve_named=active.resolve_named_target_identity,
+            lookup_now=True,
+        )
+        resolved_target_name = str(
+            dict(target_identity.get("identity") or {}).get("preferred_name")
+            or opaque_name
+        )
+        refreshed_identity_stage = _stage(
+            "target_identity",
+            str(target_identity.get("status") or "unresolved"),
+            target_identity,
+        )
+        identity_rows = [
+            index
+            for index, row in enumerate(stages)
+            if row.get("stage") == "target_identity"
+        ]
+        if identity_rows:
+            stages[identity_rows[-1]] = refreshed_identity_stage
+        else:
+            stages.append(refreshed_identity_stage)
         source_frontier = discover_director_source_hints(service, outcomes)
         result = _acquire_evidence_stage(
             service,
@@ -1421,10 +1669,51 @@ def solve_target(
         )
         if signal_gate.get("accepted") is not True:
             return
+        stages.append(
+            _stage("global_replan_signal_gate", "accepted", signal_gate)
+        )
+        prompt_context_bytes = 0
+        context_error = ""
+        try:
+            replan_context = service.compile_global_context(
+                material_events=tuple(sorted(unified_material_events)),
+                evidence_observations={
+                    **_evidence_observations(latest_evidence_action_result),
+                    **self_evo.observation(),
+                },
+            )
+            prompt_context_bytes = len(
+                director_prompt(
+                    replan_context,
+                    mode="event_replan",
+                    config=director_config,
+                ).encode("utf-8")
+            )
+        except CampaignContextTooLargeError as exc:
+            context_error = str(exc)[:2_000]
         budget_guard = _replan_budget_guard(
             model_cost=service.kernel.state.model_totals,
             budget=resolved_budget,
             config=active,
+            prompt_context_bytes=prompt_context_bytes,
+        )
+        if context_error:
+            budget_guard = {
+                **budget_guard,
+                "accepted": False,
+                "reasons": ["campaign_context_exceeds_bounded_replan_budget"],
+                "context_error": context_error,
+            }
+        budget_guard = {
+            **budget_guard,
+            "trigger_reasons": list(reasons),
+        }
+        stages.append(
+            _stage(
+                "global_replan_budget_gate",
+                "accepted" if budget_guard["accepted"] else "skipped",
+                budget_guard,
+            )
         )
         if budget_guard.get("accepted") is not True:
             return
@@ -1432,7 +1721,7 @@ def solve_target(
             "graph_revision": service.kernel.state.graph_revision,
             "material_events": sorted(unified_material_events),
             "trigger_reasons": list(reasons),
-            "prompt_context_bytes": 0,
+            "prompt_context_bytes": prompt_context_bytes,
         }
         signal_sha256 = _digest(signal_payload)
         service.publish_action_signals(
@@ -1740,12 +2029,24 @@ def solve_target(
         **program_action_runtime.handlers,
     }
     unified_core_runtime = campaign_action_runtime(unified_core_handlers)
+    unified_action_stage_offset = max(
+        (
+            int(str(row.get("stage") or "").rsplit("_", 1)[-1])
+            for row in stages
+            if str(row.get("stage") or "").startswith(
+                "campaign_action_unified_core_"
+            )
+            and str(row.get("stage") or "").rsplit("_", 1)[-1].isdigit()
+        ),
+        default=0,
+    )
 
     def observe_unified_core_execution(
         index: int,
         execution: Mapping[str, Any],
     ) -> None:
         nonlocal chemenzy_observation
+        stage_sequence = unified_action_stage_offset + index
         execution_row = dict(execution)
         preexecuted_action_backlog.append(execution_row)
         action_kind = str(
@@ -1843,6 +2144,17 @@ def solve_target(
             director_result = handler_result
             if director_result and not outcomes:
                 outcomes.append(director_result)
+                unified_material_events.update(
+                    _director_topology_replan_events(outcomes)
+                )
+                unified_material_events.update(
+                    _director_depth_replan_events(
+                        _planning_depth_requirement(
+                            outcomes,
+                            minimum_steps=active.minimum_planning_route_steps,
+                        )
+                    )
+                )
                 stages.append(
                     _stage(
                         "global_campaign",
@@ -1936,7 +2248,7 @@ def solve_target(
         publish_unified_program_signals()
         stages.append(
             _stage(
-                f"campaign_action_unified_core_{index:02d}",
+                f"campaign_action_unified_core_{stage_sequence:02d}",
                 str(execution_row.get("status") or "unresolved"),
                 execution_row,
             )
@@ -1944,22 +2256,11 @@ def solve_target(
         settlement_gates = current_campaign_gates()
         stages.append(
             _stage(
-                f"campaign_snapshot_unified_core_{index:02d}",
+                f"campaign_snapshot_unified_core_{stage_sequence:02d}",
                 "observed",
-                compile_campaign_snapshot(
-                    phase=f"unified_core:{index:02d}",
-                    observed_at=_utc_now(),
-                    graph_revision=service.kernel.state.graph_revision,
+                current_campaign_snapshot(
+                    phase=f"unified_core:{stage_sequence:02d}",
                     gates=settlement_gates,
-                    resource_usage={
-                        "model_cost": dict(service.kernel.state.model_totals),
-                        "native_search": service.kernel.native_search_budget(),
-                        "attempt_count": service.kernel.state.attempt_count,
-                        "accepted_expansion_count": (
-                            service.kernel.state.accepted_expansion_count
-                        ),
-                        "settled_task_count": service.kernel.state.settled_task_count,
-                    },
                     action_decision=dict(execution_row.get("decision") or {}),
                 ),
             )
@@ -2173,19 +2474,10 @@ def solve_target(
             _stage(
                 "campaign_snapshot_chemenzy_seed",
                 "observed",
-                compile_campaign_snapshot(
+                current_campaign_snapshot(
                     phase="chemenzy_seed",
-                    observed_at=_utc_now(),
-                    graph_revision=service.kernel.state.graph_revision,
                     gates=seed_gates,
-                    resource_usage={
-                        "model_cost": dict(service.kernel.state.model_totals),
-                        "native_search": service.kernel.native_search_budget(),
-                        "attempt_count": service.kernel.state.attempt_count,
-                        "accepted_expansion_count": (
-                            service.kernel.state.accepted_expansion_count
-                        ),
-                    },
+                    portfolio=seed_portfolio,
                     action_decision=seed_action_decision,
                 ),
             )
@@ -2731,6 +3023,10 @@ def solve_target(
         and active.enable_replan
         and replan_reasons
         and _director_outcome_allows_replan(outcomes)
+        and not any(
+            str(outcome.get("mode") or "") == "event_replan"
+            for outcome in outcomes
+        )
         and len(outcomes) < _MAX_DIRECTOR_OUTCOMES
     )
     replan_signal_gate = _replan_signal_gate(
@@ -3391,9 +3687,12 @@ def solve_target(
     resource_envelope = _resource_envelope(
         model_cost=service.kernel.state.model_totals,
         native_search=service.kernel.native_search_budget(),
+        task_budget=service.kernel.task_budget(),
+        run_wall_time_s=service.kernel.state.task_wall_time_s,
         attempt_count=service.kernel.state.attempt_count,
         accepted_expansion_count=service.kernel.state.accepted_expansion_count,
         budget=resolved_budget,
+        max_run_wall_time_s=service.kernel.spec.limits.max_run_wall_time_s,
     )
     final_graph = service.graph_store.load()
     final_opportunities = compile_action_opportunities(
@@ -3416,20 +3715,10 @@ def solve_target(
         _stage(
             "campaign_snapshot_closeout",
             "observed",
-            compile_campaign_snapshot(
+            current_campaign_snapshot(
                 phase="closeout",
-                observed_at=_utc_now(),
-                graph_revision=service.kernel.state.graph_revision,
                 gates=gates,
-                resource_usage={
-                    "model_cost": dict(service.kernel.state.model_totals),
-                    "native_search": service.kernel.native_search_budget(),
-                    "attempt_count": service.kernel.state.attempt_count,
-                    "accepted_expansion_count": (
-                        service.kernel.state.accepted_expansion_count
-                    ),
-                    "resource_envelope": resource_envelope,
-                },
+                portfolio=closeout["portfolio"],
                 action_decision=final_action_decision,
             ),
         )
@@ -3537,6 +3826,10 @@ def solve_target(
         idempotency_key=f"solve-target:stop:{service.kernel.state.revision}"
     ).to_dict()
     profile_projection = service.workbench()["snapshot"]
+    quality_state = compile_campaign_quality_state(
+        workbench=profile_projection,
+        gates=gates,
+    )
     claim = _claim(
         gates,
         resolved_acceptance,
@@ -3563,6 +3856,8 @@ def solve_target(
             claim=claim,
             current_disposition=current_disposition,
             planning_depth=planning_depth,
+            quality_state=quality_state,
+            trajectory=trajectory,
         )
     )
     report = {
@@ -3570,6 +3865,7 @@ def solve_target(
         "run_id": identity,
         "run_dir": str(directory),
         "target": {"name": case.target_name, "canonical_smiles": canonical},
+        "campaign_spec": service.kernel.spec.campaign_spec.to_dict(),
         "preflight": preflight,
         "config": asdict(active),
         "acceptance": resolved_acceptance.to_dict(),
@@ -3587,6 +3883,7 @@ def solve_target(
             "decision_sha256": final_action_decision["content_sha256"],
         },
         "gates": gates,
+        "quality_state": quality_state,
         "planning_depth": planning_depth,
         "model_cost": dict(service.kernel.state.model_totals),
         "resource_envelope": resource_envelope,
@@ -3681,15 +3978,32 @@ def _campaign_action_handler_results(
     *,
     kind: CampaignActionKind,
 ) -> list[dict[str, Any]]:
-    return [
-        dict(dict(execution.get("outcome") or {}).get("handler_result") or {})
-        for execution in executions
-        if dict(execution.get("action") or {}).get("kind") == kind.value
-        and isinstance(
-            dict(execution.get("outcome") or {}).get("handler_result"),
-            Mapping,
+    results: list[dict[str, Any]] = []
+    for execution in executions:
+        if dict(execution.get("action") or {}).get("kind") != kind.value:
+            continue
+        outcome = dict(execution.get("outcome") or {})
+        raw_result = outcome.get("handler_result")
+        if not isinstance(raw_result, Mapping):
+            continue
+        result = dict(raw_result)
+        result.setdefault(
+            "status",
+            str(
+                outcome.get("status")
+                or execution.get("status")
+                or "unresolved"
+            ),
         )
-    ]
+        failure_reasons = [
+            str(value)
+            for value in outcome.get("failure_reasons") or []
+            if str(value)
+        ]
+        if failure_reasons and not result.get("reasons"):
+            result["reasons"] = failure_reasons
+        results.append(result)
+    return results
 
 
 def _aggregate_materialization_action_results(
@@ -4298,12 +4612,19 @@ def _refresh_terminal_report(
     resource_envelope = _resource_envelope(
         model_cost=service.kernel.state.model_totals,
         native_search=service.kernel.native_search_budget(),
+        task_budget=service.kernel.task_budget(),
+        run_wall_time_s=service.kernel.state.task_wall_time_s,
         attempt_count=service.kernel.state.attempt_count,
         accepted_expansion_count=service.kernel.state.accepted_expansion_count,
         budget=budget,
+        max_run_wall_time_s=service.kernel.spec.limits.max_run_wall_time_s,
     )
     stop_decision = service.kernel.decide_stop().to_dict()
     profile_projection = service.workbench()["snapshot"]
+    quality_state = compile_campaign_quality_state(
+        workbench=profile_projection,
+        gates=gates,
+    )
     claim = _claim(
         gates,
         acceptance,
@@ -4321,6 +4642,12 @@ def _refresh_terminal_report(
         claim=claim,
         gates=gates,
     )
+    report_path = directory / "target-only-solve-report.json"
+    previous = (
+        _read_json_object(report_path, "target_solve_report_missing")
+        if report_path.is_file()
+        else {}
+    )
     workbench = service.publish_workbench(
         campaign_summary=_workbench_campaign_summary(
             gates=gates,
@@ -4330,13 +4657,9 @@ def _refresh_terminal_report(
             claim=claim,
             current_disposition=current_disposition,
             planning_depth=planning_depth,
+            quality_state=quality_state,
+            trajectory=dict(previous.get("trajectory") or {}),
         )
-    )
-    report_path = directory / "target-only-solve-report.json"
-    previous = (
-        _read_json_object(report_path, "target_solve_report_missing")
-        if report_path.is_file()
-        else {}
     )
     report = {
         **previous,
@@ -4344,6 +4667,7 @@ def _refresh_terminal_report(
         "run_id": identity,
         "run_dir": str(directory),
         "target": {"name": case.target_name, "canonical_smiles": canonical},
+        "campaign_spec": service.kernel.spec.campaign_spec.to_dict(),
         "preflight": dict(preflight),
         "config": asdict(config),
         "acceptance": acceptance.to_dict(),
@@ -4351,6 +4675,7 @@ def _refresh_terminal_report(
         "director_outcomes": outcomes,
         "stages": _deduplicate_stages(stages),
         "gates": gates,
+        "quality_state": quality_state,
         "planning_depth": planning_depth,
         "model_cost": dict(service.kernel.state.model_totals),
         "resource_envelope": resource_envelope,
@@ -4478,8 +4803,12 @@ def _target_identity_stage(
     target_smiles: str,
     enabled: bool,
     resolve_named: bool = False,
+    lookup_now: bool = False,
 ) -> dict[str, Any]:
-    generic = _target_name_requires_identity_resolution(target_name)
+    opaque_name = (
+        "target-"
+        + hashlib.sha256(str(target_smiles).encode("utf-8")).hexdigest()[:8]
+    )
     prior = next(
         (
             dict(row.get("detail") or {})
@@ -4488,25 +4817,27 @@ def _target_identity_stage(
         ),
         {},
     )
-    stale_opaque_skip = (
-        generic
-        and prior.get("status") == "not_needed"
-        and re.fullmatch(
-            r"target-[0-9a-f]{8}",
-            str(dict(prior.get("identity") or {}).get("preferred_name") or "").lower(),
-        )
-        is not None
-    )
+    stale_non_structural_skip = prior.get("status") == "not_needed"
     stale_provider_version = (
-        (generic or resolve_named)
-        and prior.get("status") in {"completed", "unresolved"}
+        prior.get("status") in {"completed", "unresolved"}
         and (
             prior.get("provider_id") == "pubchem.pug_rest"
             or str(prior.get("reason") or "").startswith("pubchem_")
         )
         and prior.get("provider_version") != TARGET_IDENTITY_PROVIDER_VERSION
     )
-    if prior and not stale_opaque_skip and not stale_provider_version:
+    stale_display_name = bool(
+        prior.get("status") == "not_needed"
+        and str(dict(prior.get("identity") or {}).get("preferred_name") or "")
+        != opaque_name
+    )
+    if (
+        prior
+        and not stale_non_structural_skip
+        and not stale_provider_version
+        and not stale_display_name
+        and (lookup_now is False or prior.get("status") != "pending")
+    ):
         return prior
     if not enabled:
         return {
@@ -4514,14 +4845,33 @@ def _target_identity_stage(
             "status": "disabled",
             "reason": "target_identity_disabled",
         }
-    if not generic and not resolve_named:
+    if not lookup_now:
         return {
             "stage": "target_identity",
-            "status": "not_needed",
-            "identity": {"preferred_name": target_name},
-            "semantics": {"user_supplied_name_not_treated_as_evidence": True},
+            "status": "pending",
+            "reason": "target_identity_deferred_to_evidence_action",
+            "identity": {"preferred_name": opaque_name},
+            "semantics": {
+                "initial_route_search_does_not_wait_for_identity_network": True,
+                "evidence_action_owns_structure_identity_resolution": True,
+                "user_supplied_name_not_used_for_lookup": True,
+                "display_name_not_exposed_to_core_planning": True,
+            },
         }
-    result = resolve_target_identity(target_smiles, target_name=target_name)
+    result = resolve_target_identity(target_smiles)
+    result = {
+        **result,
+        "semantics": {
+            **dict(result.get("semantics") or {}),
+            "user_supplied_name_not_used_for_lookup": True,
+            "display_name_not_exposed_to_core_planning": True,
+            "legacy_resolve_named_flag_ignored": bool(resolve_named),
+            "opaque_fallback_name": opaque_name,
+        },
+    }
+    result["content_sha256"] = _digest(
+        {key: value for key, value in result.items() if key != "content_sha256"}
+    )
     artifact = service.kernel.artifacts.put_json(
         result,
         logical_name="target_identity_observation.json",
@@ -5846,6 +6196,8 @@ def _workbench_campaign_summary(
     claim: Mapping[str, Any],
     current_disposition: Mapping[str, Any],
     planning_depth: Mapping[str, Any] | None = None,
+    quality_state: Mapping[str, Any] | None = None,
+    trajectory: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "gates": dict(gates.get("gates") or {}),
@@ -5859,6 +6211,8 @@ def _workbench_campaign_summary(
         "claim": dict(claim),
         "current_disposition": dict(current_disposition),
         "planning_depth": dict(planning_depth or {}),
+        "quality_state": dict(quality_state or {}),
+        "trajectory": dict(trajectory or {}),
     }
 
 
@@ -5943,9 +6297,12 @@ def _resource_envelope(
     *,
     model_cost: Mapping[str, Any],
     native_search: Mapping[str, Any],
+    task_budget: Mapping[str, Any],
+    run_wall_time_s: float,
     attempt_count: int,
     accepted_expansion_count: int,
     budget: RetrosynthesisRunBudget,
+    max_run_wall_time_s: float,
 ) -> dict[str, Any]:
     observed = {
         "model_invocations": int(model_cost.get("model_invocations") or 0),
@@ -5958,6 +6315,7 @@ def _resource_envelope(
         "native_search_committed": int(
             native_search.get("committed_total") or 0
         ),
+        "run_wall_time_s": float(run_wall_time_s),
     }
     limits = {
         "model_invocations": budget.max_model_invocations,
@@ -5968,6 +6326,7 @@ def _resource_envelope(
         "attempt_runs": budget.max_attempt_runs,
         "accepted_expansions": budget.max_accepted_expansions,
         "native_search_committed": budget.max_native_search_invocations,
+        "run_wall_time_s": float(max_run_wall_time_s),
     }
     violations = sorted(
         f"{key}_budget_violated"
@@ -5980,20 +6339,262 @@ def _resource_envelope(
         "observed": observed,
         "limits": limits,
         "native_search": dict(native_search),
+        "task_budget": dict(task_budget),
         "violations": violations,
         "semantics": {
             "reaching_a_cap_is_compliant": True,
             "observed_overrun_blocks_qualified_acceptance": True,
+            "task_dimensions_include_settled_and_reserved_capacity": True,
         },
     }
 
 
+def _compile_target_trajectory_bindings(
+    *,
+    code_binding: Mapping[str, Any],
+    campaign_spec: Mapping[str, Any],
+    config: TargetSolveConfig,
+    director_config: DirectorConfig,
+    chemenzy_provider: Any,
+    evidence_connector: Any,
+    condition_predictor: Any,
+    program_capabilities: Any,
+    chemenzy_observation: Mapping[str, Any],
+    chemenzy_runtime_binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    stock_oracle = dict(campaign_spec.get("stock_oracle") or {})
+    stock_binding = dict(stock_oracle.get("binding") or {})
+    config_row = asdict(config)
+    director_row = director_config.to_dict()
+    provider_row = {
+        "codex": {
+            "enabled": config.enable_codex,
+            "model": config.model,
+            "reasoning_effort": config.reasoning_effort,
+            "director_config_sha256": str(
+                director_row.get("content_sha256") or _digest(director_row)
+            ),
+        },
+        "chemenzy": {
+            "enabled": config.enable_chemenzy,
+            "adapter": _callable_runtime_binding(
+                chemenzy_provider,
+                fallback="autoplanner.builtin_chemenzy_probe",
+            ),
+            "search_preset": config.chemenzy_search_preset,
+            "configured_environment_sha256": hashlib.sha256(
+                str(config.chemenzy_env_prefix or "auto-discovery").encode("utf-8")
+            ).hexdigest(),
+            "observation_sha256": (
+                _digest(dict(chemenzy_observation))
+                if chemenzy_observation
+                else ""
+            ),
+            "provider_capability": dict(
+                chemenzy_observation.get("provider_capability") or {}
+            ),
+            "runtime": dict(chemenzy_runtime_binding),
+        },
+        "evidence": _callable_runtime_binding(
+            evidence_connector,
+            fallback="not_registered",
+        ),
+        "conditions": _callable_runtime_binding(
+            condition_predictor,
+            fallback="not_registered",
+        ),
+        "program_capability_catalog": {
+            "available": bool(program_capabilities),
+            "content_sha256": (
+                _digest(program_capabilities) if program_capabilities else ""
+            ),
+        },
+    }
+    return compile_trajectory_bindings(
+        code=code_binding,
+        config={
+            "schema_version": config.schema_version,
+            "target_solve_config_sha256": _digest(config_row),
+            "director_config_sha256": str(
+                director_row.get("content_sha256") or _digest(director_row)
+            ),
+            "scheduler_policy": config.action_scheduler_policy,
+        },
+        input_summary={
+            "campaign_spec_schema": str(campaign_spec.get("schema_version") or ""),
+            "campaign_spec_sha256": str(campaign_spec.get("content_sha256") or ""),
+            "target_structure_sha256": hashlib.sha256(
+                str(dict(campaign_spec.get("target") or {}).get("canonical_smiles") or "").encode(
+                    "utf-8"
+                )
+            ).hexdigest(),
+        },
+        stock_oracle={
+            "oracle_id": str(stock_oracle.get("oracle_id") or ""),
+            "boundary": str(stock_oracle.get("boundary") or ""),
+            "reference_sha256": str(stock_oracle.get("content_sha256") or ""),
+            "binding_sha256": str(stock_binding.get("content_sha256") or ""),
+        },
+        providers=provider_row,
+    )
+
+
+def _target_control_plane_code_binding(repository_root: Path) -> dict[str, Any]:
+    component_paths = (
+        "cascade_planner/application/action_scheduler.py",
+        "cascade_planner/application/campaign_actions.py",
+        "cascade_planner/application/campaign_trajectory.py",
+        "cascade_planner/application/run_kernel.py",
+        "cascade_planner/orchestration/unified_campaign_runtime.py",
+        "cascade_planner/interfaces/target_solver.py",
+    )
+    components: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    loaded_package_root = Path(__file__).resolve().parents[2]
+    for relative in component_paths:
+        configured_path = repository_root / relative
+        loaded_path = loaded_package_root / relative
+        path = configured_path if configured_path.is_file() else loaded_path
+        if not path.is_file():
+            missing.append(relative)
+            continue
+        content = path.read_bytes()
+        components[relative] = {
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size_bytes": len(content),
+            "source": (
+                "configured_repository"
+                if path == configured_path
+                else "loaded_package"
+            ),
+        }
+    return {
+        "producer": "autoplanner",
+        "components": components,
+        "component_bundle_sha256": _digest(components),
+        "missing_components": missing,
+        "source_bundle_complete": not missing,
+    }
+
+
+def _callable_runtime_binding(value: Any, *, fallback: str) -> dict[str, Any]:
+    if value is None:
+        return {"registered": False, "identity": fallback}
+    subject = value if hasattr(value, "__module__") else type(value)
+    row = {
+        "registered": True,
+        "module": str(getattr(subject, "__module__", "")),
+        "qualname": str(
+            getattr(subject, "__qualname__", type(value).__qualname__)
+        ),
+    }
+    descriptor = getattr(value, "descriptor", None)
+    if descriptor is not None:
+        if hasattr(descriptor, "to_dict"):
+            row["descriptor"] = descriptor.to_dict()
+        elif isinstance(descriptor, Mapping):
+            row["descriptor"] = dict(descriptor)
+    row["identity_sha256"] = _digest(row)
+    return row
+
+
+def _campaign_action_executions_from_stages(
+    stages: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        dict(row.get("detail") or {})
+        for row in stages
+        if isinstance(row, Mapping)
+        and str(row.get("stage") or "").startswith("campaign_action_")
+        and isinstance(row.get("detail"), Mapping)
+        and isinstance(dict(row.get("detail") or {}).get("action"), Mapping)
+    ]
+
+
+def _latest_chemenzy_runtime_binding(
+    stages: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    executions = _campaign_action_executions_from_stages(stages)
+    for execution in reversed(executions):
+        action = dict(execution.get("action") or {})
+        if action.get("kind") != CampaignActionKind.CHEMENZY_TARGET_EXPAND.value:
+            continue
+        handler = dict(dict(execution.get("outcome") or {}).get("handler_result") or {})
+        preflight = dict(handler.get("runtime_preflight") or {})
+        capability = dict(preflight.get("capability_probe") or {})
+        return {
+            "provider_envelope": dict(handler.get("provider_envelope") or {}),
+            "provider_registration": dict(
+                handler.get("provider_registration") or {}
+            ),
+            "request_sha256": str(handler.get("request_sha256") or ""),
+            "raw_result_sha256": str(handler.get("raw_result_sha256") or ""),
+            "runtime_preflight_sha256": _digest(preflight) if preflight else "",
+            "requested_one_step_models": list(
+                preflight.get("requested_one_step_models") or []
+            ),
+            "model_override_digest": str(
+                preflight.get("model_override_digest") or ""
+            ),
+            "model_path_checks": list(capability.get("model_path_checks") or []),
+            "stock_path_checks": list(capability.get("stock_path_checks") or []),
+        }
+    return {}
+
+
+def _program_milestones_from_stages(
+    stages: Iterable[Mapping[str, Any]],
+) -> dict[str, bool]:
+    milestones: dict[str, bool] = {}
+    for execution in _campaign_action_executions_from_stages(stages):
+        action = dict(execution.get("action") or {})
+        outcome = dict(execution.get("outcome") or {})
+        kind = str(action.get("kind") or "")
+        if not (kind.startswith("program_") or kind == "experiment_feedback_ingest"):
+            continue
+        status = str(outcome.get("status") or execution.get("status") or "")
+        if status in {"accepted", "completed", "reused"}:
+            milestones[f"program:action:{kind}"] = True
+        handler = dict(outcome.get("handler_result") or {})
+        if kind == CampaignActionKind.PROGRAM_VALIDATE.value and (
+            handler.get("accepted") is True
+            or int(handler.get("validated_count") or 0) > 0
+        ):
+            milestones["program:validation_accepted"] = True
+        if kind == CampaignActionKind.PROGRAM_ADMIT.value and (
+            handler.get("accepted") is True
+            or dict(handler.get("admission") or {}).get("accepted") is True
+        ):
+            milestones["program:admission_accepted"] = True
+    return milestones
+
+
 def _stage(name: str, status: str, detail: Mapping[str, Any] | None = None) -> dict[str, Any]:
     now = _utc_now()
+    detail_row = dict(detail or {})
+    content_bound_trajectory_snapshot = bool(
+        str(name).startswith("campaign_snapshot_")
+        and detail_row.get("schema_version") == "campaign_anytime_snapshot.v2"
+        and str(detail_row.get("content_sha256") or "")
+        == _digest(
+            {
+                key: value
+                for key, value in detail_row.items()
+                if key != "content_sha256"
+            }
+        )
+    )
     row = {
         "stage": name,
         "status": str(status),
-        "detail": _bounded_detail(dict(detail or {})),
+        # A trajectory snapshot is itself the content-addressed authority.
+        # Truncating it for a display-oriented stage projection would corrupt
+        # the digest and make resume/replay unverifiable.
+        "detail": (
+            detail_row
+            if content_bound_trajectory_snapshot
+            else _bounded_detail(detail_row)
+        ),
     }
     if status == "running":
         row["started_at"] = now
@@ -6254,6 +6855,7 @@ def _run_director_safely(
     | tuple[Mapping[str, Any], ...]
     | None = None,
     context: Any | None = None,
+    before_plan_admission: Callable[[], None] | None = None,
     idempotency_key: str,
 ) -> dict[str, Any]:
     """Turn a bounded provider failure into an auditable unresolved outcome."""
@@ -6263,6 +6865,7 @@ def _run_director_safely(
             return service.run_global_director_with_context(
                 context,
                 mode=mode,
+                before_plan_admission=before_plan_admission,
                 idempotency_key=idempotency_key,
             ).to_dict()
         return service.run_global_director(

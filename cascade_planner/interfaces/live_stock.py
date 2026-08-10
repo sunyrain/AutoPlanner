@@ -226,6 +226,30 @@ def load_versioned_inventory_snapshot(
     return row
 
 
+class FrozenInventorySnapshotBuilder:
+    """Callable resolver bound to the exact bytes of one inventory snapshot."""
+
+    def __init__(self, path: str | Path) -> None:
+        resolved = Path(path).expanduser().resolve()
+        self.snapshot = load_versioned_inventory_snapshot(resolved)
+        self.snapshot_sha256 = _file_sha256(resolved)
+        material = {
+            "schema_version": "stock_oracle_binding.v1",
+            "kind": "frozen_inventory_snapshot",
+            "oracle_id": f"inventory-snapshot:{self.snapshot_sha256[:24]}",
+            "snapshot_sha256": self.snapshot_sha256,
+            "snapshot_schema_version": str(
+                self.snapshot.get("schema_version") or ""
+            ),
+            "outputs_require_content_addressing": True,
+        }
+        material["content_sha256"] = _digest(material)
+        self.stock_oracle_binding = material
+
+    def __call__(self, _smiles: Any, **_kwargs: Any) -> dict[str, Any]:
+        return dict(self.snapshot)
+
+
 def build_pubchem_vendor_catalog(
     smiles_values: Iterable[str],
     *,
@@ -423,6 +447,7 @@ def _file_sha256(path: Path) -> str:
 
 __all__ = [
     "FrozenBenchmarkStockIndex",
+    "FrozenInventorySnapshotBuilder",
     "LiveStockAdapterError",
     "PUBCHEM_VENDOR_ADAPTER_VERSION",
     "build_pubchem_vendor_catalog",

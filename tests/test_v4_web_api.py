@@ -76,7 +76,7 @@ def _web_biocatalysis_validation(proposal: dict) -> dict:
     )
 
 
-def test_background_job_finishes_when_benchmark_objective_is_achieved(
+def test_background_job_finishes_on_the_unified_acceptance_projection(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
@@ -86,7 +86,7 @@ def test_background_job_finishes_when_benchmark_objective_is_achieved(
             "report_path": "report.json",
             "claim": {
                 "accepted_under_configured_policy": False,
-                "objective_mode": "benchmark_search",
+                "objective_mode": "scientific_proof",
                 "objective_achieved": True,
             },
             "gates": {"gates": {"B4_stock_boundary": True}, "counts": {}},
@@ -103,6 +103,52 @@ def test_background_job_finishes_when_benchmark_objective_is_achieved(
     assert jobs["job-1"]["result"]["objective_achieved"] is True
 
 
+def test_v4_api_marks_legacy_objective_mode_as_deprecated(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    gateway = _gateway(tmp_path)
+    monkeypatch.setattr(
+        "cascade_planner.web.v4_api._run_target_job",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "cascade_planner.web.v4_api._solve_target_request",
+        lambda _gateway, _payload: {"run_id": "legacy-sync"},
+    )
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+
+    synchronous = client.post(
+        "/api/v4/solve-target",
+        json={
+            "target_name": "legacy sync view",
+            "target_smiles": "CCO",
+            "objective_mode": "procurement_delivery",
+        },
+    )
+    response = client.post(
+        "/api/v4/jobs",
+        json={
+            "target_name": "legacy view",
+            "target_smiles": "CCO",
+            "objective_mode": "benchmark_search",
+        },
+    )
+
+    assert synchronous.status_code == 201
+    assert synchronous.headers["Deprecation"] == "true"
+    assert "objective_mode is deprecated" in synchronous.headers["Warning"]
+    assert response.status_code == 202
+    assert response.headers["Deprecation"] == "true"
+    assert "objective_mode is deprecated" in response.headers["Warning"]
+    assert response.get_json()["request_warnings"] == [
+        "objective_mode is deprecated compatibility metadata; configure stock, "
+        "acceptance and budgets directly. It does not change the unified solver."
+    ]
+
+
 def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> None:
     gateway = _gateway(tmp_path)
     app = Flask(__name__)
@@ -115,10 +161,20 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
             "run_id": "web-example",
             "target_name": "ethanol",
             "target_smiles": "CCO",
+            "forbidden_reagents": ["benzene"],
+            "max_route_steps": 8,
+            "allowed_execution_domains": ["chemical", "hybrid"],
+            "safety_limits": {"max_temperature_c": 120},
+            "stock_source_ids": ["host-default"],
         },
     )
     assert created.status_code == 201
     assert created.get_json()["status"]["model_totals"]["model_invocations"] == 0
+    constraints = created.get_json()["campaign_spec"]["constraints"]
+    assert constraints["forbidden_reagents"] == ["benzene"]
+    assert constraints["max_route_steps"] == 8
+    assert constraints["allowed_execution_domains"] == ["chemical", "hybrid"]
+    assert constraints["safety_limits"] == {"max_temperature_c": 120}
 
     status = client.get("/api/v4/runs/web-example/status")
     workbench = client.get("/api/v4/runs/web-example/workbench")
@@ -176,6 +232,9 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert b"/api/v4/runs" in index.data
     assert "AutoPlanner · 统一工作区" in index.get_data(as_text=True)
     assert "路线候选可供审查，不代表证据、库存或工艺已经闭合" in index.get_data(as_text=True)
+    assert 'id="objectiveMode"' not in index.get_data(as_text=True)
+    assert "objective_mode:$('objectiveMode').value" not in index.get_data(as_text=True)
+    assert "所有任务进入同一条 anytime trajectory" in index.get_data(as_text=True)
     assert "/api/v4/workspace" in index.get_data(as_text=True)
     assert 'id="collapseLibrary"' in index.get_data(as_text=True)
     assert 'id="restoreLibrary"' in index.get_data(as_text=True)
@@ -189,6 +248,11 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert "catalog-collapsed" in index.get_data(as_text=True)
     assert "embed=1" in index.get_data(as_text=True)
     assert 'id="solveForm"' in index.get_data(as_text=True)
+    assert 'id="forbiddenReagents"' in index.get_data(as_text=True)
+    assert 'id="executionDomains"' in index.get_data(as_text=True)
+    assert "forbidden_reagents:csv($('forbiddenReagents').value)" in index.get_data(
+        as_text=True
+    )
     assert "启动逆合成" in index.get_data(as_text=True)
     assert "自进化库" in index.get_data(as_text=True)
     assert "多步 Program 作为宿主路线内的可验证替代层展示" in index.get_data(as_text=True)
@@ -198,6 +262,11 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert 'class="targetGroup"' in index.get_data(as_text=True)
     assert 'id="runFrame"' not in index.get_data(as_text=True)
     assert 'id="runDetail"' in index.get_data(as_text=True)
+    assert "统一 Action 时间线" in index.get_data(as_text=True)
+    assert "renderSelectedRunActionTimeline" in index.get_data(as_text=True)
+    assert "ChemEnzy · Codex · 证据 · 验证 · Program" in index.get_data(
+        as_text=True
+    )
     assert 'id="memoryDialog"' in index.get_data(as_text=True)
     assert "enhanceMemoryRows" in index.get_data(as_text=True)
     assert "reaction_smarts" in index.get_data(as_text=True)
@@ -205,6 +274,37 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert 'id="outputTokens"' in index.get_data(as_text=True)
     assert 'id="modelWallMinutes"' in index.get_data(as_text=True)
     assert "max_input_tokens:Number($('inputTokens').value)" in index.get_data(
+        as_text=True
+    )
+    for field_id in (
+        "totalTasks",
+        "evidenceTasks",
+        "stockTasks",
+        "validationTasks",
+        "programTasks",
+        "experimentTasks",
+        "runWallMinutes",
+    ):
+        assert f'id="{field_id}"' in index.get_data(as_text=True)
+    assert "max_total_tasks:Number($('totalTasks').value)" in index.get_data(
+        as_text=True
+    )
+    assert "max_evidence_tasks:Number($('evidenceTasks').value)" in index.get_data(
+        as_text=True
+    )
+    assert "max_stock_tasks:Number($('stockTasks').value)" in index.get_data(
+        as_text=True
+    )
+    assert "max_validation_tasks:Number($('validationTasks').value)" in index.get_data(
+        as_text=True
+    )
+    assert "max_program_tasks:Number($('programTasks').value)" in index.get_data(
+        as_text=True
+    )
+    assert "max_experiment_tasks:Number($('experimentTasks').value)" in index.get_data(
+        as_text=True
+    )
+    assert "max_run_wall_time_s:Number($('runWallMinutes').value)*60" in index.get_data(
         as_text=True
     )
     assert "inputTokens:1200000" in index.get_data(as_text=True)
@@ -851,6 +951,18 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
             "chemenzy_expansion_topk": 9,
             "chemenzy_timeout_s": 45,
             "max_model_invocations": 1,
+            "forbidden_reagents": ["benzene"],
+            "max_route_steps": 7,
+            "allowed_execution_domains": ["chemical", "hybrid"],
+            "safety_limits": {"max_temperature_c": 100},
+            "stock_source_ids": ["test-stock"],
+            "max_total_tasks": 90,
+            "max_evidence_tasks": 21,
+            "max_stock_tasks": 22,
+            "max_validation_tasks": 23,
+            "max_program_tasks": 11,
+            "max_experiment_tasks": 4,
+            "max_run_wall_time_s": 1800,
         },
     )
 
@@ -869,7 +981,20 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
     assert config.execution_profile == "standard"
     assert config.enable_initial_director_web_search is True
     assert config.max_visual_evidence_pages == 6
+    assert config.max_total_tasks == 90
+    assert config.max_evidence_tasks == 21
+    assert config.max_stock_tasks == 22
+    assert config.max_validation_tasks == 23
+    assert config.max_program_tasks == 11
+    assert config.max_experiment_tasks == 4
+    assert config.max_run_wall_time_s == 1800
     assert captured["budget"].max_model_invocations == 1
+    constraints = captured["constraints"]
+    assert constraints.forbidden_reagents == ("benzene",)
+    assert constraints.max_route_steps == 7
+    assert constraints.allowed_execution_domains == ("chemical", "hybrid")
+    assert constraints.safety_limits["max_temperature_c"] == 100
+    assert constraints.stock_source_ids == ("test-stock",)
 
 
 def test_v4_proof_profile_keeps_depth_but_uses_a_returnable_search_width() -> None:
@@ -919,6 +1044,15 @@ def test_v4_async_job_separates_execution_end_from_scientific_acceptance() -> No
                 },
                 "claim": {"accepted_under_configured_policy": False},
                 "model_cost": {"model_invocations": 1},
+                "resource_envelope": {
+                    "within_budget": True,
+                    "observed": {"run_wall_time_s": 1.5},
+                    "task_budget": {
+                        "schema_version": "campaign_task_budget.v1",
+                        "dimensions": {"program": {"limit": 7}},
+                    },
+                    "violations": [],
+                },
             }
 
         def status(self, _run_id):
@@ -947,6 +1081,12 @@ def test_v4_async_job_separates_execution_end_from_scientific_acceptance() -> No
 
     assert value["result"]["highest_contiguous_gate"] == "B1"
     assert value["result"]["model_cost"]["model_invocations"] == 1
+    assert value["result"]["resource_envelope"]["observed"] == {
+        "run_wall_time_s": 1.5
+    }
+    assert value["result"]["resource_envelope"]["task_budget"]["dimensions"][
+        "program"
+    ] == {"limit": 7}
     assert value["progress"]["delivery"]["proof_closure_complete"] is False
 
 
@@ -1001,7 +1141,25 @@ def test_v4_job_list_projects_the_live_checkpoint_stage(tmp_path: Path) -> None:
         def solve_target(self, **kwargs):
             checkpoint.parent.mkdir(parents=True, exist_ok=True)
             checkpoint.write_text(
-                json.dumps({"stages": [{"stage": "chemenzy_baseline", "status": "running"}]}),
+                json.dumps(
+                    {
+                        "stages": [
+                            {
+                                "stage": "campaign_action_unified_core_01",
+                                "status": "completed",
+                                "detail": {
+                                    "action": {
+                                        "execution_id": "campaign-action:chemenzy",
+                                        "action_id": "action:chemenzy_target_expand:1",
+                                        "kind": "chemenzy_target_expand",
+                                    },
+                                    "outcome": {"status": "completed"},
+                                },
+                            },
+                            {"stage": "chemenzy_baseline", "status": "running"},
+                        ]
+                    }
+                ),
                 encoding="utf-8",
             )
             release.wait(2)
@@ -1012,6 +1170,15 @@ def test_v4_job_list_projects_the_live_checkpoint_stage(tmp_path: Path) -> None:
                 "run_dir": str(run_dir),
                 "status": {
                     "status": "running",
+                    "active_actions": [
+                        {
+                            "execution_id": "campaign-action:codex",
+                            "action_id": "action:codex_global_architecture:1",
+                            "kind": "codex_global_architecture",
+                            "producer": "codex_global_director",
+                            "resource_class": "model",
+                        }
+                    ],
                     "portfolio": {},
                     "frontier": [],
                     "stop_decision": {},
@@ -1043,6 +1210,10 @@ def test_v4_job_list_projects_the_live_checkpoint_stage(tmp_path: Path) -> None:
 
     assert listed[0]["phase"] == "chemenzy_baseline"
     assert listed[0]["progress"]["stages"][-1]["status"] == "running"
+    timeline = listed[0]["progress"]["action_timeline"]
+    assert timeline["record_count"] == 2
+    assert timeline["actor_counts"] == {"ChemEnzy": 1, "Codex": 1}
+    assert timeline["state_counts"] == {"running": 1, "succeeded": 1}
 
 
 def test_v4_delivery_projection_exposes_routes_before_proof_closure() -> None:

@@ -1225,7 +1225,7 @@ body.is-resizing * {
 .closure-status-content {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 6px;
 }
 
@@ -1317,6 +1317,86 @@ body.is-resizing * {
 .run-control-chip[data-state="unknown"] {
   border-style: dashed;
   color: var(--text-faint);
+}
+
+.trajectory-history-panel {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(150px, 0.2fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: var(--radius-control);
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--accent-soft) 18%, var(--surface));
+}
+
+.trajectory-history-heading {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.trajectory-history-heading strong {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.trajectory-history-heading span {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trajectory-milestones {
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.trajectory-milestone {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  gap: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 8.5px;
+}
+
+.trajectory-milestone strong {
+  color: var(--text-secondary);
+  font-size: 9.5px;
+}
+
+.trajectory-milestone small {
+  grid-column: 1 / -1;
+  color: var(--text-faint);
+  font-size: 8px;
+}
+
+.trajectory-milestone[data-state="current"] {
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border));
+  background: color-mix(in srgb, var(--success-soft) 64%, var(--surface-raised));
+}
+
+.trajectory-milestone[data-state="historical_only"] {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border));
+  background: color-mix(in srgb, var(--warning-soft) 64%, var(--surface-raised));
+}
+
+.trajectory-milestone[data-state="not_achieved"],
+.trajectory-milestone[data-state="unavailable"] {
+  border-style: dashed;
+  opacity: 0.72;
 }
 
 .closure-status-grid {
@@ -4005,6 +4085,10 @@ body.embedded-route.inspector-collapsed .workbench-grid {
 
   .run-control-chip {
     flex: 0 0 132px;
+  }
+
+  .trajectory-history-panel {
+    grid-template-columns: 1fr;
   }
 
   .closure-status-grid {

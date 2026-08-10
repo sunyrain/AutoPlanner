@@ -56,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--panel-workers", type=int, choices=(1, 2), default=1)
     parser.add_argument("--parallel-arms", type=int, choices=(1, 2, 3, 4), default=1)
+    parser.add_argument("--fixed-cutoff-wall-time-s", type=float, default=7_200.0)
+    parser.add_argument("--fixed-cutoff-total-tasks", type=int, default=256)
     parser.add_argument(
         "--max-targets",
         type=int,
@@ -69,6 +71,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args(argv)
+    if args.fixed_cutoff_wall_time_s <= 0:
+        raise SystemExit("--fixed-cutoff-wall-time-s must be positive")
+    if args.fixed_cutoff_total_tasks <= 0:
+        raise SystemExit("--fixed-cutoff-total-tasks must be positive")
 
     output_root = args.output_root.expanduser().resolve()
     stock_index = args.stock_index.expanduser().resolve()
@@ -92,6 +98,10 @@ def main(argv: list[str] | None = None) -> int:
         "execution_profile": args.execution_profile,
         "panel_workers": args.panel_workers,
         "parallel_arms": min(args.parallel_arms, len(arms)),
+        "fixed_cutoff": {
+            "wall_time_s": args.fixed_cutoff_wall_time_s,
+            "settled_task_count": args.fixed_cutoff_total_tasks,
+        },
         "max_targets": args.max_targets,
         "arms": {arm: {"status": "queued"} for arm in arms},
         "semantics": {
@@ -120,8 +130,6 @@ def main(argv: list[str] | None = None) -> int:
             args.reasoning_effort,
             "--execution-profile",
             args.execution_profile,
-            "--objective-mode",
-            "benchmark_search",
             "--workers",
             str(args.panel_workers),
             "--ablation",
@@ -132,6 +140,10 @@ def main(argv: list[str] | None = None) -> int:
             args.stock_name,
             "--chemenzy-env-prefix",
             args.chemenzy_env_prefix,
+            "--fixed-cutoff-wall-time-s",
+            str(args.fixed_cutoff_wall_time_s),
+            "--fixed-cutoff-total-tasks",
+            str(args.fixed_cutoff_total_tasks),
         ]
         if args.max_targets is not None:
             command.extend(["--max-targets", str(args.max_targets)])

@@ -128,7 +128,7 @@ def dispatch_current_route_experiment(
     }
     kernel.reserve_task(
         task_id=task_id,
-        kind="validation",
+        kind="experiment",
         idempotency_key=f"experiment-dispatch:reserve:{dispatch_id}",
         input_revision=kernel.state.graph_revision,
         metadata=metadata,

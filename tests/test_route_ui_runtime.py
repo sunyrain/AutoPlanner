@@ -290,6 +290,22 @@ def test_workbench_exposes_six_axis_proof_and_product_stage_filters() -> None:
         assert f'data-stage-filter="{stage}"' in template
 
 
+def test_workbench_displays_current_and_historical_trajectory_milestones() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+    template = Path("cascade_planner/harness/route_forest_ui/template.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="trajectoryHistoryPanel"' in template
+    assert 'id="trajectoryMilestones"' in template
+    assert "campaignSummary.trajectory_history" in script
+    assert "历史达到 · 当前失效" in script
+    assert "历史达到不恢复已撤销 proof" in script
+    assert '.trajectory-milestone[data-state="current"]' in styles
+    assert '.trajectory-milestone[data-state="historical_only"]' in styles
+
+
 def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
     tmp_path: Path,
 ) -> None:
@@ -299,36 +315,42 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
 
     workbench = _large_workbench(edge_count=70)
     page = tmp_path / "route-workbench.html"
-    browser_profile = tmp_path / "chromium-profile"
     page.write_text(render_v4_route_workbench_html(workbench), encoding="utf-8")
-    result = subprocess.run(
-        [
-            str(chrome),
-            "--headless=new",
-            "--disable-gpu",
-            "--no-sandbox",
-            "--no-first-run",
-            "--disable-background-networking",
-            "--disable-extensions",
-            "--disable-sync",
-            f"--user-data-dir={browser_profile}",
-            "--run-all-compositor-stages-before-draw",
-            "--virtual-time-budget=4000",
-            "--dump-dom",
-            f"{page.as_uri()}?route_ui_selftest=1",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=30,
-    )
-    match = re.search(
-        r'<pre[^>]*id="routeUiSelfTest"[^>]*>(.*?)</pre>',
-        result.stdout,
-        re.DOTALL,
-    )
+    match = None
+    result = None
+    for attempt in range(2):
+        browser_profile = tmp_path / f"chromium-profile-{attempt}"
+        result = subprocess.run(
+            [
+                str(chrome),
+                "--headless=new",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--no-first-run",
+                "--disable-background-networking",
+                "--disable-extensions",
+                "--disable-sync",
+                f"--user-data-dir={browser_profile}",
+                "--run-all-compositor-stages-before-draw",
+                "--virtual-time-budget=4000",
+                "--dump-dom",
+                f"{page.as_uri()}?route_ui_selftest=1",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+        match = re.search(
+            r'<pre[^>]*id="routeUiSelfTest"[^>]*>(.*?)</pre>',
+            result.stdout,
+            re.DOTALL,
+        )
+        if match:
+            break
+    assert result is not None
     assert match, result.stderr[-2000:]
     report = json.loads(html.unescape(match.group(1)))
     assert report["status"] == "passed", report

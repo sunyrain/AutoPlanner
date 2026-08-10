@@ -10,7 +10,11 @@ from typing import Any, Iterable, Mapping
 
 CAMPAIGN_ACTION_OPPORTUNITY_SCHEMA = "campaign_action_opportunity.v1"
 CAMPAIGN_ACTION_SET_SCHEMA = "campaign_action_opportunity_set.v1"
-CAMPAIGN_ACTION_SCHEMA = "campaign_action.v1"
+LEGACY_CAMPAIGN_ACTION_SCHEMA = "campaign_action.v1"
+CAMPAIGN_ACTION_SCHEMA = "campaign_action.v2"
+CAMPAIGN_ACTION_RESOURCE_ESTIMATE_SCHEMA = "campaign_action_resource_estimate.v1"
+ACTION_ESTIMATE_SCHEMA = "campaign_action_estimate.v1"
+ACTION_RESULT_SCHEMA = "campaign_action_result.v1"
 
 
 class CampaignActionKind(str, Enum):
@@ -49,8 +53,14 @@ class CampaignActionOpportunity:
     expected_route_gain: float
     expected_proof_gain: float
     expected_diversity_gain: float
+    expected_dependency_unblock_count: int
+    expected_novelty_gain: float
+    success_probability_low: float
+    success_probability_high: float
+    success_probability_assessed: bool
     cost_penalty: float
     failure_risk_penalty: float
+    uncertainty: Mapping[str, Any]
     reason: str
     metadata: Mapping[str, Any]
     schema_version: str = CAMPAIGN_ACTION_OPPORTUNITY_SCHEMA
@@ -63,6 +73,7 @@ class CampaignActionOpportunity:
             "route_family_ids": list(self.route_family_ids),
             "dependency_ids": list(self.dependency_ids),
             "metadata": _json_value(self.metadata),
+            "uncertainty": _json_value(self.uncertainty),
         }
         row["content_sha256"] = _digest(row)
         return row
@@ -81,6 +92,8 @@ class CampaignAction:
     route_family_ids: tuple[str, ...]
     producer: str
     resource_class: str
+    estimate: Mapping[str, Any]
+    expected_resources: Mapping[str, Any]
     task_id: str
     idempotency_key: str
     reason: str
@@ -109,10 +122,62 @@ class CampaignAction:
             "subject_ids": list(self.subject_ids),
             "route_family_ids": list(self.route_family_ids),
             "metadata": _json_value(self.metadata),
+            "estimate": _json_value(self.estimate),
+            "expected_resources": _json_value(self.expected_resources),
             "semantics": {
                 "revision_bound": True,
                 "wrapper_task_delegates_resource_accounting_to_handler": True,
                 "grants_no_scientific_authority": True,
+            },
+        }
+        row["content_sha256"] = _digest(row)
+        return row
+
+
+@dataclass(frozen=True, slots=True)
+class ActionResult:
+    action_execution_id: str
+    action_sha256: str
+    status: str
+    input_revision: int
+    output_revision: int
+    immutable_artifact_refs: tuple[Mapping[str, Any], ...]
+    actual_resources: Mapping[str, Any]
+    resource_accounting: Mapping[str, Any]
+    resource_reservation: Mapping[str, Any]
+    material_events: tuple[Any, ...]
+    candidate_delta: Mapping[str, Any]
+    fact_delta: Mapping[str, Any]
+    failure_type: str
+    failure_reasons: tuple[str, ...]
+    elapsed_s: float
+    handler_result: Mapping[str, Any]
+    schema_version: str = ACTION_RESULT_SCHEMA
+
+    def __post_init__(self) -> None:
+        if min(self.input_revision, self.output_revision) < 0:
+            raise ValueError("action result revisions cannot be negative")
+        if not self.action_execution_id or not self.action_sha256:
+            raise ValueError("action result identity is incomplete")
+
+    def to_dict(self) -> dict[str, Any]:
+        row = {
+            **asdict(self),
+            "immutable_artifact_refs": _json_value(
+                self.immutable_artifact_refs
+            ),
+            "actual_resources": _json_value(self.actual_resources),
+            "resource_accounting": _json_value(self.resource_accounting),
+            "resource_reservation": _json_value(self.resource_reservation),
+            "material_events": _json_value(self.material_events),
+            "candidate_delta": _json_value(self.candidate_delta),
+            "fact_delta": _json_value(self.fact_delta),
+            "failure_reasons": list(self.failure_reasons),
+            "handler_result": _json_value(self.handler_result),
+            "semantics": {
+                "result_artifact_ref_is_owned_by_execution_envelope": True,
+                "candidate_and_fact_deltas_grant_no_authority": True,
+                "canonical_ingestion_remains_the_only_fact_write_path": True,
             },
         }
         row["content_sha256"] = _digest(row)
@@ -138,10 +203,16 @@ def bind_scheduled_action(
         }
     )
     execution_id = f"campaign-action:{identity}"
+    kind = CampaignActionKind(str(selected.get("kind") or ""))
+    resource_class = str(selected.get("resource_class") or "")
+    expected_resources = compile_action_resource_estimate(
+        kind=kind,
+        resource_class=resource_class,
+    )
     return CampaignAction(
         execution_id=execution_id,
         action_id=str(selected.get("action_id") or ""),
-        kind=CampaignActionKind(str(selected.get("kind") or "")),
+        kind=kind,
         deficit_id=str(selected.get("deficit_id") or ""),
         input_revision=int(input_revision),
         opportunity_sha256=opportunity_sha256,
@@ -157,7 +228,12 @@ def bind_scheduled_action(
             )
         ),
         producer=str(selected.get("producer") or ""),
-        resource_class=str(selected.get("resource_class") or ""),
+        resource_class=resource_class,
+        estimate=compile_action_estimate(
+            selected,
+            expected_resources=expected_resources,
+        ),
+        expected_resources=expected_resources,
         task_id=f"campaign-action:{identity[:24]}",
         idempotency_key=f"campaign-action:{identity}",
         reason=str(selected.get("reason") or ""),
@@ -175,6 +251,142 @@ def bind_scheduled_action(
             ),
         },
     )
+
+
+def action_task_kind(resource_class: str) -> str:
+    """Return the RunKernel task class owned by the Action wrapper."""
+
+    return {
+        "program": "program",
+        "experiment": "experiment",
+    }.get(str(resource_class or ""), "other")
+
+
+def compile_action_resource_estimate(
+    *,
+    kind: CampaignActionKind | str,
+    resource_class: str,
+) -> dict[str, Any]:
+    """Declare a target-blind class estimate before Action reservation."""
+
+    normalized_kind = (
+        kind if isinstance(kind, CampaignActionKind) else CampaignActionKind(str(kind))
+    )
+    normalized_resource = str(resource_class or "")
+    wrapper_kind = action_task_kind(normalized_resource)
+    delegated_task_counts = {
+        value: 1
+        for value in (normalized_resource,)
+        if value in {"model", "evidence", "stock", "validation"}
+    }
+    estimated_task_counts = {wrapper_kind: 1}
+    for task_kind, count in delegated_task_counts.items():
+        estimated_task_counts[task_kind] = (
+            int(estimated_task_counts.get(task_kind) or 0) + count
+        )
+    native_units = (
+        1
+        if normalized_resource
+        in {"native_search_target", "native_search_frontier"}
+        else 0
+    )
+    result = {
+        "schema_version": CAMPAIGN_ACTION_RESOURCE_ESTIMATE_SCHEMA,
+        "action_kind": normalized_kind.value,
+        "resource_class": normalized_resource,
+        "wrapper": {
+            "task_kind": wrapper_kind,
+            "task_count": 1,
+        },
+        "estimated": {
+            "task_counts": dict(sorted(estimated_task_counts.items())),
+            "total_tasks": sum(estimated_task_counts.values()),
+            "native_search_units": native_units,
+            "model_invocations": int(normalized_resource == "model"),
+            "visual_invocations": 0,
+        },
+        "unknown_dimensions": (
+            ["input_tokens", "output_tokens", "model_wall_time_s"]
+            if normalized_resource == "model"
+            else []
+        ),
+        "basis": "target_blind_action_resource_class",
+        "semantics": {
+            "estimate_is_not_scientific_authority": True,
+            "handler_children_may_create_a_measured_variance": True,
+        },
+    }
+    result["content_sha256"] = _digest(result)
+    return result
+
+
+def compile_action_estimate(
+    opportunity: Mapping[str, Any],
+    *,
+    expected_resources: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Compile the complete pre-reservation estimate without target labels."""
+
+    row = dict(opportunity)
+    result = {
+        "schema_version": ACTION_ESTIMATE_SCHEMA,
+        "action_id": str(row.get("action_id") or ""),
+        "action_kind": str(row.get("kind") or ""),
+        "success_probability": {
+            "low": float(row.get("success_probability_low") or 0.0),
+            "high": float(
+                row.get("success_probability_high")
+                if row.get("success_probability_high") is not None
+                else 1.0
+            ),
+            "assessed": row.get("success_probability_assessed") is True,
+        },
+        "expected_gain": {
+            "route": float(row.get("expected_route_gain") or 0.0),
+            "proof": float(row.get("expected_proof_gain") or 0.0),
+            "diversity": float(row.get("expected_diversity_gain") or 0.0),
+            "dependency_unblock_count": max(
+                0,
+                int(row.get("expected_dependency_unblock_count") or 0),
+            ),
+            "novelty": float(row.get("expected_novelty_gain") or 0.0),
+        },
+        "cost": {
+            "penalty": float(row.get("cost_penalty") or 0.0),
+            "resource_class": str(row.get("resource_class") or ""),
+            "expected_resources": dict(expected_resources),
+        },
+        "uncertainty": {
+            **dict(row.get("uncertainty") or {}),
+            "success_probability": (
+                "assessed"
+                if row.get("success_probability_assessed") is True
+                else "unassessed_full_interval"
+            ),
+            "resource_unknown_dimensions": list(
+                expected_resources.get("unknown_dimensions") or []
+            ),
+        },
+        "basis": "canonical_deficit_frontier_score",
+        "semantics": {
+            "target_labels_are_not_inputs": True,
+            "estimate_is_not_execution_result": True,
+            "unassessed_probability_is_not_imputed": True,
+        },
+    }
+    result["content_sha256"] = _digest(result)
+    return result
+
+
+def legacy_campaign_action_sha256(action: CampaignAction) -> str:
+    """Recompute the exact pre-resource-contract Action identity."""
+
+    row = action.to_dict()
+    row.pop("content_sha256", None)
+    row.pop("estimate", None)
+    row.pop("expected_resources", None)
+    row["schema_version"] = LEGACY_CAMPAIGN_ACTION_SCHEMA
+    return _digest(row)
 
 
 def compile_action_opportunities(
@@ -197,6 +409,7 @@ def compile_action_opportunities(
         mappings = _action_mappings(row)
         for action_kind, producer, resource_class in mappings:
             score = dict(row.get("score") or {})
+            probability = _success_probability_interval(score)
             identity = _digest(
                 {
                     "deficit_id": str(row.get("deficit_id") or ""),
@@ -245,9 +458,28 @@ def compile_action_opportunities(
                     expected_diversity_gain=float(
                         score.get("route_diversity_gain") or 0.0
                     ),
+                    expected_dependency_unblock_count=max(
+                        0,
+                        int(
+                            score.get("dependency_unblock_count")
+                            or score.get("dependency_unblock_gain")
+                            or 0
+                        ),
+                    ),
+                    expected_novelty_gain=float(
+                        score.get("novelty_gain") or score.get("novelty") or 0.0
+                    ),
+                    success_probability_low=probability[0],
+                    success_probability_high=probability[1],
+                    success_probability_assessed=probability[2],
                     cost_penalty=float(score.get("cost_penalty") or 0.0),
                     failure_risk_penalty=float(
                         score.get("failure_risk_penalty") or 0.0
+                    ),
+                    uncertainty=(
+                        dict(score["uncertainty"])
+                        if isinstance(score.get("uncertainty"), Mapping)
+                        else {}
                     ),
                     reason=str(row.get("reason") or ""),
                     metadata={
@@ -281,6 +513,35 @@ def compile_action_opportunities(
     }
     result["content_sha256"] = _digest(result)
     return result
+
+
+def _success_probability_interval(
+    score: Mapping[str, Any],
+) -> tuple[float, float, bool]:
+    interval = score.get("success_probability_interval")
+    if isinstance(interval, (list, tuple)) and len(interval) == 2:
+        low = _probability(interval[0])
+        high = _probability(interval[1])
+        if low is not None and high is not None and low <= high:
+            return low, high, True
+    low = _probability(score.get("success_probability_low"))
+    high = _probability(score.get("success_probability_high"))
+    if low is not None and high is not None and low <= high:
+        return low, high, True
+    point = _probability(score.get("success_probability"))
+    if point is not None:
+        return point, point, True
+    return 0.0, 1.0, False
+
+
+def _probability(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if 0.0 <= result <= 1.0 else None
 
 
 def _action_mappings(
@@ -317,14 +578,14 @@ def _action_mappings(
         return ((CampaignActionKind.PROGRAM_ADMIT, "program_host", "program"),)
     if kind == "program_validation":
         return (
-            (CampaignActionKind.PROGRAM_VALIDATE, "program_validator", "validation"),
+            (CampaignActionKind.PROGRAM_VALIDATE, "program_validator", "program"),
         )
     if kind == "experiment_feedback":
         return (
             (
                 CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST,
                 "experimental_claim_host",
-                "validation",
+                "experiment",
             ),
         )
     if kind == "validation":
@@ -412,9 +673,17 @@ def _digest(value: Any) -> str:
 
 
 __all__ = [
+    "ACTION_ESTIMATE_SCHEMA",
+    "ACTION_RESULT_SCHEMA",
+    "ActionResult",
+    "CAMPAIGN_ACTION_RESOURCE_ESTIMATE_SCHEMA",
     "CampaignAction",
     "CampaignActionKind",
     "CampaignActionOpportunity",
+    "action_task_kind",
     "bind_scheduled_action",
+    "compile_action_resource_estimate",
+    "compile_action_estimate",
     "compile_action_opportunities",
+    "legacy_campaign_action_sha256",
 ]

@@ -29,6 +29,10 @@ from cascade_planner.application.blind_benchmark_contract import (  # noqa: E402
     canonical_smiles,
     load_blind_manifest,
 )
+from cascade_planner.application.campaign_trajectory import (  # noqa: E402
+    TRAJECTORY_CUTOFF_PROJECTION_SCHEMA,
+    project_campaign_trajectory_at_cutoff,
+)
 from cascade_planner.interfaces.target_runtime_dependencies import (  # noqa: E402
     TARGET_PROFILE_DEFAULTS,
 )
@@ -48,8 +52,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--objective-mode",
         choices=("benchmark_search", "scientific_proof", "procurement_delivery"),
-        default="benchmark_search",
+        default=None,
+        help=argparse.SUPPRESS,
     )
+    parser.add_argument("--fixed-cutoff-wall-time-s", type=float, default=7_200.0)
+    parser.add_argument("--fixed-cutoff-total-tasks", type=int, default=256)
     parser.add_argument("--workers", type=int, choices=(1, 2), default=1)
     parser.add_argument("--only", action="append", default=[])
     parser.add_argument(
@@ -135,6 +142,22 @@ def main(argv: list[str] | None = None) -> int:
         help="override a selected ChemEnzy stock with an explicit CSV path",
     )
     args = parser.parse_args(argv)
+    if args.objective_mode is not None:
+        print(
+            "warning: --objective-mode is ignored by the blind panel; "
+            "scores are read-only fixed-cutoff trajectory projections",
+            file=sys.stderr,
+        )
+    if args.fixed_cutoff_wall_time_s <= 0:
+        raise SystemExit("--fixed-cutoff-wall-time-s must be positive")
+    if args.fixed_cutoff_total_tasks <= 0:
+        raise SystemExit("--fixed-cutoff-total-tasks must be positive")
+    projection_policy = {
+        "schema_version": "campaign_fixed_cutoff_policy.v1",
+        "wall_time_s": float(args.fixed_cutoff_wall_time_s),
+        "settled_task_count": int(args.fixed_cutoff_total_tasks),
+        "case_budget_dimensions_are_applied": True,
+    }
 
     manifest = Path(args.manifest).expanduser().resolve()
     output_root = Path(args.output_root).expanduser().resolve()
@@ -156,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         reasoning_effort=args.reasoning_effort,
         execution_profile=args.execution_profile,
-        objective_mode=args.objective_mode,
+        projection_policy=projection_policy,
         worker_count=args.workers,
         visual=args.visual,
         ablation=args.ablation,
@@ -180,7 +203,8 @@ def main(argv: list[str] | None = None) -> int:
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
         "execution_profile": args.execution_profile,
-        "objective_mode": args.objective_mode,
+        "fixed_cutoff_policy": projection_policy,
+        "ignored_legacy_objective_mode": str(args.objective_mode or ""),
         "ablation": args.ablation,
         "worker_count": args.workers,
         "chemenzy_env_prefix": str(args.chemenzy_env_prefix or ""),
@@ -228,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
             "every_target_receives_a_case_local_copy_of_the_same_seed_memory": True,
             "ablation_changes_exactly_one_declared_subsystem": True,
             "target_subset_is_explicit_and_frozen": True,
+            "scores_are_fixed_cutoff_trajectory_projections": True,
+            "legacy_objective_mode_does_not_reach_the_solver": True,
         },
     }
     _write_json(status_path, state)
@@ -291,7 +317,8 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             reasoning_effort=args.reasoning_effort,
             execution_profile=args.execution_profile,
-            objective_mode=args.objective_mode,
+            fixed_cutoff_wall_time_s=args.fixed_cutoff_wall_time_s,
+            fixed_cutoff_total_tasks=args.fixed_cutoff_total_tasks,
             resume=args.resume,
             visual=args.visual,
             chemenzy_env_prefix=args.chemenzy_env_prefix,
@@ -371,7 +398,8 @@ def _run_case(
     benchmark_stock_index: str | None,
     benchmark_stock_name: str,
     leakage_audit_pack: str | None,
-    objective_mode: str = "benchmark_search",
+    fixed_cutoff_wall_time_s: float = 7_200.0,
+    fixed_cutoff_total_tasks: int = 256,
 ) -> dict[str, Any]:
     run_id = _run_id_for_case(case)
     run_dir = output_root / "runs" / case.target_name
@@ -386,16 +414,6 @@ def _run_case(
         run_dir=run_dir,
         resume=resume,
     )
-    can_resume = resume and (run_dir / ".autoplanner" / "kernel" / "run_spec.json").is_file()
-    if run_dir.exists() and any(run_dir.iterdir()) and not can_resume:
-        if report_path.is_file():
-            return _summarize_report(
-                report_path,
-                elapsed_s=0.0,
-                reused=True,
-                snapshot_receipt=case_snapshot,
-            )
-        raise RuntimeError("non_fresh_run_dir_requires_resume")
     budget = dict(case.budget)
     proof_profile = execution_profile == "proof"
     profile_defaults = TARGET_PROFILE_DEFAULTS[execution_profile]
@@ -407,8 +425,6 @@ def _run_case(
         int(profile_defaults["max_input_tokens"]),
         int(budget.get("max_total_input_tokens") or 0),
     )
-    # Keep the profile-level cumulative envelope available for the initial
-    # architecture, evidence-aware replan, and final portfolio synthesis.
     max_output_tokens = max(
         int(profile_defaults["max_output_tokens"]),
         int(budget.get("max_total_output_tokens") or 0),
@@ -422,6 +438,27 @@ def _run_case(
         int(budget.get("max_accepted_expansions") or 0),
     )
     max_attempt_runs = max(128, int(budget.get("max_attempt_runs") or 0))
+    cutoff = {
+        "wall_time_s": float(fixed_cutoff_wall_time_s),
+        "settled_task_count": int(fixed_cutoff_total_tasks),
+        "attempt_count": max_attempt_runs,
+        "accepted_expansion_count": max_accepted_expansions,
+        "model_invocations": max_model_invocations,
+        "input_tokens": max_input_tokens,
+        "output_tokens": max_output_tokens,
+        "model_wall_time_s": float(max_wall_time_s),
+    }
+    can_resume = resume and (run_dir / ".autoplanner" / "kernel" / "run_spec.json").is_file()
+    if run_dir.exists() and any(run_dir.iterdir()) and not can_resume:
+        if report_path.is_file():
+            return _summarize_report(
+                report_path,
+                elapsed_s=0.0,
+                reused=True,
+                snapshot_receipt=case_snapshot,
+                cutoff=cutoff,
+            )
+        raise RuntimeError("non_fresh_run_dir_requires_resume")
     generous_search = max_accepted_expansions >= 96 or max_model_invocations >= 5
     command = [
         sys.executable,
@@ -446,8 +483,6 @@ def _run_case(
         reasoning_effort,
         "--execution-profile",
         execution_profile,
-        "--objective-mode",
-        objective_mode,
         "--target-chemenzy-baseline",
         "--chemenzy-provider-route-reserve",
         "16",
@@ -471,6 +506,10 @@ def _run_case(
         str(max_accepted_expansions),
         "--max-attempt-runs",
         str(max_attempt_runs),
+        "--max-total-tasks",
+        str(int(fixed_cutoff_total_tasks)),
+        "--max-run-wall-time-s",
+        str(float(fixed_cutoff_wall_time_s)),
         "--max-map-reactions",
         "64",
         "--max-stock-molecules",
@@ -574,6 +613,7 @@ def _run_case(
         elapsed_s=elapsed_s,
         reused=False,
         snapshot_receipt=case_snapshot,
+        cutoff=cutoff,
     )
 
 
@@ -634,7 +674,7 @@ def _prepare_panel_snapshot(
     benchmark_stock_name: str = "",
     leakage_audit_pack: str | None,
     resume: bool,
-    objective_mode: str = "benchmark_search",
+    projection_policy: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     snapshot_path = output_root / "snapshots" / "benchmark-snapshot.json"
     seed = _optional_file(self_evo_library_seed, "self_evo_library_seed")
@@ -648,7 +688,6 @@ def _prepare_panel_snapshot(
         "model": model,
         "reasoning_effort": reasoning_effort,
         "execution_profile": execution_profile,
-        "objective_mode": objective_mode,
         "worker_count": worker_count,
         "visual_enabled": visual,
         "codex_cli": _binary_fingerprint(shutil.which("codex")),
@@ -679,6 +718,7 @@ def _prepare_panel_snapshot(
         "selected_case_ids": sorted(case.case_id for case in cases),
         "provider_snapshot": provider_snapshot,
         "knowledge": knowledge,
+        "projection_policy": dict(projection_policy or {}),
     }
     expected = {
         "schema_version": "v4_blind_benchmark_snapshot.v1",
@@ -690,6 +730,7 @@ def _prepare_panel_snapshot(
             "case_local_memory_copies_prevent_cross_target_learning_leakage": True,
             "snapshot_is_reproducibility_metadata_not_scientific_authority": True,
             "remote_provider_identity_is_recorded_but_not_bitwise_frozen": True,
+            "evaluation_projection_cannot_change_solver_control_flow": True,
         },
     }
     if snapshot_path.is_file():
@@ -809,6 +850,7 @@ def _summarize_report(
     *,
     elapsed_s: float,
     reused: bool,
+    cutoff: Mapping[str, int | float],
     snapshot_receipt: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     report = json.loads(path.read_text(encoding="utf-8"))
@@ -817,6 +859,31 @@ def _summarize_report(
     counts = dict(gate_report.get("counts") or {})
     claim = dict(report.get("claim") or {})
     model = dict(report.get("model_cost") or {})
+    try:
+        projection = project_campaign_trajectory_at_cutoff(
+            dict(report.get("trajectory") or {}),
+            cutoff=cutoff,
+        )
+    except (TypeError, ValueError) as exc:
+        projection = {
+            "schema_version": TRAJECTORY_CUTOFF_PROJECTION_SCHEMA,
+            "available": False,
+            "cutoff": dict(cutoff),
+            "unavailable_reason": f"{type(exc).__name__}:{exc}"[:1000],
+            "gate_summary": {},
+            "gate_counts": {},
+            "route_counts": {},
+            "resource_usage": {},
+            "observed_resources": {},
+            "time_to_first": {},
+        }
+    projection_available = projection.get("available") is True
+    projected_gates = dict(projection.get("gate_summary") or {})
+    projected_counts = dict(projection.get("gate_counts") or {})
+    projected_resources = dict(projection.get("observed_resources") or {})
+    projected_model = dict(
+        dict(projection.get("resource_usage") or {}).get("model") or {}
+    )
     stages = list(report.get("stages") or [])
     chemenzy_stages = [
         {"stage": str(row.get("stage") or ""), **dict(row.get("detail") or {})}
@@ -847,35 +914,49 @@ def _summarize_report(
     ]
     preflight_case = dict(dict(report.get("preflight") or {}).get("case") or {})
     return {
-        "status": "completed",
+        "status": "completed" if projection_available else "projection_unavailable",
         "case_id": str(preflight_case.get("case_id") or report.get("run_id") or ""),
         "claim": (
-            "benchmark_search_completed"
-            if claim.get("benchmark_search_completed") is True
-            else str(claim.get("achieved_profile") or "unresolved")
+            "fixed_cutoff_stock_closed"
+            if projected_gates.get("B4") is True
+            else "fixed_cutoff_observed"
         ),
-        "objective_mode": str(claim.get("objective_mode") or "scientific_proof"),
-        "objective_achieved": claim.get("objective_achieved") is True,
-        "accepted_under_configured_policy": (claim.get("accepted_under_configured_policy") is True),
-        "elapsed_s": elapsed_s,
+        "accepted_under_configured_policy": projected_gates.get("B5") is True,
+        "elapsed_s": projected_resources.get("wall_time_s"),
+        "runner_elapsed_s": elapsed_s,
         "reused": reused,
         "run_id": str(report.get("run_id") or ""),
         "run_dir": str(report.get("run_dir") or path.parent),
         "report_path": str(path),
         "snapshot_receipt": dict(snapshot_receipt or {}),
-        "model_cost": model,
-        "within_resource_budget": bool(
-            dict(report.get("resource_envelope") or {}).get("within_budget")
-        ),
+        "model_cost": projected_model,
+        "within_resource_budget": projection_available,
         "false_closure_claim_count": int(gate_report.get("false_closure_claim_count") or 0),
-        "attempt_count": int(report.get("attempt_count") or 0),
-        "accepted_expansion_count": int(report.get("accepted_expansion_count") or 0),
-        "gate_summary": {
-            key.split("_", 1)[0]: bool(value)
-            for key, value in gates.items()
-            if key[:2] in {"B0", "B1", "B2", "B3", "B4", "B5"}
+        "attempt_count": int(projected_resources.get("attempt_count") or 0),
+        "accepted_expansion_count": int(
+            projected_resources.get("accepted_expansion_count") or 0
+        ),
+        "gate_summary": projected_gates,
+        "route_counts": projected_counts,
+        "anytime_route_counts": dict(projection.get("route_counts") or {}),
+        "fixed_cutoff_projection": projection,
+        "final_state": {
+            "claim": claim,
+            "gate_summary": {
+                key.split("_", 1)[0]: bool(value)
+                for key, value in gates.items()
+                if key[:2] in {"B0", "B1", "B2", "B3", "B4", "B5"}
+            },
+            "route_counts": counts,
+            "model_cost": model,
+            "within_resource_budget": bool(
+                dict(report.get("resource_envelope") or {}).get("within_budget")
+            ),
+            "attempt_count": int(report.get("attempt_count") or 0),
+            "accepted_expansion_count": int(
+                report.get("accepted_expansion_count") or 0
+            ),
         },
-        "route_counts": counts,
         "planning_depth": dict(report.get("planning_depth") or {}),
         "chemenzy": {
             "status": (
@@ -935,6 +1016,11 @@ def _summarize_report(
         },
         "workbench_url": (f"/api/v4/runs/{report.get('run_id')}/workbench.html"),
         "finished_at": _utc_now(),
+        "semantics": {
+            "score_fields_are_only_from_fixed_cutoff_projection": True,
+            "final_state_is_diagnostic_only": True,
+            "legacy_objective_claim_does_not_control_scoring": True,
+        },
     }
 
 

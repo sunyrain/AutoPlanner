@@ -9,18 +9,27 @@ from typing import Any, Callable, Iterable, Mapping
 
 from cascade_planner.application.action_scheduler import schedule_next_action
 from cascade_planner.application.campaign_actions import (
+    ACTION_RESULT_SCHEMA,
+    ActionResult,
     CampaignAction,
     CampaignActionKind,
+    action_task_kind,
     bind_scheduled_action,
+    legacy_campaign_action_sha256,
 )
 from cascade_planner.application.run_kernel import RunKernel, RunKernelBudgetError
 from cascade_planner.runtime.artifact_store import ArtifactReferenceError
 
 
-CAMPAIGN_ACTION_OUTCOME_SCHEMA = "campaign_action_outcome.v1"
+LEGACY_CAMPAIGN_ACTION_OUTCOME_SCHEMA = "campaign_action_outcome.v1"
+CAMPAIGN_ACTION_OUTCOME_SCHEMA = ACTION_RESULT_SCHEMA
+CAMPAIGN_ACTION_RESOURCE_ACCOUNTING_SCHEMA = (
+    "campaign_action_resource_accounting.v1"
+)
 CAMPAIGN_ACTION_EXECUTION_SCHEMA = "campaign_action_execution.v1"
 CAMPAIGN_ACTION_COHORT_SCHEMA = "campaign_action_concurrent_cohort.v1"
 CAMPAIGN_ANYTIME_LOOP_SCHEMA = "campaign_anytime_action_loop.v1"
+CAMPAIGN_UNEXECUTED_ACTION_SET_SCHEMA = "campaign_unexecuted_action_set.v1"
 
 CampaignActionHandler = Callable[[CampaignAction], Mapping[str, Any]]
 CampaignActionStateProvider = Callable[[], Mapping[str, Any]]
@@ -165,6 +174,10 @@ class CampaignActionRuntime:
             for kind in concurrent_start_kinds
         )
         start_cohort: dict[str, Any] = {}
+        initial_kernel_termination = _kernel_loop_termination(self.kernel.state)
+        if initial_kernel_termination is not None:
+            termination, termination_reasons = initial_kernel_termination
+            action_limit = 0
         if len(normalized_start_kinds) >= 2 and action_limit >= 2:
             initial_revision = self.kernel.state.graph_revision
             try:
@@ -208,6 +221,10 @@ class CampaignActionRuntime:
                 consecutive_no_gain = 0 if gained else consecutive_no_gain + 1
 
         for index in range(len(executions) + 1, action_limit + 1):
+            kernel_termination = _kernel_loop_termination(self.kernel.state)
+            if kernel_termination is not None:
+                termination, termination_reasons = kernel_termination
+                break
             input_revision = self.kernel.state.graph_revision
             attempted = attempted_by_revision.setdefault(input_revision, set())
             opportunity_set = opportunity_provider()
@@ -281,6 +298,29 @@ class CampaignActionRuntime:
                     "campaign_anytime_budget_terminal_state_mismatch"
                 )
             kernel_stop_decision = stop_decision.to_dict()
+        elif self.kernel.state.status != "running":
+            kernel_stop_decision = self.kernel.decide_stop().to_dict()
+        final_revision = self.kernel.state.graph_revision
+        final_opportunity_set = opportunity_provider()
+        final_decision = schedule_next_action(
+            final_opportunity_set,
+            milestones=milestones_provider(),
+            resource_availability=resource_availability_provider(),
+            available_action_kinds=tuple(
+                sorted(kind.value for kind in self.handlers)
+            ),
+            policy=self.scheduler_policy,
+        )
+        unexecuted_actions = _unexecuted_action_set(
+            decision=final_decision,
+            executions=executions,
+            final_revision=final_revision,
+            attempted_action_ids=attempted_by_revision.get(final_revision, set()),
+            no_gain_bindings=no_gain_bindings,
+            globally_excluded=globally_excluded,
+            termination=termination,
+            termination_reasons=termination_reasons,
+        )
         result = {
             "schema_version": CAMPAIGN_ANYTIME_LOOP_SCHEMA,
             "termination": termination,
@@ -291,7 +331,8 @@ class CampaignActionRuntime:
             "start_cohort": start_cohort,
             "executions": executions,
             "kernel_stop_decision": kernel_stop_decision,
-            "final_graph_revision": self.kernel.state.graph_revision,
+            "unexecuted_actions": unexecuted_actions,
+            "final_graph_revision": final_revision,
             "semantics": {
                 "single_scheduler_loop": True,
                 "scheduler_policy": self.scheduler_policy,
@@ -301,6 +342,7 @@ class CampaignActionRuntime:
                 ),
                 "cohort_failures_do_not_cancel_peers": True,
                 "cohort_observation_order_is_stable": True,
+                "unexecuted_actions_have_explicit_reasons": True,
                 "B4_and_B5_do_not_stop_the_loop": True,
                 "no_action_and_low_gain_converge_finitely": True,
                 "global_budget_exhaustion_is_a_normal_terminal": (
@@ -492,6 +534,30 @@ class CampaignActionRuntime:
 
     def _reserve_action(self, action: CampaignAction) -> dict[str, Any]:
         action_row = action.to_dict()
+        lifecycle = self.kernel.task_lifecycle(action.task_id)
+        if lifecycle["status"] == "settled":
+            raise CampaignActionRuntimeError(
+                "campaign_action_settled_without_outcome_pointer"
+            )
+        if lifecycle["status"] == "in_flight":
+            reservation = dict(
+                dict(lifecycle.get("reservation") or {}).get("payload") or {}
+            )
+            metadata = dict(reservation.get("metadata") or {})
+            accepted_sha256 = {
+                action_row["content_sha256"],
+                legacy_campaign_action_sha256(action),
+            }
+            if (
+                metadata.get("campaign_action_id") != action.action_id
+                or metadata.get("campaign_action_execution_id")
+                != action.execution_id
+                or metadata.get("campaign_action_sha256") not in accepted_sha256
+            ):
+                raise CampaignActionRuntimeError(
+                    "campaign_action_in_flight_binding_invalid"
+                )
+            return dict(reservation.get("resource_reservation") or {})
         native_resource_units = (
             1
             if action.resource_class
@@ -500,7 +566,7 @@ class CampaignActionRuntime:
         )
         self.kernel.reserve_task(
             task_id=action.task_id,
-            kind="other",
+            kind=action_task_kind(action.resource_class),
             idempotency_key=f"{action.idempotency_key}:reserve",
             input_revision=action.input_revision,
             uses_model=False,
@@ -509,8 +575,13 @@ class CampaignActionRuntime:
             metadata={
                 "campaign_action_id": action.action_id,
                 "campaign_action_execution_id": action.execution_id,
+                "campaign_action_kind": action.kind.value,
                 "campaign_action_sha256": action_row["content_sha256"],
                 "delegated_resource_class": action.resource_class,
+                "expected_resources": dict(action.expected_resources),
+                "expected_resources_sha256": str(
+                    action.expected_resources.get("content_sha256") or ""
+                ),
                 "producer": action.producer,
             },
         )
@@ -537,42 +608,70 @@ class CampaignActionRuntime:
         action_row = action.to_dict()
         started = time.perf_counter()
         failure_reasons: list[str] = []
-        try:
-            raw_result = dict(handler(action) or {})
-            status = str(raw_result.get("status") or "completed")
-            if status in {"failed", "error", "timed_out", "timeout"}:
-                failure_reasons.extend(
-                    str(value)
-                    for value in raw_result.get("reasons")
-                    or raw_result.get("failure_reasons")
-                    or [f"handler_status:{status}"]
-                    if str(value)
+        with self.kernel.action_resource_scope(
+            action_execution_id=action.execution_id,
+            expected_resources_sha256=str(
+                action.expected_resources.get("content_sha256") or ""
+            ),
+        ):
+            try:
+                raw_result = dict(handler(action) or {})
+                status = str(raw_result.get("status") or "completed")
+                if _is_failure_settlement(status):
+                    failure_reasons.extend(
+                        str(value)
+                        for value in raw_result.get("reasons")
+                        or raw_result.get("failure_reasons")
+                        or [f"handler_status:{status}"]
+                        if str(value)
+                    )
+            except Exception as exc:  # action failures remain replayable
+                status = "failed"
+                raw_result = {}
+                failure_reasons.append(
+                    f"campaign_action_handler_error:{type(exc).__name__}:{str(exc)[:500]}"
                 )
-        except Exception as exc:  # action failures remain replayable
-            status = "failed"
-            raw_result = {}
-            failure_reasons.append(
-                f"campaign_action_handler_error:{type(exc).__name__}:{str(exc)[:500]}"
-            )
+        self._settle_owned_children(
+            action,
+            status=status,
+            failure_reasons=failure_reasons,
+        )
         elapsed_s = round(max(0.0, time.perf_counter() - started), 6)
-        outcome = {
-            "schema_version": CAMPAIGN_ACTION_OUTCOME_SCHEMA,
-            "status": status,
-            "action_execution_id": action.execution_id,
-            "action_sha256": action_row["content_sha256"],
-            "input_revision": action.input_revision,
-            "output_revision": self.kernel.state.graph_revision,
-            "handler_result": _json_result(raw_result),
-            "failure_reasons": sorted(set(failure_reasons)),
-            "elapsed_s": elapsed_s,
-            "resource_reservation": dict(resource_reservation),
-            "semantics": {
-                "handler_child_tasks_own_resource_accounting": True,
-                "outcome_grants_no_scientific_authority": True,
-                "canonical_ingestion_remains_the_only_chemistry_write_path": True,
+        actual_resources = self.kernel.action_resource_usage(
+            action.execution_id,
+            pending_task_id=action.task_id,
+            pending_status=status,
+            pending_elapsed_s=elapsed_s,
+        )
+        resource_accounting = _resource_accounting(
+            expected=action.expected_resources,
+            actual=actual_resources,
+        )
+        output_revision = self.kernel.state.graph_revision
+        graph_revision_delta = max(0, output_revision - action.input_revision)
+        outcome = ActionResult(
+            action_execution_id=action.execution_id,
+            action_sha256=action_row["content_sha256"],
+            status=status,
+            input_revision=action.input_revision,
+            output_revision=output_revision,
+            immutable_artifact_refs=_immutable_artifact_refs(raw_result),
+            actual_resources=actual_resources,
+            resource_accounting=resource_accounting,
+            resource_reservation=dict(resource_reservation),
+            material_events=_material_events(raw_result),
+            candidate_delta=_candidate_delta(raw_result),
+            fact_delta={
+                "graph_revision_delta": graph_revision_delta,
+                "changed": graph_revision_delta > 0,
+                "handler_reported_changed": raw_result.get("changed") is True,
+                "authority": "run_kernel_canonical_graph_revision",
             },
-        }
-        outcome["content_sha256"] = _digest(outcome)
+            failure_type=_failure_type(status, failure_reasons),
+            failure_reasons=tuple(sorted(set(failure_reasons))),
+            elapsed_s=elapsed_s,
+            handler_result=_json_result(raw_result),
+        ).to_dict()
         ref = self.kernel.artifacts.put_json(
             outcome,
             logical_name=f"{action.task_id}.json",
@@ -585,6 +684,7 @@ class CampaignActionRuntime:
             output_sha256=ref.sha256,
             failure_reasons=failure_reasons,
             elapsed_s=elapsed_s,
+            resource_usage=actual_resources,
         )
         pointer_name = self._pointer_name(action)
         self.kernel.artifacts.write_pointer(
@@ -614,6 +714,42 @@ class CampaignActionRuntime:
             "cache_hit": False,
         }
 
+    def _settle_owned_children(
+        self,
+        action: CampaignAction,
+        *,
+        status: str,
+        failure_reasons: Iterable[str],
+    ) -> None:
+        """Release leaked child reservations after a terminal failed Action."""
+
+        if not _is_failure_settlement(status):
+            return
+        normalized = str(status or "failed").casefold()
+        child_status = {
+            "canceled": "cancelled",
+            "cancelled": "cancelled",
+            "timed_out": "timeout",
+        }.get(normalized, normalized)
+        reason_rows = tuple(failure_reasons) or (
+            f"campaign_action_parent_status:{normalized}",
+        )
+        for task_id, reservation in sorted(self.kernel.state.in_flight_tasks.items()):
+            if task_id == action.task_id:
+                continue
+            metadata = dict(reservation.get("metadata") or {})
+            if metadata.get("campaign_action_execution_id") != action.execution_id:
+                continue
+            task_digest = hashlib.sha256(str(task_id).encode("utf-8")).hexdigest()
+            self.kernel.settle_task(
+                task_id=task_id,
+                idempotency_key=(
+                    f"{action.idempotency_key}:release-child:{task_digest}"
+                ),
+                status=child_status,
+                failure_reasons=reason_rows,
+            )
+
     def _load_cached(self, action: CampaignAction) -> dict[str, Any] | None:
         try:
             ref, pointer = self.kernel.artifacts.load_pointer(
@@ -623,17 +759,26 @@ class CampaignActionRuntime:
             return None
         metadata = dict(pointer.get("metadata") or {})
         action_sha256 = action.to_dict()["content_sha256"]
+        accepted_action_sha256 = {
+            action_sha256,
+            legacy_campaign_action_sha256(action),
+        }
         if (
             metadata.get("action_execution_id") != action.execution_id
-            or metadata.get("action_sha256") != action_sha256
+            or metadata.get("action_sha256") not in accepted_action_sha256
         ):
             raise CampaignActionRuntimeError("campaign_action_pointer_binding_invalid")
+        cached_action_sha256 = str(metadata.get("action_sha256") or "")
         value = self.kernel.artifacts.read_json(ref)
         if (
             not isinstance(value, Mapping)
-            or value.get("schema_version") != CAMPAIGN_ACTION_OUTCOME_SCHEMA
+            or value.get("schema_version")
+            not in {
+                CAMPAIGN_ACTION_OUTCOME_SCHEMA,
+                LEGACY_CAMPAIGN_ACTION_OUTCOME_SCHEMA,
+            }
             or value.get("action_execution_id") != action.execution_id
-            or value.get("action_sha256") != action_sha256
+            or value.get("action_sha256") != cached_action_sha256
         ):
             raise CampaignActionRuntimeError("campaign_action_outcome_binding_invalid")
         expected = _digest(
@@ -652,6 +797,267 @@ class CampaignActionRuntime:
             ).encode("utf-8")
         ).hexdigest()
         return f"ca/{binding_digest[:32]}"
+
+
+def _resource_accounting(
+    *,
+    expected: Mapping[str, Any],
+    actual: Mapping[str, Any],
+) -> dict[str, Any]:
+    estimated = dict(expected.get("estimated") or {})
+    model_usage = dict(actual.get("model_usage") or {})
+    native_search = dict(actual.get("native_search_units") or {})
+    observed = {
+        "task_counts": dict(actual.get("task_counts") or {}),
+        "total_tasks": int(actual.get("settled_task_count") or 0),
+        "native_search_units": int(native_search.get("total") or 0),
+        "model_invocations": int(model_usage.get("model_invocations") or 0),
+        "visual_invocations": int(model_usage.get("visual_invocations") or 0),
+    }
+    dimensions = (
+        "total_tasks",
+        "native_search_units",
+        "model_invocations",
+        "visual_invocations",
+    )
+    result = {
+        "schema_version": CAMPAIGN_ACTION_RESOURCE_ACCOUNTING_SCHEMA,
+        "expected": dict(expected),
+        "actual": dict(actual),
+        "variance": {
+            **{
+                key: int(observed[key]) - int(estimated.get(key) or 0)
+                for key in dimensions
+            },
+            "task_counts": {
+                key: int(observed["task_counts"].get(key) or 0)
+                - int(dict(estimated.get("task_counts") or {}).get(key) or 0)
+                for key in sorted(
+                    set(observed["task_counts"])
+                    | set(dict(estimated.get("task_counts") or {}))
+                )
+            },
+        },
+        "semantics": {
+            "expected_is_declared_before_reservation": True,
+            "actual_is_derived_from_action_bound_run_events": True,
+            "variance_does_not_change_scientific_authority": True,
+        },
+    }
+    result["content_sha256"] = _digest(result)
+    return result
+
+
+def _candidate_delta(result: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "proposal_count": _reported_count(
+            result,
+            count_key="proposal_count",
+            collection_keys=("proposals",),
+        ),
+        "candidate_count": _reported_count(
+            result,
+            count_key="candidate_count",
+            collection_keys=("candidates",),
+        ),
+        "accepted_count": int(
+            result.get("accepted_count")
+            or result.get("accepted_expansion_count")
+            or 0
+        ),
+    }
+
+
+def _reported_count(
+    result: Mapping[str, Any],
+    *,
+    count_key: str,
+    collection_keys: Iterable[str],
+) -> int:
+    if result.get(count_key) is not None:
+        return max(0, int(result.get(count_key) or 0))
+    return sum(
+        len(value)
+        for key in collection_keys
+        for value in (result.get(key),)
+        if isinstance(value, (list, tuple))
+    )
+
+
+def _material_events(result: Mapping[str, Any]) -> tuple[Any, ...]:
+    value = result.get("material_events")
+    if value is None:
+        return ()
+    values = value if isinstance(value, (list, tuple)) else (value,)
+    return tuple(_json_result(item) for item in values)
+
+
+def _failure_type(status: str, reasons: Iterable[str]) -> str:
+    normalized = str(status or "").casefold()
+    reason_text = " ".join(str(value).casefold() for value in reasons)
+    if normalized in {"timeout", "timed_out"} or "timeout" in reason_text:
+        return "timeout"
+    if normalized in {"cancelled", "canceled"} or "cancel" in reason_text:
+        return "cancelled"
+    if normalized in {
+        "partial",
+        "partially_completed",
+        "completed_with_failures",
+    } or "partial" in reason_text:
+        return "partial_failure"
+    if "budget" in reason_text or "resource" in reason_text:
+        return "resource_exhausted"
+    if normalized in {"awaiting_external_result", "pending"}:
+        return "pending_external"
+    if normalized in {"failed", "error"}:
+        return "handler_failure"
+    return ""
+
+
+def _is_failure_settlement(status: str) -> bool:
+    return str(status or "").casefold() in {
+        "failed",
+        "error",
+        "timed_out",
+        "timeout",
+        "cancelled",
+        "canceled",
+        "partial",
+        "partially_completed",
+        "completed_with_failures",
+    }
+
+
+def _kernel_loop_termination(state: Any) -> tuple[str, list[str]] | None:
+    status = str(getattr(state, "status", "") or "")
+    reasons = [
+        str(value)
+        for value in getattr(state, "failure_reasons", ()) or ()
+        if str(value)
+    ]
+    if status == "cancelled":
+        return "user_cancelled", reasons or ["explicit_user_cancelled"]
+    if status == "failed":
+        return "unrecoverable_error", reasons or ["run_failed"]
+    if status == "paused":
+        return "paused", reasons or ["operator_paused"]
+    if status in {"completed", "unresolved"}:
+        return "kernel_terminal", reasons or [f"run_already_{status}"]
+    return None
+
+
+def _immutable_artifact_refs(
+    result: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], ...]:
+    refs: dict[str, dict[str, Any]] = {}
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            row = dict(value)
+            sha256 = str(row.get("sha256") or "")
+            if (
+                len(sha256) == 64
+                and "size_bytes" in row
+                and "media_type" in row
+            ):
+                refs.setdefault(sha256, row)
+                return
+            for child in row.values():
+                visit(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                visit(child)
+
+    visit(result)
+    return tuple(refs[key] for key in sorted(refs))
+
+
+def _unexecuted_action_set(
+    *,
+    decision: Mapping[str, Any],
+    executions: Iterable[Mapping[str, Any]],
+    final_revision: int,
+    attempted_action_ids: Iterable[str],
+    no_gain_bindings: Mapping[str, str],
+    globally_excluded: Iterable[str],
+    termination: str,
+    termination_reasons: Iterable[str],
+) -> dict[str, Any]:
+    executed_at_final_revision = {
+        str(action.get("action_id") or "")
+        for execution in executions
+        for action in (dict(execution.get("action") or {}),)
+        if int(action.get("input_revision") or 0) == int(final_revision)
+        and str(action.get("action_id") or "")
+    }
+    attempted = {str(value) for value in attempted_action_ids if str(value)}
+    excluded = {str(value) for value in globally_excluded if str(value)}
+    terminal_reasons = [str(value) for value in termination_reasons if str(value)]
+    termination_reason = {
+        "action_limit": "action_limit_reached",
+        "converged_low_marginal_gain": "low_marginal_gain_convergence",
+        "no_action": "scheduler_no_action",
+        "budget_exhausted": "budget_exhausted",
+        "user_cancelled": "explicit_user_cancelled",
+        "unrecoverable_error": "unrecoverable_run_error",
+        "paused": "operator_paused",
+        "kernel_terminal": "kernel_already_terminal",
+    }.get(str(termination), f"loop_terminated:{termination}")
+    actions = []
+    for raw in decision.get("candidates") or []:
+        candidate = dict(raw)
+        action_id = str(candidate.get("action_id") or "")
+        if not action_id or action_id in executed_at_final_revision:
+            continue
+        reasons = [
+            str(value)
+            for value in candidate.get("blocked_reasons") or []
+            if str(value)
+        ]
+        if action_id in excluded:
+            reasons.append("excluded_by_caller")
+        if action_id in attempted:
+            reasons.append("already_attempted_at_current_revision")
+        if no_gain_bindings.get(action_id) == str(
+            candidate.get("content_sha256") or ""
+        ):
+            reasons.append("unchanged_after_no_gain")
+        if not reasons:
+            reasons.extend(terminal_reasons or [termination_reason])
+            if termination in {
+                "user_cancelled",
+                "unrecoverable_error",
+                "paused",
+                "kernel_terminal",
+            }:
+                reasons.append(termination_reason)
+        actions.append(
+            {
+                "action_id": action_id,
+                "kind": str(candidate.get("kind") or ""),
+                "resource_class": str(candidate.get("resource_class") or ""),
+                "subject_ids": list(candidate.get("subject_ids") or []),
+                "route_family_ids": list(candidate.get("route_family_ids") or []),
+                "opportunity_sha256": str(
+                    candidate.get("content_sha256") or ""
+                ),
+                "reasons": sorted(set(reasons)),
+            }
+        )
+    result = {
+        "schema_version": CAMPAIGN_UNEXECUTED_ACTION_SET_SCHEMA,
+        "final_revision": int(final_revision),
+        "termination": str(termination),
+        "action_count": len(actions),
+        "actions": actions,
+        "semantics": {
+            "all_rows_are_non_executed_at_final_revision": True,
+            "reasons_are_scheduler_or_loop_terminal_facts": True,
+            "grants_no_scientific_authority": True,
+        },
+    }
+    result["content_sha256"] = _digest(result)
+    return result
 
 
 def _json_result(value: Any) -> Any:
@@ -695,10 +1101,11 @@ def _terminal_budget_reasons(exc: RunKernelBudgetError) -> tuple[str, ...]:
             }
         )
     )
-    if not {
+    global_terminal_reasons = {
         "run_total_task_budget_exhausted",
         "run_wall_time_budget_exhausted",
-    }.intersection(reasons):
+    }
+    if not global_terminal_reasons.intersection(reasons):
         return ()
     return reasons
 
