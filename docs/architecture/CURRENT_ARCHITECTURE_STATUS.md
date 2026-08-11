@@ -92,6 +92,13 @@
 > 新聚焦模块超行数预算项由 17 个降至 16 个。拆分后的完整离线套件为 2699 passed、3 skipped、
 > 1 个既定行数预算门 deselected、2 subtests passed，用时 173.10 秒。
 
+> 2026-08-11 ChemEnzy probe 职责拆分增量：原 1216 行 facade 已拆为 758 行的 provider/stage/
+> canonical ingestion facade、102 行的请求与确定性内容契约模块，以及 398 行的路线归一化、指纹、
+> 组合筛选和 provider metadata 模块。`interfaces.chemenzy_probe` 的公共导入保持不变；provider route、
+> solved 和 stock 字段仍只作 proposal/ranking 输入，host admission、reaction proof 与 stock authority
+> 没有下放。相关集成回归 108 passed，超行数预算项由 16 个降至 15 个；完整离线套件为
+> 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 172.02 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
