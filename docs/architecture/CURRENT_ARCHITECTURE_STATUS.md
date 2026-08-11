@@ -337,7 +337,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 | 全局路线策略 | 已实现 | `global_campaign_director.py`；输出 proposal，由 host 准入 | 尚未在 program graph 上统一比较所有执行程序 |
 | 长路线与共享后缀 | 已实现主干修复 | proof profile 最多 24 个显式反应；路线族可共享 target-forming edge，并按上游 reaction program 去重；Simvastatin V6 已物化 12 步 skeleton，并在最终 Workbench 分层保留完整规划路线 | 仍需以更多 20+ 步 fresh run 校准 director 深度、来源覆盖和逐边验证吞吐；12 步规划可见不等于 B3/条件/工艺闭合 |
 | Canonical AND/OR 反应图 | 已实现 | `application/canonical_hypergraph.py`，schema `canonical_retrosynthesis_hypergraph.v1` | 路线仍以 `edge_ids[]` 表示 |
-| 单一 deficit frontier | 已实现 | `application/deficit_frontier.py` 与 campaign service；Program 实验工作仅以摘要绑定的只读 subtask overlay 展开，禁止发布为第二 frontier；派发只复用 RunKernel validation task | 尚无程序级信息增益评分与真实设备执行 |
+| 单一 deficit frontier | 已实现 | `application/deficit_frontier.py` 与 campaign service；Program 实验工作仅以摘要绑定的只读 subtask overlay 展开，禁止发布为第二 frontier；`experimental_work_scheduling.v1` 将信息增益/成本投影回既有 Program validation Action，派发仍只复用 RunKernel validation task | 尚无真实设备执行与跨相似边界 applicability 学习 |
 | 多轴 proof / 产品档位 | 已实现但保留兼容等级 | `route_workbench_proof_vectors.py`、proof policy 与 portfolio | L0–L4 仍未完全降为纯 UI 派生色 |
 | HTML/XML → PDF → OCR/视觉降级 | 已实现，三案例门已闭合 | Vismodegib / EP3381900A1、DMB-S-MMP / EP2483292B1、Nirmatrelvir C4 / EP3953330B1 均由官方 XML 精确范围完成条件编译和两次离线同摘要 replay | 视觉降级仍只能保留 L0；更多出版商 HTML/PDF 版式覆盖继续扩展 |
 | 条件与 procedure 独立实体 | 已实现 | condition/procedure records、来源片段与 Workbench inspector | 单位/同义词/完整工艺解析覆盖仍不充分 |
@@ -353,7 +353,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 | Candidate 批量迁移审计 | 已实现（只读） | 303 个快照去重为 264 个唯一 Workbench；分类投影、空图和无效快照，历史 acceptance 只作诊断 | 仍需把选定案卷显式重放为 current canonical schema |
 | Candidate 酶机会/负对照扫描 | 过渡实现（只读） | Bufotalin 产生 5 个 Program draft，其中一个 6→1；Ibrutinib 3 条路线零匹配 | 正例仍来自 Candidate Projection，且没有精确底物实验校准 |
 | Program Graph + Pareto optimizer | 过渡实现（只读） | `program_route_candidate*` + reported/mechanism/execution adapters + optimizer；baseline、酶、whole-cell、hybrid、摘要绑定 reported 完整路线和已重拼机理路线进入同一多轴空间，execution/mechanism 严格成功可进只读 shadow，来源类型不评分，oracle 精确复算 | 尚无生产 `program_ids[]` 路线主语义；execution/mechanism Program 准入及成功率/纯化/成本/PMI 数据未接入 |
-| 实验 Claim、反馈与能力校准 | 过渡实现（影子持久） | 三域 validation frontier/feedback；统一 Claim store；`experimental_work_frontier.v1` 绑定唯一 canonical frontier；host-trusted provider policy、manual handoff、RunKernel dispatch/recovery/settlement 只释放领域验证候选 | 缺真实设备/网络 provider、信息增益 scheduler 与跨相似边界 applicability model |
+| 实验 Claim、反馈与能力校准 | 过渡实现（影子持久） | 三域 validation frontier/feedback；统一 Claim store；`experimental_work_frontier.v1` 绑定唯一 canonical frontier；work item 现含摘要绑定、target-blind 的 information-gain/cost rank vector，并以动态 priority/score 进入同一 adaptive scheduler；host-trusted provider policy、manual handoff、RunKernel dispatch/recovery/settlement 只释放领域验证候选 | 缺真实设备/网络 provider 与跨相似边界 applicability model |
 | P9 fresh-blind 发布门 | 协议与编译器已实现，科学门未通过 | 真实 Git 跟踪树预检、同义名/SMILES/InChIKey/关键中间体 evaluator-only 扫描、运行前冻结摘要、case-local 记忆副本、三种单变量消融、失败保留和三档产品读出已接入；单目标四臂 smoke 已证明摘要/环境绑定并测得 ChemEnzy 增益 0、replan 验证路线差值 -1；后续已加入付费前 replan signal gate 与付费后 canonical graph 保留审计，工作台只把 `accepted=false` 显示为红色审计项 | 旧 20-target 结果不能通过新门；当前缺真实库存冻结、足量策略不同路线、条件/采购覆盖和完整 panel 级消融；单目标且首轮采样不同的差值不能充当 replan 因果结论 |
 
 ## 4. 当前创新兼容层怎样工作
@@ -424,7 +424,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 | 3. 真实超步 | interval analysis 直接创建起点→终点 program | 影子准入已实现：独立 append-only store、六 CAS 重放、fallback、非等价 oracle；current canonical 有 6→1 未验证阳性 proposal，并已进入只读 optimizer 的 exploration 层 | 取得精确底物专项验证；生产路线仍不切换 |
 | 4. 结构化机理一跳 | `MechanismProposal`、bond edits、critic、扩展门 | 过渡实现（只读）：一跳锚点/结构/可证伪门、连续区间重拼、严格验证 frontier 与三态反馈；净转化不冒充机理证明 | 补一等 bond-edit trace、竞争路径 critic、实验 producer 与持久准入 |
 | 5. Program optimizer | 文献、化学、酶、whole-cell、hybrid、机理进入 Pareto portfolio | 过渡实现（只读）：六类 adapter、四资格域、完整 Pareto layers；通过 execution/mechanism 验证的成功候选可进入 shadow，来源类型不评分 | 补缺失工艺目标与持久准入，仍不接管生产路线 |
-| 6. 实验反馈 | 成败 claim 更新 Capability applicability | 三域 Claim/store/calibration；唯一 frontier 绑定、通用 request/result/current-frontier audit、host-trusted manual provider 与 RunKernel 单账本 dispatch/recovery 已实现，目录不变 | 接真实设备/网络 provider，补信息增益评分并学习相似边界 applicability |
+| 6. 实验反馈 | 成败 claim 更新 Capability applicability | 三域 Claim/store/calibration；唯一 frontier 绑定、通用 request/result/current-frontier audit、可解释信息增益/成本排序、host-trusted manual provider 与 RunKernel 单账本 dispatch/recovery 已实现，目录不变 | 接真实设备/网络 provider，并学习相似边界 applicability |
 
 阶段 3 的 Program draft、验证前沿和独立影子准入已可提前验证，但生产接管仍不能跳过阶段 2/5。
 否则候选无法进入真正的路线搜索、proof、条件核算与 UI 主语义。
@@ -523,9 +523,12 @@ Blackboard 都不能自行把 proposal 提升为事实。
     化学步骤。Simvastatin V6 的初始 canonical Workbench 已包含 12-edge L1 路线；最终 proof portfolio 选择
     5 条较短 L2 路线，但两条 12 步、全部 materialized 的 skeleton 继续保留在只读 `planned_routes`。该 run
     B0/B1/B2/B4/B5 通过而 B3 失败，因此只能证明长路线生成与展示闭环，不能证明文献/条件/工艺闭合。
-21. 下一切片应在同一 SPI 上接入一个受控的真实设备/网络 provider，并补超时/取消/操作者身份与外部
-    job receipt；同时为实验子任务加入可解释的信息增益/成本排序和跨相似边界 applicability 学习。不得为
-    单个目标硬编码实验路径，也不得创建第二任务队列。
+21. 实验子任务已加入可解释且 target-blind 的信息增益/成本排序：canonical deficit、exact-boundary dirty
+    hint、必检项/边界覆盖、domain priority、experience uncertainty 与 executor-neutral 成本共同形成摘要绑定
+    rank vector；统一 target solver 将其映射为既有 `PROGRAM_VALIDATE` signal 的动态 priority/score，adaptive
+    scheduler 已有高收益低成本优先回归，重摘要篡改失败关闭。下一切片应在同一 SPI 上接入一个受控的真实
+    设备/网络 provider，补超时/取消/操作者身份与外部 job receipt，并继续学习跨相似边界 applicability。
+    不得为单个目标硬编码实验路径，也不得创建第二任务队列。
 
 22. Bufotalin fresh blind V1–V3 进一步校正了长路线目标：`proof` profile 的 24 步是能力上限，不是优化
     目标。强制最小 20 步会诱导模型把 12 步主段与 8 步延伸段拼成名义 20 步；host 发现延伸段既非目标根
@@ -584,6 +587,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 库存/采购和 process-ready 则由各自 proof 与 acceptance 分轴判定。任一轴不能替代另一轴，架构完成度也
 不能替代单次 run 的事实。
 
-当前稳定性门禁：完整离线集 `1968 passed, 3 skipped, 11 warnings, 2 subtests passed`；跨运行审计、Candidate
-Program 投影均为只读，
+当前稳定性门禁：完整离线集 `2706 passed, 3 skipped, 11 warnings, 2 subtests passed`，用时 169.00 秒；
+Ruff、compileall、全部架构门（含聚焦模块行数预算）和 `git diff --check` 通过。跨运行审计、
+Candidate Program 投影均为只读，
 `edge_ids[]`、proof、completion 与 acceptance 均未切换。

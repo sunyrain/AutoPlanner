@@ -17,6 +17,7 @@ from cascade_planner.application.deficit_frontier import DEFICIT_FRONTIER_SCHEMA
 from cascade_planner.application.experiment_execution_contracts import (
     build_experiment_execution_request,
 )
+from cascade_planner.application.experimental_work_scheduling import compile_experimental_work_scheduling
 from cascade_planner.application.biocatalysis_validation_frontier import (
     BIOCATALYSIS_VALIDATION_FRONTIER_SCHEMA,
 )
@@ -132,6 +133,9 @@ def compile_experimental_work_frontier(
                 "dirty_hint_ids": dirty_ids,
                 "priority_score": float(plan.get("priority_score") or 0.0),
                 "experience_memory": dict(plan.get("experience_memory") or {}),
+                "scheduling": compile_experimental_work_scheduling(
+                    domain, plan, linked_deficits, dirty_ids, request
+                ),
                 "execution_request": request,
                 "status": "executor_candidate",
                 "grants_validation": False,

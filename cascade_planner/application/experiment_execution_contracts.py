@@ -173,16 +173,24 @@ def _normalized_checks(value: Any) -> list[dict[str, Any]]:
 
 def _resource_hints(value: Mapping[str, Any] | None) -> dict[str, Any]:
     row = dict(value or {})
+    raw_estimated_cost = row.get("estimated_cost_units", 0.0)
+    if isinstance(raw_estimated_cost, bool) or not isinstance(
+        raw_estimated_cost, (int, float)
+    ):
+        raise ExperimentExecutionContractError("experiment_request_resource_hints_invalid")
     result = {
         "priority_class": str(row.get("priority_class") or "experimental_validation"),
         "timeout_s": float(row.get("timeout_s", 3600.0)),
         "max_artifact_bytes": int(row.get("max_artifact_bytes", 100_000_000)),
+        "estimated_cost_units": float(raw_estimated_cost),
     }
     if (
         not result["priority_class"]
         or not math.isfinite(result["timeout_s"])
+        or not math.isfinite(result["estimated_cost_units"])
         or result["timeout_s"] <= 0
         or result["max_artifact_bytes"] <= 0
+        or result["estimated_cost_units"] < 0
     ):
         raise ExperimentExecutionContractError("experiment_request_resource_hints_invalid")
     return result

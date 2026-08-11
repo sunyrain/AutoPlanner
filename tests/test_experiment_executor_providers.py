@@ -22,7 +22,7 @@ from cascade_planner.providers.builtins import build_default_provider_registry
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 
 
-def _request() -> dict:
+def _request(*, resource_hints: dict | None = None) -> dict:
     plan = {
         "schema_version": "fixture_experiment_plan.v1",
         "plan_id": "plan:fixture-experiment",
@@ -58,6 +58,7 @@ def _request() -> dict:
         domain="biocatalytic",
         plan=plan,
         canonical_frontier_sha256="a" * 64,
+        resource_hints=resource_hints,
     )
 
 
@@ -94,6 +95,16 @@ def test_manual_executor_selection_and_handoff_are_bound_but_non_authoritative()
     assert result.payload["semantics"][
         "handoff_grants_no_validation_claim_or_route_authority"
     ] is True
+
+
+def test_executor_neutral_cost_hint_is_normalized_and_fail_closed() -> None:
+    request = _request(resource_hints={"estimated_cost_units": 2.5})
+
+    assert request["resource_hints"]["estimated_cost_units"] == 2.5
+    with pytest.raises(ValueError, match="resource_hints_invalid"):
+        _request(resource_hints={"estimated_cost_units": -1.0})
+    with pytest.raises(ValueError, match="resource_hints_invalid"):
+        _request(resource_hints={"estimated_cost_units": True})
 
 
 @pytest.mark.parametrize(

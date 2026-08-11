@@ -2714,6 +2714,14 @@ def test_completed_target_resume_ingests_new_feedback_and_rejects_invalid_feedba
     proposal = next(
         iter(current_program_review["program_bundle"]["program_proposals"].values())
     )
+    program_signal = next(
+        row
+        for row in service.graph_store.load()["action_signals"].values()
+        if row.get("kind") == "program_validation"
+    )
+    work_item = program_signal["metadata"]["work_item"]
+    assert program_signal["priority"] == work_item["scheduling"]["action_priority"]
+    assert program_signal["score"] == work_item["scheduling"]["action_score"]
     validation = with_biocatalysis_program_validation_digest(
         {
             "schema_version": "biocatalysis_program_validation.v1",

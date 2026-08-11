@@ -48,6 +48,10 @@ from cascade_planner.application.campaign_trajectory import (
     compile_trajectory_bindings,
     snapshots_from_stages,
 )
+from cascade_planner.application.experimental_work_scheduling import (
+    experimental_work_item_rank_key,
+    experimental_work_item_scheduling,
+)
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
@@ -1934,13 +1938,15 @@ def solve_target(
         route_id = str(frontier.get("route_id") or discovery_result.get("route_id") or "")
         signals = []
         for work_item_id, raw_item in sorted(
-            dict(frontier.get("work_items") or {}).items()
+            dict(frontier.get("work_items") or {}).items(),
+            key=experimental_work_item_rank_key,
         ):
             if not isinstance(raw_item, Mapping):
                 continue
             work_item = dict(raw_item)
+            scheduling = experimental_work_item_scheduling(work_item)
             item_sha256 = str(work_item.get("content_sha256") or "")
-            if not item_sha256:
+            if not item_sha256 or not scheduling:
                 continue
             program_id = str(work_item.get("program_id") or work_item_id)
             signals.append(
@@ -1953,17 +1959,11 @@ def solve_target(
                     "dependency_ids": list(
                         work_item.get("linked_canonical_deficit_ids") or []
                     ),
+                    "priority": float(scheduling["action_priority"]),
                     "deterministic": True,
                     "model_allowed": False,
                     "reason": "program_candidate_requires_specialized_validation",
-                    "score": {
-                        "expected_portfolio_gain": 0.05,
-                        "distance_to_closure": 0.05,
-                        "evidence_gain": 0.45,
-                        "route_diversity_gain": 0.10,
-                        "cost_penalty": 0.25,
-                        "failure_risk_penalty": 0.15,
-                    },
+                    "score": dict(scheduling["action_score"]),
                     "metadata": {
                         "program_validation": True,
                         "route_id": route_id,

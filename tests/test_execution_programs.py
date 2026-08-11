@@ -656,6 +656,18 @@ def test_experimental_work_frontier_routes_negative_execution_result_through_dom
     assert work["counts"]["execution"] == 2
     assert work["counts"]["dirty_recompute_hints"] == 1
     assert sum(bool(row["dirty_hint_ids"]) for row in work["work_items"].values()) == 1
+    dirty_items = [row for row in work["work_items"].values() if row["dirty_hint_ids"]]
+    clean_items = [row for row in work["work_items"].values() if not row["dirty_hint_ids"]]
+    assert dirty_items[0]["scheduling"]["components"]["information_gain"][
+        "dirty_exact_boundary_signal"
+    ] == 0.18
+    assert all(
+        row["scheduling"]["components"]["information_gain"][
+            "dirty_exact_boundary_signal"
+        ]
+        == 0.0
+        for row in clean_items
+    )
     assert experimental_work_frontier_oracle(
         canonical,
         compile_biocatalysis_validation_frontier(graph, discovery, enzyme_bundle),
@@ -664,6 +676,26 @@ def test_experimental_work_frontier_routes_negative_execution_result_through_dom
         materials["capability_calibration"],
         work,
     )["accepted"] is True
+
+    tampered_work = deepcopy(work)
+    tampered_item = next(iter(tampered_work["work_items"].values()))
+    tampered_item["scheduling"]["information_gain_score"] = 0.0
+    tampered_item["scheduling"].pop("content_sha256")
+    tampered_item["scheduling"]["content_sha256"] = strict_canonical_json_sha256(
+        tampered_item["scheduling"]
+    )
+    tampered_item.pop("content_sha256")
+    tampered_item["content_sha256"] = strict_canonical_json_sha256(tampered_item)
+    tampered_work.pop("content_sha256")
+    tampered_work["content_sha256"] = strict_canonical_json_sha256(tampered_work)
+    assert experimental_work_frontier_oracle(
+        canonical,
+        compile_biocatalysis_validation_frontier(graph, discovery, enzyme_bundle),
+        materials["execution_validation_frontier"],
+        materials["mechanism_validation_frontier"],
+        materials["capability_calibration"],
+        tampered_work,
+    )["accepted"] is False
 
     request = next(
         row["execution_request"]

@@ -125,6 +125,8 @@
 
 第十七个维护切片把 `v4_route_workbench.py` 从 823 行降至 773 行：RDKit 2D depiction、结构 SVG 消毒和 Workbench molecule node 构造迁入 59 行的 `v4_route_nodes.py`。主编译器继续通过 `_node`/`_depiction` 兼容别名构造 canonical route、hypothesis 与 mechanism overlay 节点；route forest 和 HTML 公共入口不变。Ruff、compileall、`git diff --check` 均通过，Workbench/HTML/Web/架构聚焦回归 158 passed，超预算模块由 1 个降至 0 个，行数预算门首次全绿；不再 deselect 任何测试的完整离线套件为 2700 passed、3 skipped、2 subtests passed，用时 169.22 秒。
 
+实验子任务排序切片新增 `experimental_work_scheduling.v1`：每个三域 work item 都摘要绑定 canonical deficit、exact-boundary dirty hint、domain plan priority、必检项广度、边界状态覆盖、experience uncertainty 和 executor-neutral 资源成本，输出可解释的 `information_gain_score`、`estimated_cost_units`、`value_per_cost`、原因、稳定 `rank_key` 与 canonical Action score。统一 target solver 只把该投影映射回既有 `PROGRAM_VALIDATE` signal；adaptive scheduler 实际按动态收益/成本选择，未创建第二 frontier 或队列。target/dataset 标签不参与评分，experience 只改变优先级，重摘要篡改仍由重投影失败关闭。聚焦回归 93 passed；不做 deselect 的完整离线套件为 2706 passed、3 skipped、11 warnings、2 subtests passed，用时 169.00 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -618,3 +620,4 @@ W2 验收门：
 - [x] 第八刀（W4）：已注册 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`；前者只形成待外部执行请求，后者复用现有 host gate/Claim store，默认不写 shadow 且不创建 canonical edge。
 - [x] 第九刀（W5）：抽离 `target_solver_compat`，统一旧 objective 展示、checkpoint cursor、外部反馈信号和 resume/trajectory 投影；新增 route-family rebound 与 scientific-content-bound Program ID，避免 operational revision 污染 Program 身份。
 - [x] 第十刀（W6–W8-P）：W6 真实 embedded failure 已定位并修复；W7 冻结清单、完整离线门、190/190 preflight 与最终零模型回放均已完成；W8 的预算终态问题已逐层修复并保留审计；前 20/190 四臂 pilot 与机器可读汇总已完成。全量 W8-F 按 2026-08-09 范围决策延期。
+- [x] 第十一刀（实验调度）：三域 `experimental_work_frontier.v1` 已加入 target-blind、摘要绑定的信息增益/成本排序，并把动态 priority/score 接回同一 canonical Action scheduler；下一步只剩受控真实 provider 与跨相似边界 applicability 学习。
