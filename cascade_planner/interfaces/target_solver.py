@@ -2469,6 +2469,7 @@ def solve_target(
             seed_opportunities,
             milestones=seed_milestones,
             resource_availability=scheduler_resources(),
+            prior_action_kinds=unified_core_runtime.action_service_history(),
             policy=active.action_scheduler_policy,
         )
         stages.append(
@@ -3704,6 +3705,7 @@ def solve_target(
         final_opportunities,
         milestones=_campaign_milestones(gates),
         resource_availability=scheduler_resources(),
+        prior_action_kinds=unified_core_runtime.action_service_history(),
         policy=active.action_scheduler_policy,
     )
     stages.append(

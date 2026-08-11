@@ -5,6 +5,12 @@ import hashlib
 import json
 from typing import Any, Mapping
 
+from cascade_planner.application.action_service_policy import (
+    action_class_for_kind,
+    bind_action_class_selection,
+    compile_action_class_service,
+)
+
 
 ACTION_SCHEDULE_DECISION_SCHEMA = "campaign_action_schedule_decision.v1"
 ACTION_SCHEDULER_POLICIES = frozenset({"adaptive", "round_robin"})
@@ -62,6 +68,7 @@ def schedule_next_action(
     resource_availability: Mapping[str, Any] | None = None,
     in_flight_action_ids: tuple[str, ...] = (),
     available_action_kinds: tuple[str, ...] | None = None,
+    prior_action_kinds: tuple[str, ...] = (),
     policy: str = "adaptive",
     round_robin_cursor: int = 0,
 ) -> dict[str, Any]:
@@ -183,6 +190,7 @@ def schedule_next_action(
         candidates.append(
             {
                 **row,
+                "action_class": action_class_for_kind(kind),
                 "eligible": not blocked_reasons,
                 "blocked_reasons": blocked_reasons,
                 "schedule_score": total,
@@ -209,6 +217,14 @@ def schedule_next_action(
                 },
             }
         )
+    action_class_service = compile_action_class_service(
+        prior_action_kinds=prior_action_kinds,
+        candidates=candidates,
+        scheduler_policy=scheduler_policy,
+    )
+    required_action_class = str(
+        action_class_service.get("required_action_class") or ""
+    )
     if scheduler_policy == "round_robin":
         kind_count = max(1, len(_KIND_ORDER))
         offset = cursor % kind_count
@@ -228,6 +244,9 @@ def schedule_next_action(
             candidates,
             key=lambda row: (
                 row.get("eligible") is not True,
+                bool(required_action_class)
+                and str(row.get("action_class") or "")
+                != required_action_class,
                 -float(row.get("schedule_score") or 0.0),
                 _KIND_ORDER.get(str(row.get("kind") or ""), 99),
                 str(row.get("action_id") or ""),
@@ -249,16 +268,31 @@ def schedule_next_action(
         candidate = dict(row)
         selected_candidate = candidate.get("action_id") == selected_action_id
         candidate["selected"] = selected_candidate
-        candidate["selection_reasons"] = (
-            ["highest_ranked_eligible_action"] if selected_candidate else []
-        )
+        selection_reasons = []
+        if selected_candidate:
+            selection_reasons.append(
+                (
+                    f"minimum_service_guarantee_due:{required_action_class}"
+                    if required_action_class
+                    else "highest_ranked_eligible_action"
+                )
+            )
+        candidate["selection_reasons"] = selection_reasons
         candidate["not_selected_reasons"] = (
             []
             if selected_candidate
             else (
                 list(candidate.get("blocked_reasons") or [])
                 if candidate.get("eligible") is not True
-                else ["lower_deterministic_rank"]
+                else (
+                    [
+                        "minimum_service_guarantee_reserved_for:"
+                        f"{required_action_class}"
+                    ]
+                    if required_action_class
+                    and candidate.get("action_class") != required_action_class
+                    else ["lower_deterministic_rank"]
+                )
             )
         )
         explained.append(candidate)
@@ -266,6 +300,10 @@ def schedule_next_action(
     selected = next(
         (dict(row) for row in ranked if row.get("selected") is True),
         {},
+    )
+    action_class_service = bind_action_class_selection(
+        action_class_service,
+        selected_action_class=str(selected.get("action_class") or ""),
     )
     result = {
         "schema_version": ACTION_SCHEDULE_DECISION_SCHEMA,
@@ -283,6 +321,7 @@ def schedule_next_action(
         "handler_filter_applied": handler_filter_applied,
         "scheduler_policy": scheduler_policy,
         "round_robin_cursor": cursor,
+        "action_class_service": action_class_service,
         "semantics": {
             "task_labels_are_not_inputs": True,
             "same_state_and_resources_produce_same_order": True,
@@ -292,7 +331,13 @@ def schedule_next_action(
             "selection_grants_no_scientific_authority": True,
             "stock_oracle_names_are_not_scheduler_inputs": True,
             "scheduler_does_not_execute_or_mutate_actions": True,
+            "action_class_service_is_target_blind": True,
+            "blocked_class_service_capacity_is_borrowable": True,
+            "service_borrowing_cannot_expand_run_kernel_budget": True,
             "round_robin_ignores_adaptive_value_score_for_ordering": (
+                scheduler_policy == "round_robin"
+            ),
+            "round_robin_is_not_overridden_by_adaptive_service_debt": (
                 scheduler_policy == "round_robin"
             ),
         },

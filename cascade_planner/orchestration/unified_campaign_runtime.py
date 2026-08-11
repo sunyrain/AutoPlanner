@@ -8,6 +8,7 @@ import time
 from typing import Any, Callable, Iterable, Mapping
 
 from cascade_planner.application.action_scheduler import schedule_next_action
+from cascade_planner.application.action_service_policy import action_class_for_kind
 from cascade_planner.application.campaign_actions import (
     ACTION_RESULT_SCHEMA,
     ActionResult,
@@ -63,6 +64,22 @@ class CampaignActionRuntime:
         if any(not callable(handler) for handler in self.handlers.values()):
             raise TypeError("campaign action handlers must be callable")
 
+    def action_service_history(self) -> tuple[str, ...]:
+        """Rebuild Action-class service order from RunKernel authority."""
+
+        history: list[str] = []
+        for event in self.kernel.task_reservation_history():
+            payload = dict(event.get("payload") or {})
+            metadata = dict(payload.get("metadata") or {})
+            kind = str(metadata.get("campaign_action_kind") or "")
+            if (
+                kind
+                and metadata.get("campaign_action_id")
+                and metadata.get("campaign_action_execution_id")
+            ):
+                history.append(kind)
+        return tuple(history)
+
     def schedule_and_execute(
         self,
         opportunity_set: Mapping[str, Any],
@@ -80,6 +97,7 @@ class CampaignActionRuntime:
             available_action_kinds=tuple(
                 sorted(kind.value for kind in self.handlers)
             ),
+            prior_action_kinds=self.action_service_history(),
             policy=self.scheduler_policy,
             round_robin_cursor=round_robin_cursor,
         )
@@ -309,6 +327,7 @@ class CampaignActionRuntime:
             available_action_kinds=tuple(
                 sorted(kind.value for kind in self.handlers)
             ),
+            prior_action_kinds=self.action_service_history(),
             policy=self.scheduler_policy,
         )
         unexecuted_actions = _unexecuted_action_set(
@@ -332,6 +351,9 @@ class CampaignActionRuntime:
             "executions": executions,
             "kernel_stop_decision": kernel_stop_decision,
             "unexecuted_actions": unexecuted_actions,
+            "action_class_service": dict(
+                final_decision.get("action_class_service") or {}
+            ),
             "final_graph_revision": final_revision,
             "semantics": {
                 "single_scheduler_loop": True,
@@ -352,6 +374,8 @@ class CampaignActionRuntime:
                     termination != "budget_exhausted"
                     or self.kernel.state.status == "budget_exhausted"
                 ),
+                "action_class_service_replays_from_run_kernel_events": True,
+                "blocked_class_capacity_is_borrowed_without_a_second_queue": True,
             },
         }
         result["content_sha256"] = _digest(result)
@@ -379,6 +403,7 @@ class CampaignActionRuntime:
         )
         decisions: list[dict[str, Any]] = []
         actions: list[CampaignAction] = []
+        service_history = list(self.action_service_history())
         selected_action_ids = {
             str(value) for value in excluded_action_ids if str(value)
         }
@@ -389,6 +414,7 @@ class CampaignActionRuntime:
                 resource_availability=resource_availability,
                 in_flight_action_ids=tuple(sorted(selected_action_ids)),
                 available_action_kinds=(kind.value,),
+                prior_action_kinds=tuple(service_history),
                 policy=self.scheduler_policy,
             )
             if not decision.get("selected_action_id"):
@@ -397,6 +423,7 @@ class CampaignActionRuntime:
             decisions.append(decision)
             actions.append(action)
             selected_action_ids.add(action.action_id)
+            service_history.append(action.kind.value)
         if len(actions) < 2:
             result = {
                 "schema_version": CAMPAIGN_ACTION_COHORT_SCHEMA,
@@ -434,7 +461,13 @@ class CampaignActionRuntime:
                 raise CampaignActionRuntimeError(
                     f"campaign_action_handler_missing:{action.kind.value}"
                 )
-            prepared.append((action, decision, self._reserve_action(action)))
+            prepared.append(
+                (
+                    action,
+                    decision,
+                    self._reserve_action(action, decision=decision),
+                )
+            )
 
         futures = {}
         if prepared:
@@ -525,14 +558,19 @@ class CampaignActionRuntime:
             raise CampaignActionRuntimeError(
                 f"campaign_action_handler_missing:{action.kind.value}"
             )
-        resource_reservation = self._reserve_action(action)
+        resource_reservation = self._reserve_action(action, decision=decision)
         return self._execute_reserved(
             action,
             decision=decision,
             resource_reservation=resource_reservation,
         )
 
-    def _reserve_action(self, action: CampaignAction) -> dict[str, Any]:
+    def _reserve_action(
+        self,
+        action: CampaignAction,
+        *,
+        decision: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
         action_row = action.to_dict()
         lifecycle = self.kernel.task_lifecycle(action.task_id)
         if lifecycle["status"] == "settled":
@@ -564,6 +602,27 @@ class CampaignActionRuntime:
             in {"native_search_target", "native_search_frontier"}
             else 0
         )
+        action_class_service = dict(
+            dict(decision or {}).get("action_class_service") or {}
+        )
+        service_metadata = (
+            {
+                "action_class_service_ordinal": int(
+                    action_class_service.get("next_action_ordinal") or 0
+                ),
+                "action_class_service_sha256": str(
+                    action_class_service.get("content_sha256") or ""
+                ),
+                "minimum_service_guarantee_applied": (
+                    action_class_service.get(
+                        "minimum_service_guarantee_applied"
+                    )
+                    is True
+                ),
+            }
+            if action_class_service
+            else {}
+        )
         self.kernel.reserve_task(
             task_id=action.task_id,
             kind=action_task_kind(action.resource_class),
@@ -576,6 +635,9 @@ class CampaignActionRuntime:
                 "campaign_action_id": action.action_id,
                 "campaign_action_execution_id": action.execution_id,
                 "campaign_action_kind": action.kind.value,
+                "campaign_action_class": action_class_for_kind(
+                    action.kind.value
+                ),
                 "campaign_action_sha256": action_row["content_sha256"],
                 "delegated_resource_class": action.resource_class,
                 "expected_resources": dict(action.expected_resources),
@@ -583,6 +645,7 @@ class CampaignActionRuntime:
                     action.expected_resources.get("content_sha256") or ""
                 ),
                 "producer": action.producer,
+                **service_metadata,
             },
         )
         resource_reservation = dict(

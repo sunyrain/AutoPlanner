@@ -221,6 +221,71 @@ def test_runtime_reserves_settles_and_replays_without_double_counting(
     assert kernel.state.model_totals["model_invocations"] == 0
 
 
+def test_action_class_service_history_replays_across_runtime_reopen(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.MATERIALIZE: lambda _action: {
+                "status": "completed",
+                "changed": False,
+            },
+            CampaignActionKind.REACTION_VALIDATE: lambda _action: {
+                "status": "completed",
+                "changed": False,
+            },
+        },
+    )
+    first = runtime.schedule_and_execute(
+        _opportunity_set(kind="materialization"),
+        milestones={},
+        resource_availability={"deterministic": True},
+    )
+    first_lifecycle = kernel.task_lifecycle(first["action"]["task_id"])
+    first_metadata = first_lifecycle["reservation"]["payload"]["metadata"]
+
+    assert runtime.action_service_history() == ("host_materialize",)
+    assert first_metadata["campaign_action_class"] == "deterministic_closure"
+    assert first_metadata["action_class_service_ordinal"] == 1
+    assert first_metadata["action_class_service_sha256"] == first["decision"][
+        "action_class_service"
+    ]["content_sha256"]
+
+    expected_next = schedule_next_action(
+        _opportunity_set(kind="validation"),
+        prior_action_kinds=runtime.action_service_history(),
+    )
+    reopened_kernel = _kernel(tmp_path)
+    reopened = CampaignActionRuntime(
+        reopened_kernel,
+        runtime.handlers,
+    )
+    replayed_next = schedule_next_action(
+        _opportunity_set(kind="validation"),
+        prior_action_kinds=reopened.action_service_history(),
+    )
+
+    assert reopened.action_service_history() == runtime.action_service_history()
+    assert replayed_next["selected_action_id"] == expected_next["selected_action_id"]
+    assert replayed_next["action_class_service"] == expected_next[
+        "action_class_service"
+    ]
+
+    second = reopened.schedule_and_execute(
+        _opportunity_set(kind="validation"),
+        milestones={},
+        resource_availability={"validation": True},
+    )
+    assert second["action"]["kind"] == "reaction_validate"
+    assert reopened.action_service_history() == (
+        "host_materialize",
+        "reaction_validate",
+    )
+    assert len(reopened_kernel.task_reservation_history()) == 2
+
+
 def test_handler_change_claim_does_not_create_canonical_fact_delta(
     tmp_path: Path,
 ) -> None:
@@ -635,6 +700,7 @@ def test_anytime_loop_treats_total_task_budget_as_normal_terminal(
     assert kernel.state.failure_reasons == ("run_total_task_budget_exhausted",)
     assert kernel.state.settled_task_count == 1
     assert kernel.state.in_flight_tasks == {}
+    assert runtime.action_service_history() == ()
 
 
 def test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection(

@@ -596,6 +596,16 @@ class RunKernel:
                 )
             )
 
+    def task_reservation_history(self) -> list[dict[str, Any]]:
+        """Return durable task admissions in event order for read-only replay."""
+
+        with self._locked():
+            return [
+                event.to_dict()
+                for event in self._read_events()
+                if event.event_type == "task_reserved"
+            ]
+
     def task_lifecycle(self, task_id: str) -> dict[str, Any]:
         """Read one task's durable lifecycle without granting new authority."""
 

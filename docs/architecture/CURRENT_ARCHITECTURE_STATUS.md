@@ -578,6 +578,15 @@ Blackboard 都不能自行把 proposal 提升为事实。
     route families 的 ID 集合均为首轮图的超集，证明第二轮只能追加候选或强化 proof，不能覆盖第一次路线。
     `global_replan_gain_audit` 再记录 gate/路线计数增量及模型调用/token/墙钟增量，把 `no_gain` 明确保留
     为回归信号。旧单目标四臂 smoke 因首轮采样不同仍只作观测证据；正式结论必须来自重复/多目标冻结实验。
+28. Adaptive scheduler 新增独立 `campaign_action_class_service.v1`，将全部 canonical Action kind 冻结映射为
+    route discovery、deterministic closure、scientific proof、Program/experiment 四类。每个持续存在 eligible
+    候选的 class 在固定 12-Action 窗口内至少获得一次服务；只有窗口即将违约时才覆盖原 value/cost 排序，
+    因而不会把 adaptive 退化成 class round-robin。handler 缺失、resource blocked 或 class 暂无候选时，
+    对应服务槽立即借给其他 eligible class，不保留后台 reservation、不形成待偿还队列，也不能扩张 RunKernel
+    总任务、模型、native、evidence、validation、Program 或 experiment 硬预算。服务历史直接按 durable
+    `task_reserved` 事件顺序重建，失败/超时同样算已分配服务；reservation metadata 保存 class、ordinal 与
+    ledger digest。目标、数据集、objective、Stock Oracle 名称和 UI view 均不进入规则。`round_robin` 继续使用
+    原固定 kind cursor，不被 adaptive service debt 覆盖；B4 后 replan/condition/Program 同轨迹门保持通过。
 
 ### 7.1 闭合优先核算（Bufotalin V3 当前样例）
 
@@ -612,7 +621,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 库存/采购和 process-ready 则由各自 proof 与 acceptance 分轴判定。任一轴不能替代另一轴，架构完成度也
 不能替代单次 run 的事实。
 
-当前稳定性门禁：完整离线集 `2733 passed, 3 skipped, 11 warnings, 2 subtests passed`，用时 174.99 秒；
+当前稳定性门禁：完整离线集 `2738 passed, 3 skipped, 11 warnings, 2 subtests passed`，用时 225.44 秒；
 Ruff、compileall、全部架构门（含聚焦模块行数预算）和 `git diff --check` 通过。跨运行审计、
 Candidate Program 投影均为只读，
 `edge_ids[]`、proof、completion 与 acceptance 均未切换。

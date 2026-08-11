@@ -3,7 +3,12 @@ from __future__ import annotations
 from copy import deepcopy
 
 from cascade_planner.application.action_scheduler import schedule_next_action
+from cascade_planner.application.action_service_policy import (
+    ACTION_CLASS_ORDER,
+    action_class_for_kind,
+)
 from cascade_planner.application.campaign_actions import compile_action_opportunities
+from cascade_planner.application.campaign_actions import CampaignActionKind
 from cascade_planner.application.campaign_trajectory import (
     compile_campaign_snapshot,
     compile_campaign_trajectory,
@@ -63,6 +68,47 @@ def _frontier(*, metadata: dict | None = None) -> dict:
                 },
             },
         ],
+    }
+
+
+def _service_opportunities() -> dict:
+    actions = [
+        {
+            "action_id": "action:route:model-flood",
+            "kind": "codex_global_architecture",
+            "resource_class": "model",
+            "deterministic": False,
+            "base_priority": 10_000.0,
+            "metadata": {"global_architecture": True},
+        },
+        {
+            "action_id": "action:closure:materialize",
+            "kind": "host_materialize",
+            "resource_class": "deterministic",
+            "deterministic": True,
+            "base_priority": 1.0,
+            "metadata": {},
+        },
+        {
+            "action_id": "action:proof:conditions",
+            "kind": "condition_enrich",
+            "resource_class": "model",
+            "deterministic": False,
+            "base_priority": 1.0,
+            "metadata": {},
+        },
+        {
+            "action_id": "action:program:discover",
+            "kind": "program_discover",
+            "resource_class": "program",
+            "deterministic": False,
+            "base_priority": 1.0,
+            "metadata": {},
+        },
+    ]
+    return {
+        "content_sha256": "service-opportunities",
+        "actions": actions,
     }
 
 
@@ -155,12 +201,91 @@ def test_round_robin_scheduler_uses_frozen_kind_cursor_not_adaptive_score() -> N
             "native_search_frontier": True,
             "model": True,
         },
+        prior_action_kinds=("codex_global_architecture",) * 7,
     )
 
     assert decision["scheduler_policy"] == "round_robin"
     assert decision["selected_action"]["kind"] == "chemenzy_frontier_expand"
     assert decision["semantics"][
         "round_robin_ignores_adaptive_value_score_for_ordering"
+    ] is True
+    assert decision["action_class_service"]["required_action_class"] == ""
+    assert decision["action_class_service"]["minimum_service_enforced"] is False
+
+
+def test_every_campaign_action_kind_has_one_target_blind_service_class() -> None:
+    observed = {
+        action_class_for_kind(kind.value) for kind in CampaignActionKind
+    }
+
+    assert observed == set(ACTION_CLASS_ORDER)
+    assert all(
+        action_class_for_kind(kind.value) != "unclassified"
+        for kind in CampaignActionKind
+    )
+
+
+def test_adaptive_minimum_service_prevents_model_flood_from_starving_closure() -> None:
+    decision = schedule_next_action(
+        _service_opportunities(),
+        prior_action_kinds=("codex_global_architecture",) * 9,
+    )
+
+    assert decision["selected_action"]["kind"] == "host_materialize"
+    assert decision["selected_action"]["selection_reasons"] == [
+        "minimum_service_guarantee_due:deterministic_closure"
+    ]
+    service = decision["action_class_service"]
+    assert service["next_action_ordinal"] == 10
+    assert service["required_action_class"] == "deterministic_closure"
+    assert service["minimum_service_guarantee_applied"] is True
+
+
+def test_adaptive_service_window_reaches_every_continuously_eligible_class() -> None:
+    history: list[str] = []
+    trace: list[str] = []
+
+    for _ in range(12):
+        decision = schedule_next_action(
+            _service_opportunities(),
+            prior_action_kinds=tuple(history),
+        )
+        selected_kind = str(decision["selected_action"]["kind"])
+        trace.append(str(decision["selected_action"]["action_class"]))
+        history.append(selected_kind)
+
+    assert trace[:9] == ["route_discovery"] * 9
+    assert trace[9:] == [
+        "deterministic_closure",
+        "scientific_proof",
+        "program_experiment",
+    ]
+    assert set(trace) == set(ACTION_CLASS_ORDER)
+
+
+def test_blocked_action_classes_lend_capacity_without_creating_budget() -> None:
+    decision = schedule_next_action(
+        _service_opportunities(),
+        resource_availability={
+            "model": True,
+            "deterministic": False,
+            "program": False,
+        },
+        available_action_kinds=("codex_global_architecture",),
+        prior_action_kinds=("codex_global_architecture",) * 7,
+    )
+
+    assert decision["selected_action"]["kind"] == "codex_global_architecture"
+    service = decision["action_class_service"]
+    assert service["required_action_class"] == ""
+    assert service["borrowed_service_capacity"] is True
+    assert service["borrowable_from_action_classes"] == [
+        "deterministic_closure",
+        "scientific_proof",
+        "program_experiment",
+    ]
+    assert service["semantics"][
+        "borrowed_service_capacity_creates_no_run_kernel_budget"
     ] is True
 
 

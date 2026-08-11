@@ -9,6 +9,7 @@
 | `target_constraints.v1` | 禁用试剂、最大步数、允许执行域、安全限制和库存来源 | API/CLI/Web adapters |
 | `campaign_resource_budget.v1` | model/visual、native search、evidence、stock、validation、Program、experiment、total task 与 campaign wall-time 的运行预算向量 | API/CLI/Web adapters |
 | `campaign_task_budget.v1` | evidence、stock、validation、Program、experiment 与 total task 的 settled/reserved/remaining 可重放投影 | `RunKernel` / status / reports |
+| `campaign_action_class_service.v1` | 四个 target-blind Action class 的 12-Action 最低服务 deadline、eligible/blocked 状态、服务槽借用、选中 class 与历史摘要；不创建队列或预算 | action scheduler / runtime |
 | `campaign_action.v2` | revision-bound Action，包含 reservation 前固定的类级资源估计；v1 只允许按旧摘要严格兼容读取 | action scheduler / runtime |
 | `campaign_action_estimate.v1` | reservation 前冻结的成功概率区间、route/proof/diversity 与依赖解除预期、成本和显式不确定性；未评估概率保留 `[0,1]`，不做伪校准 | action binder |
 | `campaign_action_resource_estimate.v1` | target-blind resource-class 估计：wrapper/child task、native、model 与未知 token 维度 | action binder |

@@ -133,6 +133,8 @@
 
 实验 HTTP transport 切片新增宿主配置的 `HttpExperimentExecutorProvider`、`experiment_job_operation_request.v1` 与 `experiment_job_transport_result.v1`：dispatch 只生成无副作用 handoff，显式 submit/poll/cancel 才调用宿主固定 endpoint；客户端不能提供 URL 或凭据。远端只允许 HTTPS，显式 loopback 测试除外；redirect 禁止，job ID URL-escape，响应大小和 timeout 有宿主硬上限，Bearer 值只从命名环境变量即时读取并从状态文本脱敏，CAS/事件/指针/封套只保存认证上下文与响应体摘要。每次 transport attempt 先进入原 experiment task checkpoint，成功后才追加 job receipt；timeout/HTTP/认证/响应错误保留审计且可用新 attempt 重试，checkpoint 后崩溃可消费缓存成功结果而不重发网络副作用。真实 loopback HTTP、Gateway submit→poll→cancel、取消 acknowledgement、配置漂移、CLI/Web 路由和凭据不落盘均已验证；聚焦回归 113 passed，Ruff、compileall、全部架构/行数预算门和 `git diff --check` 通过；不做 deselect 的完整离线套件为 2733 passed、3 skipped、11 warnings、2 subtests passed，用时 174.99 秒。当前没有生产 endpoint、设备或凭据，不能把 fixture 写成真实实验结果。
 
+Action-class 公平服务切片新增 `campaign_action_class_service.v1` 与可重放 RunKernel reservation history：四类持续 eligible Action 使用固定 12-Action 最低服务窗口，deadline 压力出现前仍按原 value/cost 排序；blocked/absent class 的服务槽立即借出且不创建新预算、reservation 或队列。模型洪泛、四类最低服务、handler/resource blocked 借用、round-robin 独立性、reopen/resume ledger、B4 后科学轨迹和总任务硬上限均已验证。目标求解/Gateway/CLI 集成 73 passed；Ruff、compileall、全部架构/行数预算门与 `git diff --check` 通过；不做 deselect 的完整离线套件为 2738 passed、3 skipped、11 warnings、2 subtests passed，用时 225.44 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -318,8 +320,8 @@ W2 验收门：
 ### 6.2 通用优先级
 
 - [ ] 昂贵动作前先执行 identity、元素守恒、循环、重复和明显非法结构检查。
-- [ ] 没有库存闭合路线时，route discovery/stock closure 获得统一的最低服务保障。
-- [ ] 已存在可物化候选时，确定性 materialization/validation 不应被新的模型猜测长期饿死。
+- [x] 没有库存闭合路线时，route discovery/stock closure 通过统一 action-class 服务窗口获得最低服务；规则不读取目标、数据集或 objective。
+- [x] 已存在可物化候选时，确定性 materialization/validation 属于独立 closure class，持续 eligible 时不会被新的模型猜测长期饿死。
 - [ ] 搜索停滞、路线族单一、共享瓶颈或关键边反复失败时，提高 Codex 全局重构和替代路线动作价值。
 - [ ] 已有完整路线但 proof/evidence/conditions 开放时，逐步提高验证和证据动作价值；这些动作不能反向删除路线拓扑。
 - [ ] 常规路线存在高代价连续区间、特定选择性瓶颈或已知能力匹配时，提高 Program discovery/review 价值。
@@ -336,10 +338,10 @@ W2 验收门：
 
 ### 6.4 公平调度而非样本分组
 
-- [ ] 对 action classes 使用所有目标一致的 minimum service guarantee 和预算借用规则。
+- [x] 对四个固定 action classes 使用所有目标一致的 12-Action minimum service window；blocked/absent class 当轮自动出借服务槽，借用不增加 RunKernel 硬预算。
 - [ ] ChemEnzy、Codex、evidence 和 validation 可并发，但共享同一事件循环、in-flight registry 和 canonical state。
 - [x] 初始 ChemEnzy/Codex cohort 结果按 revision、幂等键和稳定 action 顺序合并，cache replay 不重复 reservation/settlement。
-- [ ] 任何 action class 都不能因目标来自某个数据集而被开启、关闭或获得额外预算。
+- [x] 任何 action class 都不能因目标来自某个数据集而被开启、关闭或获得额外预算；静态禁词门与 metadata/insertion-order 回归覆盖该约束。
 - [x] 初始状态同时生成 target-native 与 global-architecture opportunities；同 revision cohort 保证两者都获得启动机会，而不是用目标类别选择先后。
 - [ ] 第一版并发只允许 runtime 管理的 bounded workers；禁止为了并发另建后台 scheduler、Blackboard 或 phase queue。
 
@@ -578,8 +580,9 @@ W2 验收门：
 ### Checkpoint D：接入 deficit-driven scheduler
 
 - [x] 已实现确定性、可解释、无训练的排序器基座和 stable action-ID tie-break。
-- [ ] 实现 action-class 公平保障、预算借用和跨 slice 的连续低收益收敛；stable tie-break 已完成。
-- [ ] 门：scheduler target-blind 动态与静态测试已通过；生产 action-loop 接管仍未完成。
+- [x] 实现 action-class 最低服务保障与 blocked-class 服务槽借用；stable tie-break、RunKernel 事件重放和 round-robin 独立语义已完成。
+- [ ] 将连续低收益计数从单次 `run_anytime()` 扩展为跨 slice/resume 的可重放收敛账本。
+- [x] 门：scheduler target-blind 动态/静态测试与生产单 action-loop 集成回归已通过。
 
 ### Checkpoint E：非阻塞 Codex + ChemEnzy
 
@@ -630,3 +633,4 @@ W2 验收门：
 - [x] 第十二刀（applicability 学习）：Program experience 已升级为 exact/structural-analog 分层、相似度加权且 execution-domain 隔离的 `program_applicability_model.v1`；模型只影响 proposal/validation priority。
 - [x] 第十三刀（实验外部作业闭环）：`RunKernel` 新增 CAS 绑定、前驱有序且不改变预算/图/科学状态的通用 task checkpoint；严格的 `experiment_operator_identity.v1`、`experiment_external_job_receipt.v1` 与 `experiment_cancellation_request.v1` 已接入同一 experiment task。取消请求不会提前结算，只有绑定请求的外部 `cancelled` acknowledgement 才结算 cancelled；`completed`/`failed` receipt 仍需独立 result/domain gate。Gateway、CLI、HTTP、并发幂等、不同 payload 冲突、fresh-digest 绑定篡改、current frontier/provider 漂移、取消竞态和旧人工回填兼容均已回归，并作为第十四刀受控 HTTP transport 的操作权威基础；不得创建第二任务队列或虚构设备凭据。
 - [x] 第十四刀（受控 HTTP transport）：默认 registry 可由宿主环境显式注册 HTTPS experiment bridge；dispatch 无网络副作用，submit/poll/cancel 通过稳定 operation ID、Bearer 环境引用、endpoint-config digest、service operator identity 和有界响应契约运行。所有 attempt/receipt/cancellation 继续复用同一 RunKernel task；timeout 可重试、成功 checkpoint 可恢复、取消仍以 acknowledgement 为结算门。当前只证明桥接能力与真实 HTTP 协议，不声称已连接生产设备；下一步需要部署方提供真实 bridge endpoint/凭据并取得可发布校准数据，或为不兼容桥接契约的厂商 API 编写受控 adapter。
+- [x] 第十五刀（action-class 公平服务）：新增 target-blind `campaign_action_class_service.v1`，把全部 Action 冻结映射为 route discovery、deterministic closure、scientific proof、Program/experiment 四类。Adaptive 只在 12-Action 最低服务窗口即将违约时覆盖价值排序；无 eligible handler/resource 的 class 自动出借服务槽且不积累第二队列或新预算。服务历史从 RunKernel durable reservation 事件重建，resume/input-order/round-robin、模型洪泛不饿死 closure、blocked borrowing 与总任务硬上限均有回归。
