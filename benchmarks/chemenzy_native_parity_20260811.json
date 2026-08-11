@@ -1,8 +1,8 @@
 {
   "schema_version": "chemenzy_native_parity_probe.v1",
   "evidence_date": "2026-08-11",
-  "source_commit": "57a5b92",
-  "generated_at": "2026-08-11T18:41:36.292223Z",
+  "source_commit": "8861883",
+  "generated_at": "2026-08-11T19:17:01.862301Z",
   "request": {
     "target_smiles": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
     "search_preset": "standard",
@@ -22,7 +22,7 @@
   },
   "launcher_request_sha256": "1b68f70cd35731df4b05b84f598d14e3b8643540bec5016bd29ad66475b9e4e1",
   "proposal_request_sha256": "e2d338099aba5f5fcf9b7b589126a85c58efdf741c01c9944876c28a5e41ecde",
-  "replay_key_sha256": "d0db808d9f3ba4eb7532b092233ef7b57f54831dd71daae179bfad0c49201ebb",
+  "replay_key_sha256": "65e57b174c906b456310db29449ca643019192a2d3ab8a60709ab88f1c17bbe1",
   "model_content_binding_sha256": "e49ca9286a45429673854ef9c6fa25d4c7b5451d1fbba0f7f7703b097a0d8178",
   "model_content_identity_complete": true,
   "stock_content_binding_sha256": "7545b41c9c78c33c8f3bac5477c33d381b5676d1ff3e29ef519902a6060e5849",
@@ -42,19 +42,19 @@
   },
   "embedded": {
     "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
-    "raw_result_sha256": "3f18fe089b768fed844b216ff7bd4b2e1d9a10e873815d9d791c62138b9da836",
+    "raw_result_sha256": "b4ae31ade5fd2dcb8737ce080cb6fa41288fe782bef7b4db2b358d43d48271c4",
     "route_count": 2,
     "quarantined_route_count": 0,
-    "elapsed_s": 79.235,
+    "elapsed_s": 79.672,
     "search_trace_count": 1213,
     "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
   },
   "standalone": {
     "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
-    "raw_result_sha256": "5004efd1563d7518880c3b99def73a54e78e05085d8b0a50ae7fd52ab5d926a6",
+    "raw_result_sha256": "9b08fb9b589979e7f4ec30625d6b999cba4c16838b0fcc2c87f26b070431ca81",
     "route_count": 2,
     "quarantined_route_count": 0,
-    "elapsed_s": 73.906,
+    "elapsed_s": 73.86,
     "search_trace_count": 1213,
     "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
   },
@@ -78,5 +78,5 @@
     "parity_requires_search_trace_identity": true
   },
   "parity_accepted": true,
-  "content_sha256": "566817320525d6e37e8d07dcfe7b5842cd120839c6511a63d04c1c52b7d88f07"
+  "content_sha256": "0f66b4311b7cfbf78af06775854378273ad06e36057c7f015c8d295d2bc19f1f"
 }
