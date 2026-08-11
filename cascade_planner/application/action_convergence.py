@@ -131,6 +131,28 @@ def no_gain_binding_map(ledger: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
+def verified_action_convergence_ledger(
+    ledger: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Return one digest-valid durable ledger, otherwise fail closed."""
+
+    if not isinstance(ledger, Mapping):
+        return {}
+    row = dict(ledger)
+    content_sha256 = str(row.pop("content_sha256", ""))
+    if (
+        row.get("schema_version") != ACTION_CONVERGENCE_LEDGER_SCHEMA
+        or len(content_sha256) != 64
+        or _digest(row) != content_sha256
+        or dict(row.get("semantics") or {}).get(
+            "run_kernel_reservations_and_action_outcomes_are_authority"
+        )
+        is not True
+    ):
+        return {}
+    return {**row, "content_sha256": content_sha256}
+
+
 def _digest(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(
@@ -148,4 +170,5 @@ __all__ = [
     "ACTION_CONVERGENCE_LEDGER_SCHEMA",
     "compile_action_convergence_ledger",
     "no_gain_binding_map",
+    "verified_action_convergence_ledger",
 ]

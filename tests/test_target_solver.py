@@ -2279,6 +2279,22 @@ def test_target_solver_replans_globally_from_unbound_source_discovery(
     assert signal_gate["detail"]["actionable_material_events"] == [
         "source_material_discovered"
     ]
+    pressure = signal_gate["detail"]["replan_pressure"]
+    assert pressure["schema_version"] == "campaign_replan_pressure.v1"
+    assert pressure["convergence_ledger_verified"] is True
+    assert pressure["derived_material_events"] == []
+    replan_action = next(
+        dict(stage["detail"]["action"])
+        for stage in result["stages"]
+        if str(stage.get("stage") or "").startswith(
+            "campaign_action_unified_core_"
+        )
+        and dict(stage["detail"]["action"]).get("kind")
+        == CampaignActionKind.CODEX_REPLAN.value
+    )
+    assert dict(replan_action["metadata"])["replan_pressure"][
+        "content_sha256"
+    ] == pressure["content_sha256"]
     assert retention["status"] == "accepted"
     assert retention["detail"]["missing_ids"] == {}
     assert gain["detail"]["model_cost_delta"]["model_invocations"] == 1.0

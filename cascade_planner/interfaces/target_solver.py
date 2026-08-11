@@ -72,6 +72,7 @@ from cascade_planner.application.proof_portfolio import (
     PortfolioConfig,
     compile_proof_portfolio,
 )
+from cascade_planner.application.replan_pressure import compile_replan_pressure
 from cascade_planner.cascade_search.proposals import local_condition_predictor
 from cascade_planner.interfaces.evidence_import import (
     ingest_structured_evidence_document,
@@ -161,8 +162,11 @@ _REPLAN_ACTIONABLE_EVENTS = frozenset(
         "host_validated_edges_added_after_initial_plan",
         "host_validated_source_route_added",
         "material_evidence_added",
+        "new_route_family",
         "source_material_discovered",
         "source_procedure_records_added",
+        "shared_bottleneck_changed",
+        "source_conflict_added",
         "stock_boundary_changed",
         "stock_records_added",
         "visual_source_candidates_added",
@@ -1661,16 +1665,35 @@ def solve_target(
         ):
             return
         gates = current_campaign_gates()
+        observed_material_events = tuple(sorted(unified_material_events))
+        convergence_ledger = unified_core_runtime.action_convergence_ledger(
+            current_graph_revision=service.kernel.state.graph_revision
+        )
+        replan_pressure = compile_replan_pressure(
+            gates,
+            material_events=observed_material_events,
+            convergence_ledger=convergence_ledger,
+        )
+        effective_material_events = tuple(
+            sorted(
+                {
+                    *observed_material_events,
+                    *replan_pressure["derived_material_events"],
+                }
+            )
+        )
         reasons = _replan_reasons(
             gates,
-            material_events=tuple(sorted(unified_material_events)),
+            material_events=observed_material_events,
+            convergence_ledger=convergence_ledger,
         )
         if not reasons or not _director_outcome_allows_replan(outcomes):
             return
         signal_gate = _replan_signal_gate(
             gates,
-            material_events=tuple(sorted(unified_material_events)),
+            material_events=observed_material_events,
             trigger_reasons=reasons,
+            convergence_ledger=convergence_ledger,
         )
         if signal_gate.get("accepted") is not True:
             return
@@ -1681,7 +1704,7 @@ def solve_target(
         context_error = ""
         try:
             replan_context = service.compile_global_context(
-                material_events=tuple(sorted(unified_material_events)),
+                material_events=effective_material_events,
                 evidence_observations={
                     **_evidence_observations(latest_evidence_action_result),
                     **self_evo.observation(),
@@ -1724,9 +1747,11 @@ def solve_target(
             return
         signal_payload = {
             "graph_revision": service.kernel.state.graph_revision,
-            "material_events": sorted(unified_material_events),
+            "material_events": list(effective_material_events),
+            "observed_material_events": list(observed_material_events),
             "trigger_reasons": list(reasons),
             "prompt_context_bytes": prompt_context_bytes,
+            "replan_pressure_sha256": replan_pressure["content_sha256"],
         }
         signal_sha256 = _digest(signal_payload)
         service.publish_action_signals(
@@ -1744,17 +1769,11 @@ def solve_target(
                     "deterministic": False,
                     "model_allowed": True,
                     "reason": "material_state_requires_global_replan",
-                    "score": {
-                        "expected_portfolio_gain": 0.84,
-                        "distance_to_closure": 0.72,
-                        "evidence_gain": 0.30,
-                        "route_diversity_gain": 0.82,
-                        "cost_penalty": 0.55,
-                        "failure_risk_penalty": 0.35,
-                    },
+                    "score": dict(replan_pressure["score"]),
                     "metadata": {
                         **signal_payload,
                         "global_replan": True,
+                        "replan_pressure": replan_pressure,
                     },
                 },
             ),
@@ -3017,9 +3036,26 @@ def solve_target(
             }
         )
     )
+    convergence_ledger = dict(
+        unified_core_loop.get("convergence_ledger") or {}
+    )
+    replan_pressure = compile_replan_pressure(
+        provisional_gates,
+        material_events=material_events,
+        convergence_ledger=convergence_ledger,
+    )
+    effective_material_events = tuple(
+        sorted(
+            {
+                *material_events,
+                *replan_pressure["derived_material_events"],
+            }
+        )
+    )
     replan_reasons = _replan_reasons(
         provisional_gates,
         material_events=material_events,
+        convergence_ledger=convergence_ledger,
     )
     replan_candidate = bool(
         active.enable_codex
@@ -3036,6 +3072,7 @@ def solve_target(
         provisional_gates,
         material_events=material_events,
         trigger_reasons=replan_reasons,
+        convergence_ledger=convergence_ledger,
     )
     needs_replan = bool(replan_candidate and replan_signal_gate["accepted"])
     if replan_candidate:
@@ -3059,7 +3096,7 @@ def solve_target(
     if needs_replan and replan_guard["accepted"]:
         try:
             replan_context = service.compile_global_context(
-                material_events=material_events,
+                material_events=effective_material_events,
                 evidence_observations=evidence_observations,
             )
             replan_prompt_context_bytes = len(
@@ -3115,9 +3152,11 @@ def solve_target(
         )
         replan_signal = {
             "graph_revision": service.kernel.state.graph_revision,
-            "material_events": list(material_events),
+            "material_events": list(effective_material_events),
+            "observed_material_events": list(material_events),
             "trigger_reasons": list(replan_reasons),
             "prompt_context_bytes": replan_prompt_context_bytes,
+            "replan_pressure_sha256": replan_pressure["content_sha256"],
         }
         replan_signal_sha256 = _digest(replan_signal)
         replan_deficit = {
@@ -3135,19 +3174,13 @@ def solve_target(
             "deterministic": False,
             "model_allowed": True,
             "reason": "material_state_requires_global_replan",
-            "priority": 720.0,
-            "score": {
-                "expected_portfolio_gain": 0.84,
-                "distance_to_closure": 0.72,
-                "evidence_gain": 0.30,
-                "route_diversity_gain": 0.82,
-                "cost_penalty": 0.55,
-                "failure_risk_penalty": 0.35,
-            },
+            "priority": float(replan_pressure["score"]["priority"]),
+            "score": dict(replan_pressure["score"]),
             "metadata": {
                 **replan_signal,
                 "global_replan": True,
                 "event_signal_sha256": replan_signal_sha256,
+                "replan_pressure": replan_pressure,
             },
         }
         event_replan_action_set = compile_action_opportunities(
@@ -3182,7 +3215,7 @@ def solve_target(
             return _run_director_safely(
                 service,
                 mode="event_replan",
-                material_events=material_events,
+                material_events=effective_material_events,
                 evidence_observations=evidence_observations,
                 idempotency_key=f"solve-target:director:replan:{len(outcomes)}",
             )
@@ -5630,6 +5663,7 @@ def _replan_signal_gate(
     *,
     material_events: Iterable[str],
     trigger_reasons: Iterable[str],
+    convergence_ledger: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Require a new host observation before spending the optional model call.
 
@@ -5644,7 +5678,13 @@ def _replan_signal_gate(
         for value in material_events
         if str(value).strip()
     }
+    pressure = compile_replan_pressure(
+        gates,
+        material_events=observed,
+        convergence_ledger=convergence_ledger,
+    )
     actionable = observed & _REPLAN_ACTIONABLE_EVENTS
+    actionable.update(pressure["derived_material_events"])
     gate_values = dict(gates.get("gates") or {})
     if gate_values.get("B4_stock_boundary") is True:
         actionable.difference_update({"stock_boundary_changed", "stock_records_added"})
@@ -5658,10 +5698,13 @@ def _replan_signal_gate(
         "observed_material_events": sorted(observed),
         "actionable_material_events": sorted(actionable),
         "ignored_material_events": sorted(observed - actionable),
+        "durable_state_events": list(pressure["derived_material_events"]),
+        "replan_pressure": pressure,
         "reasons": reasons,
         "semantics": {
             "portfolio_deficit_alone_never_spends_a_model_call": True,
-            "new_host_observation_required": True,
+            "new_host_observation_or_verified_durable_state_required": True,
+            "text_stagnation_alone_is_not_actionable": True,
             "already_closed_stock_boundary_is_not_a_replan_signal": True,
             "skipped_replan_is_not_completion": True,
         },
@@ -5910,9 +5953,15 @@ def _replan_reasons(
     gates: Mapping[str, Any],
     *,
     material_events: tuple[str, ...],
+    convergence_ledger: Mapping[str, Any] | None = None,
 ) -> tuple[str, ...]:
     values = dict(gates.get("gates") or {})
     events = set(material_events)
+    pressure = compile_replan_pressure(
+        gates,
+        material_events=events,
+        convergence_ledger=convergence_ledger,
+    )
     reasons: list[str] = []
     if "director_contract_rejected" in events:
         reasons.append("director_contract_deficit")
@@ -5920,6 +5969,16 @@ def _replan_reasons(
         reasons.append("planning_depth_deficit")
     if "director_topology_rejected" in events:
         reasons.append("director_topology_deficit")
+    if "critical_edge_rejected" in events:
+        reasons.append("critical_edge_failure_pressure")
+    if "new_route_family" in events:
+        reasons.append("new_route_family_pressure")
+    if "shared_bottleneck_changed" in events:
+        reasons.append("shared_bottleneck_pressure")
+    if "source_conflict_added" in events:
+        reasons.append("source_conflict_pressure")
+    if pressure["derived_material_events"]:
+        reasons.append("search_stagnation_with_route_diversity_deficit")
     if values.get("B2_host_validated_routes") is not True:
         reasons.append("host_validated_route_deficit")
     if (

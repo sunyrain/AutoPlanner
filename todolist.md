@@ -139,6 +139,8 @@ Action-class 公平服务切片新增 `campaign_action_class_service.v1` 与可�
 
 精确边界重复价值切片在 `experimental_work_scheduling.v1` 中新增独立、可解释的 unchanged-exact-repeat penalty：supported/contraindicated/inconclusive/conflicting memory 只有在 strongest transfer scope 已是 exact boundary 且没有新 dirty hint 时降权；structural analog 和 dirty recompute 不受该惩罚。惩罚只进入 information gain/value-per-cost/Action score，最低值仍大于零，不修改 capability catalog、validation、Claim、proof、completion 或 acceptance。experience priority 纯策略已拆入 106 行模块，主 scheduling 保持 291 行，未提高 320 行预算。三域/架构聚焦 54 passed，相关入口集成 117 passed；完整离线套件为 2742 passed、3 skipped、11 warnings、2 subtests passed，用时 179.10 秒。
 
+Codex replan pressure 切片新增 160 行的 target-blind `campaign_replan_pressure.v1`：只有经摘要验证的 `campaign_action_convergence_ledger.v1` 在同一 durable revision 连续 3 次无增益，并与 B1 路线多样性缺口同时成立时，才派生可信 `portfolio_stagnation` 状态事件；单独文本事件继续失败关闭。关键边拒绝、新路线族、共享瓶颈变化和来源冲突分别形成可审计 pressure 分量，并动态提高既有 `codex_global_replan` Action score；signal/budget gate、单一 deficit frontier、单一 action loop、RunKernel 硬预算和 canonical additive authority 均未改变。target/dataset/objective 标签不参与投影，tamper、replay/resume、B1 对照和模型预算耗尽均有回归。replan/runtime/架构聚焦 134 passed；Ruff、compileall、全部架构/行数预算门和 `git diff --check` 通过；不做 deselect 的完整离线套件为 2748 passed、3 skipped、11 warnings、2 subtests passed，用时 174.50 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -326,7 +328,7 @@ W2 验收门：
 - [ ] 昂贵动作前先执行 identity、元素守恒、循环、重复和明显非法结构检查。
 - [x] 没有库存闭合路线时，route discovery/stock closure 通过统一 action-class 服务窗口获得最低服务；规则不读取目标、数据集或 objective。
 - [x] 已存在可物化候选时，确定性 materialization/validation 属于独立 closure class，持续 eligible 时不会被新的模型猜测长期饿死。
-- [ ] 搜索停滞、路线族单一、共享瓶颈或关键边反复失败时，提高 Codex 全局重构和替代路线动作价值。
+- [x] 搜索停滞、路线族单一、共享瓶颈或关键边反复失败时，提高 Codex 全局重构和替代路线动作价值；停滞只从摘要验证的 durable convergence streak 派生，单独文本事件不触发模型调用。
 - [ ] 已有完整路线但 proof/evidence/conditions 开放时，逐步提高验证和证据动作价值；这些动作不能反向删除路线拓扑。
 - [ ] 常规路线存在高代价连续区间、特定选择性瓶颈或已知能力匹配时，提高 Program discovery/review 价值。
 - [x] 负结果和不确定结果会降低“同一 exact boundary 且无新 dirty signal”的重复实验价值；structural analog、新 dirty recompute 与 capability 本身仍保持可调度，不做全局禁用。
@@ -400,7 +402,7 @@ W2 验收门：
 
 ### 9.2 状态触发重规划
 
-- [ ] replan 触发器只依赖物质事件和状态变化：关键边拒绝、新路线族、新 exact evidence、库存变化、共享瓶颈、搜索停滞和路线多样性不足。
+- [x] replan 触发器只依赖物质事件和状态变化：关键边拒绝、新路线族、新 exact evidence、库存变化、共享瓶颈、搜索停滞和路线多样性不足；其中停滞要求固定 3 次 digest-verified durable no-gain 且 B1 未满足。
 - [x] 去除 benchmark 模式对 depth、validation、evidence replan reason 的屏蔽。
 - [x] replan 输出只能追加候选、调整优先级或提出替换 Program；不能删除既有 canonical 路线。
 - [x] 每次 replan 报告前后 route family、edge、stock closure、proof 和资源增量。
@@ -640,3 +642,4 @@ W2 验收门：
 - [x] 第十五刀（action-class 公平服务）：新增 target-blind `campaign_action_class_service.v1`，把全部 Action 冻结映射为 route discovery、deterministic closure、scientific proof、Program/experiment 四类。Adaptive 只在 12-Action 最低服务窗口即将违约时覆盖价值排序；无 eligible handler/resource 的 class 自动出借服务槽且不积累第二队列或新预算。服务历史从 RunKernel durable reservation 事件重建，resume/input-order/round-robin、模型洪泛不饿死 closure、blocked borrowing 与总任务硬上限均有回归。
 - [x] 第十六刀（跨 slice 收敛）：新增 target-blind `campaign_action_convergence_ledger.v1`，从 RunKernel reservation、Action outcome pointer 和不可变 outcome digest 重建 attempted/no-gain/consecutive 状态。`run_anytime()` 在新 slice/resume 前恢复同 revision attempted 排除，达到历史 no-gain 上限时不再重复 dispatch；新 graph revision 或输入/输出 revision 断点清零连续 streak，精确 opportunity digest 改变才解除 no-gain binding。没有新增队列、预算或 canonical authority。
 - [x] 第十七刀（精确边界重复降权）：实验 work scheduling 对已有 supported/negative/inconclusive/conflicting exact-boundary memory 增加 unchanged-repeat penalty；只有缺少新 dirty signal 时生效。structural analog、dirty recompute 和其他 capability 不被禁用，结果仍只改变 priority/score。
+- [x] 第十八刀（Codex 动态重规划压力）：新增 `campaign_replan_pressure.v1`，从 gates、物质事件和摘要验证的 convergence ledger 形成 target-blind score。固定 3 次 durable no-gain 与 B1 路线多样性缺口共同派生停滞事件；关键边、新路线族、共享瓶颈和来源冲突独立加权。纯文本停滞、标签变化和篡改 ledger 均不能触发，模型预算耗尽仍由原 budget gate 拒绝；没有增加调用预算、队列或科学权威。
