@@ -178,7 +178,7 @@ def compile_native_parity_panel(
         "limitations": [
             "This panel is bounded evidence for the selected manifest prefix, not a 190-target result.",
             "An empty route set is reported as deterministic-but-empty and does not satisfy strict parity acceptance.",
-            "Fresh/uncached CSV preparation remains a separate Windows torchtext compatibility boundary.",
+            "Fresh/uncached CSV worker compatibility is evaluated separately and is not inferred from this parity panel.",
         ],
     }
     panel["content_sha256"] = _digest(panel)

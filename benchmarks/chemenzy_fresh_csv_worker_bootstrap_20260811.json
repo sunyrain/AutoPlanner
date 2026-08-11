@@ -1,0 +1,90 @@
+{
+  "schema_version": "chemenzy_fresh_csv_worker_bootstrap.v1",
+  "evidence_date": "2026-08-11",
+  "source_commit": "c57c2a4154102e7144d700708702d13059f73ade",
+  "runtime": {
+    "platform": "Windows",
+    "python_executable": "D:\\conda\\envs\\py312\\python.exe",
+    "python_version": "3.12.13",
+    "pandarallel_workers": 2,
+    "multiprocessing_start_method": "spawn"
+  },
+  "fixture": {
+    "role": "fresh uncached CSV stock-preparation import-boundary probe",
+    "schema": "mol column compatible with vendor origin_dict.csv",
+    "rows": [
+      "CCO",
+      "CCN",
+      "CCC",
+      "CCOC"
+    ],
+    "size_bytes": 21,
+    "sha256": "5e3bbc178f83761a054db0e4e66afaba8261f45026e8b13a26e31b243aaed13f"
+  },
+  "request": {
+    "target_smiles": "CCOC",
+    "search_preset": "quick",
+    "max_routes": 1,
+    "max_steps": 2,
+    "iterations": 1,
+    "expansion_topk": 1,
+    "random_seed": 0,
+    "one_step_models": [
+      "graphfp_models.USPTO-full_remapped"
+    ],
+    "condition_prediction": false,
+    "enzyme_assignment": false,
+    "request_file_sha256": "8f80dc6ea5c0728b77390a1f3d3ca6551a37e8c67dc5baa5f3f6fcf1f5071bde"
+  },
+  "before_fix": {
+    "source_commit": "d89f7dcf6e8480be39c436a2f537b6afe3311997",
+    "result_file_sha256": "e0bd19473166b37674c15717b9fb2dee785735cfe7dc5c134622a9d419b8d454",
+    "backend_failure_category": "backend_initialization_failed",
+    "backend_failure_message": "ImportError: cannot import name 'Field' from 'torchtext.data'",
+    "stock_property_chunk_created": false
+  },
+  "after_fix": {
+    "result_file_sha256": "6c2554dc7cb4b9709a9aa361dacccc22bcd164b54ef3e4d6032bb930c60eb72a",
+    "backend_initialization_failure_free": true,
+    "terminal_backend_category": "no_route_found",
+    "terminal_category_expected_for_one_iteration_smoke": true,
+    "stock_property_chunk_created": true,
+    "stock_property_chunk_size_bytes": 1204,
+    "stock_property_chunk_removed_after_probe": true,
+    "runtime_compatibility": {
+      "pandarallel_spawn_bootstrap_configured": true,
+      "worker_import_shims": [
+        "numpy_legacy_aliases",
+        "torchdata_legacy_aliases",
+        "torchtext_legacy_aliases",
+        "dgl_graphbolt_optional_import",
+        "optional_easifa_import",
+        "optional_graphviz_import"
+      ]
+    }
+  },
+  "scientific_regression": {
+    "probe": "RetroStar-190 manifest target 001 with frozen SQLite stock",
+    "probe_report_file_sha256": "d34f7beda160ee35c6d904a6a0f434902e53c69a4d4efc02f03f66adaa57ffe1",
+    "probe_report_content_sha256": "6b7f44c82315163611fc859c13a7e0ce8d6bc789e46de07be2cb393fc09a2337",
+    "parity_accepted": true,
+    "embedded_route_count": 2,
+    "standalone_route_count": 2,
+    "search_trace_count": 1213,
+    "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de",
+    "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418"
+  },
+  "validation": {
+    "focused_tests": "30 passed, 10 warnings, 2 subtests passed",
+    "complete_offline_suite": "2807 passed, 3 skipped, 11 warnings, 2 subtests passed",
+    "ruff": "passed",
+    "compileall": "passed",
+    "git_diff_check": "passed"
+  },
+  "limitations": [
+    "The four-row CSV proves the Windows spawn import boundary and uncached stock-property path, not full-scale preparation time for the 1.29 GB vendor CSV.",
+    "The vendor origin_dict.csv content identity differs from the frozen RetroStar SQLite source identity and is not substituted for benchmark evidence.",
+    "The no_route_found outcome is expected from the one-iteration smoke and is not a route-quality claim."
+  ],
+  "content_sha256": "3c50f2d95ed7f6629b4d8c3095d3f64719a717cb84e01cbc2be97fa7cbdd6cb2"
+}
