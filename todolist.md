@@ -141,6 +141,8 @@ Action-class 公平服务切片新增 `campaign_action_class_service.v1` 与可�
 
 Codex replan pressure 切片新增 160 行的 target-blind `campaign_replan_pressure.v1`：只有经摘要验证的 `campaign_action_convergence_ledger.v1` 在同一 durable revision 连续 3 次无增益，并与 B1 路线多样性缺口同时成立时，才派生可信 `portfolio_stagnation` 状态事件；单独文本事件继续失败关闭。关键边拒绝、新路线族、共享瓶颈变化和来源冲突分别形成可审计 pressure 分量，并动态提高既有 `codex_global_replan` Action score；signal/budget gate、单一 deficit frontier、单一 action loop、RunKernel 硬预算和 canonical additive authority 均未改变。target/dataset/objective 标签不参与投影，tamper、replay/resume、B1 对照和模型预算耗尽均有回归。replan/runtime/架构聚焦 134 passed；Ruff、compileall、全部架构/行数预算门和 `git diff --check` 通过；不做 deselect 的完整离线套件为 2748 passed、3 skipped、11 warnings、2 subtests passed，用时 174.50 秒。
 
+科学闭环压力切片新增 146 行的 target-blind `campaign_scientific_closure_pressure.v1`：直接从同一个 `CampaignActionOpportunity` 集合识别 reaction validation、exact evidence/conflict resolution 和 conditions 三个开放轴，不把报告用 `campaign_quality_state` 升格为第二调度权威。validation/evidence 原基础权重等价迁入该投影；B1 路线组合出现后增加 25，B4 库存闭合后累计增加 55，只剩一个开放科学轴时再增加固定 last-mile 20。conditions 独立于 B2/B3，因此在验证和证据已闭合但条件仍开放时继续获得正向价值。round-robin、handler/resource blocker、action-class 服务和 RunKernel 预算均不被覆盖；输入标签、metadata 和 insertion order 不影响投影，scheduler 输入与路线拓扑只读保留。调度/质量轴/runtime/目标求解/架构聚焦 102 passed；Ruff、compileall、全部架构/行数预算门和 `git diff --check` 通过；不做 deselect 的完整离线套件为 2753 passed、3 skipped、11 warnings、2 subtests passed，用时 176.80 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -329,7 +331,7 @@ W2 验收门：
 - [x] 没有库存闭合路线时，route discovery/stock closure 通过统一 action-class 服务窗口获得最低服务；规则不读取目标、数据集或 objective。
 - [x] 已存在可物化候选时，确定性 materialization/validation 属于独立 closure class，持续 eligible 时不会被新的模型猜测长期饿死。
 - [x] 搜索停滞、路线族单一、共享瓶颈或关键边反复失败时，提高 Codex 全局重构和替代路线动作价值；停滞只从摘要验证的 durable convergence streak 派生，单独文本事件不触发模型调用。
-- [ ] 已有完整路线但 proof/evidence/conditions 开放时，逐步提高验证和证据动作价值；这些动作不能反向删除路线拓扑。
+- [x] 已有完整路线但 proof/evidence/conditions 开放时，逐步提高验证和证据动作价值；B1、B4 和最后一个开放科学轴形成固定增量，conditions 不依赖 B2/B3，投影只读且不能反向删除路线拓扑。
 - [ ] 常规路线存在高代价连续区间、特定选择性瓶颈或已知能力匹配时，提高 Program discovery/review 价值。
 - [x] 负结果和不确定结果会降低“同一 exact boundary 且无新 dirty signal”的重复实验价值；structural analog、新 dirty recompute 与 capability 本身仍保持可调度，不做全局禁用。
 
@@ -643,3 +645,4 @@ W2 验收门：
 - [x] 第十六刀（跨 slice 收敛）：新增 target-blind `campaign_action_convergence_ledger.v1`，从 RunKernel reservation、Action outcome pointer 和不可变 outcome digest 重建 attempted/no-gain/consecutive 状态。`run_anytime()` 在新 slice/resume 前恢复同 revision attempted 排除，达到历史 no-gain 上限时不再重复 dispatch；新 graph revision 或输入/输出 revision 断点清零连续 streak，精确 opportunity digest 改变才解除 no-gain binding。没有新增队列、预算或 canonical authority。
 - [x] 第十七刀（精确边界重复降权）：实验 work scheduling 对已有 supported/negative/inconclusive/conflicting exact-boundary memory 增加 unchanged-repeat penalty；只有缺少新 dirty signal 时生效。structural analog、dirty recompute 和其他 capability 不被禁用，结果仍只改变 priority/score。
 - [x] 第十八刀（Codex 动态重规划压力）：新增 `campaign_replan_pressure.v1`，从 gates、物质事件和摘要验证的 convergence ledger 形成 target-blind score。固定 3 次 durable no-gain 与 B1 路线多样性缺口共同派生停滞事件；关键边、新路线族、共享瓶颈和来源冲突独立加权。纯文本停滞、标签变化和篡改 ledger 均不能触发，模型预算耗尽仍由原 budget gate 拒绝；没有增加调用预算、队列或科学权威。
+- [x] 第十九刀（科学闭环动态提权）：新增 `campaign_scientific_closure_pressure.v1`，只从同一 Action set 和 B1/B4 milestones 投影 validation、exact evidence/conflict 与 conditions 的阶段价值。原 validation/evidence 基础权重保持；路线组合、库存闭合和最后开放轴按固定增量逐级提权，condition 即使在 B2/B3 已闭合后仍保持 last-mile 调度价值。round-robin、资源 blocker、预算、action service 与 canonical topology authority 均不改变。

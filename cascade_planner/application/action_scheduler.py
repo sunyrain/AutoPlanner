@@ -10,6 +10,9 @@ from cascade_planner.application.action_service_policy import (
     bind_action_class_selection,
     compile_action_class_service,
 )
+from cascade_planner.application.scientific_closure_pressure import (
+    compile_scientific_closure_pressure,
+)
 
 
 ACTION_SCHEDULE_DECISION_SCHEMA = "campaign_action_schedule_decision.v1"
@@ -29,13 +32,8 @@ _ROUTE_ACTIONS = frozenset(
         "recompute_route_closure",
     }
 )
-_PROOF_ACTIONS = frozenset(
+_PROGRAM_PROOF_ACTIONS = frozenset(
     {
-        "reaction_validate",
-        "acquire_exact_evidence",
-        "bind_exact_evidence",
-        "condition_enrich",
-        "resolve_conflict",
         "program_validate",
         "experiment_feedback_ingest",
     }
@@ -94,6 +92,13 @@ def schedule_next_action(
         for raw in opportunity_set.get("actions") or []
         if isinstance(raw, Mapping)
     ]
+    scientific_closure_pressure = compile_scientific_closure_pressure(
+        opportunity_set,
+        milestones=gates,
+    )
+    scientific_bonuses = dict(
+        scientific_closure_pressure.get("action_kind_bonuses") or {}
+    )
     pending_materialization = any(
         str(row.get("kind") or "") == "host_materialize"
         for row in raw_actions
@@ -151,6 +156,7 @@ def schedule_next_action(
                 blocked_reasons.append("route_materialization_precedes_stock_audit")
         base = float(row.get("base_priority") or 0.0)
         state_bonus = _state_bonus(kind, gates)
+        scientific_closure_bonus = float(scientific_bonuses.get(kind) or 0.0)
         deterministic_bonus = 30.0 if row.get("deterministic") is True else 0.0
         dependency_penalty = min(120.0, 30.0 * len(row.get("dependency_ids") or []))
         route_gain = 90.0 * float(row.get("expected_route_gain") or 0.0)
@@ -182,6 +188,7 @@ def schedule_next_action(
         total = round(
             base
             + state_bonus
+            + scientific_closure_bonus
             + deterministic_bonus
             + marginal_value
             - dependency_penalty,
@@ -197,6 +204,10 @@ def schedule_next_action(
                 "schedule_components": {
                     "base_priority": base,
                     "state_bonus": state_bonus,
+                    "scientific_closure_pressure_bonus": round(
+                        scientific_closure_bonus,
+                        6,
+                    ),
                     "deterministic_bonus": deterministic_bonus,
                     "route_gain": round(route_gain, 6),
                     "proof_gain": round(proof_gain, 6),
@@ -322,6 +333,7 @@ def schedule_next_action(
         "scheduler_policy": scheduler_policy,
         "round_robin_cursor": cursor,
         "action_class_service": action_class_service,
+        "scientific_closure_pressure": scientific_closure_pressure,
         "semantics": {
             "task_labels_are_not_inputs": True,
             "same_state_and_resources_produce_same_order": True,
@@ -334,6 +346,8 @@ def schedule_next_action(
             "action_class_service_is_target_blind": True,
             "blocked_class_service_capacity_is_borrowable": True,
             "service_borrowing_cannot_expand_run_kernel_budget": True,
+            "scientific_closure_pressure_uses_the_same_action_set": True,
+            "scientific_closure_pressure_cannot_expand_budget": True,
             "round_robin_ignores_adaptive_value_score_for_ordering": (
                 scheduler_policy == "round_robin"
             ),
@@ -356,15 +370,11 @@ def _state_bonus(kind: str, gates: Mapping[str, bool]) -> float:
         bonus += 120.0
     if has_routes and not stock_closed and kind in _ROUTE_ACTIONS:
         bonus += 75.0
-    if not validated and kind == "reaction_validate":
-        bonus += 90.0
-    if not evidence_closed and kind in {
-        "acquire_exact_evidence",
-        "bind_exact_evidence",
-        "resolve_conflict",
-    }:
-        bonus += 80.0
-    if stock_closed and (not validated or not evidence_closed) and kind in _PROOF_ACTIONS:
+    if (
+        stock_closed
+        and (not validated or not evidence_closed)
+        and kind in _PROGRAM_PROOF_ACTIONS
+    ):
         bonus += 55.0
     return bonus
 

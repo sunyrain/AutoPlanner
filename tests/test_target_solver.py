@@ -1576,6 +1576,16 @@ def test_b4_milestone_keeps_scientific_actions_on_the_same_trajectory(
     post_b4_action_kinds = {
         kind for index, kind in core_actions if index > first_b4_snapshot_index
     }
+    post_b4_condition = next(
+        stage
+        for index, stage in enumerate(stages)
+        if index > first_b4_snapshot_index
+        and str(stage.get("stage") or "").startswith(
+            "campaign_action_unified_core_"
+        )
+        and dict(stage["detail"]["action"]).get("kind")
+        == CampaignActionKind.CONDITION_ENRICH.value
+    )
 
     assert result["gates"]["gates"]["B4_stock_boundary"] is True
     assert {
@@ -1594,6 +1604,13 @@ def test_b4_milestone_keeps_scientific_actions_on_the_same_trajectory(
         "B5_configured_portfolio_acceptance"
     ] is False
     assert result["model_cost"]["model_invocations"] == 2
+    condition_decision = dict(post_b4_condition["detail"]["decision"])
+    assert condition_decision["scientific_closure_pressure"][
+        "route_maturity"
+    ] == "stock_closed_route_portfolio"
+    assert dict(condition_decision["selected_action"])["schedule_components"][
+        "scientific_closure_pressure_bonus"
+    ] > 0.0
     assert any(
         stage["stage"] == "replan_retention_audit"
         and stage["status"] == "accepted"
