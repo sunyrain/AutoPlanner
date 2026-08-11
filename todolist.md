@@ -135,6 +135,8 @@
 
 Action-class 公平服务切片新增 `campaign_action_class_service.v1` 与可重放 RunKernel reservation history：四类持续 eligible Action 使用固定 12-Action 最低服务窗口，deadline 压力出现前仍按原 value/cost 排序；blocked/absent class 的服务槽立即借出且不创建新预算、reservation 或队列。模型洪泛、四类最低服务、handler/resource blocked 借用、round-robin 独立性、reopen/resume ledger、B4 后科学轨迹和总任务硬上限均已验证。目标求解/Gateway/CLI 集成 73 passed；Ruff、compileall、全部架构/行数预算门与 `git diff --check` 通过；不做 deselect 的完整离线套件为 2738 passed、3 skipped、11 warnings、2 subtests passed，用时 225.44 秒。
 
+跨 slice 收敛切片新增 `campaign_action_convergence_ledger.v1`：Action reservation 现在摘要绑定 opportunity/set 和 cohort 语义，runtime 从经 pointer/outcome digest 校验的 durable 历史恢复同 revision attempted、精确 no-gain binding 与 trailing streak。连续两次 slice/reopen 会继续计数且不 cache 重放已尝试 Action；达到历史上限的第三次 resume 零 dispatch 收敛；外部 graph progress/revision discontinuity 会清零 streak。目标求解/Gateway/CLI 集成 73 passed，调度/runtime/架构聚焦 51 passed；Ruff、compileall、全部架构/行数预算门与 `git diff --check` 通过；不做 deselect 的完整离线套件为 2740 passed、3 skipped、11 warnings、2 subtests passed，用时 183.68 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -581,7 +583,7 @@ W2 验收门：
 
 - [x] 已实现确定性、可解释、无训练的排序器基座和 stable action-ID tie-break。
 - [x] 实现 action-class 最低服务保障与 blocked-class 服务槽借用；stable tie-break、RunKernel 事件重放和 round-robin 独立语义已完成。
-- [ ] 将连续低收益计数从单次 `run_anytime()` 扩展为跨 slice/resume 的可重放收敛账本。
+- [x] 将连续低收益计数从单次 `run_anytime()` 扩展为跨 slice/resume 的 `campaign_action_convergence_ledger.v1`；旧绑定只作为链边界，外部 graph revision/revision discontinuity 会重置连续 streak，缓存 replay 不增加 attempt。
 - [x] 门：scheduler target-blind 动态/静态测试与生产单 action-loop 集成回归已通过。
 
 ### Checkpoint E：非阻塞 Codex + ChemEnzy
@@ -634,3 +636,4 @@ W2 验收门：
 - [x] 第十三刀（实验外部作业闭环）：`RunKernel` 新增 CAS 绑定、前驱有序且不改变预算/图/科学状态的通用 task checkpoint；严格的 `experiment_operator_identity.v1`、`experiment_external_job_receipt.v1` 与 `experiment_cancellation_request.v1` 已接入同一 experiment task。取消请求不会提前结算，只有绑定请求的外部 `cancelled` acknowledgement 才结算 cancelled；`completed`/`failed` receipt 仍需独立 result/domain gate。Gateway、CLI、HTTP、并发幂等、不同 payload 冲突、fresh-digest 绑定篡改、current frontier/provider 漂移、取消竞态和旧人工回填兼容均已回归，并作为第十四刀受控 HTTP transport 的操作权威基础；不得创建第二任务队列或虚构设备凭据。
 - [x] 第十四刀（受控 HTTP transport）：默认 registry 可由宿主环境显式注册 HTTPS experiment bridge；dispatch 无网络副作用，submit/poll/cancel 通过稳定 operation ID、Bearer 环境引用、endpoint-config digest、service operator identity 和有界响应契约运行。所有 attempt/receipt/cancellation 继续复用同一 RunKernel task；timeout 可重试、成功 checkpoint 可恢复、取消仍以 acknowledgement 为结算门。当前只证明桥接能力与真实 HTTP 协议，不声称已连接生产设备；下一步需要部署方提供真实 bridge endpoint/凭据并取得可发布校准数据，或为不兼容桥接契约的厂商 API 编写受控 adapter。
 - [x] 第十五刀（action-class 公平服务）：新增 target-blind `campaign_action_class_service.v1`，把全部 Action 冻结映射为 route discovery、deterministic closure、scientific proof、Program/experiment 四类。Adaptive 只在 12-Action 最低服务窗口即将违约时覆盖价值排序；无 eligible handler/resource 的 class 自动出借服务槽且不积累第二队列或新预算。服务历史从 RunKernel durable reservation 事件重建，resume/input-order/round-robin、模型洪泛不饿死 closure、blocked borrowing 与总任务硬上限均有回归。
+- [x] 第十六刀（跨 slice 收敛）：新增 target-blind `campaign_action_convergence_ledger.v1`，从 RunKernel reservation、Action outcome pointer 和不可变 outcome digest 重建 attempted/no-gain/consecutive 状态。`run_anytime()` 在新 slice/resume 前恢复同 revision attempted 排除，达到历史 no-gain 上限时不再重复 dispatch；新 graph revision 或输入/输出 revision 断点清零连续 streak，精确 opportunity digest 改变才解除 no-gain binding。没有新增队列、预算或 canonical authority。

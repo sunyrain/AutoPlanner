@@ -79,6 +79,30 @@ def _opportunity_set(*, kind: str = "materialization") -> dict:
     )
 
 
+def _no_gain_opportunity_set(*, count: int = 3) -> dict:
+    return compile_action_opportunities(
+        {
+            "content_sha256": f"{count}-no-gain-actions",
+            "items": [
+                {
+                    "deficit_id": f"deficit:materialization:{index}",
+                    "kind": "materialization",
+                    "object_id": f"hypothesis:{index}",
+                    "entity_ids": [f"hypothesis:{index}"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "priority": 500.0 - index,
+                    "reason": "test_no_gain_materialization",
+                    "score": {},
+                }
+                for index in range(count)
+            ],
+        }
+    )
+
+
 def _decision(*, kind: str = "materialization") -> dict:
     return schedule_next_action(
         _opportunity_set(kind=kind),
@@ -533,27 +557,7 @@ def test_anytime_loop_converges_after_bounded_no_gain_actions(
     tmp_path: Path,
 ) -> None:
     kernel = _kernel(tmp_path)
-    opportunity_set = compile_action_opportunities(
-        {
-            "content_sha256": "three-no-gain-actions",
-            "items": [
-                {
-                    "deficit_id": f"deficit:materialization:{index}",
-                    "kind": "materialization",
-                    "object_id": f"hypothesis:{index}",
-                    "entity_ids": [f"hypothesis:{index}"],
-                    "route_family_ids": [],
-                    "dependency_ids": [],
-                    "deterministic": True,
-                    "model_allowed": False,
-                    "priority": 500.0 - index,
-                    "reason": "test_no_gain_materialization",
-                    "score": {},
-                }
-                for index in range(3)
-            ],
-        }
-    )
+    opportunity_set = _no_gain_opportunity_set()
     runtime = CampaignActionRuntime(
         kernel,
         {
@@ -578,6 +582,124 @@ def test_anytime_loop_converges_after_bounded_no_gain_actions(
     assert result["unexecuted_actions"]["actions"][0]["reasons"] == [
         "low_marginal_gain_convergence"
     ]
+
+
+def test_anytime_convergence_replays_across_slices_and_runtime_reopen(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    calls: list[str] = []
+
+    def handle(action) -> dict:
+        calls.append(action.action_id)
+        return {"status": "completed", "changed": False}
+
+    opportunities = _no_gain_opportunity_set()
+    runtime = CampaignActionRuntime(
+        kernel,
+        {CampaignActionKind.MATERIALIZE: handle},
+    )
+    first = runtime.run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+        max_consecutive_no_gain=2,
+    )
+
+    assert first["termination"] == "action_limit"
+    assert first["consecutive_no_gain"] == 1
+    assert first["convergence_ledger"]["settled_execution_count"] == 1
+    first_action_id = first["executions"][0]["action"]["action_id"]
+
+    reopened_kernel = _kernel(tmp_path)
+    reopened = CampaignActionRuntime(
+        reopened_kernel,
+        {CampaignActionKind.MATERIALIZE: handle},
+    )
+    second = reopened.run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=2,
+        max_consecutive_no_gain=2,
+    )
+
+    assert second["termination"] == "converged_low_marginal_gain"
+    assert second["execution_count"] == 1
+    assert second["executions"][0]["cache_hit"] is False
+    assert second["executions"][0]["action"]["action_id"] != first_action_id
+    assert second["consecutive_no_gain"] == 2
+    assert second["semantics"]["convergence_resumed_from_history"] is True
+    assert reopened.action_convergence_ledger() == second["convergence_ledger"]
+
+    final_reopen = CampaignActionRuntime(
+        _kernel(tmp_path),
+        {CampaignActionKind.MATERIALIZE: handle},
+    )
+    third = final_reopen.run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=2,
+        max_consecutive_no_gain=2,
+    )
+
+    assert third["termination"] == "converged_low_marginal_gain"
+    assert third["execution_count"] == 0
+    assert third["consecutive_no_gain"] == 2
+    assert len(calls) == 2
+    assert len(final_reopen.action_execution_history()) == 2
+
+
+def test_external_graph_progress_breaks_resumed_no_gain_streak(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    opportunities = _no_gain_opportunity_set()
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.MATERIALIZE: lambda _action: {
+                "status": "completed",
+                "changed": False,
+            }
+        },
+    )
+    first = runtime.run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+        max_consecutive_no_gain=2,
+    )
+    assert first["consecutive_no_gain"] == 1
+    kernel.publish_graph_revision(
+        1,
+        graph_sha256="external-graph-progress",
+        evidence_revision=0,
+        idempotency_key="external-graph-progress",
+    )
+
+    reopened = CampaignActionRuntime(
+        _kernel(tmp_path),
+        runtime.handlers,
+    )
+    reset = reopened.action_convergence_ledger()
+
+    assert reset["consecutive_no_gain"] == 0
+    assert reset["revision_advanced_outside_history"] is True
+    resumed = reopened.run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+        max_consecutive_no_gain=2,
+    )
+    assert resumed["termination"] == "action_limit"
+    assert resumed["execution_count"] == 1
+    assert resumed["consecutive_no_gain"] == 1
+    assert resumed["convergence_ledger"]["revision_discontinuity_count"] == 1
 
 
 def test_anytime_loop_honors_explicit_kernel_cancellation_without_dispatch(

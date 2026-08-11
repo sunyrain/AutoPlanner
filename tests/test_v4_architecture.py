@@ -30,6 +30,7 @@ V4_MODULES = (
     "cascade_planner/application/campaign_trajectory.py",
     "cascade_planner/application/campaign_review_bundle.py",
     "cascade_planner/application/campaign_quality_state.py",
+    "cascade_planner/application/action_convergence.py",
     "cascade_planner/application/action_service_policy.py",
     "cascade_planner/application/action_scheduler.py",
     "cascade_planner/application/unified_campaign_spec.py",
@@ -237,6 +238,7 @@ FORBIDDEN_V4_DEPENDENCIES = (
     "cascade_planner.web",
 )
 FOCUSED_LINE_BUDGETS = {
+    "cascade_planner/application/action_convergence.py": 220,
     "cascade_planner/application/action_service_policy.py": 240,
     "cascade_planner/application/campaign_action_status.py": 70,
     "cascade_planner/application/campaign_review_bundle.py": 340,
@@ -510,6 +512,7 @@ def test_v4_modules_do_not_import_frozen_ownership_paths() -> None:
 def test_unified_action_core_has_no_dataset_specific_control_tokens() -> None:
     protected = (
         ROOT / "cascade_planner/application/campaign_actions.py",
+        ROOT / "cascade_planner/application/action_convergence.py",
         ROOT / "cascade_planner/application/action_service_policy.py",
         ROOT / "cascade_planner/application/action_scheduler.py",
         ROOT / "cascade_planner/application/run_kernel.py",

@@ -587,6 +587,13 @@ Blackboard 都不能自行把 proposal 提升为事实。
     `task_reserved` 事件顺序重建，失败/超时同样算已分配服务；reservation metadata 保存 class、ordinal 与
     ledger digest。目标、数据集、objective、Stock Oracle 名称和 UI view 均不进入规则。`round_robin` 继续使用
     原固定 kind cursor，不被 adaptive service debt 覆盖；B4 后 replan/condition/Program 同轨迹门保持通过。
+29. `run_anytime()` 的低收益收敛状态已从单次调用内存扩展为可重放的 `campaign_action_convergence_ledger.v1`。
+    ledger 从 RunKernel durable Action reservation、execution pointer 与经 digest 校验的 outcome 重建当前
+    revision attempted 集合、精确 `action_id → opportunity_sha256` no-gain binding、连续 no-gain streak 和
+    revision discontinuity。新 slice/resume 不会重复 dispatch 同一 revision 的已尝试 Action；达到历史 streak
+    上限时直接以 `converged_low_marginal_gain` 返回。旧 reservation 缺少新机会摘要时只打断连续链，不猜测
+    gain；缓存 replay 不新增 attempt；外部 graph revision 或输入/输出 revision 断点只清零连续 streak，不
+    删除历史审计。缺失/损坏的 settled outcome pointer 失败关闭，所有状态仍是 RunKernel/Action 收据的可重建投影。
 
 ### 7.1 闭合优先核算（Bufotalin V3 当前样例）
 
@@ -621,7 +628,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 库存/采购和 process-ready 则由各自 proof 与 acceptance 分轴判定。任一轴不能替代另一轴，架构完成度也
 不能替代单次 run 的事实。
 
-当前稳定性门禁：完整离线集 `2738 passed, 3 skipped, 11 warnings, 2 subtests passed`，用时 225.44 秒；
+当前稳定性门禁：完整离线集 `2740 passed, 3 skipped, 11 warnings, 2 subtests passed`，用时 183.68 秒；
 Ruff、compileall、全部架构门（含聚焦模块行数预算）和 `git diff --check` 通过。跨运行审计、
 Candidate Program 投影均为只读，
 `edge_ids[]`、proof、completion 与 acceptance 均未切换。
