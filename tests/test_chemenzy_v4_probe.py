@@ -303,9 +303,44 @@ def test_chemenzy_request_seed_is_explicit_and_replay_binding_is_seed_bound() ->
     assert binding["raw_proposal_sha256"] == "a" * 64
     assert binding["runtime_binding"]["model_content_binding_sha256"] == "c" * 64
     assert binding["runtime_binding"]["model_content_identity_complete"] is True
+    assert binding["runtime_binding"]["stock_content_identity_complete"] is False
     assert binding["semantics"]["full_model_file_content_identity_is_not_proven"] is False
     assert binding["replay_key_sha256"] != other["replay_key_sha256"]
     assert binding["semantics"]["binding_does_not_fabricate_backend_determinism"]
+
+
+def test_provider_replay_binding_hashes_stock_override_content(tmp_path: Path) -> None:
+    stock = tmp_path / "retrostar.sqlite3"
+    stock.write_bytes(b"immutable stock fixture")
+    request = ChemEnzyProposalRequest(
+        target_name="stock-bound",
+        target_smiles="CCO",
+        random_seed=17,
+        limits={
+            "stock_names": ["RetroStar-stock"],
+            "stock_paths": {"RetroStar-stock": str(stock)},
+        },
+    ).to_dict()
+
+    binding = provider_invocation_binding(
+        request,
+        random_seed=17,
+        raw_proposal_sha256="a" * 64,
+        raw_result_sha256="b" * 64,
+        runtime_preflight={
+            "python_executable": "python",
+            "capability_probe": {
+                "model_content_binding_sha256": "c" * 64,
+                "model_content_identity_complete": True,
+            },
+        },
+    )
+
+    runtime = binding["runtime_binding"]
+    assert runtime["stock_content_identity_complete"] is True
+    assert runtime["stock_content_binding_sha256"]
+    assert runtime["stock_content_checks"][0]["content_sha256"]
+    assert binding["semantics"]["full_stock_file_content_identity_is_not_proven"] is False
 
 
 def test_raw_proposal_digest_ignores_operational_receipt_noise() -> None:

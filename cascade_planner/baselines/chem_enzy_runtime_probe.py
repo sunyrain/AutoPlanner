@@ -339,7 +339,7 @@ def _stock_path_checks(
                 "stock": str(name),
                 "path": str(_normal_absolute_path(path)),
                 "windows_extended_io": str(path).startswith("\\\\?\\"),
-                **_readability(path),
+                **_readability(path, content_digest=True),
             }
         )
     return rows

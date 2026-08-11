@@ -11,11 +11,20 @@ from cascade_planner.baselines.chem_enzy_adapter import (
 from cascade_planner.interfaces.chemenzy_advisory import (
     normalized_quarantined_routes,
 )
-from cascade_planner.interfaces.chemenzy_probe_contract import (
-    _content_sha256,
-    _json_safe_copy,
-)
+from cascade_planner.interfaces.chemenzy_probe_contract import _content_sha256
 from cascade_planner.routes.admission import audit_retrosynthetic_candidate
+
+
+def _json_safe_copy(value: Any) -> Any:
+    return json.loads(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            allow_nan=False,
+            default=str,
+        )
+    )
 
 
 def _normalized_routes(

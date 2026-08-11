@@ -16,6 +16,7 @@ import threading
 import time
 from copy import deepcopy
 from collections.abc import Mapping
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,89 @@ _CAPABILITY_PROBE_CACHE: dict[
 ] = {}
 _CAPABILITY_PROBE_INFLIGHT: dict[str, threading.Event] = {}
 _CAPABILITY_PROBE_CACHE_LOCK = threading.RLock()
+
+
+def chem_enzy_stock_content_binding(
+    *,
+    stock_paths: Mapping[str, Any],
+    capability_stock_checks: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Compile full-file stock identity for provider replay bindings."""
+
+    if stock_paths:
+        rows = [
+            _stock_file_content_check(name, path)
+            for name, path in sorted(stock_paths.items(), key=lambda item: str(item[0]))
+        ]
+    else:
+        rows = [
+            {
+                "stock": str(row.get("stock") or ""),
+                "path": str(row.get("path") or ""),
+                "size_bytes": int(row.get("size_bytes") or 0),
+                "content_sha256": str(row.get("content_sha256") or ""),
+                "content_digest_scope": str(row.get("content_digest_scope") or ""),
+                "content_digest_status": str(row.get("content_digest_status") or ""),
+            }
+            for row in capability_stock_checks
+            if isinstance(row, Mapping)
+        ]
+    complete = bool(rows) and all(
+        row["content_digest_status"] == "complete" and bool(row["content_sha256"])
+        for row in rows
+    )
+    return {
+        "checks": rows,
+        "binding_sha256": _stable_digest(rows) if complete else "",
+        "identity_complete": complete,
+    }
+
+
+def _stock_file_content_check(name: Any, raw_path: Any) -> dict[str, Any]:
+    path = Path(str(raw_path or "")).expanduser().resolve()
+    if not path.is_file():
+        return _stock_content_error(name, path, "missing")
+    try:
+        stat = path.stat()
+        content_sha256 = _cached_stock_file_sha256(
+            str(path), int(stat.st_size), int(stat.st_mtime_ns)
+        )
+        final_stat = path.stat()
+    except OSError:
+        return _stock_content_error(name, path, "error")
+    complete = (
+        int(final_stat.st_size) == int(stat.st_size)
+        and int(final_stat.st_mtime_ns) == int(stat.st_mtime_ns)
+    )
+    return {
+        "stock": str(name),
+        "path": str(path),
+        "size_bytes": int(stat.st_size),
+        "content_sha256": content_sha256 if complete else "",
+        "content_digest_scope": "full_file_bytes",
+        "content_digest_status": "complete" if complete else "changed_during_read",
+    }
+
+
+def _stock_content_error(name: Any, path: Path, status: str) -> dict[str, Any]:
+    return {
+        "stock": str(name),
+        "path": str(path),
+        "size_bytes": 0,
+        "content_sha256": "",
+        "content_digest_scope": "full_file_bytes",
+        "content_digest_status": status,
+    }
+
+
+@lru_cache(maxsize=128)
+def _cached_stock_file_sha256(path: str, size_bytes: int, mtime_ns: int) -> str:
+    del size_bytes, mtime_ns
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def chem_enzy_python_candidates(env_prefix: Path | str) -> tuple[tuple[str, Path], ...]:
@@ -865,6 +949,7 @@ __all__ = [
     "DEFAULT_CHEMENZY_ENV_PREFIX",
     "chem_enzy_python_candidates",
     "chem_enzy_runtime_selection_from_request",
+    "chem_enzy_stock_content_binding",
     "clear_chem_enzy_runtime_probe_cache",
     "diagnose_chem_enzy_runtime",
     "format_chem_enzy_runtime_diagnostic",

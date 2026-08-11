@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any, Mapping
 from cascade_planner.application.blind_benchmark_contract import canonical_smiles
+from cascade_planner.baselines.chem_enzy_runtime import chem_enzy_stock_content_binding
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,24 +52,15 @@ class ChemEnzyProposalRequest:
                 "result_is_proposal_only": True,
             },
         }
-def _json_safe_copy(value: Any) -> Any:
-    return json.loads(
+def _content_sha256(value: Any) -> str:
+    return hashlib.sha256(
         json.dumps(
             value,
             ensure_ascii=False,
             sort_keys=True,
-            allow_nan=False,
-            default=str,
-        )
-    )
-def _content_sha256(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            _json_safe_copy(value),
-            ensure_ascii=False,
-            sort_keys=True,
             separators=(",", ":"),
             allow_nan=False,
+            default=str,
         ).encode("utf-8")
     ).hexdigest()
 def _opaque_target_name(target_smiles: str) -> str:
@@ -102,6 +94,10 @@ def provider_invocation_binding(
     preflight = dict(runtime_preflight or {})
     capability = dict(preflight.get("capability_probe") or {})
     limits = dict(request.get("limits") or {})
+    stock_binding = chem_enzy_stock_content_binding(
+        stock_paths=dict(limits.get("stock_paths") or {}),
+        capability_stock_checks=list(capability.get("stock_path_checks") or []),
+    )
     runtime = {
         "env_prefix_selection_source": str(preflight.get("env_prefix_selection_source") or ""),
         "python_executable": str(preflight.get("python_executable") or ""),
@@ -114,6 +110,9 @@ def provider_invocation_binding(
         "stock_path_checks": list(capability.get("stock_path_checks") or []),
         "requested_stock_names": list(limits.get("stock_names") or []),
         "requested_stock_paths": dict(limits.get("stock_paths") or {}),
+        "stock_content_checks": stock_binding["checks"],
+        "stock_content_binding_sha256": stock_binding["binding_sha256"],
+        "stock_content_identity_complete": stock_binding["identity_complete"],
     }
     runtime_sha256 = _content_sha256(runtime)
     replay_key_sha256 = _content_sha256({
@@ -135,6 +134,7 @@ def provider_invocation_binding(
             "replay_key_detects_input_or_runtime_conflict_only": True,
             "binding_does_not_fabricate_backend_determinism": True,
             "full_model_file_content_identity_is_not_proven": not runtime["model_content_identity_complete"],
+            "full_stock_file_content_identity_is_not_proven": not runtime["stock_content_identity_complete"],
         },
     }
 __all__ = ["ChemEnzyProposalRequest", "provider_invocation_binding"]
