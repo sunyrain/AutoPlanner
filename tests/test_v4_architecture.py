@@ -96,6 +96,7 @@ V4_MODULES = (
     "cascade_planner/application/proof_policy.py",
     "cascade_planner/application/proof_portfolio.py",
     "cascade_planner/application/proof_portfolio_replacements.py",
+    "cascade_planner/application/program_opportunity_pressure.py",
     "cascade_planner/application/reaction_template_extraction.py",
     "cascade_planner/application/reaction_template_library.py",
     "cascade_planner/application/reaction_template_store.py",
@@ -304,6 +305,7 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/application/program_innovation_contracts.py": 120,
     "cascade_planner/application/program_experience.py": 450,
     "cascade_planner/application/program_applicability.py": 360,
+    "cascade_planner/application/program_opportunity_pressure.py": 320,
     "cascade_planner/application/program_applicability_oracle.py": 100,
     "cascade_planner/application/program_experience_store.py": 170,
     "cascade_planner/application/program_span_substitutions.py": 180,
@@ -525,6 +527,7 @@ def test_unified_action_core_has_no_dataset_specific_control_tokens() -> None:
         ROOT / "cascade_planner/application/scientific_closure_pressure.py",
         ROOT / "cascade_planner/application/experimental_work_experience_priority.py",
         ROOT / "cascade_planner/application/run_kernel.py",
+        ROOT / "cascade_planner/application/program_opportunity_pressure.py",
         ROOT / "cascade_planner/orchestration/unified_campaign_runtime.py",
     )
     forbidden = (

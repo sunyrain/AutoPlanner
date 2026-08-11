@@ -2564,10 +2564,49 @@ def test_target_solver_runs_program_discovery_without_implicit_store_admission(
     review = next(
         row for row in result["stages"] if row["stage"] == "program_review"
     )["detail"]
+    program_actions = [
+        dict(row["detail"])
+        for row in result["stages"]
+        if str(row.get("stage") or "").startswith(
+            "campaign_action_unified_core_"
+        )
+        and dict(row["detail"].get("action") or {}).get("kind")
+        in {
+            CampaignActionKind.PROGRAM_DISCOVER.value,
+            CampaignActionKind.PROGRAM_REVIEW.value,
+        }
+    ]
+    discovery_action = next(
+        row
+        for row in program_actions
+        if dict(row["action"]).get("kind")
+        == CampaignActionKind.PROGRAM_DISCOVER.value
+    )
+    review_action = next(
+        row
+        for row in program_actions
+        if dict(row["action"]).get("kind")
+        == CampaignActionKind.PROGRAM_REVIEW.value
+    )
+    discovery_pressure = dict(discovery_action["action"]["metadata"])[
+        "program_opportunity_pressure"
+    ]
+    review_pressure = dict(review_action["action"]["metadata"])[
+        "program_review_pressure"
+    ]
 
     assert discovery["action_execution_count"] >= 1
     assert discovery["semantics"]["target_names_are_not_matching_inputs"] is True
     assert discovery["semantics"]["program_candidates_are_proposal_only"] is True
+    assert discovery_pressure["schema_version"] == (
+        "campaign_program_opportunity_pressure.v1"
+    )
+    assert discovery_pressure["semantics"][
+        "conventional_route_remains_the_explicit_fallback"
+    ] is True
+    assert review_pressure["schema_version"] == (
+        "campaign_program_review_pressure.v1"
+    )
     assert review["store"]["status"]["event_count"] == 0
     assert not any(row["stage"] == "program_admission" for row in result["stages"])
 
@@ -2739,6 +2778,32 @@ def test_completed_target_resume_ingests_new_feedback_and_rejects_invalid_feedba
             dict(value.get("program_review") or {}).get("program_bundle") or {}
         ).get("program_proposals")
     )
+    discovery_action_pressures = [
+        dict(dict(row["detail"]["action"])["metadata"])[
+            "program_opportunity_pressure"
+        ]
+        for row in first["stages"]
+        if str(row.get("stage") or "").startswith(
+            "campaign_action_unified_core_"
+        )
+        and dict(row["detail"].get("action") or {}).get("kind")
+        == CampaignActionKind.PROGRAM_DISCOVER.value
+    ]
+    assert any(
+        int(pressure["matched_capability_count"]) > 0
+        and float(pressure["pressure_total"]) > 0.0
+        for pressure in discovery_action_pressures
+    )
+    assert any(
+        int(pressure["matched_capability_count"]) == 0
+        for pressure in discovery_action_pressures
+    )
+    assert len(
+        {
+            str(pressure["content_sha256"])
+            for pressure in discovery_action_pressures
+        }
+    ) >= 2
     service = gateway._open(run_id, run_dir=first["run_dir"])
     current_program_review = service.review_route_program_innovations(
         discovery["route_id"],

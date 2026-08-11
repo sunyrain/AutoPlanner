@@ -143,6 +143,8 @@ Codex replan pressure 切片新增 160 行的 target-blind `campaign_replan_pres
 
 科学闭环压力切片新增 146 行的 target-blind `campaign_scientific_closure_pressure.v1`：直接从同一个 `CampaignActionOpportunity` 集合识别 reaction validation、exact evidence/conflict resolution 和 conditions 三个开放轴，不把报告用 `campaign_quality_state` 升格为第二调度权威。validation/evidence 原基础权重等价迁入该投影；B1 路线组合出现后增加 25，B4 库存闭合后累计增加 55，只剩一个开放科学轴时再增加固定 last-mile 20。conditions 独立于 B2/B3，因此在验证和证据已闭合但条件仍开放时继续获得正向价值。round-robin、handler/resource blocker、action-class 服务和 RunKernel 预算均不被覆盖；输入标签、metadata 和 insertion order 不影响投影，scheduler 输入与路线拓扑只读保留。调度/质量轴/runtime/目标求解/架构聚焦 102 passed；Ruff、compileall、全部架构/行数预算门和 `git diff --check` 通过；不做 deselect 的完整离线套件为 2753 passed、3 skipped、11 warnings、2 subtests passed，用时 176.80 秒。
 
+Program opportunity pressure 切片新增 311 行的 target-blind `campaign_program_opportunity_pressure.v1` 与聚合 `campaign_program_review_pressure.v1`：复用既有 bounded route-window/structure matcher，从 canonical route 风险与连续 conventional span、真实 capability match、仍开放条件/证明边上的 selectivity objective、可替换步数和合法 one-hop mechanism proposal 形成 discovery/review 动态 score。匹配仍是 search prior，不能授予 Program、reaction proof、路线完成或 acceptance；conventional route 始终保留为显式 fallback。Program signal 幂等边界从“route family 一次”升级为“route family + pressure digest”，因此早期无匹配筛查会在 materialization/validation 形成新机会后重开，但相同 pressure 不重复；review 同样摘要绑定。solve 内只读 memoization 复用相同 route/edge/procedure/lifecycle/capability 输入，不持久化第二状态。target/dataset/objective 标签和输入顺序不参与投影，篡改 route pressure 不进入 review 聚合，旧 candidate-screen JSON 合同保持不变。Program/创新/runtime/目标求解/架构聚焦 108 passed；Ruff、compileall、全部架构/行数预算门和 `git diff --check` 通过；不做 deselect 的完整离线套件为 2758 passed、3 skipped、11 warnings、2 subtests passed，用时 212.05 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -332,7 +334,7 @@ W2 验收门：
 - [x] 已存在可物化候选时，确定性 materialization/validation 属于独立 closure class，持续 eligible 时不会被新的模型猜测长期饿死。
 - [x] 搜索停滞、路线族单一、共享瓶颈或关键边反复失败时，提高 Codex 全局重构和替代路线动作价值；停滞只从摘要验证的 durable convergence streak 派生，单独文本事件不触发模型调用。
 - [x] 已有完整路线但 proof/evidence/conditions 开放时，逐步提高验证和证据动作价值；B1、B4 和最后一个开放科学轴形成固定增量，conditions 不依赖 B2/B3，投影只读且不能反向删除路线拓扑。
-- [ ] 常规路线存在高代价连续区间、特定选择性瓶颈或已知能力匹配时，提高 Program discovery/review 价值。
+- [x] 常规路线存在高代价连续区间、特定选择性瓶颈或已知能力匹配时，提高 Program discovery/review 价值；只使用 canonical route/window 与 capability matcher，匹配不授予科学权威且 conventional fallback 保留。
 - [x] 负结果和不确定结果会降低“同一 exact boundary 且无新 dirty signal”的重复实验价值；structural analog、新 dirty recompute 与 capability 本身仍保持可调度，不做全局禁用。
 
 ### 6.3 排序模型
@@ -646,3 +648,4 @@ W2 验收门：
 - [x] 第十七刀（精确边界重复降权）：实验 work scheduling 对已有 supported/negative/inconclusive/conflicting exact-boundary memory 增加 unchanged-repeat penalty；只有缺少新 dirty signal 时生效。structural analog、dirty recompute 和其他 capability 不被禁用，结果仍只改变 priority/score。
 - [x] 第十八刀（Codex 动态重规划压力）：新增 `campaign_replan_pressure.v1`，从 gates、物质事件和摘要验证的 convergence ledger 形成 target-blind score。固定 3 次 durable no-gain 与 B1 路线多样性缺口共同派生停滞事件；关键边、新路线族、共享瓶颈和来源冲突独立加权。纯文本停滞、标签变化和篡改 ledger 均不能触发，模型预算耗尽仍由原 budget gate 拒绝；没有增加调用预算、队列或科学权威。
 - [x] 第十九刀（科学闭环动态提权）：新增 `campaign_scientific_closure_pressure.v1`，只从同一 Action set 和 B1/B4 milestones 投影 validation、exact evidence/conflict 与 conditions 的阶段价值。原 validation/evidence 基础权重保持；路线组合、库存闭合和最后开放轴按固定增量逐级提权，condition 即使在 B2/B3 已闭合后仍保持 last-mile 调度价值。round-robin、资源 blocker、预算、action service 与 canonical topology authority 均不改变。
+- [x] 第二十刀（Program 动态机会压力）：新增 `campaign_program_opportunity_pressure.v1`/`campaign_program_review_pressure.v1`，对 bounded 连续 conventional span、route risk、结构 capability match、开放 selectivity 边、step savings 和合法 mechanism proposal 分量化提权。discovery/review signal 绑定 route-family + pressure digest，机会状态不变不重筛，materialization/validation 后从无匹配变为有匹配时允许同一 family 重开；solve 内 memoization 仅复用只读计算。候选、Program、proof、completion、acceptance 与 conventional fallback 权威均未改变。

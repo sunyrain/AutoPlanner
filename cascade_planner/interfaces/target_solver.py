@@ -72,6 +72,10 @@ from cascade_planner.application.proof_portfolio import (
     PortfolioConfig,
     compile_proof_portfolio,
 )
+from cascade_planner.application.program_opportunity_pressure import (
+    compile_program_opportunity_pressure,
+    compile_program_review_pressure,
+)
 from cascade_planner.application.replan_pressure import compile_replan_pressure
 from cascade_planner.cascade_search.proposals import local_condition_predictor
 from cascade_planner.interfaces.evidence_import import (
@@ -1540,6 +1544,72 @@ def solve_target(
     evidence_action_completed = False
     unified_material_events: set[str] = set()
     unified_replan_audit_contexts: dict[str, dict[str, Any]] = {}
+    program_pressure_cache: dict[str, dict[str, Any]] = {}
+
+    def current_program_opportunity_pressure(
+        graph: Mapping[str, Any],
+        route: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        edge_ids = {
+            str(value) for value in route.get("edge_ids") or [] if str(value)
+        }
+        edges = {
+            edge_id: dict(dict(graph.get("edges") or {}).get(edge_id) or {})
+            for edge_id in sorted(edge_ids)
+        }
+        molecule_ids = {
+            str(value)
+            for edge in edges.values()
+            for value in (
+                edge.get("product_molecule_id"),
+                *(edge.get("precursor_molecule_ids") or []),
+            )
+            if str(value)
+        }
+        procedure_ids = {
+            str(value)
+            for edge in edges.values()
+            for value in edge.get("procedure_record_ids") or []
+            if str(value)
+        }
+        input_sha256 = _digest(
+            {
+                "route": dict(route),
+                "edges": edges,
+                "molecules": {
+                    molecule_id: dict(
+                        dict(graph.get("molecules") or {}).get(molecule_id)
+                        or {}
+                    )
+                    for molecule_id in sorted(molecule_ids)
+                },
+                "procedure_records": {
+                    record_id: dict(
+                        dict(graph.get("procedure_records") or {}).get(
+                            record_id
+                        )
+                        or {}
+                    )
+                    for record_id in sorted(procedure_ids)
+                },
+                "fact_lifecycle_events": dict(
+                    graph.get("fact_lifecycle_events") or {}
+                ),
+                "capabilities": resolved_program_capabilities,
+                "mechanism_proposals": resolved_mechanism_proposals,
+            }
+        )
+        cached = program_pressure_cache.get(input_sha256)
+        if cached is None:
+            cached = compile_program_opportunity_pressure(
+                graph,
+                route,
+                capabilities=resolved_program_capabilities,
+                mechanism_proposals=resolved_mechanism_proposals,
+            )
+            program_pressure_cache[input_sha256] = cached
+        return cached
+
     initial_chemenzy_admission_complete = Event()
     initial_resources = scheduler_resources()
     initial_action_kinds = {
@@ -1794,14 +1864,70 @@ def solve_target(
             for value in dict(graph.get("action_signals") or {}).values()
             if isinstance(value, Mapping)
         ]
-        discovered_route_family_ids = {
-            str(
-                dict(signal.get("metadata") or {}).get("route_family_id")
-                or dict(signal.get("metadata") or {}).get("route_id")
-                or ""
+        discovered_pressure_bindings = {
+            (
+                str(
+                    dict(signal.get("metadata") or {}).get(
+                        "route_family_id"
+                    )
+                    or dict(signal.get("metadata") or {}).get("route_id")
+                    or ""
+                ),
+                str(
+                    dict(signal.get("metadata") or {}).get(
+                        "program_pressure_sha256"
+                    )
+                    or dict(
+                        dict(signal.get("metadata") or {}).get(
+                            "program_opportunity_pressure"
+                        )
+                        or {}
+                    ).get("content_sha256")
+                    or ""
+                ),
             )
             for signal in existing_signals
             if str(signal.get("kind") or "") == "program_discovery"
+            and str(
+                dict(signal.get("metadata") or {}).get(
+                    "program_pressure_sha256"
+                )
+                or dict(
+                    dict(signal.get("metadata") or {}).get(
+                        "program_opportunity_pressure"
+                    )
+                    or {}
+                ).get("content_sha256")
+                or ""
+            )
+        }
+        review_pressure_bindings = {
+            str(
+                dict(signal.get("metadata") or {}).get(
+                    "program_review_pressure_sha256"
+                )
+                or dict(
+                    dict(signal.get("metadata") or {}).get(
+                        "program_review_pressure"
+                    )
+                    or {}
+                ).get("content_sha256")
+                or ""
+            )
+            for signal in existing_signals
+            if str(signal.get("kind") or "") == "program_review"
+            and str(
+                dict(signal.get("metadata") or {}).get(
+                    "program_review_pressure_sha256"
+                )
+                or dict(
+                    dict(signal.get("metadata") or {}).get(
+                        "program_review_pressure"
+                    )
+                    or {}
+                ).get("content_sha256")
+                or ""
+            )
         }
         existing_kinds = {
             str(signal.get("kind") or "") for signal in existing_signals
@@ -1817,16 +1943,37 @@ def solve_target(
             if isinstance(route, Mapping) and str(route.get("route_id") or "")
         ][: active.max_program_routes]
         signals: list[dict[str, Any]] = []
-        if (
+        discovery_enabled = bool(
             active.enable_program_discovery
             and (resolved_program_capabilities or resolved_mechanism_proposals)
-        ):
+        )
+        route_pressures = {
+            str(route.get("route_id") or ""): current_program_opportunity_pressure(
+                graph, route
+            )
+            for route in route_rows
+            if discovery_enabled or active.enable_program_review
+        }
+        review_pressure = compile_program_review_pressure(
+            route_pressures.values()
+        )
+        review_needed = bool(
+            route_rows
+            and active.enable_program_review
+            and review_pressure["content_sha256"]
+            not in review_pressure_bindings
+        )
+        if discovery_enabled:
             for route in route_rows:
                 route_id = str(route.get("route_id") or "")
                 route_family_id = str(
                     route.get("route_family_id") or route_id
                 )
-                if route_family_id in discovered_route_family_ids:
+                program_pressure = route_pressures[route_id]
+                if (
+                    route_family_id,
+                    program_pressure["content_sha256"],
+                ) in discovered_pressure_bindings:
                     continue
                 signal_payload = {
                     "graph_scientific_sha256": str(
@@ -1834,6 +1981,9 @@ def solve_target(
                     ),
                     "route_id": route_id,
                     "route_family_id": route_family_id,
+                    "program_pressure_sha256": program_pressure[
+                        "content_sha256"
+                    ],
                 }
                 signal_sha256 = _digest(signal_payload)
                 signals.append(
@@ -1851,34 +2001,27 @@ def solve_target(
                         "reason": (
                             "selected_route_requires_program_opportunity_review"
                         ),
-                        "score": {
-                            "expected_portfolio_gain": 0.12,
-                            "distance_to_closure": 0.08,
-                            "evidence_gain": 0.08,
-                            "route_diversity_gain": 0.70,
-                            "cost_penalty": 0.10,
-                            "failure_risk_penalty": 0.10,
-                        },
+                        "score": dict(program_pressure["score"]),
                         "metadata": {
                             **signal_payload,
                             "program_discovery": True,
+                            "program_opportunity_pressure": program_pressure,
                         },
                     }
                 )
         target_object = str(
             graph.get("target_molecule_id") or service.kernel.spec.run_id
         )
-        if (
-            route_rows
-            and active.enable_program_review
-            and "program_review" not in existing_kinds
-        ):
+        if review_needed:
             signal_sha256 = _digest(
                 {
                     "graph_scientific_sha256": str(
                         graph.get("scientific_sha256") or ""
                     ),
                     "operation": "review",
+                    "program_review_pressure_sha256": review_pressure[
+                        "content_sha256"
+                    ],
                 }
             )
             signals.append(
@@ -1892,15 +2035,14 @@ def solve_target(
                     "deterministic": True,
                     "model_allowed": False,
                     "reason": "canonical_graph_requires_program_projection_review",
-                    "score": {
-                        "expected_portfolio_gain": 0.10,
-                        "distance_to_closure": 0.10,
-                        "evidence_gain": 0.10,
-                        "route_diversity_gain": 0.20,
-                        "cost_penalty": 0.05,
-                        "failure_risk_penalty": 0.02,
+                    "score": dict(review_pressure["score"]),
+                    "metadata": {
+                        "program_review": True,
+                        "program_review_pressure_sha256": review_pressure[
+                            "content_sha256"
+                        ],
+                        "program_review_pressure": review_pressure,
                     },
-                    "metadata": {"program_review": True},
                 }
             )
         if (
@@ -3371,13 +3513,20 @@ def solve_target(
             acceptance_spec=resolved_acceptance,
             config=_portfolio_config(active, resolved_acceptance),
         )
-        program_route_ids = [
-            str(route.get("route_id") or "")
+        program_route_rows = [
+            dict(route)
             for route in program_portfolio.get("selected_routes") or []
             if str(route.get("route_id") or "")
         ][: active.max_program_routes]
+        program_route_ids = [
+            str(route.get("route_id") or "") for route in program_route_rows
+        ]
         program_discovery_deficits = []
-        for route_id in program_route_ids:
+        for route in program_route_rows:
+            route_id = str(route.get("route_id") or "")
+            program_pressure = current_program_opportunity_pressure(
+                program_graph, route
+            )
             signal = {
                 "graph_revision": service.kernel.state.graph_revision,
                 "graph_scientific_sha256": str(
@@ -3390,6 +3539,9 @@ def solve_target(
                 "mechanism_proposal_count": len(
                     resolved_mechanism_proposals
                 ),
+                "program_pressure_sha256": program_pressure[
+                    "content_sha256"
+                ],
             }
             signal_sha256 = _digest(signal)
             program_discovery_deficits.append(
@@ -3420,19 +3572,13 @@ def solve_target(
                     "deterministic": True,
                     "model_allowed": False,
                     "reason": "selected_route_requires_program_opportunity_review",
-                    "priority": 280.0,
-                    "score": {
-                        "expected_portfolio_gain": 0.12,
-                        "distance_to_closure": 0.08,
-                        "evidence_gain": 0.08,
-                        "route_diversity_gain": 0.70,
-                        "cost_penalty": 0.10,
-                        "failure_risk_penalty": 0.10,
-                    },
+                    "priority": float(program_pressure["legacy_priority"]),
+                    "score": dict(program_pressure["score"]),
                     "metadata": {
                         **signal,
                         "program_discovery": True,
                         "event_signal_sha256": signal_sha256,
+                        "program_opportunity_pressure": program_pressure,
                     },
                 }
             )
@@ -3551,12 +3697,28 @@ def solve_target(
     append_condition_stage("final_condition_enrichment")
     if active.enable_program_review:
         program_graph = service.graph_store.load()
+        review_portfolio = compile_proof_portfolio(
+            program_graph,
+            acceptance_spec=resolved_acceptance,
+            config=_portfolio_config(active, resolved_acceptance),
+        )
+        review_route_pressures = [
+            current_program_opportunity_pressure(program_graph, route)
+            for route in review_portfolio.get("selected_routes") or []
+            if isinstance(route, Mapping)
+        ][: active.max_program_routes]
+        review_pressure = compile_program_review_pressure(
+            review_route_pressures
+        )
         program_review_signal = {
             "graph_revision": service.kernel.state.graph_revision,
             "graph_scientific_sha256": str(
                 program_graph.get("scientific_sha256") or ""
             ),
             "operation": "review",
+            "program_review_pressure_sha256": review_pressure[
+                "content_sha256"
+            ],
         }
         program_review_sha256 = _digest(program_review_signal)
         program_review_executions = project_action_results(
@@ -3579,19 +3741,13 @@ def solve_target(
                     "deterministic": True,
                     "model_allowed": False,
                     "reason": "canonical_graph_requires_program_projection_review",
-                    "priority": 260.0,
-                    "score": {
-                        "expected_portfolio_gain": 0.10,
-                        "distance_to_closure": 0.10,
-                        "evidence_gain": 0.10,
-                        "route_diversity_gain": 0.20,
-                        "cost_penalty": 0.05,
-                        "failure_risk_penalty": 0.02,
-                    },
+                    "priority": float(review_pressure["legacy_priority"]),
+                    "score": dict(review_pressure["score"]),
                     "metadata": {
                         **program_review_signal,
                         "program_review": True,
                         "event_signal_sha256": program_review_sha256,
+                        "program_review_pressure": review_pressure,
                     },
                 },
             ),
