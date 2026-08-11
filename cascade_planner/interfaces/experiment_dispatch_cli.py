@@ -7,13 +7,19 @@ import json
 from pathlib import Path
 from typing import Any
 
+from cascade_planner.interfaces.experiment_job_cli import (
+    EXPERIMENT_JOB_COMMANDS,
+    add_experiment_job_commands,
+    dispatch_experiment_job_command,
+)
+
 
 EXPERIMENT_DISPATCH_COMMANDS = frozenset({
     "dispatch-experiment",
     "recover-experiment-dispatch",
     "settle-experiment-dispatch",
     "stage-experiment-artifact",
-})
+}) | EXPERIMENT_JOB_COMMANDS
 
 
 def add_experiment_dispatch_commands(sub: argparse._SubParsersAction) -> None:
@@ -51,9 +57,12 @@ def add_experiment_dispatch_commands(sub: argparse._SubParsersAction) -> None:
     stage.add_argument(
         "--enable-experiment-artifact-staging", action="store_true", required=True
     )
+    add_experiment_job_commands(sub)
 
 
 def dispatch_experiment_command(gateway: Any, args: argparse.Namespace) -> dict[str, Any]:
+    if args.command in EXPERIMENT_JOB_COMMANDS:
+        return dispatch_experiment_job_command(gateway, args)
     if args.command == "stage-experiment-artifact":
         return gateway.stage_experiment_json_artifact(
             args.run_id,

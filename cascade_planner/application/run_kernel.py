@@ -398,6 +398,9 @@ class RunState:
     task_wall_time_s: float = 0.0
     task_counts: Mapping[str, int] = field(default_factory=dict)
     in_flight_tasks: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    task_checkpoints: Mapping[str, tuple[Mapping[str, Any], ...]] = field(
+        default_factory=dict
+    )
     accepted_expansion_ids: tuple[str, ...] = ()
     model_totals: Mapping[str, int | float] = field(default_factory=dict)
     native_search_totals: Mapping[str, int] = field(default_factory=dict)
@@ -423,6 +426,10 @@ class RunState:
         row["in_flight_tasks"] = {
             key: dict(value) for key, value in self.in_flight_tasks.items()
         }
+        row["task_checkpoints"] = {
+            key: [dict(value) for value in values]
+            for key, values in self.task_checkpoints.items()
+        }
         row["accepted_expansion_ids"] = list(self.accepted_expansion_ids)
         row["accepted_expansion_count"] = self.accepted_expansion_count
         row["model_totals"] = dict(self.model_totals)
@@ -437,6 +444,7 @@ class RunState:
             "attempt_count_is_settled_proposal_tasks": True,
             "native_search_is_accounted_independently_from_proposal_tasks": True,
             "settled_task_count_includes_all_task_kinds": True,
+            "task_checkpoints_do_not_consume_budget_or_grant_scientific_authority": True,
             "queue_empty_is_not_completion": True,
         }
         row["content_sha256"] = _digest(row)
@@ -589,19 +597,22 @@ class RunKernel:
             )
 
     def task_lifecycle(self, task_id: str) -> dict[str, Any]:
-        """Read one task's durable reservation/settlement without new authority."""
+        """Read one task's durable lifecycle without granting new authority."""
 
         identity = str(task_id or "").strip()
         if not identity:
             raise ValueError("task_id is required")
         reservation: RunEvent | None = None
         settlement: RunEvent | None = None
+        checkpoints: list[RunEvent] = []
         with self._locked():
             for event in self._read_events():
                 if str(event.payload.get("task_id") or "") != identity:
                     continue
                 if event.event_type == "task_reserved":
                     reservation = event
+                elif event.event_type == "task_checkpoint":
+                    checkpoints.append(event)
                 elif event.event_type == "task_settled":
                     settlement = event
         return {
@@ -614,12 +625,54 @@ class RunKernel:
                 else "absent"
             ),
             "reservation": reservation.to_dict() if reservation else {},
+            "checkpoints": [event.to_dict() for event in checkpoints],
             "settlement": settlement.to_dict() if settlement else {},
             "semantics": {
                 "event_log_is_operational_authority": True,
+                "checkpoints_are_operational_observations_only": True,
                 "projection_grants_no_scientific_authority": True,
             },
         }
+
+    def record_task_checkpoint(
+        self,
+        *,
+        task_id: str,
+        checkpoint_kind: str,
+        artifact_ref: ArtifactRef | Mapping[str, Any],
+        predecessor_checkpoint_sha256: str,
+        operational_status: str,
+        idempotency_key: str,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> RunEvent:
+        """Append one CAS-bound observation while a task remains in flight."""
+
+        identity = str(task_id or "").strip()
+        kind = str(checkpoint_kind or "").strip()
+        status = str(operational_status or "").strip()
+        if not identity or not kind or not status:
+            raise ValueError("task checkpoint identity, kind, and status are required")
+        ref = (
+            artifact_ref
+            if isinstance(artifact_ref, ArtifactRef)
+            else ArtifactRef.from_dict(dict(artifact_ref or {}))
+        )
+        self.artifacts.verify(ref)
+        return self._append(
+            "task_checkpoint",
+            idempotency_key,
+            {
+                "task_id": identity,
+                "checkpoint_kind": kind,
+                "artifact_ref": ref.to_dict(),
+                "artifact_sha256": ref.sha256,
+                "predecessor_checkpoint_sha256": str(
+                    predecessor_checkpoint_sha256 or ""
+                ),
+                "operational_status": status,
+                "metadata": _safe_mapping(metadata),
+            },
+        )
 
     @contextmanager
     def action_resource_scope(
@@ -1389,6 +1442,25 @@ class RunKernel:
                 raise RunKernelBudgetError(
                     "run_accepted_expansion_budget_exceeded"
                 )
+        elif event_type == "task_checkpoint":
+            task_id = str(payload.get("task_id") or "")
+            if task_id not in state.in_flight_tasks:
+                raise RunKernelError(f"task_not_reserved:{task_id}")
+            ref = ArtifactRef.from_dict(dict(payload.get("artifact_ref") or {}))
+            checkpoints = tuple(state.task_checkpoints.get(task_id) or ())
+            predecessor = (
+                str(checkpoints[-1].get("artifact_sha256") or "")
+                if checkpoints
+                else ""
+            )
+            if (
+                not str(payload.get("checkpoint_kind") or "").strip()
+                or not str(payload.get("operational_status") or "").strip()
+                or str(payload.get("artifact_sha256") or "") != ref.sha256
+                or str(payload.get("predecessor_checkpoint_sha256") or "")
+                != predecessor
+            ):
+                raise RunKernelError("task_checkpoint_binding_invalid")
         elif event_type == "graph_revision_published":
             if int(payload.get("graph_revision") or 0) < state.graph_revision:
                 raise RunKernelError("graph_revision_cannot_decrease")
@@ -1858,6 +1930,7 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
         "task_wall_time_s": 0.0,
         "task_counts": {},
         "in_flight_tasks": {},
+        "task_checkpoints": {},
         "accepted_expansion_ids": set(),
         "model_totals": {
             "model_invocations": 0,
@@ -1886,6 +1959,28 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
             if task_id in state["in_flight_tasks"]:
                 raise RunKernelCorruptionError(f"task_reserved_twice:{task_id}")
             state["in_flight_tasks"][task_id] = payload
+        elif event.event_type == "task_checkpoint":
+            task_id = str(payload.get("task_id") or "")
+            if task_id not in state["in_flight_tasks"]:
+                raise RunKernelCorruptionError(
+                    f"task_checkpoint_without_reservation:{task_id}"
+                )
+            ref = ArtifactRef.from_dict(dict(payload.get("artifact_ref") or {}))
+            checkpoints = state["task_checkpoints"].setdefault(task_id, [])
+            predecessor = (
+                str(checkpoints[-1].get("artifact_sha256") or "")
+                if checkpoints
+                else ""
+            )
+            if (
+                not str(payload.get("checkpoint_kind") or "").strip()
+                or not str(payload.get("operational_status") or "").strip()
+                or str(payload.get("artifact_sha256") or "") != ref.sha256
+                or str(payload.get("predecessor_checkpoint_sha256") or "")
+                != predecessor
+            ):
+                raise RunKernelCorruptionError("replayed_task_checkpoint_invalid")
+            checkpoints.append(payload)
         elif event.event_type == "task_settled":
             task_id = str(payload.get("task_id") or "")
             reservation = state["in_flight_tasks"].pop(task_id, None)
@@ -2017,6 +2112,10 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
         task_counts=dict(state["task_counts"]),
         in_flight_tasks={
             key: dict(value) for key, value in state["in_flight_tasks"].items()
+        },
+        task_checkpoints={
+            key: tuple(dict(value) for value in values)
+            for key, values in state["task_checkpoints"].items()
         },
         accepted_expansion_ids=tuple(sorted(state["accepted_expansion_ids"])),
         model_totals=dict(state["model_totals"]),
@@ -2160,6 +2259,14 @@ def _state_from_dict(value: Mapping[str, Any]) -> RunState:
         in_flight_tasks={
             str(key): dict(item)
             for key, item in dict(row.get("in_flight_tasks") or {}).items()
+        },
+        task_checkpoints={
+            str(key): tuple(
+                dict(item)
+                for item in values or []
+                if isinstance(item, Mapping)
+            )
+            for key, values in dict(row.get("task_checkpoints") or {}).items()
         },
         accepted_expansion_ids=tuple(
             str(item) for item in row.get("accepted_expansion_ids") or []

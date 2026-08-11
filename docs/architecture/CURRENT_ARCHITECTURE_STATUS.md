@@ -353,7 +353,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 | Candidate 批量迁移审计 | 已实现（只读） | 303 个快照去重为 264 个唯一 Workbench；分类投影、空图和无效快照，历史 acceptance 只作诊断 | 仍需把选定案卷显式重放为 current canonical schema |
 | Candidate 酶机会/负对照扫描 | 过渡实现（只读） | Bufotalin 产生 5 个 Program draft，其中一个 6→1；Ibrutinib 3 条路线零匹配 | 正例仍来自 Candidate Projection，且没有精确底物实验校准 |
 | Program Graph + Pareto optimizer | 过渡实现（只读） | `program_route_candidate*` + reported/mechanism/execution adapters + optimizer；baseline、酶、whole-cell、hybrid、摘要绑定 reported 完整路线和已重拼机理路线进入同一多轴空间，execution/mechanism 严格成功可进只读 shadow，来源类型不评分，oracle 精确复算 | 尚无生产 `program_ids[]` 路线主语义；execution/mechanism Program 准入及成功率/纯化/成本/PMI 数据未接入 |
-| 实验 Claim、反馈与能力校准 | 过渡实现（影子持久） | 三域 validation frontier/feedback；统一 Claim store；`experimental_work_frontier.v1` 绑定唯一 canonical frontier；work item 现含摘要绑定、target-blind 的 information-gain/cost rank vector；`program_applicability_model.v1` 在 capability/execution-domain/mechanism-strategy 边界内对 exact/analog 观察加权并输出置信度、不确定性和风险，两者都只以动态 priority/score 进入同一 adaptive scheduler；host-trusted provider policy、manual handoff、RunKernel dispatch/recovery/settlement 只释放领域验证候选 | 缺真实设备/网络 provider、外部 job receipt 与操作者/取消边界 |
+| 实验 Claim、反馈与能力校准 | 过渡实现（影子持久） | 三域 validation frontier/feedback；统一 Claim store；`experimental_work_frontier.v1` 绑定唯一 canonical frontier；work item 现含摘要绑定、target-blind 的 information-gain/cost rank vector；`program_applicability_model.v1` 在 capability/execution-domain/mechanism-strategy 边界内对 exact/analog 观察加权并输出置信度、不确定性和风险，两者都只以动态 priority/score 进入同一 adaptive scheduler；host-trusted provider policy、manual handoff、RunKernel dispatch/recovery/settlement 只释放领域验证候选；外部 job receipt、operator identity、取消请求/确认通过 CAS-bound task checkpoint 进入同一 experiment task，取消请求本身不结算 | 缺真实设备/网络 provider 的提交、轮询、超时与 provider-specific cancel transport；不能虚构设备或凭据 |
 | P9 fresh-blind 发布门 | 协议与编译器已实现，科学门未通过 | 真实 Git 跟踪树预检、同义名/SMILES/InChIKey/关键中间体 evaluator-only 扫描、运行前冻结摘要、case-local 记忆副本、三种单变量消融、失败保留和三档产品读出已接入；单目标四臂 smoke 已证明摘要/环境绑定并测得 ChemEnzy 增益 0、replan 验证路线差值 -1；后续已加入付费前 replan signal gate 与付费后 canonical graph 保留审计，工作台只把 `accepted=false` 显示为红色审计项 | 旧 20-target 结果不能通过新门；当前缺真实库存冻结、足量策略不同路线、条件/采购覆盖和完整 panel 级消融；单目标且首轮采样不同的差值不能充当 replan 因果结论 |
 
 ## 4. 当前创新兼容层怎样工作
@@ -424,7 +424,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 | 3. 真实超步 | interval analysis 直接创建起点→终点 program | 影子准入已实现：独立 append-only store、六 CAS 重放、fallback、非等价 oracle；current canonical 有 6→1 未验证阳性 proposal，并已进入只读 optimizer 的 exploration 层 | 取得精确底物专项验证；生产路线仍不切换 |
 | 4. 结构化机理一跳 | `MechanismProposal`、bond edits、critic、扩展门 | 过渡实现（只读）：一跳锚点/结构/可证伪门、连续区间重拼、严格验证 frontier 与三态反馈；净转化不冒充机理证明 | 补一等 bond-edit trace、竞争路径 critic、实验 producer 与持久准入 |
 | 5. Program optimizer | 文献、化学、酶、whole-cell、hybrid、机理进入 Pareto portfolio | 过渡实现（只读）：六类 adapter、四资格域、完整 Pareto layers；通过 execution/mechanism 验证的成功候选可进入 shadow，来源类型不评分 | 补缺失工艺目标与持久准入，仍不接管生产路线 |
-| 6. 实验反馈 | 成败 claim 更新 Capability applicability | 三域 Claim/store/calibration；唯一 frontier 绑定、通用 request/result/current-frontier audit、可解释信息增益/成本排序、跨相似边界 applicability 模型、host-trusted manual provider 与 RunKernel 单账本 dispatch/recovery 已实现，目录不变 | 接真实设备/网络 provider，并补外部 job receipt、操作者身份与取消语义 |
+| 6. 实验反馈 | 成败 claim 更新 Capability applicability | 三域 Claim/store/calibration；唯一 frontier 绑定、通用 request/result/current-frontier audit、可解释信息增益/成本排序、跨相似边界 applicability 模型、host-trusted manual provider 与 RunKernel 单账本 dispatch/recovery 已实现；外部 job receipt、operator identity、取消请求与 acknowledgement 已在同一 task checkpoint 链闭合，目录和科学权威不变 | 接真实设备/网络 provider 的提交、轮询、超时与 provider-specific cancel transport，并取得可发布的外部校准数据 |
 
 阶段 3 的 Program draft、验证前沿和独立影子准入已可提前验证，但生产接管仍不能跳过阶段 2/5。
 否则候选无法进入真正的路线搜索、proof、条件核算与 UI 主语义。
@@ -529,27 +529,38 @@ Blackboard 都不能自行把 proposal 提升为事实。
     scheduler 已有高收益低成本优先回归，重摘要篡改失败关闭。跨相似边界 applicability 也已升级为独立
     `program_applicability_model.v1`：exact 与 structural analog 分层计数，相似度决定 transfer weight，冲突、
     置信度、不确定性与风险保持可见；execution evidence 按 whole-cell/hybrid 隔离，模型仍不能授予 validation。
-    下一切片应在同一 SPI 上接入一个受控的真实设备/网络 provider，补超时/取消/操作者身份与外部 job receipt。
-    不得为单个目标硬编码实验路径，也不得创建第二任务队列。
+    下一切片应在同一 SPI 上接入一个受控的真实设备/网络 provider，补真实提交、轮询、超时和
+    provider-specific cancel transport。不得为单个目标硬编码实验路径，不得创建第二任务队列，也不得
+    虚构设备、网络状态或凭据。
 
-22. Bufotalin fresh blind V1–V3 进一步校正了长路线目标：`proof` profile 的 24 步是能力上限，不是优化
+22. 实验 dispatch 已补齐外部作业操作闭环，但没有新增队列：`RunKernel.task_checkpoint` 只在既有
+    experiment task 在途时追加 CAS 引用、checkpoint kind、operational status 与前驱摘要，重放不修改预算、
+    canonical graph、Claim、validation、proof 或 completion。`experiment_operator_identity.v1` 只绑定 principal
+    类型和 authentication-context digest，不携带凭据也不提升 provider/scientific authority；provider-sequenced
+    `experiment_external_job_receipt.v1` 保持 submitted/running/completed/failed/cancelled 状态机，终态不可重开。
+    `experiment_cancellation_request.v1` 只表示请求；只有绑定该请求的 cancelled acknowledgement 才将原 task
+    结算为 cancelled。completed/failed acknowledgement 仍必须独立提交 `experiment_execution_result.v1` 并经过
+    current-frontier/result/domain gate。CLI、HTTP、Gateway 与 pointer-loss-independent replay 均读取同一事件/CAS
+    权威；并发相同 payload 幂等，不同 payload、错误前驱、fresh-digest 跨 dispatch 篡改、旧 frontier 和 provider
+    descriptor 漂移均失败关闭。旧人工结果路径在没有 external receipt 时继续兼容。
+23. Bufotalin fresh blind V1–V3 进一步校正了长路线目标：`proof` profile 的 24 步是能力上限，不是优化
     目标。强制最小 20 步会诱导模型把 12 步主段与 8 步延伸段拼成名义 20 步；host 发现延伸段既非目标根
     且含祖先环，因此只承认合法主段。当前 Bufotalin manifest 已撤销深度下限，长度只由化学和真实终止
     边界决定。最终 V3 有 12/6/4 步三条声明路线的全部步骤进入 canonical graph；另一个 2 步酶候选因
     `element_inventory_not_conserved` 保留为红色单步缺口，不被删除也不冒充闭合。
-23. Workbench 新增独立 `declared_route_program_closure.v1`：逐 Director skeleton 核算声明步、已物化步、
+24. Workbench 新增独立 `declared_route_program_closure.v1`：逐 Director skeleton 核算声明步、已物化步、
     admission-rejected gap 和未物化 gap。它只回答“目标到声明叶节点的全部步骤是否进入规范图”，与反应
     验证、exact 文献、条件、benchmark 库存和采购闭合严格分轴。Bufotalin V3 显示 3/4 条结构闭合、最长
     12 步；B1–B5 仍可保持开放，不再把“证据/库存未闭合”误写成“整条路线不存在”。展示页和路线工作台
     均显示该独立卡片；12 步路线已实际点击检查，R1 检查器可打开且条件、来源缺口和 Proof vector 完整可滚动。
-24. Canonical V4 Web 已收敛为一个后端事实源和三个协同视图：`/v4` 统一工作区同时列出 fresh showcase
+25. Canonical V4 Web 已收敛为一个后端事实源和三个协同视图：`/v4` 统一工作区同时列出 fresh showcase
     与 gateway 运行索引，并在同一个 iframe 中审查 Workbench；`/v4/console` 只负责从 SMILES 发起异步
     campaign；`/v4/showcase` 负责全屏展示。`/api/v4/workspace` 汇总入口、后端状态、run 与展示目录，
     `/api/v4/showcase` 有界发现生成的 `showcase/summary.json`，同一目标优先采用最新 fresh 工件。旧版没有
     `route_closure` 时显示“闭合待 current 投影”，不误报失败；旧蟾毒灵 20 步展示会被 fresh V3 的 12 步
     闭合事实替代。启动脚本现调用默认 Canonical V4 server，不再把 combined 兼容应用作为新入口；
     `--server auto` 在 Waitress 缺失时自动回退 Flask，默认命令不会在端口绑定前失败。
-25. Target-only 多轮规划最多保留 10 个 director outcome（1 次首轮架构 + 最多 9 次 event replan）；每次重规划
+26. Target-only 多轮规划最多保留 10 个 director outcome（1 次首轮架构 + 最多 9 次 event replan）；每次重规划
     均拆成两个独立门：`global_replan_signal_gate` 先证明上一轮之后出现了新的可行动
     宿主观察，预算门再核算调用/token/墙钟余量。`portfolio stagnation` 或“尚未闭合”本身不再触发付费；
     已闭合的库存观察也不重复触发。若确实执行 replan，`replan_retention_audit` 要求 molecules、edges 与
@@ -589,7 +600,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 库存/采购和 process-ready 则由各自 proof 与 acceptance 分轴判定。任一轴不能替代另一轴，架构完成度也
 不能替代单次 run 的事实。
 
-当前稳定性门禁：完整离线集 `2712 passed, 3 skipped, 11 warnings, 2 subtests passed`，用时 177.69 秒；
+当前稳定性门禁：完整离线集 `2719 passed, 3 skipped, 11 warnings, 2 subtests passed`，用时 171.35 秒；
 Ruff、compileall、全部架构门（含聚焦模块行数预算）和 `git diff --check` 通过。跨运行审计、
 Candidate Program 投影均为只读，
 `edge_ids[]`、proof、completion 与 acceptance 均未切换。

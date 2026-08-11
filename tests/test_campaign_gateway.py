@@ -14,6 +14,11 @@ from cascade_planner.application.experiment_execution_results import (
     build_experiment_execution_result,
     with_experiment_execution_result_digest,
 )
+from cascade_planner.application.experiment_external_jobs import (
+    build_experiment_cancellation_request,
+    build_experiment_external_job_receipt,
+    build_experiment_operator_identity,
+)
 from cascade_planner.interfaces.campaign_gateway import (
     CampaignGateway,
     CampaignGatewayError,
@@ -141,6 +146,52 @@ def _manual_experiment_policy() -> dict:
         "allow_network_access": False,
         "max_estimated_cost_units": 0,
     }
+
+
+def _operator_identity() -> dict:
+    return build_experiment_operator_identity(
+        principal_id="operator:gateway-fixture", principal_type="human",
+        authentication_context_sha256="f" * 64,
+    )
+
+
+def _prepare_dispatched_experiment(
+    gateway: CampaignGateway, run_id: str
+) -> tuple[str, dict, dict, dict, dict]:
+    gateway.create_run(
+        run_id=run_id, target_name="ethanol", target_smiles="CCO",
+        global_plan=_reduction_plan(), materialize=True,
+    )
+    route_id = next(iter(gateway.workbench(run_id)["snapshot"]["routes"]))
+    capability = _reduction_capability()
+    review = gateway.route_program_innovations(
+        run_id, route_id=route_id, capabilities=[capability]
+    )
+    proposal = next(iter(review["program_bundle"]["program_proposals"].values()))
+    request = next(iter(review["experimental_work_frontier"]["work_items"].values()))[
+        "execution_request"
+    ]
+    dispatch = gateway.dispatch_route_experiment(
+        run_id, route_id=route_id, capabilities=[capability],
+        request_id=request["request_id"], policy=_manual_experiment_policy(),
+        enable_experiment_dispatch=True,
+    )["dispatch"]
+    return route_id, capability, proposal, request, dispatch
+
+
+def _external_job_receipt(
+    dispatch: dict, request: dict, *, sequence: int, status: str,
+    predecessor: str = "", cancellation: str = "",
+) -> dict:
+    return build_experiment_external_job_receipt(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id="external-job:gateway-fixture", provider_sequence=sequence,
+        status=status, predecessor_receipt_sha256=predecessor,
+        cancellation_request_sha256=cancellation, recorded_by=_operator_identity(),
+    )
 
 
 def test_gateway_runs_every_operator_operation_without_model_calls(
@@ -660,6 +711,185 @@ def test_gateway_dispatches_recovers_and_settles_on_single_kernel_ledger(
     assert gateway.experimental_claim_store("experiment-dispatch-gateway")["replay"][
         "event_count"
     ] == 0
+
+
+def test_gateway_external_job_cancellation_requires_provider_acknowledgement(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    run_id = "experiment-external-cancellation"
+    route_id, capability, _, request, dispatch = _prepare_dispatched_experiment(
+        gateway, run_id
+    )
+    service = gateway._open(run_id)
+    graph_revision = service.kernel.state.graph_revision
+    claim_events = gateway.experimental_claim_store(run_id)["replay"]["event_count"]
+    submitted = _external_job_receipt(
+        dispatch, request, sequence=1, status="submitted"
+    )
+    wrong_binding = build_experiment_external_job_receipt(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"] + ":other",
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id="external-job:gateway-fixture", provider_sequence=1,
+        status="submitted", recorded_by=_operator_identity(),
+    )
+    with pytest.raises(CampaignGatewayError, match="dispatch_binding_invalid"):
+        gateway.record_route_experiment_job_receipt(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"], job_receipt=wrong_binding,
+            enable_experiment_job_receipt=True,
+        )
+    with pytest.raises(CampaignGatewayError, match="request_not_in_current_frontier"):
+        gateway.record_route_experiment_job_receipt(
+            run_id, route_id=route_id, capabilities=[],
+            dispatch_id=dispatch["dispatch_id"], job_receipt=submitted,
+            enable_experiment_job_receipt=True,
+        )
+    provider_id = dispatch["provider_id"]
+    provider = gateway.providers.get(provider_id)
+    descriptor = gateway.providers.descriptor(provider_id)
+    gateway.providers.unregister(provider_id)
+    with pytest.raises(CampaignGatewayError, match="unknown provider_id"):
+        gateway.record_route_experiment_job_receipt(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"], job_receipt=submitted,
+            enable_experiment_job_receipt=True,
+        )
+    gateway.providers.register(
+        provider, trusted_descriptor=descriptor, authority="test.host.registry"
+    )
+
+    def record_submitted() -> dict:
+        return gateway.record_route_experiment_job_receipt(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"], job_receipt=submitted,
+            enable_experiment_job_receipt=True,
+        )["dispatch"]
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        recorded = list(pool.map(lambda _: record_submitted(), range(4)))
+    assert all(value == submitted for value in recorded)
+    cancellation = build_experiment_cancellation_request(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id=submitted["external_job_id"],
+        current_external_job_receipt_sha256=submitted["content_sha256"],
+        requested_by=_operator_identity(), reason_code="operator_requested",
+    )
+
+    def request_cancel() -> dict:
+        return gateway.request_route_experiment_cancellation(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"],
+            cancellation_request=cancellation,
+            enable_experiment_cancellation=True,
+        )["dispatch"]
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        cancellations = list(pool.map(lambda _: request_cancel(), range(4)))
+    assert all(value == cancellation for value in cancellations)
+    lifecycle = service.kernel.task_lifecycle(dispatch["task_id"])
+    assert lifecycle["status"] == "in_flight"
+    assert len(lifecycle["checkpoints"]) == 2
+    cancelled = _external_job_receipt(
+        dispatch, request, sequence=2, status="cancelled",
+        predecessor=submitted["content_sha256"],
+        cancellation=cancellation["content_sha256"],
+    )
+
+    def record_cancelled() -> dict:
+        return gateway.record_route_experiment_job_receipt(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"], job_receipt=cancelled,
+            enable_experiment_job_receipt=True,
+        )["dispatch"]
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        acknowledged = list(pool.map(lambda _: record_cancelled(), range(4)))
+    assert all(value == cancelled for value in acknowledged)
+    lifecycle = service.kernel.task_lifecycle(dispatch["task_id"])
+    assert lifecycle["status"] == "settled"
+    assert lifecycle["settlement"]["payload"]["status"] == "cancelled"
+    assert len(lifecycle["checkpoints"]) == 3
+    assert service.kernel.state.graph_revision == graph_revision
+    assert gateway.experimental_claim_store(run_id)["replay"][
+        "event_count"
+    ] == claim_events
+
+
+def test_gateway_external_job_completion_gates_result_settlement(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    run_id = "experiment-external-completion"
+    route_id, capability, proposal, request, dispatch = _prepare_dispatched_experiment(
+        gateway, run_id
+    )
+    service = gateway._open(run_id)
+    raw_ref = service.kernel.artifacts.put_json(
+        {"conversion_fraction": 0.93}, logical_name="external-result.json",
+        producer="test.fixture.lab",
+    )
+    result = build_experiment_execution_result(
+        request, result_id="experiment-result:external-completed",
+        executor_id=dispatch["provider_id"],
+        executor_version=dispatch["provider_version"], status="success",
+        artifact_refs=[{
+            "sha256": raw_ref.sha256, "media_type": "application/json",
+            "role": "raw_record",
+        }],
+        domain_validation_candidate=_biocatalysis_validation(proposal),
+    )
+    submitted = _external_job_receipt(
+        dispatch, request, sequence=1, status="running"
+    )
+    gateway.record_route_experiment_job_receipt(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], job_receipt=submitted,
+        enable_experiment_job_receipt=True,
+    )
+    with pytest.raises(CampaignGatewayError, match="not_ready_for_result"):
+        gateway.settle_route_experiment_dispatch(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"], result=result,
+            enable_experiment_settlement=True,
+        )
+    cancellation = build_experiment_cancellation_request(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id=submitted["external_job_id"],
+        current_external_job_receipt_sha256=submitted["content_sha256"],
+        requested_by=_operator_identity(), reason_code="race-test",
+    )
+    gateway.request_route_experiment_cancellation(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], cancellation_request=cancellation,
+        enable_experiment_cancellation=True,
+    )
+    completed = _external_job_receipt(
+        dispatch, request, sequence=2, status="completed",
+        predecessor=submitted["content_sha256"],
+        cancellation=cancellation["content_sha256"],
+    )
+    gateway.record_route_experiment_job_receipt(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], job_receipt=completed,
+        enable_experiment_job_receipt=True,
+    )
+    assert service.kernel.task_lifecycle(dispatch["task_id"])["status"] == "in_flight"
+    settled = gateway.settle_route_experiment_dispatch(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], result=result,
+        enable_experiment_settlement=True,
+    )["dispatch"]
+    assert settled["status"] == "settled"
+    assert settled["domain_validation_candidate"] == _biocatalysis_validation(proposal)
 
 
 def test_gateway_durably_admits_only_validated_biocatalytic_programs(

@@ -11,12 +11,15 @@ from cascade_planner.interfaces.campaign_experiment_dispatch import (
     settle_route_experiment_dispatch_result,
     stage_experiment_json_artifact_result,
 )
+from cascade_planner.interfaces.campaign_experiment_job_gateway import (
+    CampaignExperimentJobGatewayMixin,
+)
 from cascade_planner.interfaces.campaign_program_innovations import (
     route_experiment_result_audit_result,
 )
 
 
-class CampaignExperimentGatewayMixin:
+class CampaignExperimentGatewayMixin(CampaignExperimentJobGatewayMixin):
     def audit_route_experiment_result(
         self, run_id: str, *, route_id: str, capabilities: Any,
         result: Mapping[str, Any], mechanism_proposals: Iterable[Mapping[str, Any]] = (),

@@ -7,12 +7,16 @@ from typing import Any, Callable, Mapping
 from flask import Blueprint, jsonify, request
 
 from cascade_planner.web.v4_program_payload import program_innovation_payload
+from cascade_planner.web.v4_experiment_job_api import (
+    register_experiment_job_routes,
+)
 
 
 def register_experiment_routes(
     blueprint: Blueprint, factory: Callable[[], Any]
 ) -> None:
     prefix = "/api/v4/runs/<run_id>/programs/innovations/experiments"
+    register_experiment_job_routes(blueprint, factory)
 
     @blueprint.post(prefix + "/audit")
     def audit_route_experiment_result(run_id: str):

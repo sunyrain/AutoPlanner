@@ -129,6 +129,8 @@
 
 跨相似边界 applicability 切片新增 `program_applicability_model.v1`：只从 replay-validated Program memory 读取精确观察，在相同 capability、execution domain 或 mechanism strategy 内按输入/输出结构相似度降权，分别保留 exact/analog、positive/negative/inconclusive、冲突、置信度、不确定性和风险。模型摘要及独立重投影 oracle 接入 `program_experience_projection.v1`，候选 priority 与后续实验排序读取其有界结果；exact-boundary calibration、Claim authority、catalog、proof、completion 与 acceptance 均不改变。whole-cell/hybrid 现使用不同经验身份，target/dataset 标签不参与模型输入。三域/Gateway/CLI/Web 聚焦回归 116 passed；不做 deselect 的完整离线套件为 2712 passed、3 skipped、11 warnings、2 subtests passed，用时 177.69 秒。
 
+实验外部作业闭环切片新增通用 `task_checkpoint` 事件与三份严格操作契约：operator identity 只保存 principal 类型和 authentication-context SHA-256；external job receipt 绑定 dispatch/task/request/provider、外部 job ID、单调 provider sequence、前驱 receipt、取消请求和记录者；cancellation request 精确绑定当前 receipt，且请求本身不结算。所有对象先进入 CAS，再由既有 RunKernel experiment task 的哈希链持有；pointer 可删除重建，未创建第二队列。相同并发 payload 幂等，不同 payload、错误前驱、类型混淆、fresh-digest 跨 dispatch 篡改、current frontier/provider 漂移、终态重开均失败关闭；取消请求后的 completed 竞态仍可审计并继续独立 result/domain gate，只有 cancelled acknowledgement 结算 cancelled。Gateway、CLI、Web、RunKernel 与架构聚焦回归 84 passed；Ruff、compileall、`git diff --check` 和全部架构门通过；不做 deselect 的完整离线套件为 2719 passed、3 skipped、11 warnings、2 subtests passed，用时 171.35 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -623,4 +625,5 @@ W2 验收门：
 - [x] 第九刀（W5）：抽离 `target_solver_compat`，统一旧 objective 展示、checkpoint cursor、外部反馈信号和 resume/trajectory 投影；新增 route-family rebound 与 scientific-content-bound Program ID，避免 operational revision 污染 Program 身份。
 - [x] 第十刀（W6–W8-P）：W6 真实 embedded failure 已定位并修复；W7 冻结清单、完整离线门、190/190 preflight 与最终零模型回放均已完成；W8 的预算终态问题已逐层修复并保留审计；前 20/190 四臂 pilot 与机器可读汇总已完成。全量 W8-F 按 2026-08-09 范围决策延期。
 - [x] 第十一刀（实验调度）：三域 `experimental_work_frontier.v1` 已加入 target-blind、摘要绑定的信息增益/成本排序，并把动态 priority/score 接回同一 canonical Action scheduler；同时为下一刀预留 applicability uncertainty/risk 输入。
-- [x] 第十二刀（applicability 学习）：Program experience 已升级为 exact/structural-analog 分层、相似度加权且 execution-domain 隔离的 `program_applicability_model.v1`；模型只影响 proposal/validation priority。实验闭环下一步只剩受控真实 provider、外部 job receipt 与操作者/取消边界。
+- [x] 第十二刀（applicability 学习）：Program experience 已升级为 exact/structural-analog 分层、相似度加权且 execution-domain 隔离的 `program_applicability_model.v1`；模型只影响 proposal/validation priority。
+- [x] 第十三刀（实验外部作业闭环）：`RunKernel` 新增 CAS 绑定、前驱有序且不改变预算/图/科学状态的通用 task checkpoint；严格的 `experiment_operator_identity.v1`、`experiment_external_job_receipt.v1` 与 `experiment_cancellation_request.v1` 已接入同一 experiment task。取消请求不会提前结算，只有绑定请求的外部 `cancelled` acknowledgement 才结算 cancelled；`completed`/`failed` receipt 仍需独立 result/domain gate。Gateway、CLI、HTTP、并发幂等、不同 payload 冲突、fresh-digest 绑定篡改、current frontier/provider 漂移、取消竞态和旧人工回填兼容均已回归。下一步只剩受控真实设备/网络 provider 的提交、轮询、超时与 provider-specific cancel transport；不得创建第二任务队列或虚构设备凭据。

@@ -14,6 +14,11 @@ from cascade_planner.application.biocatalytic_programs import (
 from cascade_planner.application.experiment_execution_results import (
     build_experiment_execution_result,
 )
+from cascade_planner.application.experiment_external_jobs import (
+    build_experiment_cancellation_request,
+    build_experiment_external_job_receipt,
+    build_experiment_operator_identity,
+)
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.web.v4_api import create_v4_blueprint
@@ -687,6 +692,78 @@ def test_v4_http_exposes_read_only_route_program_innovation_review(
     assert disabled_dispatch.status_code == 400
     assert dispatched.status_code == 200
     dispatch = dispatched.get_json()["dispatch"]
+    operator = build_experiment_operator_identity(
+        principal_id="operator:web-fixture", principal_type="service",
+        authentication_context_sha256="d" * 64,
+    )
+    running_job = build_experiment_external_job_receipt(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id="external-job:web", provider_sequence=1,
+        status="running", recorded_by=operator,
+    )
+    disabled_job = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/job",
+        json={
+            "route_id": route_id, "capabilities": [capability],
+            "dispatch_id": dispatch["dispatch_id"], "job_receipt": running_job,
+            "enable_experiment_job_receipt": False,
+        },
+    )
+    recorded_job = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/job",
+        json={
+            "route_id": route_id, "capabilities": [capability],
+            "dispatch_id": dispatch["dispatch_id"], "job_receipt": running_job,
+            "enable_experiment_job_receipt": True,
+        },
+    )
+    assert disabled_job.status_code == 400
+    assert recorded_job.status_code == 200
+    assert recorded_job.get_json()["dispatch"] == running_job
+    cancellation = build_experiment_cancellation_request(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id=running_job["external_job_id"],
+        current_external_job_receipt_sha256=running_job["content_sha256"],
+        requested_by=operator, reason_code="web-race-test",
+    )
+    cancellation_response = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/cancel",
+        json={
+            "route_id": route_id, "capabilities": [capability],
+            "dispatch_id": dispatch["dispatch_id"],
+            "cancellation_request": cancellation,
+            "enable_experiment_cancellation": True,
+        },
+    )
+    assert cancellation_response.status_code == 200
+    assert cancellation_response.get_json()["dispatch"] == cancellation
+    completed_job = build_experiment_external_job_receipt(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id=running_job["external_job_id"], provider_sequence=2,
+        status="completed", predecessor_receipt_sha256=running_job["content_sha256"],
+        cancellation_request_sha256=cancellation["content_sha256"],
+        recorded_by=operator,
+    )
+    completed_response = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/job",
+        json={
+            "route_id": route_id, "capabilities": [capability],
+            "dispatch_id": dispatch["dispatch_id"],
+            "job_receipt": completed_job,
+            "enable_experiment_job_receipt": True,
+        },
+    )
+    assert completed_response.status_code == 200
+    assert completed_response.get_json()["dispatch"] == completed_job
     manual_result = build_experiment_execution_result(
         request,
         result_id="experiment-result:web-manual-dispatch",

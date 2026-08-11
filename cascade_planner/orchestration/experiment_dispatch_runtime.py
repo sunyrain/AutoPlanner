@@ -8,6 +8,9 @@ from cascade_planner.application.run_kernel import RunKernel
 from cascade_planner.orchestration.experiment_dispatch_handoff import (
     materialize_experiment_handoff,
 )
+from cascade_planner.orchestration.experiment_external_job_runtime import (
+    assert_external_job_result_settleable,
+)
 from cascade_planner.orchestration.experiment_dispatch_support import (
     EXPERIMENT_DISPATCH_RECEIPT_SCHEMA,
     EXPERIMENT_DISPATCH_TASK_SCHEMA,
@@ -244,6 +247,7 @@ def settle_current_route_experiment_dispatch(
         "executor_version": descriptor["version"],
     }:
         raise ExperimentDispatchError("experiment_result_executor_not_dispatched_provider")
+    assert_external_job_result_settleable(kernel, lifecycle, result_value)
     verify_result_artifacts(kernel, result_value)
     review = audit_current_route_experiment_result(
         graph,

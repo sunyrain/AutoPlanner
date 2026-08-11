@@ -508,6 +508,103 @@ def test_event_idempotency_prevents_double_count_and_conflicts(
     assert kernel.state.attempt_count == 0
 
 
+def test_task_checkpoints_are_cas_bound_ordered_and_replayable(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="experiment", kind="experiment",
+        idempotency_key="reserve-experiment", input_revision=0,
+    )
+    first_ref = kernel.artifacts.put_json(
+        {"status": "submitted"}, logical_name="submitted.json", producer="test"
+    )
+
+    def record_first():
+        return kernel.record_task_checkpoint(
+            task_id="experiment", checkpoint_kind="external_job",
+            artifact_ref=first_ref, predecessor_checkpoint_sha256="",
+            operational_status="submitted", idempotency_key="checkpoint:first",
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        first_events = list(pool.map(lambda _: record_first(), range(4)))
+    assert len({event.event_id for event in first_events}) == 1
+    second_ref = kernel.artifacts.put_json(
+        {"status": "running"}, logical_name="running.json", producer="test"
+    )
+    with pytest.raises(RunKernelError, match="task_checkpoint_binding_invalid"):
+        kernel.record_task_checkpoint(
+            task_id="experiment", checkpoint_kind="external_job",
+            artifact_ref=second_ref, predecessor_checkpoint_sha256="",
+            operational_status="running", idempotency_key="checkpoint:wrong",
+        )
+    second = kernel.record_task_checkpoint(
+        task_id="experiment", checkpoint_kind="external_job",
+        artifact_ref=second_ref, predecessor_checkpoint_sha256=first_ref.sha256,
+        operational_status="running", idempotency_key="checkpoint:second",
+    )
+    lifecycle = kernel.task_lifecycle("experiment")
+    assert [
+        row["payload"]["artifact_sha256"] for row in lifecycle["checkpoints"]
+    ] == [first_ref.sha256, second_ref.sha256]
+    assert lifecycle["semantics"][
+        "checkpoints_are_operational_observations_only"
+    ] is True
+    assert kernel.state.graph_revision == 0
+    assert kernel.state.task_checkpoints["experiment"][-1][
+        "artifact_sha256"
+    ] == second_ref.sha256
+    reopened = RunKernel(tmp_path / "runtime", tmp_path / "run")
+    assert reopened.task_lifecycle("experiment")["checkpoints"][-1][
+        "event_id"
+    ] == second.event_id
+    reopened.settle_task(
+        task_id="experiment", idempotency_key="settle-experiment",
+        status="completed",
+    )
+    with pytest.raises(RunKernelError, match="task_not_reserved"):
+        reopened.record_task_checkpoint(
+            task_id="experiment", checkpoint_kind="external_job",
+            artifact_ref=second_ref, predecessor_checkpoint_sha256=second_ref.sha256,
+            operational_status="completed", idempotency_key="checkpoint:late",
+        )
+
+
+def test_concurrent_different_task_checkpoint_payloads_fail_closed(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="experiment-race", kind="experiment",
+        idempotency_key="reserve-experiment-race", input_revision=0,
+    )
+    refs = [
+        kernel.artifacts.put_json(
+            {"status": status}, logical_name=f"{status}.json", producer="test"
+        )
+        for status in ("running", "failed")
+    ]
+
+    def record(index: int):
+        try:
+            return kernel.record_task_checkpoint(
+                task_id="experiment-race", checkpoint_kind="external_job",
+                artifact_ref=refs[index], predecessor_checkpoint_sha256="",
+                operational_status=("running", "failed")[index],
+                idempotency_key="checkpoint:race",
+            )
+        except RunKernelIdempotencyConflict as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(record, range(2)))
+    assert sum(isinstance(value, RunKernelIdempotencyConflict) for value in outcomes) == 1
+    assert len(kernel.task_lifecycle("experiment-race")["checkpoints"]) == 1
+
+
 def test_only_proposal_tasks_consume_attempt_budget(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path, attempts=1)
     kernel.start()

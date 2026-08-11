@@ -15,6 +15,11 @@ from cascade_planner.application.biocatalytic_programs import (
 from cascade_planner.application.experiment_execution_results import (
     build_experiment_execution_result,
 )
+from cascade_planner.application.experiment_external_jobs import (
+    build_experiment_cancellation_request,
+    build_experiment_external_job_receipt,
+    build_experiment_operator_identity,
+)
 from cascade_planner.cli import _emit, build_parser, main
 from cascade_planner.web.server import serve_web
 
@@ -452,6 +457,67 @@ def test_cli_program_innovations_exposes_read_only_pareto_portfolio(
         == 0
     )
     dispatch = json.loads(capsys.readouterr().out)["dispatch"]
+    operator = build_experiment_operator_identity(
+        principal_id="operator:cli-fixture", principal_type="human",
+        authentication_context_sha256="c" * 64,
+    )
+    submitted_job = build_experiment_external_job_receipt(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id="external-job:cli", provider_sequence=1,
+        status="running", recorded_by=operator,
+    )
+    submitted_job_path = tmp_path / "submitted-job.json"
+    submitted_job_path.write_text(json.dumps(submitted_job), encoding="utf-8")
+    assert main([
+        *base, "record-experiment-job", "cli-program-optimizer",
+        "--route-id", route_id, "--capabilities-json", str(capability_path),
+        "--dispatch-id", dispatch["dispatch_id"],
+        "--job-receipt-json", str(submitted_job_path),
+        "--enable-experiment-job-receipt",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["dispatch"] == submitted_job
+    cancellation = build_experiment_cancellation_request(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id=submitted_job["external_job_id"],
+        current_external_job_receipt_sha256=submitted_job["content_sha256"],
+        requested_by=operator, reason_code="cli-race-test",
+    )
+    cancellation_path = tmp_path / "cancellation-request.json"
+    cancellation_path.write_text(json.dumps(cancellation), encoding="utf-8")
+    assert main([
+        *base, "cancel-experiment-job", "cli-program-optimizer",
+        "--route-id", route_id, "--capabilities-json", str(capability_path),
+        "--dispatch-id", dispatch["dispatch_id"],
+        "--cancellation-request-json", str(cancellation_path),
+        "--enable-experiment-cancellation",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["dispatch"] == cancellation
+    completed_job = build_experiment_external_job_receipt(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id=submitted_job["external_job_id"], provider_sequence=2,
+        status="completed", predecessor_receipt_sha256=submitted_job["content_sha256"],
+        cancellation_request_sha256=cancellation["content_sha256"],
+        recorded_by=operator,
+    )
+    completed_job_path = tmp_path / "completed-job.json"
+    completed_job_path.write_text(json.dumps(completed_job), encoding="utf-8")
+    assert main([
+        *base, "record-experiment-job", "cli-program-optimizer",
+        "--route-id", route_id, "--capabilities-json", str(capability_path),
+        "--dispatch-id", dispatch["dispatch_id"],
+        "--job-receipt-json", str(completed_job_path),
+        "--enable-experiment-job-receipt",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["dispatch"] == completed_job
     manual_result = build_experiment_execution_result(
         request,
         result_id="experiment-result:cli-manual-dispatch",
