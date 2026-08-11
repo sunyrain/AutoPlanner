@@ -97,6 +97,8 @@
 
 第三个维护切片把 `retrosynthesis_service.py` 从 671 行降至 264 行：Director/context/创新审查与显式实验 Claim 准入迁入 234 行的 `retrosynthesis_service_planning.py`，worker dispatch、预算终态、canonical batch 和 action signals 迁入 207 行的 `retrosynthesis_service_execution.py`。`RetrosynthesisCampaignService` 仍是唯一公开服务并继续持有 RunKernel、canonical graph store 与 WorkerRuntime，拆分没有创建第二写入入口。聚焦回归 80 passed，相关 Gateway/target solver/evidence 集成 114 passed，超预算模块由 15 个降至 14 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 172.93 秒。
 
+第四个维护切片把 `v4_target_runtime.py` 从 704 行降至 386 行：payload 校验、约束/预算编译和可选 evidence provider 装配迁入 interfaces 层 331 行的 `target_solve_request.py`，runtime 只保留后台 job、自动 continuation、实时进度与历史投影。请求模块放在 interfaces 而非 web，继续满足 V4 禁止依赖 `cascade_planner.web.*` 的所有权门；HTTP 行为、Gateway 调用和 `solve_target_request` facade 导出不变。Web/架构聚焦回归 30 passed，相关 Gateway/target solver/CLI 集成 85 passed，超预算模块由 14 个降至 13 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 173.53 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度

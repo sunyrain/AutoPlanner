@@ -107,6 +107,14 @@
 > 降至 14 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时
 > 172.93 秒。
 
+> 2026-08-11 target Web runtime 职责拆分增量：原 704 行模块已拆为 386 行的后台 job/continuation/
+> 实时进度与历史投影 runtime，以及 interfaces 层 331 行的 payload 校验、约束/预算编译和可选 evidence
+> provider 装配模块。请求编译没有放入 `cascade_planner.web`，因此 Web 适配器仍只依赖 interfaces，
+> 没有突破 V4 冻结所有权门；HTTP 行为、Gateway 调用和 `solve_target_request` facade 导出保持不变。
+> Web/架构聚焦回归 30 passed，相关 Gateway/target solver/CLI 集成 85 passed，超行数预算项由 14 个
+> 降至 13 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时
+> 173.53 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA

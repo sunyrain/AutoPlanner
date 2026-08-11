@@ -25,9 +25,9 @@ from cascade_planner.web.v4_target_runtime import (
     new_run_id as _new_run_id,
     run_target_job as _run_target_job,
     solve_target_request as _solve_target_request,
-    _target_constraints,
     utc_now as _utc_now,
 )
+from cascade_planner.interfaces.target_solve_request import _target_constraints
 from cascade_planner.web.v4_experiment_api import register_experiment_routes
 from cascade_planner.web.v4_program_innovation_api import (
     register_program_innovation_routes,
