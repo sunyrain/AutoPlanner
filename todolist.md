@@ -149,6 +149,8 @@ Cheap structural preflight 切片新增 target-blind `campaign_action_preflight.
 
 统一 Action 并发切片新增 `campaign_action_concurrent_cohort.v1` 与 `CampaignActionDeferredHandler` 两阶段协议：同一 frozen revision 的 ChemEnzy、Codex 和 evidence prefetch 可在 start cohort 并发；后续 exact evidence acquisition/binding 与 reaction validation 在 runtime 自有的最多 4 个 bounded workers 中并行 prepare。evidence connector 只返回摘要绑定的 prepared acquisition，validation worker 只返回不可变 WorkerResult；barrier 后按稳定 Action 顺序串行执行 canonical ingestion，从而消除 graph revision/pointer 发布竞态。相同 resource class 在 cohort 内排他，wrapper task 容量不足时不启动 cohort，prepare/commit 失败均结算为可重放 Action failure，cache replay 不重复 reservation 或 provider/worker 调用。旧的 `autoplanner-evidence-prefetch` 独立 executor 已删除，没有新增后台 scheduler、Blackboard 或 phase queue。真实 target-solver barrier、反转 prepare 完成顺序、peer failure、commit failure replay、同 revision、稳定 observation、exact evidence/B3 与两类专利闭环均已回归。目标求解 42 passed，runtime/canonical 聚焦 51 passed；Ruff、compileall、全部架构门与 `git diff --check` 通过；不做 deselect 的完整离线套件为 2765 passed、3 skipped、11 warnings、2 subtests passed，用时 240.97 秒。
 
+单 runtime 收束切片删除 target solver 为兼容报告阶段创建的 seed、condition、ChemEnzy、Codex、evidence、validation、stock、replan 与 Program `CampaignActionRuntime` 对象，以及这些只读投影曾重复编译但从不参与 dispatch 的 supplemental deficits/handlers。`solve_target()` 现在静态只允许构造 1 个 `CampaignActionRuntime` 并调用 1 次 `run_anytime()`；后续 stage 只按显式 Action kind 从统一 execution backlog 稳定消费，不持有 handler、scheduler 或 dispatch 能力。新增 AST 架构门锁定 runtime 构造数、anytime 调用数和 projector 禁止 `execute*`/`run_anytime`。target solver 生产代码净减少 274 行；target/runtime/架构聚焦 84 passed，Ruff、compileall 与 `git diff --check` 通过；不做 deselect 的完整离线套件为 2766 passed、3 skipped、11 warnings、2 subtests passed，用时 279.02 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -202,7 +204,7 @@ Cheap structural preflight 切片新增 target-blind `campaign_action_preflight.
 本轮只有同时满足以下条件才算完成：
 
 - [ ] 主线不存在 benchmark 专用求解分支、专用 finalize、专用 replan 禁用或专用 action 开关。
-- [ ] 每个任意 SMILES 都通过同一个 action loop 调用 ChemEnzy、Codex、文献、验证、库存和 Program 能力。
+- [x] 每个任意 SMILES 都通过同一个 action loop 调用 ChemEnzy、Codex、文献、验证、库存和 Program 能力；兼容 phase 只按 Action kind 消费统一 backlog，不再构造第二 runtime。
 - [ ] ChemEnzy 在相同请求、随机种子和环境下的原始 proposal 集合与独立运行一致。
 - [ ] 嵌入 V4 后，ChemEnzy 已发现且通过统一 host gate 的路线不会因缺证据、缺条件或 Codex 未选择而消失。
 - [x] Codex 初始全局规划不阻塞目标级 ChemEnzy 搜索，后续 replan 由状态事件触发而非目标类别触发。
@@ -654,3 +656,4 @@ W2 验收门：
 - [x] 第十九刀（科学闭环动态提权）：新增 `campaign_scientific_closure_pressure.v1`，只从同一 Action set 和 B1/B4 milestones 投影 validation、exact evidence/conflict 与 conditions 的阶段价值。原 validation/evidence 基础权重保持；路线组合、库存闭合和最后开放轴按固定增量逐级提权，condition 即使在 B2/B3 已闭合后仍保持 last-mile 调度价值。round-robin、资源 blocker、预算、action service 与 canonical topology authority 均不改变。
 - [x] 第二十刀（Program 动态机会压力）：新增 `campaign_program_opportunity_pressure.v1`/`campaign_program_review_pressure.v1`，对 bounded 连续 conventional span、route risk、结构 capability match、开放 selectivity 边、step savings 和合法 mechanism proposal 分量化提权。discovery/review signal 绑定 route-family + pressure digest，机会状态不变不重筛，materialization/validation 后从无匹配变为有匹配时允许同一 family 重开；solve 内 memoization 仅复用只读计算。候选、Program、proof、completion、acceptance 与 conventional fallback 权威均未改变。
 - [x] 第二十一刀（统一 bounded Action 并发）：`campaign_action_concurrent_cohort.v1` 在单一 anytime loop 和 RunKernel in-flight registry 中最多启动 4 个跨 resource Action；evidence/validation 使用 prepare→barrier→稳定 commit，两者共享 canonical state 而不并发发布 graph revision。初始 evidence prefetch 已从独立 executor 迁入 ChemEnzy/Codex start cohort；无第二 scheduler、Blackboard 或 phase queue。
+- [x] 第二十二刀（单 runtime 实例收束）：删除兼容 phase 为筛选 Action kind 创建的伪 runtime 和从不参与 dispatch 的 supplemental deficit/handler 装配；`solve_target()` 只构造一个 `CampaignActionRuntime`、只调用一次 `run_anytime()`，所有旧 stage 仅消费统一 execution backlog。AST 架构门禁止 projector 重新获得 execute/run_anytime 能力。

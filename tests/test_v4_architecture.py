@@ -580,6 +580,51 @@ def test_action_runtime_cannot_write_the_canonical_graph_directly() -> None:
     assert "cascade_planner.orchestration.retrosynthesis_service" not in imported
 
 
+def test_target_solver_constructs_one_runtime_and_projects_stages_read_only() -> None:
+    path = ROOT / "cascade_planner/interfaces/target_solver.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    solve_target = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "solve_target"
+    )
+    runtime_constructors = [
+        node
+        for node in ast.walk(solve_target)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "CampaignActionRuntime"
+    ]
+    anytime_calls = [
+        node
+        for node in ast.walk(solve_target)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "run_anytime"
+    ]
+    projector = next(
+        node
+        for node in solve_target.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "project_action_results"
+    )
+    projector_dispatch_calls = sorted(
+        {
+            node.func.attr
+            for node in ast.walk(projector)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr
+            in {"execute", "execute_slice", "execute_concurrent_cohort", "run_anytime"}
+        }
+    )
+
+    assert len(runtime_constructors) == 1
+    assert len(anytime_calls) == 1
+    assert projector.args.args[1].arg == "action_kinds"
+    assert projector_dispatch_calls == []
+
+
 def test_new_focused_modules_stay_within_practical_line_budgets() -> None:
     observed = {
         relative: len((ROOT / relative).read_text(encoding="utf-8").splitlines())

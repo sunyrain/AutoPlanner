@@ -80,6 +80,11 @@ revision；barrier 后由同一 Action runtime 按稳定 Action 顺序 commit。
 最多使用 4 个 runtime-owned workers，同 resource class 排他，并在 wrapper task 容量不足时整体回退单
 Action 调度；prepare/commit failure 可重放且不取消 peer。该机制继续只使用一个 anytime loop、一个
 RunKernel in-flight registry 和一个 canonical graph，不创建后台 scheduler、Blackboard 或 phase queue。
+`solve_target()` 本身只构造一个 `CampaignActionRuntime` 并调用一次 `run_anytime()`。历史
+`chemenzy_baseline`、`materialization`、`reaction_validation`、`stock`、`evidence_acquisition`、replan 和
+Program stage 仍为报告兼容保留，但只按显式 Action kind 消费统一 loop 已结算的 execution backlog；它们
+不再持有 handler、scheduler、supplemental deficit 或任何 dispatch 方法。AST 架构门固定检查 runtime
+构造数、anytime 调用数，并禁止兼容 projector 调用 `execute*`/`run_anytime`。
 Web 运行中心每 2.5 秒读取同一状态链生成 `campaign_action_timeline.v1`：已结算项来自 target
 checkpoint，正在执行项只来自 RunKernel in-flight Action wrapper；child tasks 不重复成行。ChemEnzy、
 Codex、证据、验证、条件、库存及 Program/实验均在一个时间线上显示，时间线既不调度也不授予科学权威。

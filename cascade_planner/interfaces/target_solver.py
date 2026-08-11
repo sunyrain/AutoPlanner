@@ -694,7 +694,7 @@ def solve_target(
         else:
             condition_executions = project_action_results(
                 stage_name,
-                condition_action_runtime,
+                (CampaignActionKind.CONDITION_ENRICH,),
                 max_actions=active.max_condition_prediction_reactions + 2,
             )
             detail = _aggregate_condition_action_results(condition_executions)
@@ -747,15 +747,6 @@ def solve_target(
                 )
             ),
         }
-
-    def campaign_action_runtime(
-        handlers: Mapping[Any, Any],
-    ) -> CampaignActionRuntime:
-        return CampaignActionRuntime(
-            service.kernel,
-            handlers,
-            scheduler_policy=active.action_scheduler_policy,
-        )
 
     def current_campaign_gates() -> dict[str, Any]:
         graph = service.graph_store.load()
@@ -1228,28 +1219,22 @@ def solve_target(
 
     def project_action_results(
         _phase: str,
-        runtime: CampaignActionRuntime,
+        action_kinds: Iterable[CampaignActionKind | str],
         *,
         max_actions: int,
-        excluded_action_ids: Iterable[str] = (),
-        supplemental_deficits: Iterable[Mapping[str, Any]] = (),
     ) -> list[dict[str, Any]]:
         """Project executions already produced by the one anytime loop."""
 
-        del excluded_action_ids, supplemental_deficits
-        runtime_kinds = {kind.value for kind in runtime.handlers}
-        phase_kind = {
-            "program_discovery": CampaignActionKind.PROGRAM_DISCOVER.value,
-            "program_review": CampaignActionKind.PROGRAM_REVIEW.value,
-            "program_admission": CampaignActionKind.PROGRAM_ADMIT.value,
-        }.get(_phase)
-        if phase_kind:
-            runtime_kinds = {phase_kind}
+        del _phase
+        projected_kinds = {
+            kind.value if isinstance(kind, CampaignActionKind) else str(kind)
+            for kind in action_kinds
+        }
         preexecuted = [
             execution
             for execution in preexecuted_action_backlog
             if str(dict(execution.get("action") or {}).get("kind") or "")
-            in runtime_kinds
+            in projected_kinds
         ][: max(1, int(max_actions))]
         if preexecuted:
             consumed_ids = {id(execution) for execution in preexecuted}
@@ -1261,42 +1246,7 @@ def solve_target(
             return [dict(execution) for execution in preexecuted]
         return []
 
-    seed_action_runtime = campaign_action_runtime(
-        {
-            CampaignActionKind.MATERIALIZE: handle_materialize,
-            CampaignActionKind.STOCK_AUDIT: handle_stock,
-        },
-    )
-    condition_action_runtime = campaign_action_runtime(
-        (
-            {CampaignActionKind.CONDITION_ENRICH: handle_condition}
-            if resolved_condition_predictor is not None
-            else {}
-        ),
-    )
-    target_chemenzy_action_runtime = campaign_action_runtime(
-        (
-            {CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle_target_chemenzy}
-            if active.enable_chemenzy and active.enable_target_chemenzy_baseline
-            else {}
-        ),
-    )
-    guided_chemenzy_action_runtime = campaign_action_runtime(
-        (
-            {CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle_guided_chemenzy}
-            if active.enable_chemenzy and active.enable_guided_chemenzy
-            else {}
-        ),
-    )
-    global_architecture_action_runtime = campaign_action_runtime(
-        (
-            {CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_global_architecture}
-            if active.enable_codex
-            else {}
-        ),
-    )
-    program_action_runtime = campaign_action_runtime(
-        {
+    program_action_handlers = {
             **(
                 {CampaignActionKind.PROGRAM_DISCOVER: handle_program_discovery}
                 if active.enable_program_discovery
@@ -1330,8 +1280,7 @@ def solve_target(
                 if active.enable_program_validation
                 else {}
             ),
-        },
-    )
+        }
 
     resume_signal_kinds = {
         **({"replan": True} if active.enable_replan else {}),
@@ -2338,9 +2287,13 @@ def solve_target(
             if resolved_evidence_connector is not None
             else {}
         ),
-        **program_action_runtime.handlers,
+        **program_action_handlers,
     }
-    unified_core_runtime = campaign_action_runtime(unified_core_handlers)
+    unified_core_runtime = CampaignActionRuntime(
+        service.kernel,
+        unified_core_handlers,
+        scheduler_policy=active.action_scheduler_policy,
+    )
     unified_action_stage_offset = max(
         (
             int(str(row.get("stage") or "").rsplit("_", 1)[-1])
@@ -2681,7 +2634,7 @@ def solve_target(
         )
         chemenzy_action_executions = project_action_results(
             "chemenzy_target_expand",
-            target_chemenzy_action_runtime,
+            (CampaignActionKind.CHEMENZY_TARGET_EXPAND,),
             max_actions=1,
         )
         chemenzy_action_results = _campaign_action_handler_results(
@@ -2705,7 +2658,10 @@ def solve_target(
     if seed_proposal_count > 0:
         seed_executions = project_action_results(
             "chemenzy_seed",
-            seed_action_runtime,
+            (
+                CampaignActionKind.MATERIALIZE,
+                CampaignActionKind.STOCK_AUDIT,
+            ),
             max_actions=active.effective_provider_route_reserve + 2,
         )
         seed_materialization_results = [
@@ -2827,7 +2783,7 @@ def solve_target(
         )
         global_architecture_executions = project_action_results(
             "codex_global_architecture",
-            global_architecture_action_runtime,
+            (CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,),
             max_actions=1,
         )
         global_architecture_results = _campaign_action_handler_results(
@@ -2848,12 +2804,9 @@ def solve_target(
         stages.append(_stage("global_campaign", initial["status"], initial))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
 
-    post_director_materialization_runtime = campaign_action_runtime(
-        {CampaignActionKind.MATERIALIZE: handle_materialize},
-    )
     post_director_materialization_executions = project_action_results(
         "post_director_materialize",
-        post_director_materialization_runtime,
+        (CampaignActionKind.MATERIALIZE,),
         max_actions=active.effective_provider_route_reserve + 2,
     )
     materialization = _aggregate_materialization_action_results(
@@ -2868,25 +2821,16 @@ def solve_target(
     )
     template_reuse = self_evo.materialize(service)
     stages.append(_stage("patent_template_reuse", template_reuse["status"], template_reuse))
-    post_director_validation_runtime = campaign_action_runtime(
-        {CampaignActionKind.REACTION_VALIDATE: handle_validation},
-    )
-
     def run_validation_action_stage(phase: str) -> dict[str, Any]:
         return _aggregate_validation_action_results(
             project_action_results(
                 phase,
-                post_director_validation_runtime,
+                (CampaignActionKind.REACTION_VALIDATE,),
                 max_actions=active.max_atom_mapping_reactions + 2,
             )
         )
 
-    def run_evidence_action_stage(
-        phase: str,
-        *,
-        source_frontier: Mapping[str, Any],
-        prior_visual_observation: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def run_evidence_action_stage(phase: str) -> dict[str, Any]:
         if phase == "evidence_acquisition" and latest_evidence_action_result:
             prior_result = dict(latest_evidence_action_result)
             return {
@@ -2899,41 +2843,21 @@ def solve_target(
                 },
             }
 
-        def handle_evidence(_action: CampaignAction) -> dict[str, Any]:
-            return _acquire_evidence_stage(
-                service,
-                source_stage=source_frontier,
-                connector=resolved_evidence_connector,
-                atom_mapper=atom_mapper,
-                visual_provider=visual_evidence_provider,
-                max_visual_pages=active.max_visual_evidence_pages,
-                target_name=resolved_target_name,
-                target_identity=dict(target_identity.get("identity") or {}),
-                allow_target_identity_lookup=active.enable_target_identity,
-                prior_visual_observation=prior_visual_observation,
-                validation_runner=run_validation_action_stage,
-            )
-
-        runtime = campaign_action_runtime(
-            (
-                {
-                    CampaignActionKind.ACQUIRE_EVIDENCE: handle_evidence,
-                    CampaignActionKind.BIND_EVIDENCE: handle_evidence,
-                }
-                if resolved_evidence_connector is not None
-                else {}
-            ),
-        )
         executions = project_action_results(
             phase,
-            runtime,
+            (
+                CampaignActionKind.ACQUIRE_EVIDENCE,
+                CampaignActionKind.BIND_EVIDENCE,
+            )
+            if resolved_evidence_connector is not None
+            else (),
             max_actions=1,
         )
         return _aggregate_evidence_action_results(executions)
 
     post_director_validation_executions = project_action_results(
         "post_director_validate",
-        post_director_validation_runtime,
+        (CampaignActionKind.REACTION_VALIDATE,),
         max_actions=active.max_atom_mapping_reactions + 2,
     )
     validation = _aggregate_validation_action_results(
@@ -2946,7 +2870,7 @@ def solve_target(
     if int(repair_stage.get("accepted_repair_count") or 0) > 0:
         repair_validation_executions = project_action_results(
             "precursor_repair_validate",
-            post_director_validation_runtime,
+            (CampaignActionKind.REACTION_VALIDATE,),
             max_actions=active.max_atom_mapping_reactions + 2,
         )
         repair_validation = _aggregate_validation_action_results(
@@ -3057,14 +2981,6 @@ def solve_target(
         guided_opportunities = compile_action_opportunities(
             dict(service.graph_store.load().get("deficit_frontier") or {})
         )
-        guided_excluded_action_ids = tuple(
-            str(row.get("action_id") or "")
-            for row in guided_opportunities.get("actions") or []
-            if row.get("kind")
-            == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
-            and str(dict(row.get("metadata") or {}).get("frontier_smiles") or "")
-            in prior_attempted_frontiers
-        )
         stock_recovery_only = any(
             row.get("kind") == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
             and str(
@@ -3089,9 +3005,8 @@ def solve_target(
             if stock_recovery_only
             else project_action_results(
                 "chemenzy_guided_frontier_expand",
-                guided_chemenzy_action_runtime,
+                (CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,),
                 max_actions=initial_guided_limit,
-                excluded_action_ids=guided_excluded_action_ids,
             )
         )
         guided_stage = _aggregate_guided_chemenzy_action_results(
@@ -3117,7 +3032,7 @@ def solve_target(
     ) > 0:
         guided_materialization_executions = project_action_results(
             "guided_materialize",
-            post_director_materialization_runtime,
+            (CampaignActionKind.MATERIALIZE,),
             max_actions=active.effective_provider_route_reserve + 2,
         )
         guided_materialization = _aggregate_materialization_action_results(
@@ -3132,7 +3047,7 @@ def solve_target(
         )
         guided_validation_executions = project_action_results(
             "guided_validate",
-            post_director_validation_runtime,
+            (CampaignActionKind.REACTION_VALIDATE,),
             max_actions=active.max_atom_mapping_reactions + 2,
         )
         guided_validation = _aggregate_validation_action_results(
@@ -3158,11 +3073,7 @@ def solve_target(
         "evidence_acquisition",
         visual_enabled=visual_evidence_provider is not None,
     )
-    evidence_stage = run_evidence_action_stage(
-        "evidence_acquisition",
-        source_frontier=source_stage,
-        prior_visual_observation=_latest_visual_observation(stages),
-    )
+    evidence_stage = run_evidence_action_stage("evidence_acquisition")
     evidence_stage["prefetch"] = evidence_prefetch
     evidence_stage["latency_hidden_by_global_s"] = min(
         float(evidence_prefetch.get("elapsed_s") or 0.0),
@@ -3189,7 +3100,7 @@ def solve_target(
     if dict(learned_template_reuse.get("execution") or {}).get("changed") is True:
         learned_template_validation_executions = project_action_results(
             "learned_template_validate",
-            post_director_validation_runtime,
+            (CampaignActionKind.REACTION_VALIDATE,),
             max_actions=active.max_atom_mapping_reactions + 2,
         )
         learned_template_validation = _aggregate_validation_action_results(
@@ -3210,12 +3121,9 @@ def solve_target(
         "stock",
         boundary=resolved_acceptance.stock_boundary,
     )
-    stock_action_runtime = campaign_action_runtime(
-        {CampaignActionKind.STOCK_AUDIT: handle_stock},
-    )
     stock_executions = project_action_results(
         "stock",
-        stock_action_runtime,
+        (CampaignActionKind.STOCK_AUDIT,),
         max_actions=4,
     )
     stock_stage = _aggregate_stock_action_results(
@@ -3246,22 +3154,10 @@ def solve_target(
         active.max_guided_chemenzy_frontiers - len(attempted_guided_frontiers),
     )
     if remaining_guided:
-        recovery_opportunities = compile_action_opportunities(
-            dict(service.graph_store.load().get("deficit_frontier") or {})
-        )
-        recovery_excluded_action_ids = tuple(
-            str(row.get("action_id") or "")
-            for row in recovery_opportunities.get("actions") or []
-            if row.get("kind")
-            == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
-            and str(dict(row.get("metadata") or {}).get("frontier_smiles") or "")
-            in attempted_guided_frontiers
-        )
         recovery_action_executions = project_action_results(
             "chemenzy_stock_recovery_expand",
-            guided_chemenzy_action_runtime,
+            (CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,),
             max_actions=remaining_guided,
-            excluded_action_ids=recovery_excluded_action_ids,
         )
         recovery_stage = _aggregate_guided_chemenzy_action_results(
             recovery_action_executions
@@ -3272,7 +3168,7 @@ def solve_target(
     if int(recovery_stage.get("proposal_count") or 0) > 0:
         recovery_materialization_executions = project_action_results(
             "recovery_materialize",
-            post_director_materialization_runtime,
+            (CampaignActionKind.MATERIALIZE,),
             max_actions=active.effective_provider_route_reserve + 2,
         )
         recovery_materialization = _aggregate_materialization_action_results(
@@ -3289,7 +3185,7 @@ def solve_target(
         )
         recovery_validation_executions = project_action_results(
             "recovery_validate",
-            post_director_validation_runtime,
+            (CampaignActionKind.REACTION_VALIDATE,),
             max_actions=active.max_atom_mapping_reactions + 2,
         )
         recovery_validation = _aggregate_validation_action_results(
@@ -3304,7 +3200,7 @@ def solve_target(
         )
         recovery_stock_executions = project_action_results(
             "recovery_stock",
-            stock_action_runtime,
+            (CampaignActionKind.STOCK_AUDIT,),
             max_actions=4,
         )
         recovery_stock = _aggregate_stock_action_results(
@@ -3470,85 +3366,10 @@ def solve_target(
             model=active.model,
             mode="event_replan",
         )
-        replan_signal = {
-            "graph_revision": service.kernel.state.graph_revision,
-            "material_events": list(effective_material_events),
-            "observed_material_events": list(material_events),
-            "trigger_reasons": list(replan_reasons),
-            "prompt_context_bytes": replan_prompt_context_bytes,
-            "replan_pressure_sha256": replan_pressure["content_sha256"],
-        }
-        replan_signal_sha256 = _digest(replan_signal)
-        replan_deficit = {
-            "deficit_id": f"event-deficit:replan:{replan_signal_sha256}",
-            "kind": "replan",
-            "object_id": str(
-                graph_before_replan.get("target_molecule_id")
-                or service.kernel.spec.run_id
-            ),
-            "entity_ids": [
-                str(graph_before_replan.get("target_molecule_id") or "")
-            ],
-            "route_family_ids": [],
-            "dependency_ids": [],
-            "deterministic": False,
-            "model_allowed": True,
-            "reason": "material_state_requires_global_replan",
-            "priority": float(replan_pressure["score"]["priority"]),
-            "score": dict(replan_pressure["score"]),
-            "metadata": {
-                **replan_signal,
-                "global_replan": True,
-                "event_signal_sha256": replan_signal_sha256,
-                "replan_pressure": replan_pressure,
-            },
-        }
-        event_replan_action_set = compile_action_opportunities(
-            {"items": [replan_deficit]}
-        )
-        event_replan_action_id = str(
-            next(
-                (
-                    row.get("action_id")
-                    for row in event_replan_action_set.get("actions") or []
-                    if row.get("kind") == CampaignActionKind.CODEX_REPLAN.value
-                ),
-                "",
-            )
-        )
-        graph_replan_action_set = compile_action_opportunities(
-            dict(graph_before_replan.get("deficit_frontier") or {})
-        )
-        excluded_replan_action_ids = tuple(
-            str(row.get("action_id") or "")
-            for row in graph_replan_action_set.get("actions") or []
-            if row.get("kind") == CampaignActionKind.CODEX_REPLAN.value
-            and str(row.get("action_id") or "") != event_replan_action_id
-        )
-
-        def handle_global_replan(action: CampaignAction) -> dict[str, Any]:
-            if action.metadata.get("global_replan") is not True:
-                return {
-                    "status": "failed",
-                    "reasons": ["codex_global_replan_action_scope_invalid"],
-                }
-            return _run_director_safely(
-                service,
-                mode="event_replan",
-                material_events=effective_material_events,
-                evidence_observations=evidence_observations,
-                idempotency_key=f"solve-target:director:replan:{len(outcomes)}",
-            )
-
-        replan_runtime = campaign_action_runtime(
-            {CampaignActionKind.CODEX_REPLAN: handle_global_replan},
-        )
         replan_executions = project_action_results(
             "codex_event_replan",
-            replan_runtime,
+            (CampaignActionKind.CODEX_REPLAN,),
             max_actions=1,
-            excluded_action_ids=excluded_replan_action_ids,
-            supplemental_deficits=(replan_deficit,),
         )
         replan_results = _campaign_action_handler_results(
             replan_executions,
@@ -3571,7 +3392,7 @@ def solve_target(
         if replan.get("status") == "accepted" and replan.get("plan"):
             rematerialization_executions = project_action_results(
                 "replan_materialize",
-                post_director_materialization_runtime,
+                (CampaignActionKind.MATERIALIZE,),
                 max_actions=active.effective_provider_route_reserve + 2,
             )
             rematerialization = _aggregate_materialization_action_results(
@@ -3598,7 +3419,7 @@ def solve_target(
             )
             revalidation_executions = project_action_results(
                 "replan_validate",
-                post_director_validation_runtime,
+                (CampaignActionKind.REACTION_VALIDATE,),
                 max_actions=active.max_atom_mapping_reactions + 2,
             )
             revalidation = _aggregate_validation_action_results(
@@ -3614,7 +3435,7 @@ def solve_target(
             if int(replan_repair.get("accepted_repair_count") or 0) > 0:
                 repaired_revalidation_executions = project_action_results(
                     "replan_repair_validate",
-                    post_director_validation_runtime,
+                    (CampaignActionKind.REACTION_VALIDATE,),
                     max_actions=active.max_atom_mapping_reactions + 2,
                 )
                 repaired_revalidation = _aggregate_validation_action_results(
@@ -3640,9 +3461,7 @@ def solve_target(
                 visual_enabled=visual_evidence_provider is not None,
             )
             evidence_stage = run_evidence_action_stage(
-                "replan_evidence_acquisition",
-                source_frontier=source_stage,
-                prior_visual_observation=_latest_visual_observation(stages),
+                "replan_evidence_acquisition"
             )
             stages.append(
                 _stage(
@@ -3661,7 +3480,7 @@ def solve_target(
             )
             replan_stock_executions = project_action_results(
                 "replan_stock",
-                stock_action_runtime,
+                (CampaignActionKind.STOCK_AUDIT,),
                 max_actions=4,
             )
             stock_stage = _aggregate_stock_action_results(
@@ -3763,9 +3582,8 @@ def solve_target(
         program_discovery_executions = (
             project_action_results(
                 "program_discovery",
-                program_action_runtime,
+                (CampaignActionKind.PROGRAM_DISCOVER,),
                 max_actions=len(program_discovery_deficits),
-                supplemental_deficits=tuple(program_discovery_deficits),
             )
             if program_discovery_deficits
             else []
@@ -3836,7 +3654,7 @@ def solve_target(
         program_materialization = _aggregate_materialization_action_results(
             project_action_results(
                 "program_materialize",
-                post_director_materialization_runtime,
+                (CampaignActionKind.MATERIALIZE,),
                 max_actions=active.effective_provider_route_reserve + 2,
             )
         )
@@ -3862,7 +3680,7 @@ def solve_target(
         program_stock = _aggregate_stock_action_results(
             project_action_results(
                 "program_stock",
-                stock_action_runtime,
+                (CampaignActionKind.STOCK_AUDIT,),
                 max_actions=4,
             ),
             graph=service.graph_store.load(),
@@ -3874,61 +3692,10 @@ def solve_target(
         )
     append_condition_stage("final_condition_enrichment")
     if active.enable_program_review:
-        program_graph = service.graph_store.load()
-        review_portfolio = compile_proof_portfolio(
-            program_graph,
-            acceptance_spec=resolved_acceptance,
-            config=_portfolio_config(active, resolved_acceptance),
-        )
-        review_route_pressures = [
-            current_program_opportunity_pressure(program_graph, route)
-            for route in review_portfolio.get("selected_routes") or []
-            if isinstance(route, Mapping)
-        ][: active.max_program_routes]
-        review_pressure = compile_program_review_pressure(
-            review_route_pressures
-        )
-        program_review_signal = {
-            "graph_revision": service.kernel.state.graph_revision,
-            "graph_scientific_sha256": str(
-                program_graph.get("scientific_sha256") or ""
-            ),
-            "operation": "review",
-            "program_review_pressure_sha256": review_pressure[
-                "content_sha256"
-            ],
-        }
-        program_review_sha256 = _digest(program_review_signal)
         program_review_executions = project_action_results(
             "program_review",
-            program_action_runtime,
+            (CampaignActionKind.PROGRAM_REVIEW,),
             max_actions=1,
-            supplemental_deficits=(
-                {
-                    "deficit_id": f"event-deficit:program-review:{program_review_sha256}",
-                    "kind": "program_review",
-                    "object_id": str(
-                        program_graph.get("target_molecule_id")
-                        or service.kernel.spec.run_id
-                    ),
-                    "entity_ids": [
-                        str(program_graph.get("target_molecule_id") or "")
-                    ],
-                    "route_family_ids": [],
-                    "dependency_ids": [],
-                    "deterministic": True,
-                    "model_allowed": False,
-                    "reason": "canonical_graph_requires_program_projection_review",
-                    "priority": float(review_pressure["legacy_priority"]),
-                    "score": dict(review_pressure["score"]),
-                    "metadata": {
-                        **program_review_signal,
-                        "program_review": True,
-                        "event_signal_sha256": program_review_sha256,
-                        "program_review_pressure": review_pressure,
-                    },
-                },
-            ),
         )
         program_review_results = _campaign_action_handler_results(
             program_review_executions,
@@ -3946,51 +3713,10 @@ def solve_target(
             _stage("program_review", str(program_review.get("status") or "unresolved"), program_review)
         )
     if active.enable_program_admission:
-        admission_graph = service.graph_store.load()
-        admission_signal = {
-            "graph_revision": service.kernel.state.graph_revision,
-            "graph_scientific_sha256": str(
-                admission_graph.get("scientific_sha256") or ""
-            ),
-            "operation": "admit",
-        }
-        admission_sha256 = _digest(admission_signal)
         program_admission_executions = project_action_results(
             "program_admission",
-            program_action_runtime,
+            (CampaignActionKind.PROGRAM_ADMIT,),
             max_actions=1,
-            supplemental_deficits=(
-                {
-                    "deficit_id": f"event-deficit:program-admit:{admission_sha256}",
-                    "kind": "program_admission",
-                    "object_id": str(
-                        admission_graph.get("target_molecule_id")
-                        or service.kernel.spec.run_id
-                    ),
-                    "entity_ids": [
-                        str(admission_graph.get("target_molecule_id") or "")
-                    ],
-                    "route_family_ids": [],
-                    "dependency_ids": [],
-                    "deterministic": True,
-                    "model_allowed": False,
-                    "reason": "operator_enabled_shadow_program_admission",
-                    "priority": 250.0,
-                    "score": {
-                        "expected_portfolio_gain": 0.08,
-                        "distance_to_closure": 0.08,
-                        "evidence_gain": 0.08,
-                        "route_diversity_gain": 0.12,
-                        "cost_penalty": 0.05,
-                        "failure_risk_penalty": 0.02,
-                    },
-                    "metadata": {
-                        **admission_signal,
-                        "program_admission": True,
-                        "event_signal_sha256": admission_sha256,
-                    },
-                },
-            ),
         )
         program_admission_results = _campaign_action_handler_results(
             program_admission_executions,
