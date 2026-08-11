@@ -190,6 +190,13 @@
 > `git diff --check` 均通过，Workbench/架构聚焦回归 36 passed，超行数预算项由 4 个降至 3 个；
 > 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 179.41 秒。
 
+> 2026-08-11 campaign operations benchmark 职责拆分增量：`campaign_operations.py` 从 181 行
+> 降至 135 行，model-free status/oracle/Workbench benchmark、CPU/wall time 与 peak-memory 采样
+> 迁入 64 行的 `campaign_benchmark.py`。原操作模块继续拥有 Workbench/review bundle 导出、artifact
+> GC 计划与兼容 `benchmark_campaign` 导出，Gateway 调用入口不变。Ruff、compileall、
+> `git diff --check` 均通过，Gateway/操作/架构聚焦回归 21 passed，超行数预算项由 3 个降至 2 个；
+> 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.14 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
