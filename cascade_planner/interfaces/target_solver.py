@@ -33,6 +33,9 @@ from cascade_planner.application.campaign_quality_state import (
 from cascade_planner.application.candidate_lifecycle import (
     compile_candidate_lifecycle,
 )
+from cascade_planner.application.candidate_provenance import (
+    compile_candidate_provenance,
+)
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalIngestionBatch,
     molecule_identity,
@@ -3966,6 +3969,10 @@ def solve_target(
         closeout["portfolio"],
         ingestion_observations=report_stages,
     )
+    candidate_provenance = compile_candidate_provenance(
+        candidate_lifecycle,
+        lineage_observations=report_stages,
+    )
     report = {
         "schema_version": TARGET_SOLVE_REPORT_SCHEMA,
         "run_id": identity,
@@ -3980,6 +3987,7 @@ def solve_target(
         "stages": report_stages,
         "trajectory": trajectory,
         "candidate_lifecycle": candidate_lifecycle,
+        "candidate_provenance": candidate_provenance,
         "next_action": {
             "selected_action_id": final_action_decision["selected_action_id"],
             "selected_action": final_action_decision["selected_action"],
@@ -4532,6 +4540,20 @@ def _aggregate_guided_chemenzy_action_results(
         for row in result.get("results") or []
         if isinstance(row, Mapping)
     ]
+    route_lineage = [
+        {
+            **dict(lineage),
+            "provider_mode": str(result.get("mode") or "guided_frontier"),
+            "provider_scope": str(result.get("scope") or ""),
+            "provider_request_sha256": str(result.get("request_sha256") or ""),
+            "provider_raw_result_sha256": str(
+                result.get("raw_result_sha256") or ""
+            ),
+        }
+        for result in provider_results
+        for lineage in result.get("route_lineage") or []
+        if isinstance(lineage, Mapping)
+    ]
     return {
         "schema_version": "v4_chemenzy_guided_frontier_stage.v1",
         "stage": "chemenzy_guided_frontier",
@@ -4554,6 +4576,7 @@ def _aggregate_guided_chemenzy_action_results(
         "frontier_smiles": frontier_smiles,
         "proposal_count": proposal_count,
         "results": provider_results,
+        "route_lineage": route_lineage,
         "action_execution_count": len(results),
         "material_events": (
             ["guided_provider_proposals_added"] if proposal_count else []
@@ -6798,9 +6821,14 @@ def _program_milestones_from_stages(
 def _stage(name: str, status: str, detail: Mapping[str, Any] | None = None) -> dict[str, Any]:
     now = _utc_now()
     detail_row = dict(detail or {})
-    content_bound_trajectory_snapshot = bool(
-        str(name).startswith("campaign_snapshot_")
-        and detail_row.get("schema_version") == "campaign_anytime_snapshot.v2"
+    content_bound_detail = bool(
+        (
+            str(name).startswith("campaign_snapshot_")
+            and detail_row.get("schema_version") == "campaign_anytime_snapshot.v2"
+        )
+        or detail_row.get("schema_version") == "chemenzy_route_lineage.v1"
+    ) and bool(
+        str(detail_row.get("content_sha256") or "")
         and str(detail_row.get("content_sha256") or "")
         == _digest(
             {
@@ -6818,7 +6846,7 @@ def _stage(name: str, status: str, detail: Mapping[str, Any] | None = None) -> d
         # the digest and make resume/replay unverifiable.
         "detail": (
             detail_row
-            if content_bound_trajectory_snapshot
+            if content_bound_detail
             else _bounded_detail(detail_row)
         ),
     }
@@ -6869,20 +6897,10 @@ def _compile_chemenzy_route_lineage(
     *,
     gates: Mapping[str, Any],
 ) -> dict[str, Any]:
-    baseline = next(
-        (
-            dict(value)
-            for value in reversed(list(stages))
-            if value.get("stage") == "chemenzy_baseline"
-        ),
-        {},
-    )
-    source_rows = [
-        dict(value)
-        for value in dict(baseline.get("detail") or {}).get("route_lineage") or []
-        if isinstance(value, Mapping)
-    ]
+    source_rows = _chemenzy_provider_lineage_rows(stages)
     families = dict(graph.get("route_families") or {})
+    hypotheses = dict(graph.get("hypotheses") or {})
+    edges = dict(graph.get("edges") or {})
     measured_routes = [
         dict(value)
         for value in gates.get("routes") or []
@@ -6894,22 +6912,70 @@ def _compile_chemenzy_route_lineage(
         for alias in dict(value).get("aliases") or []
         if str(alias)
     }
+    proposal_hypothesis_ids: dict[str, set[str]] = {}
+    for hypothesis_id, value in hypotheses.items():
+        for origin in dict(value).get("origin_records") or []:
+            if not isinstance(origin, Mapping):
+                continue
+            proposal_id = str(origin.get("proposal_id") or "")
+            if proposal_id:
+                proposal_hypothesis_ids.setdefault(proposal_id, set()).add(
+                    str(hypothesis_id)
+                )
     rows: list[dict[str, Any]] = []
     disposition_counts: dict[str, int] = {}
     for source in source_rows:
         alias = str(source.get("canonical_route_family_alias") or "")
-        route_id = str(source.get("canonical_route_family_id") or "")
-        if not route_id:
-            route_id = alias_to_id.get(alias, "")
-        family = dict(families.get(route_id) or {})
+        proposal_ids = {
+            str(value) for value in source.get("step_proposal_ids") or [] if str(value)
+        }
+        direct_hypothesis_ids = {
+            hypothesis_id
+            for proposal_id in proposal_ids
+            for hypothesis_id in proposal_hypothesis_ids.get(proposal_id, set())
+        }
+        route_ids = {
+            str(source.get("canonical_route_family_id") or ""),
+            alias_to_id.get(alias, ""),
+            *(
+                str(route_id)
+                for hypothesis_id in direct_hypothesis_ids
+                for route_id in dict(hypotheses.get(hypothesis_id) or {}).get(
+                    "route_family_ids"
+                )
+                or []
+                if str(route_id)
+            ),
+        } - {""}
+        route_id = next(iter(sorted(route_ids)), "")
+        family_rows = [dict(families.get(value) or {}) for value in sorted(route_ids)]
         route_measurements = [
             value
             for value in measured_routes
-            if str(value.get("route_family_id") or "") == route_id
+            if str(value.get("route_family_id") or "") in route_ids
         ]
-        edge_ids = sorted(str(value) for value in family.get("edge_ids") or [] if str(value))
         hypothesis_ids = sorted(
-            str(value) for value in family.get("hypothesis_ids") or [] if str(value)
+            direct_hypothesis_ids
+            or {
+                str(value)
+                for family in family_rows
+                for value in family.get("hypothesis_ids") or []
+                if str(value)
+            }
+        )
+        edge_ids = sorted(
+            {
+                f"edge:{dict(hypotheses.get(value) or {}).get('edge_digest')}"
+                for value in hypothesis_ids
+                if f"edge:{dict(hypotheses.get(value) or {}).get('edge_digest')}"
+                in edges
+            }
+            or {
+                str(value)
+                for family in family_rows
+                for value in family.get("edge_ids") or []
+                if str(value)
+            }
         )
         if any(value.get("stock_closed") is True for value in route_measurements):
             disposition = "stock_closed"
@@ -6926,6 +6992,7 @@ def _compile_chemenzy_route_lineage(
             {
                 **source,
                 "canonical_route_family_id": route_id,
+                "canonical_route_family_ids": sorted(route_ids),
                 "canonical_route_ids": sorted(
                     str(value.get("route_id") or value.get("skeleton_id") or "")
                     for value in route_measurements
@@ -6951,17 +7018,26 @@ def _compile_chemenzy_route_lineage(
                     else 0.0
                 ),
                 "canonical_minimum_proof_level": int(
-                    family.get("minimum_proof_level") or 0
+                    max(
+                        (
+                            int(family.get("minimum_proof_level") or 0)
+                            for family in family_rows
+                        ),
+                        default=0,
+                    )
                 ),
                 "blocking_deficit_ids": sorted(
-                    str(value)
-                    for value in family.get("blocking_deficit_ids") or []
-                    if str(value)
+                    {
+                        str(value)
+                        for family in family_rows
+                        for value in family.get("blocking_deficit_ids") or []
+                        if str(value)
+                    }
                 ),
                 "final_disposition": disposition,
             }
         )
-    return {
+    payload = {
         "schema_version": "chemenzy_route_lineage.v1",
         "route_count": len(rows),
         "disposition_counts": {
@@ -6977,6 +7053,43 @@ def _compile_chemenzy_route_lineage(
             "missing_proof_never_erases_provider_lineage": True,
         },
     }
+    payload["content_sha256"] = _digest(payload)
+    return payload
+
+
+def _chemenzy_provider_lineage_rows(
+    stages: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    provider_results = [
+        dict(stage.get("detail") or {})
+        for stage in stages
+        if stage.get("stage")
+        in {"chemenzy_baseline", "chemenzy_guided_frontier", "chemenzy_stock_recovery"}
+        and dict(stage.get("detail") or {}).get("route_lineage")
+    ]
+    source_rows: dict[str, dict[str, Any]] = {}
+    for result in provider_results:
+        invocation = {
+            "provider_mode": str(result.get("mode") or "seed"),
+            "provider_scope": str(result.get("scope") or "seed"),
+            "provider_request_sha256": str(result.get("request_sha256") or ""),
+            "provider_raw_result_sha256": str(
+                result.get("raw_result_sha256") or ""
+            ),
+        }
+        for value in result.get("route_lineage") or []:
+            if not isinstance(value, Mapping):
+                continue
+            source = {**invocation, **dict(value)}
+            identity = {
+                **invocation,
+                "route_trace_id": str(source.get("route_trace_id") or ""),
+                "normalized_route_sha256": str(
+                    source.get("normalized_route_sha256") or ""
+                ),
+            }
+            source_rows[_digest(identity)] = source
+    return [source_rows[key] for key in sorted(source_rows)]
 
 
 def _chemenzy_vendor_root(configured_root: Path) -> Path:

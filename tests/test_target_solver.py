@@ -1353,8 +1353,40 @@ def test_target_solver_starts_chemenzy_and_codex_from_one_frozen_revision(
         for value in result["stages"]
         if value["stage"] == "chemenzy_route_lineage"
     )["detail"]
-    assert final_lineage["route_count"] == 1
-    assert final_lineage["routes"][0]["canonical_hypothesis_ids"]
+    assert final_lineage["route_count"] >= 1
+    seed_lineage = next(
+        row for row in final_lineage["routes"] if row["provider_mode"] == "seed"
+    )
+    assert seed_lineage["canonical_hypothesis_ids"]
+    lineage_payload = dict(final_lineage)
+    lineage_sha256 = lineage_payload.pop("content_sha256")
+    assert lineage_sha256 == hashlib.sha256(
+        json.dumps(
+            lineage_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    provenance = result["candidate_provenance"]
+    assert provenance["ignored_provider_lineage_count"] == 0
+    assert provenance["provider_route_count"] == final_lineage["route_count"]
+    provider_route = next(
+        row
+        for row in provenance["provider_route_records"]
+        if row["route_trace_id"] == lineage[0]["route_trace_id"]
+    )
+    assert provider_route["candidate_ids"]
+    assert provider_route["raw_route_sha256"] == lineage[0]["raw_route_sha256"]
+    assert (
+        provider_route["normalized_route_sha256"]
+        == lineage[0]["normalized_route_sha256"]
+    )
+    assert any(
+        row["provider_normalization"]["route_trace_ids"]
+        for row in provenance["candidate_records"]
+    )
 
 
 def test_legacy_benchmark_label_does_not_short_circuit_unified_campaign(
@@ -2092,6 +2124,21 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
         origin["origin_kind"] == "chemenzy"
         for origin in guided_edge["origin_records"]
     )
+    final_lineage = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "chemenzy_route_lineage"
+    )["detail"]
+    assert final_lineage["route_count"] == 1
+    guided_lineage = final_lineage["routes"][0]
+    assert guided_lineage["provider_mode"] == "guided_frontier"
+    assert guided_lineage["provider_scope"].startswith("guided-")
+    assert guided_lineage["canonical_edge_ids"]
+    assert guided_lineage["canonical_route_family_ids"]
+    provenance = result["candidate_provenance"]
+    assert provenance["provider_route_count"] == 1
+    assert provenance["bound_provider_route_count"] == 1
+    assert provenance["provider_route_records"][0]["candidate_ids"]
 
 
 def test_resume_reuses_fresh_negative_stock_audits_without_spending_attempts(

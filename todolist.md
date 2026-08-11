@@ -364,8 +364,8 @@ W2 验收门：
 ## 7. 单一候选图与 Pareto 保留
 
 - [ ] 所有 ChemEnzy、Codex、文献、模板、人工和 Program 候选进入同一个 canonical ingestion 边界。
-- [ ] 在 raw proposal、normalized proposal、host admission、reaction proof、stock closure 之间保留完整 provenance。
-  当前 `canonical_candidate_lifecycle.v1` 已覆盖 canonical hypothesis/materialized edge、reaction proof、exact evidence、stock/portfolio 与摘要有效的 ingestion rejection；provider raw → normalized 的逐源 parity 尚未统一进入该投影，因此本项保持未完成。
+- [x] 在 raw proposal、normalized proposal、host admission、reaction proof、stock closure 之间保留完整 provenance。
+  `canonical_candidate_provenance.v1` 现将摘要验证的 ChemEnzy seed/guided/recovery raw/normalized route、host admission/selection、canonical hypothesis/edge、reaction validation、stock closure 与 configured acceptance 逐候选绑定；未进入 canonical 的 budget-truncated/rejected provider route 仍独立保留，`rejected_invalid` 继续绑定 ingestion report/reasons 而不获得 canonical identity。该完成项表示链路不再静默丢失，不代表固定 provider 请求已达到 raw digest parity；后者仍由 8.1/8.3 独立验收。
 - [x] 明确区分 `rejected-invalid`、`quarantined-reviewable`、`admitted-unproved`、`validated` 和 `accepted`。
 - [x] 缺 exact evidence、条件或采购事实只能降低对应 proof axis，不能删除合法拓扑。
 - [ ] Codex 未选中不能成为删除 ChemEnzy 分支的理由。
@@ -659,3 +659,5 @@ W2 验收门：
 - [x] 第二十一刀（统一 bounded Action 并发）：`campaign_action_concurrent_cohort.v1` 在单一 anytime loop 和 RunKernel in-flight registry 中最多启动 4 个跨 resource Action；evidence/validation 使用 prepare→barrier→稳定 commit，两者共享 canonical state 而不并发发布 graph revision。初始 evidence prefetch 已从独立 executor 迁入 ChemEnzy/Codex start cohort；无第二 scheduler、Blackboard 或 phase queue。
 - [x] 第二十二刀（单 runtime 实例收束）：删除兼容 phase 为筛选 Action kind 创建的伪 runtime 和从不参与 dispatch 的 supplemental deficit/handler 装配；`solve_target()` 只构造一个 `CampaignActionRuntime`、只调用一次 `run_anytime()`，所有旧 stage 仅消费统一 execution backlog。AST 架构门禁止 projector 重新获得 execute/run_anytime 能力。
 - [x] 第二十三刀（canonical 候选生命周期）：新增只读、target-blind 的 `canonical_candidate_lifecycle.v1` / `canonical_candidate_lifecycle_record.v1`，从同一 canonical graph、摘要绑定 portfolio 与 ingestion rejection 投影 `rejected_invalid`、`quarantined_reviewable`、`admitted_unproved`、`validated`、`accepted` 五态。`accepted` 必须同时满足 configured portfolio acceptance 与 selected complete route；proof、evidence、stock、conditions 保持独立轴，摘要损坏的 ingestion report/review export 失败关闭，拒绝记录不获得 canonical identity。最终 target report 与既有四组件 review bundle 已接入该投影，没有新增队列、写入入口或科学权威。聚焦门 20 passed，`target_solver` 42 passed；最终完整套件为 2770 passed、3 skipped、11 warnings、2 subtests passed，Ruff、compileall 与 `git diff --check` 均通过。
+- [x] 第二十四刀（provider→canonical provenance）：新增 `canonical_candidate_provenance.v1`、逐候选/逐 provider-route 内容摘要记录与确定性首损边界；final `chemenzy_route_lineage.v1` 现在汇总 seed、guided frontier 和 stock recovery，按 provider mode/scope/request/raw-result SHA 区分调用，并用 step proposal ID 反向绑定 canonical hypothesis/edge/route family。未绑定的 host rejection、quarantine 与 portfolio truncation 不再从最终报告消失；review bundle 继续在既有 route-lineage 组件内失败关闭导出，不创建第五组件或第二状态权威。
+- [x] 第二十五刀（Windows pointer 并发稳定性）：`ArtifactStore` 的 mutable pointer 发布增加有界 path-striped 进程内写锁和与 RunKernel 相同的 `os.replace` PermissionError 短暂重试；immutable CAS object、last-writer pointer projection 和科学权威语义不变。两个此前在完整套件中偶发失败的 experiment dispatch/cancellation 并发回归连续 5 轮通过。最终 `target_solver` 为 42 passed；完整套件为 2784 passed、3 skipped、11 warnings、2 subtests passed，Ruff、compileall 与 `git diff --check` 均通过。

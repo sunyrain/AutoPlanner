@@ -77,6 +77,13 @@ Gateway export 同时从摘要验证通过的 target report 生成 `campaign_rev
 route 时不得标记 `accepted`。proof、exact evidence、stock、conditions 与 route selection 保持独立轴，开放轴
 不会删除 topology。损坏的 ingestion report 被忽略并计数，拒绝记录只用于审计且不获得 canonical identity；
 review bundle 在 route-lineage 组件内摘要验证该投影，不创建第五个平行组件或第二套状态权威。
+`canonical_candidate_provenance.v1` 在此基础上把 provider route 与 canonical candidate 做逐条内容绑定。
+ChemEnzy seed、guided frontier 与 stock recovery 的调用以 mode、scope、request SHA 和 raw-result SHA 区分；
+每条路线保留 raw/normalized digest、host admission/selection、step proposal IDs、canonical hypothesis/edge/route
+family、reaction validation 与 stock-closed route。未进入 canonical 的 rejection、quarantine 和 portfolio truncation
+仍作为 provider-only 记录存在；确定性 `first_loss_boundary` 只报告首个未闭合边界，不推导 proof 或 acceptance。
+`rejected_invalid` 候选保留摘要有效的 ingestion report/reasons，但仍无 canonical identity。该投影与生命周期
+在既有 review route-lineage 组件内分别验摘要，不创建额外状态存储。
 初始 ChemEnzy 与 Codex provider 计算仍从同一 frozen revision 并发启动；同一 cohort 的 canonical
 admission 固定为 ChemEnzy 后 Codex，避免线程完成先后泄漏到 graph/frontier 和后续 Action trace。
 安全的 evidence prefetch 也作为 canonical `evidence` Action signal 进入同一 start cohort，不再拥有独立
@@ -86,6 +93,8 @@ revision；barrier 后由同一 Action runtime 按稳定 Action 顺序 commit。
 最多使用 4 个 runtime-owned workers，同 resource class 排他，并在 wrapper task 容量不足时整体回退单
 Action 调度；prepare/commit failure 可重放且不取消 peer。该机制继续只使用一个 anytime loop、一个
 RunKernel in-flight registry 和一个 canonical graph，不创建后台 scheduler、Blackboard 或 phase queue。
+ArtifactStore 的 mutable pointer 写入使用有界 path-striped 进程内锁，并对 Windows 短暂 sharing/reader lock
+执行 bounded `os.replace` retry；immutable CAS bytes、pointer last-writer projection 与科学权威边界不变。
 `solve_target()` 本身只构造一个 `CampaignActionRuntime` 并调用一次 `run_anytime()`。历史
 `chemenzy_baseline`、`materialization`、`reaction_validation`、`stock`、`evidence_acquisition`、replan 和
 Program stage 仍为报告兼容保留，但只按显式 Action kind 消费统一 loop 已结算的 execution backlog；它们

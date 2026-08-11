@@ -26,6 +26,7 @@ ARTIFACT_POINTER_SCHEMA = "autoplanner_artifact_pointer.v1"
 ARTIFACT_GC_PLAN_SCHEMA = "autoplanner_artifact_gc_plan.v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_POINTER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$")
+_POINTER_WRITE_LOCKS = tuple(threading.RLock() for _ in range(64))
 
 
 class ArtifactStoreError(RuntimeError):
@@ -317,7 +318,8 @@ class ArtifactStore:
                 "pointer_grants_no_scientific_authority": True,
             },
         }
-        self._atomic_write_json(pointer_path, payload)
+        with _pointer_write_lock(pointer_path):
+            self._atomic_write_json(pointer_path, payload)
         return pointer_path
 
     def load_pointer(self, name: str) -> tuple[ArtifactRef, dict[str, Any]]:
@@ -543,7 +545,7 @@ class ArtifactStore:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, path)
+            _replace_with_bounded_retry(temporary, path)
             ArtifactStore._fsync_directory(path.parent)
         finally:
             temporary.unlink(missing_ok=True)
@@ -568,6 +570,24 @@ def _portable_realpath_key(path: str | os.PathLike[str]) -> str:
     elif value.startswith("\\\\?\\"):
         value = value[4:]
     return value
+
+
+def _pointer_write_lock(path: Path) -> threading.RLock:
+    key = _portable_realpath_key(path)
+    return _POINTER_WRITE_LOCKS[hash(key) % len(_POINTER_WRITE_LOCKS)]
+
+
+def _replace_with_bounded_retry(source: Path, destination: Path) -> None:
+    """Survive short Windows reader/peer-writer locks without losing atomicity."""
+
+    for attempt in range(8):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(min(0.4, 0.025 * (2**attempt)))
 
 
 def _utc_now() -> str:

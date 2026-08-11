@@ -75,6 +75,30 @@ def _report() -> dict:
                 "semantics": {"projection_is_read_only": True},
             }
         ),
+        "candidate_provenance": _with_digest(
+            {
+                "schema_version": "canonical_candidate_provenance.v1",
+                "lifecycle_sha256": "c" * 64,
+                "graph_revision": 1,
+                "graph_scientific_sha256": "a" * 64,
+                "candidate_record_count": 1,
+                "provider_route_count": 1,
+                "bound_provider_route_count": 1,
+                "provider_only_route_count": 0,
+                "ignored_provider_lineage_count": 0,
+                "first_loss_counts": {"stock_closure": 1},
+                "candidate_records": [
+                    {"candidate_id": "edge:1", "status": "validated"}
+                ],
+                "provider_route_records": [
+                    {
+                        "route_trace_id": "chemenzy-route:1",
+                        "first_loss_boundary": "stock_closure",
+                    }
+                ],
+                "semantics": {"projection_is_read_only": True},
+            }
+        ),
         "stages": [
             {
                 "stage": "campaign_action_unified_core_01",
@@ -126,7 +150,7 @@ def test_review_bundle_exports_all_four_independently_hashed_traces() -> None:
     assert all(len(value) == 64 for value in bundle["component_sha256"].values())
     assert bundle["components"]["action_trace"]["record_count"] == 1
     assert bundle["components"]["failure_trace"]["record_count"] == 2
-    assert bundle["components"]["route_lineage"]["record_count"] == 3
+    assert bundle["components"]["route_lineage"]["record_count"] == 4
     lifecycle = next(
         row
         for row in bundle["components"]["route_lineage"]["records"]
@@ -134,6 +158,13 @@ def test_review_bundle_exports_all_four_independently_hashed_traces() -> None:
     )
     assert lifecycle["available"] is True
     assert lifecycle["lifecycle"]["status_counts"]["validated"] == 1
+    provenance = next(
+        row
+        for row in bundle["components"]["route_lineage"]["records"]
+        if row["kind"] == "canonical_candidate_provenance"
+    )
+    assert provenance["available"] is True
+    assert provenance["provenance"]["first_loss_counts"] == {"stock_closure": 1}
     assert bundle["components"]["resource_curve"]["available"] is True
     assert bundle["components"]["resource_curve"]["records"][0][
         "wall_time_s"
@@ -199,3 +230,20 @@ def test_review_bundle_fails_closed_for_tampered_candidate_lifecycle() -> None:
     assert lifecycle["available"] is False
     assert lifecycle["lifecycle"] == {}
     assert lifecycle["unavailable_reason"] == "candidate_lifecycle_digest_invalid"
+
+
+def test_review_bundle_fails_closed_for_tampered_candidate_provenance() -> None:
+    report = _report()
+    report["candidate_provenance"]["first_loss_counts"] = {"none": 1}
+    report = _with_digest(report)
+
+    bundle = compile_campaign_review_bundle(report)
+
+    provenance = next(
+        row
+        for row in bundle["components"]["route_lineage"]["records"]
+        if row["kind"] == "canonical_candidate_provenance"
+    )
+    assert provenance["available"] is False
+    assert provenance["provenance"] == {}
+    assert provenance["unavailable_reason"] == "candidate_provenance_digest_invalid"
