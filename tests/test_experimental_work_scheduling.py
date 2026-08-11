@@ -191,6 +191,61 @@ def test_experience_changes_priority_but_cannot_inject_authority() -> None:
     assert "grants_validation" not in supported["action_score"]
 
 
+@pytest.mark.parametrize(
+    "memory",
+    [
+        {"negative_observation_count": 1},
+        {"inconclusive_observation_count": 1},
+    ],
+)
+def test_unchanged_exact_negative_or_uncertain_repeat_is_deprioritized(
+    memory: dict,
+) -> None:
+    exact_plan = _plan(
+        memory={**memory, "strongest_transfer_scope": "exact_boundary"}
+    )
+    analog_plan = _plan(
+        memory={**memory, "strongest_transfer_scope": "structural_analog"}
+    )
+    exact = compile_experimental_work_scheduling(
+        "execution",
+        exact_plan,
+        [],
+        [],
+        _request(exact_plan),
+    )
+    analog = compile_experimental_work_scheduling(
+        "execution",
+        analog_plan,
+        [],
+        [],
+        _request(analog_plan),
+    )
+    dirty_exact = compile_experimental_work_scheduling(
+        "execution",
+        exact_plan,
+        [],
+        ["dirty:exact-boundary"],
+        _request(exact_plan),
+    )
+
+    penalty = exact["components"]["priority_penalties"][
+        "unchanged_exact_boundary_repeat"
+    ]
+    assert penalty > 0
+    assert exact["value_per_cost"] < analog["value_per_cost"]
+    assert exact["value_per_cost"] < dirty_exact["value_per_cost"]
+    assert exact["action_priority"] > 0
+    assert exact["action_score"]["evidence_gain"] > 0
+    assert "unchanged_exact_boundary_repeat_deprioritized" in exact["reasons"]
+    assert dirty_exact["components"]["priority_penalties"][
+        "unchanged_exact_boundary_repeat"
+    ] == 0
+    assert dirty_exact["semantics"][
+        "unchanged_exact_boundary_repeats_are_deprioritized_not_disabled"
+    ] is True
+
+
 def test_applicability_uncertainty_and_risk_feed_experiment_priority_only() -> None:
     plan = _plan(
         memory={

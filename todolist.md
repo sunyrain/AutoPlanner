@@ -137,6 +137,8 @@ Action-class 公平服务切片新增 `campaign_action_class_service.v1` 与可�
 
 跨 slice 收敛切片新增 `campaign_action_convergence_ledger.v1`：Action reservation 现在摘要绑定 opportunity/set 和 cohort 语义，runtime 从经 pointer/outcome digest 校验的 durable 历史恢复同 revision attempted、精确 no-gain binding 与 trailing streak。连续两次 slice/reopen 会继续计数且不 cache 重放已尝试 Action；达到历史上限的第三次 resume 零 dispatch 收敛；外部 graph progress/revision discontinuity 会清零 streak。目标求解/Gateway/CLI 集成 73 passed，调度/runtime/架构聚焦 51 passed；Ruff、compileall、全部架构/行数预算门与 `git diff --check` 通过；不做 deselect 的完整离线套件为 2740 passed、3 skipped、11 warnings、2 subtests passed，用时 183.68 秒。
 
+精确边界重复价值切片在 `experimental_work_scheduling.v1` 中新增独立、可解释的 unchanged-exact-repeat penalty：supported/contraindicated/inconclusive/conflicting memory 只有在 strongest transfer scope 已是 exact boundary 且没有新 dirty hint 时降权；structural analog 和 dirty recompute 不受该惩罚。惩罚只进入 information gain/value-per-cost/Action score，最低值仍大于零，不修改 capability catalog、validation、Claim、proof、completion 或 acceptance。experience priority 纯策略已拆入 106 行模块，主 scheduling 保持 291 行，未提高 320 行预算。三域/架构聚焦 54 passed，相关入口集成 117 passed；完整离线套件为 2742 passed、3 skipped、11 warnings、2 subtests passed，用时 179.10 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -327,7 +329,7 @@ W2 验收门：
 - [ ] 搜索停滞、路线族单一、共享瓶颈或关键边反复失败时，提高 Codex 全局重构和替代路线动作价值。
 - [ ] 已有完整路线但 proof/evidence/conditions 开放时，逐步提高验证和证据动作价值；这些动作不能反向删除路线拓扑。
 - [ ] 常规路线存在高代价连续区间、特定选择性瓶颈或已知能力匹配时，提高 Program discovery/review 价值。
-- [ ] 负结果和不确定结果降低精确边界上的重复动作价值，但不能全局禁用 capability。
+- [x] 负结果和不确定结果会降低“同一 exact boundary 且无新 dirty signal”的重复实验价值；structural analog、新 dirty recompute 与 capability 本身仍保持可调度，不做全局禁用。
 
 ### 6.3 排序模型
 
@@ -637,3 +639,4 @@ W2 验收门：
 - [x] 第十四刀（受控 HTTP transport）：默认 registry 可由宿主环境显式注册 HTTPS experiment bridge；dispatch 无网络副作用，submit/poll/cancel 通过稳定 operation ID、Bearer 环境引用、endpoint-config digest、service operator identity 和有界响应契约运行。所有 attempt/receipt/cancellation 继续复用同一 RunKernel task；timeout 可重试、成功 checkpoint 可恢复、取消仍以 acknowledgement 为结算门。当前只证明桥接能力与真实 HTTP 协议，不声称已连接生产设备；下一步需要部署方提供真实 bridge endpoint/凭据并取得可发布校准数据，或为不兼容桥接契约的厂商 API 编写受控 adapter。
 - [x] 第十五刀（action-class 公平服务）：新增 target-blind `campaign_action_class_service.v1`，把全部 Action 冻结映射为 route discovery、deterministic closure、scientific proof、Program/experiment 四类。Adaptive 只在 12-Action 最低服务窗口即将违约时覆盖价值排序；无 eligible handler/resource 的 class 自动出借服务槽且不积累第二队列或新预算。服务历史从 RunKernel durable reservation 事件重建，resume/input-order/round-robin、模型洪泛不饿死 closure、blocked borrowing 与总任务硬上限均有回归。
 - [x] 第十六刀（跨 slice 收敛）：新增 target-blind `campaign_action_convergence_ledger.v1`，从 RunKernel reservation、Action outcome pointer 和不可变 outcome digest 重建 attempted/no-gain/consecutive 状态。`run_anytime()` 在新 slice/resume 前恢复同 revision attempted 排除，达到历史 no-gain 上限时不再重复 dispatch；新 graph revision 或输入/输出 revision 断点清零连续 streak，精确 opportunity digest 改变才解除 no-gain binding。没有新增队列、预算或 canonical authority。
+- [x] 第十七刀（精确边界重复降权）：实验 work scheduling 对已有 supported/negative/inconclusive/conflicting exact-boundary memory 增加 unchanged-repeat penalty；只有缺少新 dirty signal 时生效。structural analog、dirty recompute 和其他 capability 不被禁用，结果仍只改变 priority/score。

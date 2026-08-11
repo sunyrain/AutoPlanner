@@ -595,6 +595,13 @@ Blackboard 都不能自行把 proposal 提升为事实。
     gain；缓存 replay 不新增 attempt；外部 graph revision 或输入/输出 revision 断点只清零连续 streak，不
     删除历史审计。缺失/损坏的 settled outcome pointer 失败关闭，所有状态仍是 RunKernel/Action 收据的可重建投影。
 
+30. 实验 work 的 negative/inconclusive memory 现显式降低无新事件的精确边界重复价值。`experimental_work_scheduling.v1`
+    在 strongest transfer scope 已为 `exact_boundary`、且当前没有 dirty exact-boundary hint 时，对 supported、
+    contraindicated、inconclusive 和 conflicting observation 应用冻结的 unchanged-repeat penalty；该分量进入
+    information gain、value-per-cost 与既有 `PROGRAM_VALIDATE` Action score。相同 memory 若只来自 structural
+    analog，或 exact boundary 因新 Claim/dirty hint 需要重算，则不应用该惩罚。动作 priority 保持大于零，
+    capability catalog、validation、Claim、proof、completion 和 acceptance 均不被修改或全局禁用。
+
 ### 7.1 闭合优先核算（Bufotalin V3 当前样例）
 
 路线长度只描述已闭合程序的规模，不参与“越长越好”的目标函数。当前样例必须按下列互不替代的轴展示：
@@ -628,7 +635,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 库存/采购和 process-ready 则由各自 proof 与 acceptance 分轴判定。任一轴不能替代另一轴，架构完成度也
 不能替代单次 run 的事实。
 
-当前稳定性门禁：完整离线集 `2740 passed, 3 skipped, 11 warnings, 2 subtests passed`，用时 183.68 秒；
+当前稳定性门禁：完整离线集 `2742 passed, 3 skipped, 11 warnings, 2 subtests passed`，用时 179.10 秒；
 Ruff、compileall、全部架构门（含聚焦模块行数预算）和 `git diff --check` 通过。跨运行审计、
 Candidate Program 投影均为只读，
 `edge_ids[]`、proof、completion 与 acceptance 均未切换。

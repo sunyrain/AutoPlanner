@@ -58,6 +58,7 @@ V4_MODULES = (
     "cascade_planner/application/experimental_claim_store_projection.py",
     "cascade_planner/application/experimental_claim_store_replay.py",
     "cascade_planner/application/experimental_claims.py",
+    "cascade_planner/application/experimental_work_experience_priority.py",
     "cascade_planner/application/experimental_work_frontier.py",
     "cascade_planner/application/experimental_work_scheduling.py",
     "cascade_planner/application/fact_lifecycle.py",
@@ -275,6 +276,7 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/application/experimental_claim_store_projection.py": 140,
     "cascade_planner/application/experimental_claim_store_replay.py": 280,
     "cascade_planner/application/experimental_claims.py": 280,
+    "cascade_planner/application/experimental_work_experience_priority.py": 120,
     "cascade_planner/application/experimental_work_frontier.py": 370,
     "cascade_planner/application/experimental_work_scheduling.py": 320,
     "cascade_planner/application/frontier_runtime.py": 120,
@@ -515,6 +517,7 @@ def test_unified_action_core_has_no_dataset_specific_control_tokens() -> None:
         ROOT / "cascade_planner/application/action_convergence.py",
         ROOT / "cascade_planner/application/action_service_policy.py",
         ROOT / "cascade_planner/application/action_scheduler.py",
+        ROOT / "cascade_planner/application/experimental_work_experience_priority.py",
         ROOT / "cascade_planner/application/run_kernel.py",
         ROOT / "cascade_planner/orchestration/unified_campaign_runtime.py",
     )

@@ -5,6 +5,9 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping, Sequence
 
+from cascade_planner.application.experimental_work_experience_priority import (
+    experimental_experience_priority,
+)
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 
 
@@ -22,25 +25,12 @@ _ACTION_SCORE_KEYS = frozenset(
         "failure_risk_penalty",
     }
 )
-_INFORMATION_BY_DISPOSITION = {
-    "unobserved": 0.12,
-    "supported": 0.07,
-    "contraindicated": 0.12,
-    "inconclusive": 0.16,
-    "conflicting": 0.18,
-}
-_RISK_BY_DISPOSITION = {
-    "unobserved": 0.12,
-    "supported": 0.04,
-    "contraindicated": 0.16,
-    "inconclusive": 0.12,
-    "conflicting": 0.14,
-}
 SCHEDULING_SEMANTICS = {
     "ranking_is_deterministic_and_target_blind": True,
     "estimated_cost_is_executor_neutral_not_a_provider_quote": True,
     "dirty_hints_affect_exact_boundary_priority_only": True,
     "experience_memory_changes_priority_only": True,
+    "unchanged_exact_boundary_repeats_are_deprioritized_not_disabled": True,
     "ranking_grants_no_validation_claim_proof_or_completion": True,
     "canonical_frontier_remains_the_single_work_authority": True,
 }
@@ -76,18 +66,13 @@ def compile_experimental_work_scheduling(
         if isinstance(row, Mapping) and str(dict(row).get("state_id") or "")
     }
     memory = dict(plan_value.get("experience_memory") or {})
-    disposition = _experience_disposition(memory)
-    transfer_scope = str(memory.get("strongest_transfer_scope") or "unobserved")
-    transfer_factor = 0.75 if transfer_scope == "exact_boundary" else 1.0
-    experience_information = (
-        round(
-            (0.06 + 0.12 * _bounded_number(memory["uncertainty_score"], default=1.0))
-            * transfer_factor,
-            6,
-        )
-        if "uncertainty_score" in memory
-        else round(_INFORMATION_BY_DISPOSITION[disposition] * transfer_factor, 6)
+    experience_priority = experimental_experience_priority(
+        memory,
+        exact_boundary_dirty=bool(dirty),
     )
+    disposition = str(experience_priority["disposition"])
+    transfer_scope = str(experience_priority["transfer_scope"])
+    experience_information = float(experience_priority["information_gain"])
     information_components = {
         "canonical_deficit_signal": 0.28 if linked else 0.0,
         "dirty_exact_boundary_signal": 0.18 if dirty else 0.0,
@@ -98,7 +83,20 @@ def compile_experimental_work_scheduling(
         ),
         "experience_uncertainty_signal": experience_information,
     }
-    information_gain = round(min(1.0, sum(information_components.values())), 6)
+    unchanged_exact_repeat_penalty = float(
+        experience_priority["unchanged_exact_boundary_repeat_penalty"]
+    )
+    information_gain = round(
+        min(
+            1.0,
+            max(
+                0.0,
+                sum(information_components.values())
+                - unchanged_exact_repeat_penalty,
+            ),
+        ),
+        6,
+    )
 
     resource_hints = dict(request.get("resource_hints") or {})
     hinted_cost = _nonnegative_number(
@@ -121,10 +119,8 @@ def compile_experimental_work_scheduling(
     estimated_cost = round(sum(cost_components.values()), 6)
     value_per_cost = round(information_gain / estimated_cost, 9)
     normalized_cost_penalty = round(estimated_cost / (estimated_cost + 10.0), 6)
-    failure_risk_penalty = (
-        round(0.04 + 0.16 * _bounded_number(memory["risk_score"], default=0.5), 6)
-        if "risk_score" in memory
-        else _RISK_BY_DISPOSITION[disposition]
+    failure_risk_penalty = float(
+        experience_priority["failure_risk_penalty"]
     )
     action_score = {
         "expected_portfolio_gain": round(0.04 + 0.06 * priority, 6),
@@ -147,6 +143,8 @@ def compile_experimental_work_scheduling(
     ]
     if dirty:
         reasons.append("exact_boundary_dirty_recompute")
+    if unchanged_exact_repeat_penalty > 0:
+        reasons.append("unchanged_exact_boundary_repeat_deprioritized")
     if hinted_cost > 0:
         reasons.append("executor_neutral_cost_hint_applied")
     rank_key = [
@@ -167,6 +165,12 @@ def compile_experimental_work_scheduling(
         "rank_key": rank_key,
         "components": {
             "information_gain": information_components,
+            "priority_penalties": {
+                "unchanged_exact_boundary_repeat": round(
+                    unchanged_exact_repeat_penalty,
+                    6,
+                )
+            },
             "estimated_cost": cost_components,
             "experience_disposition": disposition,
             "experience_transfer_scope": transfer_scope,
@@ -241,33 +245,8 @@ def experimental_work_item_rank_key(entry: tuple[str, Any]) -> tuple[Any, ...]:
     return (0, *rank_key, str(item_id))
 
 
-def _experience_disposition(memory: Mapping[str, Any]) -> str:
-    positive = _count(memory.get("positive_observation_count"))
-    negative = _count(memory.get("negative_observation_count"))
-    inconclusive = _count(memory.get("inconclusive_observation_count"))
-    if positive and negative:
-        return "conflicting"
-    if positive:
-        return "supported"
-    if negative:
-        return "contraindicated"
-    if inconclusive:
-        return "inconclusive"
-    declared = str(memory.get("disposition") or "")
-    return declared if declared in _INFORMATION_BY_DISPOSITION else "unobserved"
-
-
 def _identifiers(values: Sequence[Any]) -> list[str]:
     return sorted({str(value) for value in values if str(value)})
-
-
-def _count(value: Any) -> int:
-    if isinstance(value, bool):
-        return 0
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
 
 
 def _bounded_number(value: Any, *, default: float) -> float:
