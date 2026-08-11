@@ -1,0 +1,56 @@
+{
+  "schema_version": "chemenzy_native_parity_probe.v1",
+  "evidence_date": "2026-08-11",
+  "source_commit": "c2cda55",
+  "content_sha256": "784e27702f3bcb9bc18b963c385b70d1d3dcc09295f24eb09b27a237d426cf8a",
+  "request": {
+    "target_smiles": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+    "search_preset": "standard",
+    "max_routes": 2,
+    "max_steps": 14,
+    "iterations": 12,
+    "expansion_topk": 100,
+    "random_seed": 0,
+    "stock_names": [
+      "RetroStar-stock"
+    ],
+    "condition_prediction": false,
+    "enzyme_assignment": false
+  },
+  "proposal_request_sha256": "e2d338099aba5f5fcf9b7b589126a85c58efdf741c01c9944876c28a5e41ecde",
+  "replay_key_sha256": "0917507d2e1bb338cf007678d8dd1fa15cd296485710ab2f749e759b9586152b",
+  "model_content_binding_sha256": "e49ca9286a45429673854ef9c6fa25d4c7b5451d1fbba0f7f7703b097a0d8178",
+  "model_content_identity_complete": true,
+  "embedded": {
+    "raw_proposal_sha256": "e2b9856279fde1871d029e1a166e410f5268ead92fe53f56d1e1be339dd20e6c",
+    "raw_result_sha256": "c617ca93c4c2109344a8aaa6b8f1ee5bd2d9ddbc39ca09b0f466e02f87801e7f",
+    "route_count": 2,
+    "quarantined_route_count": 0,
+    "elapsed_s": 77.25
+  },
+  "standalone": {
+    "raw_proposal_sha256": "e2b9856279fde1871d029e1a166e410f5268ead92fe53f56d1e1be339dd20e6c",
+    "raw_result_sha256": "2333e31f0b1e8eda46aa5193fcdac3f0a8360fcbc288e500c16319538f04766a",
+    "route_count": 2,
+    "quarantined_route_count": 0,
+    "elapsed_s": 70.5
+  },
+  "embedded_backend_failure_count": 0,
+  "standalone_backend_failure_count": 0,
+  "backend_failure_free": true,
+  "nonempty_route_set_observed": true,
+  "raw_proposal_digest_equal": true,
+  "route_fingerprint_rows_equal": true,
+  "parity_accepted": true,
+  "total_elapsed_s": 147.828,
+  "semantics": {
+    "two_independent_native_searches_executed": true,
+    "embedded_path_uses_v4_proposal_ingestion": true,
+    "standalone_path_invokes_launcher_directly": true,
+    "raw_result_digest_may_differ_due_to_operational_receipts": true,
+    "parity_requires_backend_failure_free": true,
+    "parity_requires_nonempty_route_set": true,
+    "unit_tests_alone_do_not_establish_native_parity": true,
+    "single_fixed_request_does_not_prove_all_request_parity": true
+  }
+}
