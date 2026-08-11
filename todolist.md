@@ -103,6 +103,8 @@
 
 第六个维护切片把 `literature_evidence.py` 从 607 行降至 156 行：并行检索、来源物化、授权浏览器重试、route binding、discovery/receipt 编译迁入 466 行的 `literature_evidence_connector.py`，纯确定性的摘要、discovery 压缩和 binding eligibility 迁入 58 行的 `literature_evidence_contract.py`。facade 继续拥有配置校验、resolver cache 生命周期与依赖注入；`_materialize_candidate` 在每次调用时传入执行器，保留 monkeypatch/自定义物化器行为，原候选辅助兼容导出也已保留。文献/Web/架构聚焦回归 56 passed，相关 literature/target solver/CLI/source-route/visual 集成 122 passed，超预算模块由 12 个降至 11 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.17 秒。
 
+第七个维护切片把 `literature_pdf_materialization.py` 从 266 行降至 157 行：manifest 原子发布、视觉页面选择、source-evidence 行和 target-focus 摘要迁入 159 行的 `literature_pdf_projection.py`。原 materialization 函数继续负责 PDF 大小/页数校验、内容摘要、focus/extraction 调用、全文 UTF-8 与摘要校验、procedure 编译和最终来源记录，实际获取与解析顺序不变。文献/source-route/visual/架构聚焦回归 60 passed，相关 target solver/CLI/Web/OCR/HTML 集成 106 passed，超预算模块由 11 个降至 10 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 175.43 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度

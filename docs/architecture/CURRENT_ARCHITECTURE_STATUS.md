@@ -130,6 +130,13 @@
 > literature/target solver/CLI/source-route/visual 集成 122 passed，超行数预算项由 12 个降至 11 个；
 > 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.17 秒。
 
+> 2026-08-11 literature PDF materialization 职责拆分增量：原 266 行模块已拆为 157 行的 PDF
+> 校验、focus/extraction、全文/procedure 和最终来源记录编排，以及 159 行的 manifest 原子发布、视觉
+> 页面选择、source-evidence 与 target-focus replay projection。PDF bytes/page limits、文件摘要、全文
+> UTF-8/摘要检查和获取/解析顺序保持不变。文献/source-route/visual/架构聚焦回归 60 passed，相关
+> target solver/CLI/Web/OCR/HTML 集成 106 passed，超行数预算项由 11 个降至 10 个；完整离线套件为
+> 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 175.43 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
