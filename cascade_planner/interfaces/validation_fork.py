@@ -275,6 +275,7 @@ def fork_target_validation(
 
     source_stage = discover_director_source_hints(service, outcomes)
     stages.append(_stage("source_frontier", source_stage["status"], source_stage))
+    source_target_identity = _latest_source_target_identity(source_report)
     evidence_stage = _acquire_evidence_stage(
         service,
         source_stage=source_stage,
@@ -287,6 +288,7 @@ def fork_target_validation(
         ),
         max_visual_pages=active.max_visual_evidence_pages,
         target_name=target_name,
+        target_identity=source_target_identity,
     )
     stages.append(
         _stage("evidence_acquisition", evidence_stage["status"], evidence_stage)
@@ -470,6 +472,18 @@ def _read_bound_source_report(path: Path, *, expected_run_id: str) -> dict[str, 
     if not supplied or supplied != _digest(body):
         raise TargetValidationForkError("validation_fork_source_report_digest_invalid")
     return report
+
+
+def _latest_source_target_identity(
+    source_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    for stage in reversed(list(source_report.get("stages") or [])):
+        if not isinstance(stage, Mapping) or stage.get("stage") != "target_identity":
+            continue
+        identity = dict(dict(stage.get("detail") or {}).get("identity") or {})
+        if identity:
+            return identity
+    return {}
 
 
 def _stage(name: str, status: str, detail: Mapping[str, Any]) -> dict[str, Any]:

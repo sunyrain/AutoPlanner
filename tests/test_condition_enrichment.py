@@ -69,6 +69,12 @@ class _Predictor:
         }
 
 
+class _EmptyPredictor:
+    def predict_many(self, reactions: list[str], *, top_k: int) -> dict[str, list[dict]]:
+        assert top_k == 2
+        return {reaction: [] for reaction in reactions}
+
+
 def test_condition_normalization_is_ranked_bounded_and_cannot_spoof_source() -> None:
     rows = normalize_condition_predictions(
         _Predictor().predict_many(["CCO.CC(=O)O>>CCOC(C)=O"], top_k=2)[
@@ -131,6 +137,50 @@ def test_every_materialized_edge_gets_one_condition_deficit_until_enriched(
     assert len(edge["condition_predictions"]) == 2
     assert edge["reaction_proofs"] == []
     assert after["deficit_frontier"]["summary"]["by_kind"]["condition"] == 0
+
+
+def test_empty_condition_prediction_does_not_advance_canonical_revision(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    service.execute_commands(
+        service.graph_store.materialization_commands(
+            [
+                {
+                    "product_smiles": "CCOC(C)=O",
+                    "precursor_smiles": ["CCO", "CC(=O)O"],
+                    "origin_kind": "manual",
+                    "proposal_id": "edge-with-empty-condition-prediction",
+                }
+            ]
+        ),
+        idempotency_key="materialize-empty-condition-test",
+        include_scheduled=False,
+    )
+    before = service.graph_store.load()
+    before_revision = service.kernel.state.graph_revision
+    edge_id = next(iter(before["edges"]))
+
+    stage = enrich_materialized_edge_conditions(
+        service,
+        predictor=_EmptyPredictor(),
+        max_reactions=4,
+        top_k=2,
+        edge_ids=(edge_id,),
+    )
+    after = service.graph_store.load()
+
+    assert stage["status"] == "partial"
+    assert stage["reason"] == "condition_prediction_empty"
+    assert stage["condition_command_count"] == 0
+    assert stage["failed_edge_ids"] == [edge_id]
+    assert stage["execution"]["changed"] is False
+    assert service.kernel.state.graph_revision == before_revision
+    assert after["edges"][edge_id].get("condition_prediction_attempts") in {
+        None,
+        (),
+    }
+    assert after["deficit_frontier"]["summary"]["by_kind"]["condition"] == 1
 
 
 def test_complete_source_procedure_suppresses_advisory_condition_work() -> None:

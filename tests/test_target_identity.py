@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from cascade_planner.interfaces.target_identity import resolve_target_identity
 from cascade_planner.interfaces.target_solver import (
+    _ensure_evidence_target_identity,
     _target_identity_stage,
     _target_name_requires_identity_resolution,
 )
@@ -78,6 +79,27 @@ def test_target_identity_network_is_deferred_until_evidence_action() -> None:
     assert result["semantics"][
         "initial_route_search_does_not_wait_for_identity_network"
     ]
+
+
+def test_evidence_identity_guard_honors_disabled_remote_lookup() -> None:
+    service = SimpleNamespace(kernel=SimpleNamespace())
+
+    with patch(
+        "cascade_planner.interfaces.target_solver.resolve_target_identity"
+    ) as resolver:
+        identity, audit = _ensure_evidence_target_identity(
+            service,
+            target_name="display-only name",
+            target_smiles=TARGET,
+            target_identity={},
+            allow_remote_lookup=False,
+        )
+
+    resolver.assert_not_called()
+    assert identity == {}
+    assert audit["status"] == "disabled"
+    assert audit["reason"] == "target_identity_lookup_disabled"
+    assert audit["semantics"]["configuration_disables_identity_network"]
 
 
 def _response(value: Mapping[str, Any]) -> bytes:

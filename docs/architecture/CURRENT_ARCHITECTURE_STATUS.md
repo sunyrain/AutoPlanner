@@ -4,7 +4,7 @@
 > [Program 创新与自进化完成切片](PROGRAM_INNOVATION_SELF_EVOLUTION_STATUS_20260716.md)。这里的“完成”指代码架构与耐久边界完成，
 > 不代表尚未执行的真实底物实验已经成功，也不改变生产路线的 `edge_ids[]` 权威。
 
-状态基线：2026-08-09
+状态基线：2026-08-11
 适用范围：仓库当前工作区；用于回答“现在已经完成到哪里”和“一个 SMILES 当前如何被处理”。
 下一代目标：[通用逆合成创新架构（GRIA）](GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)
 
@@ -77,6 +77,13 @@
 > 来源身份，而改用剔除运行绑定字段的 `director_plan:<digest>`。三种旧 objective fresh run、交换
 > ChemEnzy/Codex 完成顺序、replay 与保存态双克隆 resume 已验证 exact Action binding 和 canonical
 > scientific digest 一致；实际 transformation 内容变化仍会改变 plan provenance digest。历史产物不改写。
+
+> 2026-08-11 离线性与收敛增量：证据 Action 现在严格遵守 `enable_target_identity`，禁用时不会在
+> evidence guard 中旁路访问 PubChem；validation fork 优先复用源运行已经绑定的结构身份。目标求解
+> 集成测试使用确定性结构身份，真实 PubChem transport/exact-InChIKey 语义继续由独立 requester fixture
+> 覆盖。另修复空条件预测被反复写入 canonical graph 的问题：失败诊断保留在 Action outcome，但不推进
+> graph revision，同一个 `condition_enrich` 不会在单次 campaign 中重复到 action limit。完整离线套件
+> 在同一环境由 500.38 秒降至 178.18 秒，结果为 2699 passed、3 skipped、1 个已批准延期门 deselected。
 
 ## 1. 结论
 

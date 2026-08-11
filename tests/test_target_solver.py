@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 import fitz
+import pytest
 from PIL import Image, ImageDraw
 import cascade_planner.interfaces.target_solver as target_solver_module
 
@@ -53,6 +54,40 @@ from cascade_planner.runtime.paths import RuntimePaths
 
 
 TARGET = "CCOC(C)=O"
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_target_identity(monkeypatch: Any) -> None:
+    """Keep target-solver integration coverage offline and deterministic.
+
+    Transport and exact-InChIKey behavior are covered separately in
+    test_target_identity.py.  These integration tests exercise orchestration,
+    so a live PubChem dependency only adds latency and nondeterminism.
+    """
+
+    def resolve(target_smiles: str, **_kwargs: Any) -> dict[str, Any]:
+        _molecule_id, canonical = molecule_identity(target_smiles)
+        opaque = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:8]
+        return {
+            "schema_version": "target_identity_observation.v1",
+            "status": "completed",
+            "provider_id": "tests.deterministic_identity",
+            "provider_version": "v1",
+            "identity": {
+                "preferred_name": f"target-{opaque}",
+                "canonical_smiles": canonical,
+                "resolved_from_input_structure": True,
+                "synonyms": [],
+                "patent_ids": [],
+                "pubmed_ids": [],
+            },
+            "semantics": {
+                "resolved_from_input_structure": True,
+                "test_transport_is_offline": True,
+            },
+        }
+
+    monkeypatch.setattr(target_solver_module, "resolve_target_identity", resolve)
 
 
 def test_target_solver_enables_target_level_chemenzy_seed_by_default() -> None:
@@ -2015,6 +2050,20 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
     assert limits_seen[0]["max_iterations"] == 24
     assert requests[0]["route_family_ids"]
     assert requests[0]["forbidden_smiles"] == [TARGET]
+    condition_actions = [
+        stage
+        for stage in result["stages"]
+        if str(stage.get("stage") or "").startswith(
+            "campaign_action_unified_core_"
+        )
+        and str(dict(stage.get("detail") or {}).get("action", {}).get("kind") or "")
+        == CampaignActionKind.CONDITION_ENRICH.value
+    ]
+    assert len(condition_actions) == 1
+    anytime = next(
+        stage for stage in result["stages"] if stage["stage"] == "campaign_anytime_core"
+    )
+    assert anytime["detail"]["termination"] != "action_limit"
     service = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))
     guided_edge = next(
         edge

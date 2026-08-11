@@ -173,9 +173,41 @@ def enrich_materialized_edge_conditions(
                 "prediction_producer": "canonical_condition_enrichment",
             }
         )
+    actionable_rows = [
+        row for row in prediction_rows if row.get("raw_predictions")
+    ]
+    if not actionable_rows:
+        failed_ids = sorted(
+            str(edge.get("edge_id") or "") for edge in selected
+        )
+        return {
+            **base,
+            "status": "partial",
+            "reason": "condition_prediction_empty",
+            "condition_command_count": 0,
+            "enriched_edge_count": 0,
+            "failed_edge_count": len(failed_ids),
+            "enriched_edge_ids": [],
+            "failed_edge_ids": failed_ids,
+            "prediction_errors": {
+                edge_id: errors_by_reaction[reaction]
+                for edge_id, reaction in sorted(reactions_by_edge.items())
+                if reaction in errors_by_reaction
+            },
+            "execution": {
+                "status": "not_executed",
+                "reason": "empty_predictions_do_not_mutate_canonical_graph",
+                "changed": False,
+            },
+            "semantics": {
+                **base["semantics"],
+                "failed_prediction_is_recorded_by_action_outcome": True,
+                "empty_prediction_does_not_advance_graph_revision": True,
+            },
+        }
     revision = service.kernel.revision
     commands = condition_prediction_commands_for_edges(
-        prediction_rows,
+        actionable_rows,
         run_id=service.kernel.spec.run_id,
         input_revision=revision.graph_revision,
         dependency_revisions={

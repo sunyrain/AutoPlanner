@@ -74,6 +74,12 @@ The trusted literature registry fixture is deliberately test-only. Point the
 test process at it explicitly so production code keeps the packaged empty,
 fail-closed registry.
 
+Target-solver integration tests never contact PubChem. They use a deterministic
+structure-derived identity fixture, while `tests/test_target_identity.py`
+exercises the transport, exact-InChIKey and mismatch behavior with explicit
+requester fixtures. A test that needs a live provider must use the `live`
+marker; an unmarked test must not gain speed or correctness from network access.
+
 POSIX shell:
 
 ```bash
@@ -94,6 +100,17 @@ Remove-Item Env:AUTOPLANNER_LIVE_CODEX_ENTRY_SMOKE
 
 Three live/optional tests are expected to skip in the default environment. A
 skip is not a solved-route assertion and does not relax any parent proof gate.
+The focused-module line-budget gate is the one explicitly approved temporary
+deselection; run the current complete offline release view with:
+
+```bash
+python -m pytest -q -k "not test_new_focused_modules_stay_within_practical_line_budgets" --durations=20
+```
+
+On the Windows/Python 3.12 reference workspace on 2026-08-11 this produced
+2699 passed, 3 skipped, 1 deselected and 2 subtests passed in 178.18 seconds.
+Timing is diagnostic rather than a portable performance contract, but large
+regressions should be investigated with the reported slowest durations.
 
 The central P0 tests must cover these failure boundaries:
 

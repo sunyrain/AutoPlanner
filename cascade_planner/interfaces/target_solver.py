@@ -1603,6 +1603,7 @@ def solve_target(
             max_visual_pages=active.max_visual_evidence_pages,
             target_name=resolved_target_name,
             target_identity=dict(target_identity.get("identity") or {}),
+            allow_target_identity_lookup=active.enable_target_identity,
             prior_visual_observation=_latest_visual_observation(stages),
             defer_validation=True,
         )
@@ -2565,6 +2566,7 @@ def solve_target(
                 max_visual_pages=active.max_visual_evidence_pages,
                 target_name=resolved_target_name,
                 target_identity=dict(target_identity.get("identity") or {}),
+                allow_target_identity_lookup=active.enable_target_identity,
                 prior_visual_observation=prior_visual_observation,
                 validation_runner=run_validation_action_stage,
             )
@@ -5040,6 +5042,7 @@ def _acquire_evidence_stage(
     max_visual_pages: int = 6,
     target_name: str = "",
     target_identity: Mapping[str, Any] | None = None,
+    allow_target_identity_lookup: bool = True,
     prior_visual_observation: Mapping[str, Any] | None = None,
     validation_runner: Callable[[str], Mapping[str, Any]] | None = None,
     defer_validation: bool = False,
@@ -5057,6 +5060,7 @@ def _acquire_evidence_stage(
             target_name=target_name or service.kernel.spec.target_name,
             target_smiles=service.kernel.spec.target_smiles,
             target_identity=target_identity,
+            allow_remote_lookup=allow_target_identity_lookup,
         )
     )
     request = compile_evidence_acquisition_request(
@@ -5376,6 +5380,7 @@ def _ensure_evidence_target_identity(
     target_name: str,
     target_smiles: str,
     target_identity: Mapping[str, Any] | None,
+    allow_remote_lookup: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Guarantee structure-derived aliases before ranking downloaded papers.
 
@@ -5398,6 +5403,17 @@ def _ensure_evidence_target_identity(
             "status": "reused",
             "reason": "structure_resolved_target_identity_supplied",
             "identity": supplied,
+        }
+
+    if not allow_remote_lookup:
+        return supplied, {
+            "status": "disabled",
+            "reason": "target_identity_lookup_disabled",
+            "identity": supplied,
+            "semantics": {
+                "evidence_acquisition_continues_without_remote_aliases": True,
+                "configuration_disables_identity_network": True,
+            },
         }
 
     result = resolve_target_identity(target_smiles, target_name=target_name)
