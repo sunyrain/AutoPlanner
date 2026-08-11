@@ -99,6 +99,14 @@
 > 没有下放。相关集成回归 108 passed，超行数预算项由 16 个降至 15 个；完整离线套件为
 > 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 172.02 秒。
 
+> 2026-08-11 retrosynthesis service 职责拆分增量：原 671 行服务已拆为 264 行的公开生命周期/
+> read-model facade、234 行的 Director/context/创新审查与显式实验 Claim 准入模块，以及 207 行的
+> worker dispatch、预算终态、canonical batch 和 action signals 模块。公开类仍单独持有 RunKernel、
+> canonical graph store 和 WorkerRuntime；内部 mixin 不创建服务实例、第二 graph store 或旁路写入。
+> 聚焦回归 80 passed，相关 Gateway/target solver/evidence 集成 114 passed，超行数预算项由 15 个
+> 降至 14 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时
+> 172.93 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
