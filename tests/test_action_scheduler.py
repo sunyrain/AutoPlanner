@@ -112,6 +112,73 @@ def _service_opportunities() -> dict:
     }
 
 
+def _structural_preflight_frontier(*, metadata: dict | None = None) -> dict:
+    shared_metadata = dict(metadata or {})
+
+    def item(
+        kind: str,
+        suffix: str,
+        *,
+        route_id: str = "route-family:downstream",
+        deterministic: bool = False,
+        item_metadata: dict | None = None,
+    ) -> dict:
+        return {
+            "deficit_id": f"deficit:{kind}:{suffix}",
+            "kind": kind,
+            "object_id": f"object:{suffix}",
+            "entity_ids": [f"entity:{suffix}"],
+            "route_family_ids": [route_id],
+            "dependency_ids": [],
+            "deterministic": deterministic,
+            "model_allowed": not deterministic,
+            "reason": f"preflight_fixture_{kind}",
+            "priority": 1.0 if kind == "materialization" else 10_000.0,
+            "score": {
+                "expected_portfolio_gain": 1.0,
+                "distance_to_closure": 1.0,
+                "evidence_gain": 1.0,
+                "route_diversity_gain": 1.0,
+                "cost_penalty": 0.0,
+                "failure_risk_penalty": 0.0,
+            },
+            "metadata": {
+                **shared_metadata,
+                **dict(item_metadata or {}),
+            },
+        }
+
+    return {
+        "content_sha256": "structural-preflight-frontier",
+        "items": [
+            item(
+                "materialization",
+                "candidate",
+                route_id="route-family:pending",
+                deterministic=True,
+            ),
+            item("condition", "condition"),
+            item("evidence", "evidence"),
+            item("architecture", "architecture"),
+            item("program_discovery", "program"),
+            item(
+                "route_closure",
+                "closure",
+                route_id="route-family:pending",
+                deterministic=True,
+            ),
+            item(
+                "expansion",
+                "native",
+                item_metadata={
+                    "provider_preferences": ["chemenzy"],
+                    "target_level_native_search": True,
+                },
+            ),
+        ],
+    }
+
+
 def test_action_scheduler_is_invariant_to_legacy_view_metadata() -> None:
     benchmark = compile_action_opportunities(
         _frontier(metadata={"legacy_view": "benchmark_search"})
@@ -150,6 +217,156 @@ def test_scheduler_is_a_read_only_projection_of_canonical_opportunities() -> Non
     assert opportunities == frozen
     assert decision["semantics"]["scheduler_does_not_execute_or_mutate_actions"]
     assert decision["semantics"]["stock_oracle_names_are_not_scheduler_inputs"]
+
+
+def test_processable_structural_preflight_blocks_all_downstream_actions() -> None:
+    opportunities = compile_action_opportunities(_structural_preflight_frontier())
+    frozen = deepcopy(opportunities)
+
+    adaptive = schedule_next_action(opportunities)
+    round_robin = schedule_next_action(
+        opportunities,
+        policy="round_robin",
+        round_robin_cursor=8,
+    )
+
+    assert opportunities == frozen
+    assert adaptive["selected_action"]["kind"] == "host_materialize"
+    assert round_robin["selected_action"]["kind"] == "host_materialize"
+    preflight = adaptive["action_preflight"]
+    assert preflight["schema_version"] == "campaign_action_preflight.v1"
+    assert preflight["gate_active"] is True
+    assert preflight["initial_discovery_exempt"] is False
+    assert preflight["blocked_action_count"] == 6
+    assert {
+        "canonical_reaction_identity",
+        "valid_material_structure",
+        "valid_reagent_structure",
+        "element_inventory",
+        "large_atom_jump",
+        "self_loop",
+        "ancestor_cycle",
+        "canonical_graph_cycle",
+        "duplicate_reaction_edge",
+    } == set(preflight["covered_checks"])
+    by_kind = {row["kind"]: row for row in adaptive["candidates"]}
+    assert by_kind["condition_enrich"]["blocked_reasons"] == [
+        "processable_structural_preflight_precedes_downstream_action"
+    ]
+    assert by_kind["codex_global_architecture"]["blocked_reasons"] == [
+        "processable_structural_preflight_precedes_downstream_action"
+    ]
+    assert by_kind["program_discover"]["blocked_reasons"] == [
+        "processable_structural_preflight_precedes_downstream_action"
+    ]
+    assert by_kind["recompute_route_closure"]["blocked_reasons"] == [
+        "route_materialization_precedes_route_closure"
+    ]
+    assert by_kind["acquire_exact_evidence"]["blocked_reasons"] == [
+        "pending_materialization_precedes_evidence"
+    ]
+    assert by_kind["chemenzy_target_expand"]["blocked_reasons"] == [
+        "processable_structural_preflight_precedes_downstream_action"
+    ]
+    assert round_robin["action_preflight"] == preflight
+    assert round_robin["semantics"][
+        "round_robin_ignores_adaptive_value_score_for_ordering"
+    ] is True
+
+
+def test_initial_discovery_and_unprocessable_checks_remain_schedulable() -> None:
+    frontier = _structural_preflight_frontier()
+    frontier["items"] = [
+        row for row in frontier["items"] if row["kind"] != "materialization"
+    ]
+    initial = schedule_next_action(compile_action_opportunities(frontier))
+    initial_by_kind = {row["kind"]: row for row in initial["candidates"]}
+
+    assert initial["action_preflight"]["gate_active"] is False
+    assert initial["action_preflight"]["initial_discovery_exempt"] is True
+    assert initial_by_kind["chemenzy_target_expand"]["eligible"] is True
+    assert initial_by_kind["codex_global_architecture"]["eligible"] is True
+
+    opportunities = compile_action_opportunities(_structural_preflight_frontier())
+    unavailable = schedule_next_action(
+        opportunities,
+        resource_availability={"deterministic": False},
+        policy="round_robin",
+        round_robin_cursor=8,
+    )
+    unavailable_by_kind = {
+        row["kind"]: row for row in unavailable["candidates"]
+    }
+    assert unavailable["action_preflight"]["gate_active"] is False
+    assert unavailable["action_preflight"]["pending_check_action_ids"]
+    assert unavailable["action_preflight"]["processable_check_action_ids"] == []
+    assert unavailable_by_kind["host_materialize"]["blocked_reasons"] == [
+        "resource_unavailable:deterministic"
+    ]
+    assert unavailable["selected_action"]["kind"] == "codex_global_architecture"
+
+    handler_deferred = schedule_next_action(
+        opportunities,
+        available_action_kinds=("condition_enrich",),
+    )
+    handler_by_kind = {row["kind"]: row for row in handler_deferred["candidates"]}
+    assert handler_deferred["action_preflight"]["gate_active"] is False
+    assert handler_by_kind["host_materialize"]["blocked_reasons"] == [
+        "handler_unavailable:host_materialize"
+    ]
+    assert handler_deferred["selected_action"]["kind"] == "condition_enrich"
+
+    scoped_cohort = schedule_next_action(
+        opportunities,
+        available_action_kinds=("codex_global_architecture",),
+        preflight_available_action_kinds=(
+            "host_materialize",
+            "codex_global_architecture",
+        ),
+    )
+    scoped_by_kind = {row["kind"]: row for row in scoped_cohort["candidates"]}
+    assert scoped_cohort["action_preflight"]["gate_active"] is True
+    assert scoped_cohort["selected_action_id"] == ""
+    assert scoped_by_kind["codex_global_architecture"]["blocked_reasons"] == [
+        "processable_structural_preflight_precedes_downstream_action"
+    ]
+
+
+def test_structural_preflight_is_label_blind_and_replay_stable() -> None:
+    first_opportunities = compile_action_opportunities(
+        _structural_preflight_frontier(
+            metadata={
+                "target_label": "benchmark-a",
+                "dataset": "hidden-a",
+                "objective": "legacy-score-a",
+            }
+        )
+    )
+    second_opportunities = compile_action_opportunities(
+        _structural_preflight_frontier(
+            metadata={
+                "target_label": "benchmark-b",
+                "dataset": "hidden-b",
+                "objective": "legacy-score-b",
+            }
+        )
+    )
+
+    first = schedule_next_action(first_opportunities)
+    replay = schedule_next_action(first_opportunities)
+    relabeled = schedule_next_action(second_opportunities)
+
+    assert first["action_preflight"] == replay["action_preflight"]
+    assert first["action_preflight"] == relabeled["action_preflight"]
+    assert first["selected_action_id"] == replay["selected_action_id"]
+    assert first["selected_action_id"] == relabeled["selected_action_id"]
+    assert [
+        (row["action_id"], row["eligible"], row["blocked_reasons"])
+        for row in first["candidates"]
+    ] == [
+        (row["action_id"], row["eligible"], row["blocked_reasons"])
+        for row in relabeled["candidates"]
+    ]
 
 
 def test_action_scheduler_expands_one_deficit_into_provider_choices() -> None:

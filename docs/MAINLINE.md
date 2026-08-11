@@ -130,6 +130,7 @@ CLI 和 golden replay 默认模型预算为 0。
 ## 调度原则
 
 1. 身份、元素、原子跳跃、重复和祖先循环在昂贵工作前拒绝。
+   `campaign_action_preflight.v1` 只读取同一个 Action opportunity set，并只在 canonical materialization 当前可处理时激活：模型、证据、条件与 Program/实验动作等待 cheap gate；validation、stock 和 route closure 只等待同 route 候选。空图初始 ChemEnzy/Codex discovery、handler/resource blocker 与 round-robin 顺序均不被绕过。
 2. 已发现来源先抽取 exact rows；确定性缺口优先于新模型提议。
 3. `attempt_count` 与 `accepted_expansion_count` 分开计费，一条规范边只接受一次。
 4. 所有 proposal producer 共用规范入口，不拥有旁路路线图。

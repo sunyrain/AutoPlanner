@@ -5,6 +5,7 @@ import hashlib
 import json
 from typing import Any, Mapping
 
+from cascade_planner.application.action_preflight import compile_action_preflight
 from cascade_planner.application.action_service_policy import (
     action_class_for_kind,
     bind_action_class_selection,
@@ -66,6 +67,7 @@ def schedule_next_action(
     resource_availability: Mapping[str, Any] | None = None,
     in_flight_action_ids: tuple[str, ...] = (),
     available_action_kinds: tuple[str, ...] | None = None,
+    preflight_available_action_kinds: tuple[str, ...] | None = None,
     prior_action_kinds: tuple[str, ...] = (),
     policy: str = "adaptive",
     round_robin_cursor: int = 0,
@@ -99,16 +101,27 @@ def schedule_next_action(
     scientific_bonuses = dict(
         scientific_closure_pressure.get("action_kind_bonuses") or {}
     )
-    pending_materialization = any(
-        str(row.get("kind") or "") == "host_materialize"
-        for row in raw_actions
+    action_preflight = compile_action_preflight(
+        opportunity_set,
+        resource_availability=resource_availability,
+        in_flight_action_ids=in_flight_action_ids,
+        available_action_kinds=(
+            preflight_available_action_kinds
+            if preflight_available_action_kinds is not None
+            else available_action_kinds
+        ),
     )
-    pending_materialization_routes = {
-        str(route_id)
-        for row in raw_actions
-        if str(row.get("kind") or "") == "host_materialize"
-        for route_id in row.get("route_family_ids") or []
-        if str(route_id)
+    preflight_block_reasons = {
+        str(action_id): [str(value) for value in reasons if str(value)]
+        for action_id, reasons in dict(
+            action_preflight.get("action_block_reasons") or {}
+        ).items()
+    }
+    check_contract_block_reasons = {
+        str(action_id): [str(value) for value in reasons if str(value)]
+        for action_id, reasons in dict(
+            action_preflight.get("check_contract_block_reasons") or {}
+        ).items()
     }
     candidates = []
     for row in raw_actions:
@@ -124,6 +137,7 @@ def schedule_next_action(
             blocked_reasons.append(f"handler_unavailable:{kind}")
         if resources.get(resource_class, True) is False:
             blocked_reasons.append(f"resource_unavailable:{resource_class}")
+        blocked_reasons.extend(check_contract_block_reasons.get(action_id, ()))
         # A regular expansion may advertise Codex as a provider preference,
         # but that is not a global replan contract.  The target runtime
         # intentionally rejects such actions because only the bounded event
@@ -137,23 +151,7 @@ def schedule_next_action(
                 and metadata.get("global_replan") is not True
             ):
                 blocked_reasons.append("global_replan_scope_missing")
-        if pending_materialization and kind in {
-            "acquire_exact_evidence",
-            "bind_exact_evidence",
-        }:
-            blocked_reasons.append("pending_materialization_precedes_evidence")
-        candidate_routes = {
-            str(route_id)
-            for route_id in row.get("route_family_ids") or []
-            if str(route_id)
-        }
-        if candidate_routes & pending_materialization_routes:
-            if kind == "reaction_validate":
-                blocked_reasons.append(
-                    "route_materialization_precedes_reaction_validation"
-                )
-            if kind == "stock_audit":
-                blocked_reasons.append("route_materialization_precedes_stock_audit")
+        blocked_reasons.extend(preflight_block_reasons.get(action_id, ()))
         base = float(row.get("base_priority") or 0.0)
         state_bonus = _state_bonus(kind, gates)
         scientific_closure_bonus = float(scientific_bonuses.get(kind) or 0.0)
@@ -329,11 +327,21 @@ def schedule_next_action(
         "milestones": gates,
         "resource_availability": resources,
         "available_action_kinds": sorted(available_kinds),
+        "preflight_available_action_kinds": sorted(
+            str(value)
+            for value in (
+                preflight_available_action_kinds
+                if preflight_available_action_kinds is not None
+                else available_action_kinds or ()
+            )
+            if str(value)
+        ),
         "handler_filter_applied": handler_filter_applied,
         "scheduler_policy": scheduler_policy,
         "round_robin_cursor": cursor,
         "action_class_service": action_class_service,
         "scientific_closure_pressure": scientific_closure_pressure,
+        "action_preflight": action_preflight,
         "semantics": {
             "task_labels_are_not_inputs": True,
             "same_state_and_resources_produce_same_order": True,
@@ -348,6 +356,8 @@ def schedule_next_action(
             "service_borrowing_cannot_expand_run_kernel_budget": True,
             "scientific_closure_pressure_uses_the_same_action_set": True,
             "scientific_closure_pressure_cannot_expand_budget": True,
+            "structural_preflight_uses_the_same_action_set": True,
+            "structural_preflight_cannot_expand_budget_or_authority": True,
             "round_robin_ignores_adaptive_value_score_for_ordering": (
                 scheduler_policy == "round_robin"
             ),

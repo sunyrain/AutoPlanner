@@ -550,6 +550,9 @@ class CampaignActionRuntime:
                 resource_availability=resource_availability,
                 in_flight_action_ids=tuple(sorted(selected_action_ids)),
                 available_action_kinds=(kind.value,),
+                preflight_available_action_kinds=tuple(
+                    sorted(registered_kind.value for registered_kind in self.handlers)
+                ),
                 prior_action_kinds=tuple(service_history),
                 policy=self.scheduler_policy,
             )

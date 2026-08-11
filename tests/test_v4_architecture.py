@@ -31,6 +31,7 @@ V4_MODULES = (
     "cascade_planner/application/campaign_review_bundle.py",
     "cascade_planner/application/campaign_quality_state.py",
     "cascade_planner/application/action_convergence.py",
+    "cascade_planner/application/action_preflight.py",
     "cascade_planner/application/action_service_policy.py",
     "cascade_planner/application/action_scheduler.py",
     "cascade_planner/application/replan_pressure.py",
@@ -243,6 +244,7 @@ FORBIDDEN_V4_DEPENDENCIES = (
 )
 FOCUSED_LINE_BUDGETS = {
     "cascade_planner/application/action_convergence.py": 220,
+    "cascade_planner/application/action_preflight.py": 240,
     "cascade_planner/application/action_service_policy.py": 240,
     "cascade_planner/application/replan_pressure.py": 180,
     "cascade_planner/application/scientific_closure_pressure.py": 180,
@@ -521,6 +523,7 @@ def test_unified_action_core_has_no_dataset_specific_control_tokens() -> None:
     protected = (
         ROOT / "cascade_planner/application/campaign_actions.py",
         ROOT / "cascade_planner/application/action_convergence.py",
+        ROOT / "cascade_planner/application/action_preflight.py",
         ROOT / "cascade_planner/application/action_service_policy.py",
         ROOT / "cascade_planner/application/action_scheduler.py",
         ROOT / "cascade_planner/application/replan_pressure.py",

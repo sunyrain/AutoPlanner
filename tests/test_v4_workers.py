@@ -294,7 +294,7 @@ def test_global_multistep_skeleton_compiles_to_unique_edge_workers(
     assert kernel.state.accepted_expansion_count == 2
 
 
-def test_cheap_gates_reject_cycle_duplicate_and_impossible_precursor_without_expansion(
+def test_cheap_gates_reject_invalid_balance_cycle_duplicate_without_expansion(
     tmp_path: Path,
 ) -> None:
     kernel = _kernel(tmp_path)
@@ -338,6 +338,16 @@ def test_cheap_gates_reject_cycle_duplicate_and_impossible_precursor_without_exp
             kernel,
             "materialize_candidate",
             {
+                "product_smiles": "CCO",
+                "precursor_smiles": ["CC"],
+            },
+            task_kind="proposal",
+            suffix="element-balance",
+        ),
+        _command(
+            kernel,
+            "materialize_candidate",
+            {
                 "product_smiles": "CCOC(C)=O",
                 "precursor_smiles": ["CCO", "CC(=O)Cl"],
                 "existing_edge_digests": [duplicate_digest],
@@ -352,8 +362,9 @@ def test_cheap_gates_reject_cycle_duplicate_and_impossible_precursor_without_exp
     assert "target_or_current_node_self_loop" in results[0].failure_reasons
     assert "large_atom_jump" in results[1].failure_reasons
     assert "invalid_or_missing_material" in results[2].failure_reasons
-    assert "duplicate_reaction_edge" in results[3].failure_reasons
-    assert kernel.state.attempt_count == 4
+    assert "element_inventory_not_conserved" in results[3].failure_reasons
+    assert "duplicate_reaction_edge" in results[4].failure_reasons
+    assert kernel.state.attempt_count == 5
     assert kernel.state.accepted_expansion_count == 0
 
 

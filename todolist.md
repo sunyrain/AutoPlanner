@@ -145,6 +145,8 @@ Codex replan pressure 切片新增 160 行的 target-blind `campaign_replan_pres
 
 Program opportunity pressure 切片新增 311 行的 target-blind `campaign_program_opportunity_pressure.v1` 与聚合 `campaign_program_review_pressure.v1`：复用既有 bounded route-window/structure matcher，从 canonical route 风险与连续 conventional span、真实 capability match、仍开放条件/证明边上的 selectivity objective、可替换步数和合法 one-hop mechanism proposal 形成 discovery/review 动态 score。匹配仍是 search prior，不能授予 Program、reaction proof、路线完成或 acceptance；conventional route 始终保留为显式 fallback。Program signal 幂等边界从“route family 一次”升级为“route family + pressure digest”，因此早期无匹配筛查会在 materialization/validation 形成新机会后重开，但相同 pressure 不重复；review 同样摘要绑定。solve 内只读 memoization 复用相同 route/edge/procedure/lifecycle/capability 输入，不持久化第二状态。target/dataset/objective 标签和输入顺序不参与投影，篡改 route pressure 不进入 review 聚合，旧 candidate-screen JSON 合同保持不变。Program/创新/runtime/目标求解/架构聚焦 108 passed；Ruff、compileall、全部架构/行数预算门和 `git diff --check` 通过；不做 deselect 的完整离线套件为 2758 passed、3 skipped、11 warnings、2 subtests passed，用时 212.05 秒。
 
+Cheap structural preflight 切片新增 target-blind `campaign_action_preflight.v1`：不复制 chemistry validator，只从同一个 Action opportunity set 识别 canonical materialization deficit，并复用既有 admission/materialization 对 identity、非法结构、元素库存、原子跳跃、self-loop、祖先/图循环与重复边的确定性检查。只有当前 handler/resource 可处理的 cheap gate 才收窄 eligibility；模型、evidence、conditions、Program/experiment 等昂贵动作全局等待，validation、stock 与 route closure 只等待同 route 候选。空图初始 ChemEnzy/Codex discovery 保持豁免，cohort 单类型过滤、round-robin、资源 blocker、标签变化和 replay 不能绕过或篡改投影；scheduler 不修改 opportunity/canonical topology，也不创建第二队列、预算或科学权威。scheduler/runtime/worker/architecture 聚焦 69 passed，target solver/canonical/scientific closure/experiment scheduling 75 passed，campaign/proof 集成 44 passed；Ruff、compileall、全部架构/行数预算门与 `git diff --check` 通过。第一次完整门仅遇到 1 次无关 Windows CAS pointer `os.replace` 瞬时文件锁，同一并发用例随后连续 5 次通过；第二次不做 deselect 的完整离线套件为 2761 passed、3 skipped、11 warnings、2 subtests passed，用时 208.44 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -329,7 +331,7 @@ W2 验收门：
 
 ### 6.2 通用优先级
 
-- [ ] 昂贵动作前先执行 identity、元素守恒、循环、重复和明显非法结构检查。
+- [x] 昂贵动作前先执行 identity、元素守恒、循环、重复和明显非法结构检查；只读 Action preflight 复用 canonical admission/materialization，只有可处理的 gate 才阻塞昂贵动作，初始空图 discovery 与无关路线 validation/stock 不被误伤。
 - [x] 没有库存闭合路线时，route discovery/stock closure 通过统一 action-class 服务窗口获得最低服务；规则不读取目标、数据集或 objective。
 - [x] 已存在可物化候选时，确定性 materialization/validation 属于独立 closure class，持续 eligible 时不会被新的模型猜测长期饿死。
 - [x] 搜索停滞、路线族单一、共享瓶颈或关键边反复失败时，提高 Codex 全局重构和替代路线动作价值；停滞只从摘要验证的 durable convergence streak 派生，单独文本事件不触发模型调用。

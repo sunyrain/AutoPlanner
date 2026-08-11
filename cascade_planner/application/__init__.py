@@ -140,6 +140,10 @@ _V4_EXPORTS = {
         "cascade_planner.application.campaign_actions",
         "compile_action_opportunities",
     ),
+    "compile_action_preflight": (
+        "cascade_planner.application.action_preflight",
+        "compile_action_preflight",
+    ),
     "bind_scheduled_action": (
         "cascade_planner.application.campaign_actions",
         "bind_scheduled_action",

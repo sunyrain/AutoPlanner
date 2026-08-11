@@ -2,6 +2,7 @@
 
 | Schema | 权威范围 | 主要生产者 |
 | --- | --- | --- |
+| `campaign_action_preflight.v1` | 从同一个 Action opportunity set 只读投影当前可处理的 canonical materialization cheap gate；复用 identity/admission/materialization 权威，只收窄下游 eligibility，不创建队列、预算或科学事实 | action scheduler |
 | `autoplanner_run_spec.v2` | 嵌入统一 Campaign 输入的运行身份与兼容验收面；新运行唯一写入版本 | `RunKernel` |
 | `autoplanner_run_spec.v1` | 旧目标、验收、硬预算；仅保摘要验证后的迁移读取 | `RunKernel` compatibility reader |
 | `unified_campaign_spec.v1` | canonical target、不可变 stock-oracle reference、约束和多维资源预算；不含名称、dataset、objective 或 acceptance | API/CLI/Web adapters |
