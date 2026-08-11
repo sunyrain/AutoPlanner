@@ -1571,6 +1571,110 @@ def test_chemenzy_timeout_keeps_codex_peer_and_names_unstarted_validation(
     assert kernel.state.settled_task_count == 4
 
 
+@pytest.mark.parametrize(
+    ("codex_status", "failure_reason"),
+    [
+        ("failed", "codex_provider_failed"),
+        ("timeout", "codex_provider_timeout"),
+        ("failed", "codex_contract_rejected"),
+    ],
+)
+def test_codex_failure_timeout_or_contract_rejection_keeps_chemenzy_peer(
+    tmp_path: Path,
+    codex_status: str,
+    failure_reason: str,
+) -> None:
+    kernel = _kernel(tmp_path / failure_reason)
+    rendezvous = Barrier(2)
+
+    def handle_chemenzy(_action) -> dict:
+        rendezvous.wait(timeout=2.0)
+        return {
+            "status": "completed",
+            "routes": [{"route_trace_id": "route:chem-enzy:1"}],
+        }
+
+    def handle_codex(_action) -> dict:
+        rendezvous.wait(timeout=2.0)
+        return {
+            "status": codex_status,
+            "failure_reasons": [failure_reason],
+        }
+
+    opportunities = compile_action_opportunities(
+        {
+            "content_sha256": f"codex-peer-isolation:{failure_reason}",
+            "items": [
+                {
+                    "deficit_id": "deficit:target-native:start",
+                    "kind": "expansion",
+                    "object_id": "target:1",
+                    "entity_ids": ["target:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": False,
+                    "priority": 900.0,
+                    "reason": "target_requires_native_multi_step_search",
+                    "score": {"expected_portfolio_gain": 1.0},
+                    "metadata": {
+                        "provider_preferences": ["chemenzy"],
+                        "target_level_native_search": True,
+                        "native_budget_reservation": "target_level",
+                    },
+                },
+                {
+                    "deficit_id": "deficit:architecture:start",
+                    "kind": "architecture",
+                    "object_id": "target:1",
+                    "entity_ids": ["target:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": True,
+                    "priority": 880.0,
+                    "reason": "target_requires_global_architecture",
+                    "score": {"expected_portfolio_gain": 1.0},
+                    "metadata": {"global_architecture": True},
+                },
+            ],
+        }
+    )
+    result = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle_chemenzy,
+            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_codex,
+        },
+    ).run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {
+            "native_search_target": True,
+            "model": True,
+        },
+        max_actions=2,
+        concurrent_start_kinds=(
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
+        ),
+    )
+
+    assert result["start_cohort"]["max_in_flight_action_count"] == 2
+    executions = result["executions"]
+    assert [row["action"]["kind"] for row in executions] == [
+        CampaignActionKind.CHEMENZY_TARGET_EXPAND.value,
+        CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE.value,
+    ]
+    assert [row["status"] for row in executions] == ["completed", codex_status]
+    assert executions[0]["outcome"]["handler_result"]["routes"] == [
+        {"route_trace_id": "route:chem-enzy:1"}
+    ]
+    assert executions[1]["outcome"]["failure_reasons"] == [failure_reason]
+    assert kernel.state.settled_task_count == 2
+    assert kernel.state.in_flight_tasks == {}
+
+
 def test_program_validation_and_feedback_use_independent_action_accounting(
     tmp_path: Path,
 ) -> None:

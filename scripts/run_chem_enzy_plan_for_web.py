@@ -140,6 +140,14 @@ def _configure_pandarallel_worker_environment(payload: dict[str, Any]) -> None:
     os.environ[CHEMENZY_WORKER_GRAPHVIZ_ENV] = (
         "1" if bool(payload.get("viz", False)) else "0"
     )
+    os.environ["CHEMENZY_PANDARALLEL_WORKERS"] = str(
+        _as_int(
+            payload.get("pandarallel_workers"),
+            _as_int(os.environ.get("CHEMENZY_PANDARALLEL_WORKERS"), 2, lo=1, hi=8),
+            lo=1,
+            hi=8,
+        )
+    )
 
 
 def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearchConfig:
@@ -449,10 +457,12 @@ def _web_payload_from_result(
             "planner_strategy": "ChemEnzy native multi-step search with AutoPlanner product audit and rule cascade verifier",
             "search_mode": "chem_enzy_native",
             "search_preset": request_payload.get("search_preset", "quick"),
+            "max_routes": output_limit,
             "stock_mode": request_payload.get("stock_mode", "building-block"),
             "max_depth": config.max_depth,
             "iterations": config.max_iterations,
             "expansion_topk": config.expansion_topk,
+            "timeout_s": float(request_payload.get("timeout_s") or 0.0),
             "random_seed": config.random_seed,
             "condition_prediction_enabled": bool(request_payload.get("enable_condition_prediction", False)),
             "enzyme_assignment_enabled": bool(request_payload.get("enable_enzyme_assignment", False)),
@@ -464,6 +474,13 @@ def _web_payload_from_result(
             "chem_enzy_onmt_tokenizer": config.search_flags.get("chem_enzy_onmt_tokenizer", "char"),
             "one_step_models": config.one_step_models,
             "stock_names": config.stock_names,
+            "stock_paths": dict(config.search_flags.get("stock_paths") or {}),
+            "pandarallel_workers": _as_int(
+                os.environ.get("CHEMENZY_PANDARALLEL_WORKERS"),
+                2,
+                lo=1,
+                hi=8,
+            ),
             "cascade_hooks": {
                 "cost_model": bool(config.search_flags.get("use_cascade_cost_model")),
                 "source_policy": bool(config.search_flags.get("use_cascade_source_policy")),

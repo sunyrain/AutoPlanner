@@ -21,6 +21,7 @@ def select_chemenzy_runtime(
     env_prefix: str | Path | None,
     timeout_s: float,
     vendor_root: str | Path | None = None,
+    one_step_models: tuple[str, ...] | list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Resolve one runtime without overriding explicit operator intent."""
 
@@ -31,10 +32,22 @@ def select_chemenzy_runtime(
         selected = explicit or environment_prefix
         source = "target_solve_config" if explicit else "environment"
         environment[_ENV_SOURCE] = source
-        report = _diagnose(selected, vendor_root, environment, timeout_s)
+        report = _diagnose(
+            selected,
+            vendor_root,
+            environment,
+            timeout_s,
+            one_step_models=one_step_models,
+        )
         return report, _runtime_discovery(source, selected, [report])
 
-    default_report = _diagnose(None, vendor_root, environment, timeout_s)
+    default_report = _diagnose(
+        None,
+        vendor_root,
+        environment,
+        timeout_s,
+        one_step_models=one_step_models,
+    )
     if default_report.get("production_ready") is True:
         selected = str(default_report.get("env_prefix") or "")
         return default_report, _runtime_discovery(
@@ -54,7 +67,13 @@ def select_chemenzy_runtime(
             attempted_prefixes.add(candidate)
             discovered = dict(environment)
             discovered[_ENV_SOURCE] = source
-            report = _diagnose(candidate, vendor_root, discovered, timeout_s)
+            report = _diagnose(
+                candidate,
+                vendor_root,
+                discovered,
+                timeout_s,
+                one_step_models=one_step_models,
+            )
             attempts.append(report)
             if report.get("production_ready") is True:
                 return report, _runtime_discovery(source, str(candidate), attempts)
@@ -66,6 +85,8 @@ def _diagnose(
     vendor_root: str | Path | None,
     environ: Mapping[str, str],
     timeout_s: float,
+    *,
+    one_step_models: tuple[str, ...] | list[str] | None,
 ) -> dict[str, Any]:
     return diagnose_chem_enzy_runtime(
         env_prefix=env_prefix,
@@ -73,6 +94,7 @@ def _diagnose(
         environ=environ,
         capability_probe=True,
         capability_probe_timeout_s=timeout_s,
+        one_step_models=one_step_models,
     )
 
 

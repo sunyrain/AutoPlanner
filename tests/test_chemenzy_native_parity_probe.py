@@ -36,6 +36,24 @@ def _stock_binding() -> dict:
     }
 
 
+def _stage(*, model_complete: bool = True) -> dict:
+    return {
+        "request_sha256": "a" * 64,
+        "replay_key_sha256": "b" * 64,
+        "provider_invocation_binding": {
+            "runtime_binding": {
+                "model_content_binding_sha256": "c" * 64,
+                "model_content_identity_complete": model_complete,
+            }
+        },
+        "provider_parameter_binding": {
+            "content_sha256": "f" * 64,
+            "identity_complete": True,
+            "accepted": True,
+        },
+    }
+
+
 def test_stock_content_binding_hashes_the_selected_file(tmp_path: Path) -> None:
     stock = tmp_path / "stock.sqlite3"
     stock.write_bytes(b"complete stock contents")
@@ -59,16 +77,7 @@ def test_stock_content_binding_hashes_the_selected_file(tmp_path: Path) -> None:
 def test_native_parity_report_accepts_equal_proposals_not_receipts() -> None:
     report = compile_native_parity_report(
         request={"target_smiles": "CCO", "chemenzy_seed": 0},
-        stage={
-            "request_sha256": "a" * 64,
-            "replay_key_sha256": "b" * 64,
-            "provider_invocation_binding": {
-                "runtime_binding": {
-                    "model_content_binding_sha256": "c" * 64,
-                    "model_content_identity_complete": True,
-                }
-            },
-        },
+        stage=_stage(),
         embedded_raw={**_route("CC"), "elapsed_s": 1.0},
         standalone_raw={**_route("CC"), "elapsed_s": 9.0},
         embedded_elapsed_s=1.0,
@@ -86,13 +95,7 @@ def test_native_parity_report_accepts_equal_proposals_not_receipts() -> None:
 def test_native_parity_report_rejects_changed_proposal() -> None:
     report = compile_native_parity_report(
         request={"target_smiles": "CCO", "chemenzy_seed": 0},
-        stage={
-            "provider_invocation_binding": {
-                "runtime_binding": {
-                    "model_content_identity_complete": True,
-                }
-            }
-        },
+        stage=_stage(),
         embedded_raw=_route("CC"),
         standalone_raw=_route("C"),
         embedded_elapsed_s=1.0,
@@ -107,13 +110,7 @@ def test_native_parity_report_rejects_changed_proposal() -> None:
 def test_native_parity_report_rejects_vacuous_empty_proposals() -> None:
     report = compile_native_parity_report(
         request={"target_smiles": "CCO", "chemenzy_seed": 0},
-        stage={
-            "provider_invocation_binding": {
-                "runtime_binding": {
-                    "model_content_identity_complete": True,
-                }
-            }
-        },
+        stage=_stage(),
         embedded_raw={"routes": []},
         standalone_raw={"routes": []},
         embedded_elapsed_s=1.0,
@@ -130,13 +127,7 @@ def test_native_parity_report_rejects_vacuous_empty_proposals() -> None:
 def test_native_parity_report_rejects_backend_failure_even_with_routes() -> None:
     report = compile_native_parity_report(
         request={"target_smiles": "CCO", "chemenzy_seed": 0},
-        stage={
-            "provider_invocation_binding": {
-                "runtime_binding": {
-                    "model_content_identity_complete": True,
-                }
-            }
-        },
+        stage=_stage(),
         embedded_raw={**_route("CC"), "backend_failures": [{"message": "boom"}]},
         standalone_raw=_route("CC"),
         embedded_elapsed_s=1.0,
@@ -157,13 +148,7 @@ def test_native_parity_report_rejects_changed_search_trace() -> None:
     ]
     report = compile_native_parity_report(
         request={"target_smiles": "CCO", "chemenzy_seed": 0},
-        stage={
-            "provider_invocation_binding": {
-                "runtime_binding": {
-                    "model_content_identity_complete": True,
-                }
-            }
-        },
+        stage=_stage(),
         embedded_raw=embedded,
         standalone_raw=standalone,
         embedded_elapsed_s=1.0,
@@ -173,4 +158,22 @@ def test_native_parity_report_rejects_changed_search_trace() -> None:
 
     assert report["raw_proposal_digest_equal"] is True
     assert report["search_trace_digest_equal"] is False
+    assert report["parity_accepted"] is False
+
+
+def test_native_parity_report_rejects_unbound_effective_parameters() -> None:
+    stage = _stage()
+    stage["provider_parameter_binding"]["accepted"] = False
+    report = compile_native_parity_report(
+        request={"target_smiles": "CCO", "chemenzy_seed": 0},
+        stage=stage,
+        embedded_raw=_route("CC"),
+        standalone_raw=_route("CC"),
+        embedded_elapsed_s=1.0,
+        standalone_elapsed_s=1.0,
+        stock_content_binding=_stock_binding(),
+    )
+
+    assert report["raw_proposal_digest_equal"] is True
+    assert report["parameter_binding_accepted"] is False
     assert report["parity_accepted"] is False

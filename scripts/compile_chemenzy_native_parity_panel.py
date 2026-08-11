@@ -71,6 +71,8 @@ def compile_native_parity_panel(
         nonempty = bool(report.get("nonempty_route_set_observed"))
         accepted = bool(
             report.get("model_content_identity_complete")
+            and report.get("parameter_binding_identity_complete")
+            and report.get("parameter_binding_accepted")
             and report.get("stock_content_identity_complete")
             and backend_failure_free
             and nonempty
@@ -91,6 +93,15 @@ def compile_native_parity_panel(
                 ),
                 "target_smiles": target_smiles,
                 "parity_accepted": accepted,
+                "parameter_binding_identity_complete": bool(
+                    report.get("parameter_binding_identity_complete")
+                ),
+                "parameter_binding_accepted": bool(
+                    report.get("parameter_binding_accepted")
+                ),
+                "parameter_binding_sha256": str(
+                    report.get("parameter_binding_sha256") or ""
+                ),
                 "raw_proposal_digest_equal": raw_equal,
                 "search_trace_digest_equal": trace_equal,
                 "route_fingerprint_rows_equal": fingerprints_equal,

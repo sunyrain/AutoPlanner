@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from cascade_planner.application.run_kernel import RunLimits, RunSpec
 from cascade_planner.interfaces.chemenzy_probe import (
     ChemEnzyProposalRequest,
     _guided_native_search_policy,
@@ -12,10 +13,12 @@ from cascade_planner.interfaces.chemenzy_probe import (
     _opaque_target_name,
     _select_host_route_portfolio,
     _select_runtime,
+    run_chemenzy_proposal_stage,
 )
-from cascade_planner.interfaces.chemenzy_probe_contract import (
-    provider_invocation_binding,
+from cascade_planner.interfaces.chemenzy_parameter_binding import (
+    provider_parameter_binding,
 )
+from cascade_planner.interfaces.chemenzy_probe_contract import provider_invocation_binding
 from cascade_planner.interfaces.chemenzy_probe_routes import (
     compile_chemenzy_route_fingerprints,
 )
@@ -23,6 +26,9 @@ from cascade_planner.interfaces.chemenzy_advisory import (
     normalized_quarantined_routes,
 )
 from cascade_planner.interfaces.chemenzy_probe import _normalize_proposal_route
+from cascade_planner.orchestration.retrosynthesis_service import (
+    RetrosynthesisCampaignService,
+)
 
 
 def _preflight(prefix: Path, *, ready: bool, source: str) -> dict:
@@ -51,13 +57,163 @@ def test_explicit_chemenzy_runtime_is_never_silently_replaced(tmp_path: Path) ->
             "_registered_conda_prefixes"
         ) as discover,
     ):
-        selected, discovery = _select_runtime(env_prefix=explicit, timeout_s=3.0)
+        selected, discovery = _select_runtime(
+            env_prefix=explicit,
+            timeout_s=3.0,
+            one_step_models=("graphfp_models.fixture",),
+        )
 
     assert selected == report
     assert discovery["source"] == "target_solve_config"
     assert discovery["selected_env_prefix"] == str(explicit)
     assert diagnose.call_args.kwargs["env_prefix"] == str(explicit)
+    assert diagnose.call_args.kwargs["one_step_models"] == (
+        "graphfp_models.fixture",
+    )
     discover.assert_not_called()
+
+
+def test_chemenzy_parameter_binding_freezes_three_execution_layers(
+    tmp_path: Path,
+) -> None:
+    stock = tmp_path / "stock.sqlite3"
+    stock.write_bytes(b"stock")
+    models = [
+        "graphfp_models.USPTO-full_remapped",
+        "onmt_models.bionav_native_one_step",
+    ]
+    request = ChemEnzyProposalRequest(
+        target_name="bound",
+        target_smiles="CCO",
+        random_seed=17,
+        limits={
+            "search_preset": "standard",
+            "max_routes": 2,
+            "max_steps": 14,
+            "max_iterations": 12,
+            "expansion_topk": 100,
+            "timeout_s": 240.0,
+            "random_seed": 17,
+            "one_step_models": models,
+            "stock_names": ["stock"],
+            "stock_paths": {"stock": str(stock)},
+            "enable_condition_prediction": False,
+            "enable_enzyme_assignment": False,
+            "enable_enzyme_coverage_sidecar": False,
+            "pandarallel_workers": 2,
+        },
+    ).to_dict()
+    launcher_request = {
+        "target_smiles": "CCO",
+        "search_preset": "standard",
+        "max_routes": 2,
+        "max_steps": 14,
+        "chem_enzy_iterations": 12,
+        "chem_enzy_expansion_topk": 100,
+        "timeout_s": 240.0,
+        "chemenzy_seed": 17,
+        "one_step_models": models,
+        "stock_names": ["stock"],
+        "stock_paths": {"stock": str(stock)},
+        "enable_condition_prediction": False,
+        "enable_enzyme_assignment": False,
+        "enable_enzyme_coverage_sidecar": False,
+        "pandarallel_workers": 2,
+    }
+    raw = {
+        "target": "CCO",
+        "ui_metadata": {
+            "search_preset": "standard",
+            "max_routes": 2,
+            "max_depth": 14,
+            "iterations": 12,
+            "expansion_topk": 100,
+            "timeout_s": 240.0,
+            "random_seed": 17,
+            "one_step_models": models,
+            "stock_names": ["stock"],
+            "stock_paths": {"stock": str(stock)},
+            "condition_prediction_enabled": False,
+            "enzyme_assignment_enabled": False,
+            "enzyme_coverage_sidecar_enabled": False,
+            "pandarallel_workers": 2,
+        },
+    }
+
+    binding = provider_parameter_binding(
+        request,
+        launcher_request=launcher_request,
+        raw_result=raw,
+        runtime_preflight={"requested_one_step_models": models},
+    )
+
+    assert binding["accepted"] is True
+    assert binding["identity_complete"] is True
+    assert binding["mismatch_fields"] == []
+    assert binding["incomplete_fields"] == []
+    assert len(binding["content_sha256"]) == 64
+
+    raw["ui_metadata"]["expansion_topk"] = 99
+    mismatch = provider_parameter_binding(
+        request,
+        launcher_request=launcher_request,
+        raw_result=raw,
+        runtime_preflight={"requested_one_step_models": models},
+    )
+    assert mismatch["accepted"] is False
+    assert mismatch["mismatch_fields"] == ["expansion_topk"]
+
+
+def test_builtin_probe_fails_closed_on_parameter_binding_mismatch(
+    tmp_path: Path,
+) -> None:
+    service = RetrosynthesisCampaignService.create(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=RunSpec(
+            run_id="parameter-binding-mismatch",
+            target_name="parameter binding mismatch",
+            target_smiles="CCO",
+            created_at="2026-08-11T00:00:00Z",
+            limits=RunLimits(max_total_tasks=8),
+        ),
+        artifact_store_root=tmp_path / "cas",
+        run_index_path=tmp_path / "index" / "runs.sqlite3",
+    )
+    binding = {
+        "schema_version": "chemenzy_parameter_binding.v1",
+        "accepted": False,
+        "identity_complete": True,
+        "mismatch_fields": ["expansion_topk"],
+        "incomplete_fields": [],
+        "content_sha256": "f" * 64,
+    }
+    with (
+        patch(
+            "cascade_planner.interfaces.chemenzy_probe._run_builtin_probe",
+            return_value={
+                "search_executed": True,
+                "runtime_preflight": {},
+                "runtime_discovery": {},
+                "routes": [],
+            },
+        ),
+        patch(
+            "cascade_planner.interfaces.chemenzy_parameter_binding."
+            "provider_parameter_binding",
+            return_value=binding,
+        ),
+    ):
+        result = run_chemenzy_proposal_stage(
+            service,
+            target_name="parameter binding mismatch",
+            target_smiles="CCO",
+            enabled=True,
+        )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "chemenzy_parameter_binding_mismatch"
+    assert result["provider_parameter_binding"] == binding
 
 
 def test_chemenzy_runtime_can_fall_back_to_bounded_conda_discovery(

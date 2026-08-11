@@ -47,6 +47,7 @@ def compile_native_parity_report(
     )
     binding = dict(stage.get("provider_invocation_binding") or {})
     runtime = dict(binding.get("runtime_binding") or {})
+    parameter_binding = dict(stage.get("provider_parameter_binding") or {})
     stock_binding = dict(stock_content_binding or {})
     embedded_backend_failures = list(embedded_raw.get("backend_failures") or [])
     standalone_backend_failures = list(standalone_raw.get("backend_failures") or [])
@@ -77,6 +78,16 @@ def compile_native_parity_report(
         "model_content_identity_complete": bool(
             runtime.get("model_content_identity_complete") is True
         ),
+        "parameter_binding_sha256": str(
+            parameter_binding.get("content_sha256") or ""
+        ),
+        "parameter_binding_identity_complete": bool(
+            parameter_binding.get("identity_complete") is True
+        ),
+        "parameter_binding_accepted": bool(
+            parameter_binding.get("accepted") is True
+        ),
+        "parameter_binding": parameter_binding,
         "stock_content_binding_sha256": str(
             stock_binding.get("content_sha256") or ""
         ),
@@ -123,6 +134,7 @@ def compile_native_parity_report(
             "standalone_path_invokes_launcher_directly": True,
             "raw_result_digest_may_differ_due_to_operational_receipts": True,
             "parity_requires_model_content_identity_complete": True,
+            "parity_requires_parameter_binding": True,
             "parity_requires_stock_content_identity_complete": True,
             "parity_requires_backend_failure_free": True,
             "parity_requires_nonempty_route_set": True,
@@ -131,6 +143,8 @@ def compile_native_parity_report(
     }
     report["parity_accepted"] = bool(
         report["model_content_identity_complete"]
+        and report["parameter_binding_identity_complete"]
+        and report["parameter_binding_accepted"]
         and report["stock_content_identity_complete"]
         and report["backend_failure_free"]
         and report["nonempty_route_set_observed"]

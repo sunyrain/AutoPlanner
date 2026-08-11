@@ -28,6 +28,10 @@ from cascade_planner.interfaces.chemenzy_probe_contract import (
     _result,
     provider_invocation_binding,
 )
+from cascade_planner.interfaces.chemenzy_parameter_binding import (
+    bind_builtin_provider_parameters,
+)
+from cascade_planner.baselines.chem_enzy_adapter import DEFAULT_ONE_STEP_MODELS
 from cascade_planner.interfaces.chemenzy_probe_routes import (
     _chemenzy_transformation_hypothesis,
     _normalize_proposal_route,
@@ -83,6 +87,7 @@ def run_chemenzy_proposal_stage(
     enable_enzyme_assignment: bool = True,
     enable_enzyme_coverage_sidecar: bool = True,
     pandarallel_workers: int = 2,
+    one_step_models: tuple[str, ...] = tuple(DEFAULT_ONE_STEP_MODELS),
 ) -> dict[str, Any]:
     """Acquire a small proposal pool and admit it through the canonical graph."""
 
@@ -111,6 +116,9 @@ def run_chemenzy_proposal_stage(
         "enable_enzyme_assignment": bool(enable_enzyme_assignment),
         "enable_enzyme_coverage_sidecar": bool(enable_enzyme_coverage_sidecar),
         "pandarallel_workers": max(1, min(8, int(pandarallel_workers))),
+        "one_step_models": [
+            str(value) for value in one_step_models if str(value).strip()
+        ],
     }
     if not enabled:
         return _result(
@@ -155,6 +163,16 @@ def run_chemenzy_proposal_stage(
             limits=limits,
         )
     )
+    parameter_binding, parameter_failure = bind_builtin_provider_parameters(
+        request.to_dict(),
+        raw_result=raw,
+        builtin=provider is None,
+        mode=mode,
+        scope=scope,
+        limits=limits,
+    )
+    if parameter_failure is not None:
+        return parameter_failure
     routes = _normalized_routes(raw, target_smiles=target_smiles)
     quarantined_routes = normalized_quarantined_routes(
         raw,
@@ -383,6 +401,7 @@ def run_chemenzy_proposal_stage(
         replay_key_sha256=str(invocation_binding.get("replay_key_sha256") or ""),
         random_seed=int(random_seed),
         provider_invocation_binding=invocation_binding,
+        provider_parameter_binding=parameter_binding,
         route_lineage=route_lineage,
         proposal_count=len(hypotheses),
         changed=applied.get("changed") is True,
@@ -427,6 +446,7 @@ def run_chemenzy_guided_frontier_stage(
     enable_enzyme_assignment: bool = True,
     enable_enzyme_coverage_sidecar: bool = True,
     pandarallel_workers: int = 2,
+    one_step_models: tuple[str, ...] = tuple(DEFAULT_ONE_STEP_MODELS),
 ) -> dict[str, Any]:
     """Expand only canonical Codex-selected or stock-rejected subtargets."""
 
@@ -518,6 +538,7 @@ def run_chemenzy_guided_frontier_stage(
                 enable_enzyme_assignment=enable_enzyme_assignment,
                 enable_enzyme_coverage_sidecar=enable_enzyme_coverage_sidecar,
                 pandarallel_workers=pandarallel_workers,
+                one_step_models=one_step_models,
             )
         )
     proposal_count = sum(int(result.get("proposal_count") or 0) for result in results)
@@ -628,6 +649,7 @@ def _run_builtin_probe(
         env_prefix=env_prefix,
         vendor_root=vendor_root,
         timeout_s=min(30.0, float(limits["timeout_s"])),
+        one_step_models=tuple(limits.get("one_step_models") or ()),
     )
     if preflight.get("production_ready") is not True:
         return {
@@ -650,6 +672,9 @@ def _run_builtin_probe(
         "chem_enzy_iterations": limits["max_iterations"],
         "chem_enzy_expansion_topk": limits["expansion_topk"],
         "chemenzy_seed": int(limits.get("random_seed") or 0),
+        "timeout_s": float(limits["timeout_s"]),
+        "pandarallel_workers": int(limits.get("pandarallel_workers") or 2),
+        "one_step_models": list(limits.get("one_step_models") or []),
         "stock_mode": "building-block",
         "device": "cpu",
         "enable_rule_verifier_gate": True,
@@ -754,6 +779,7 @@ def _run_builtin_probe(
         "output_path": str(output_path),
         "queue_wait_s": round(queue_wait_s, 3),
         "pandarallel_workers": int(environment["CHEMENZY_PANDARALLEL_WORKERS"]),
+        "launcher_request": request,
     }
 
 
