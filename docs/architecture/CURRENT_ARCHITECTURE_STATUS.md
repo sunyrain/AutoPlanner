@@ -153,6 +153,14 @@
 > 集成 3 passed，超行数预算项由 9 个降至 8 个；完整离线套件为 2699 passed、3 skipped、
 > 1 deselected、2 subtests passed，用时 167.98 秒。
 
+> 2026-08-11 literature procedure line fragments 职责拆分增量：`literature_procedure_fragments.py`
+> 从 147 行降至 52 行，专利 `(1) product` 与期刊 `product (Entry 1)` 的逐行标题识别、产品名过滤和
+> 过程信号判断迁入 107 行的 `literature_procedure_line_fragments.py`。facade 仍优先恢复逐行片段，
+> 无结果时回退到压平文本的显式 `Compound N`/命名化合物标题解析；`source_procedure_fragments` 与
+> HTML parser 兼容导出不变。Ruff、compileall、`git diff --check` 均通过，procedure/literature/架构
+> 聚焦回归 37 passed，超行数预算项由 8 个降至 7 个；完整离线套件为 2699 passed、3 skipped、
+> 1 deselected、2 subtests passed，用时 174.44 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
