@@ -99,6 +99,8 @@
 
 第四个维护切片把 `v4_target_runtime.py` 从 704 行降至 386 行：payload 校验、约束/预算编译和可选 evidence provider 装配迁入 interfaces 层 331 行的 `target_solve_request.py`，runtime 只保留后台 job、自动 continuation、实时进度与历史投影。请求模块放在 interfaces 而非 web，继续满足 V4 禁止依赖 `cascade_planner.web.*` 的所有权门；HTTP 行为、Gateway 调用和 `solve_target_request` facade 导出不变。Web/架构聚焦回归 30 passed，相关 Gateway/target solver/CLI 集成 85 passed，超预算模块由 14 个降至 13 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 173.53 秒。
 
+第五个维护切片把 `v4_api.py` 从 520 行降至 333 行：同步 target solve、后台 job 启动/列表/状态/删除、objective 兼容警告和 workspace queue visibility 迁入 230 行的 `v4_target_routes.py`。Blueprint 总装配、错误处理、run lifecycle、Program/Workbench/PDF 路由仍留在 facade；注册器通过参数接收原模块的 `_solve_target_request`、`_run_target_job` 与 payload reader，保留现有测试和运行时注入点。Web/架构聚焦回归 30 passed，相关 Web/Workspace/Gateway 集成 69 passed，超预算模块由 13 个降至 12 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 190.90 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度

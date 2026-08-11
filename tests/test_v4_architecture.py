@@ -378,6 +378,7 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/runtime/immutable_event_store.py": 70,
     "cascade_planner/runtime/immutable_json_events.py": 70,
     "cascade_planner/web/v4_api.py": 360,
+    "cascade_planner/web/v4_target_routes.py": 300,
     "cascade_planner/web/v4_experiment_api.py": 120,
     "cascade_planner/web/v4_program_innovation_api.py": 110,
     "cascade_planner/web/v4_program_payload.py": 80,

@@ -115,6 +115,13 @@
 > 降至 13 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时
 > 173.53 秒。
 
+> 2026-08-11 V4 API 路由拆分增量：原 520 行 Blueprint 模块已拆为 333 行的总装配、错误处理、
+> run lifecycle、Program/Workbench/PDF facade，以及 230 行的 target solve/background job/兼容警告/
+> workspace queue visibility 路由注册模块。注册器通过参数接收原模块的 solver、job runner 与 payload
+> reader，保留 monkeypatch/运行时注入点；HTTP 路径、响应码和 Gateway 调用不变。Web/架构聚焦
+> 回归 30 passed，相关 Web/Workspace/Gateway 集成 69 passed，超行数预算项由 13 个降至 12 个；
+> 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 190.90 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
