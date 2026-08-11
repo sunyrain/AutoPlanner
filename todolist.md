@@ -21,7 +21,7 @@
 - [x] Codex 保留 campaign 级全局规划、文献假设、失败重规划和酶/机理 Program 设计职责。
 - [x] ChemEnzy 保留目标级原生多步搜索能力；Codex 指导只能增量加权或补充候选，不能取代或裁掉原生 frontier。
 - [x] proposal、reaction proof、exact evidence、stock、conditions、Program validation 分轴记录；缺少高层证明不能删除低层有效候选。
-- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，目前已完成十五个维护切片，超限模块由 17 个降至 2 个。
+- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，目前已完成十六个维护切片，超限模块由 17 个降至 1 个。
 
 ## 当前架构蓝图
 
@@ -120,6 +120,8 @@
 第十四个维护切片把仅超限 1 行的 `v4_planned_route_branches.py` 从 401 行压缩到 399 行：只将单符号 `source_conditions` 导入改为等价单行写法，没有迁移职责、增加抽象或改变 planned branch 投影。Ruff、compileall、`git diff --check` 均通过，Workbench/架构聚焦回归 36 passed，超预算模块由 4 个降至 3 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 179.41 秒。
 
 第十五个维护切片把 `campaign_operations.py` 从 181 行降至 135 行：model-free status/oracle/workbench benchmark、CPU/wall time 与 peak-memory 采样迁入 64 行的 `campaign_benchmark.py`。原操作模块继续拥有 Workbench/review bundle 导出、artifact GC 计划与兼容 `benchmark_campaign` 导出；Gateway 调用入口不变。Ruff、compileall、`git diff --check` 均通过，Gateway/操作/架构聚焦回归 21 passed，超预算模块由 3 个降至 2 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.14 秒。
+
+第十六个维护切片把 `campaign_gateway.py` 从 427 行降至 396 行：Gateway 结果封套与计划 payload 摘要迁入 46 行的 `campaign_gateway_projection.py`，默认 provider-set stock oracle 编译迁入 28 行的 `campaign_gateway_stock_oracle.py`。Gateway 继续拥有 run lifecycle、路径/index/provider registry、CLI/Web 委派和 `_open`/`_normalize_run_id`；target solver 依赖的 `_default_stock_oracle_reference` 私有兼容包装保留并委派到新 helper。Ruff、compileall、`git diff --check` 均通过，Gateway/Web/架构聚焦回归 42 passed，validation-fork 3 passed，超预算模块由 2 个降至 1 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.06 秒。
 
 ## 1. 不可破坏的架构约束
 
@@ -598,7 +600,7 @@ W2 验收门：
 - [x] 不把 enzyme/mechanism superstep 伪装成已验证普通 reaction edge。
 - [ ] 不通过恢复 legacy scheduler 或 Blackboard 快速绕过统一设计。
 - [ ] 不在全 190 test targets 上边看结果边逐目标调参。
-- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成十五个维护切片，剩余 2 个超限模块。
+- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成十六个维护切片，仅剩 1 个超限模块。
 
 ## 18. 当前施工序列
 

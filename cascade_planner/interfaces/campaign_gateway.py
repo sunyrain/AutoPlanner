@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from pathlib import Path
 import re
 from typing import Any, Mapping
@@ -33,6 +31,13 @@ from cascade_planner.interfaces.campaign_gateway_contract import (
     CAMPAIGN_GATEWAY_RESULT_SCHEMA,
     CampaignGatewayError,
 )
+from cascade_planner.interfaces.campaign_gateway_projection import (
+    campaign_gateway_result,
+    campaign_payload_digest,
+)
+from cascade_planner.interfaces.campaign_gateway_stock_oracle import (
+    default_stock_oracle_reference,
+)
 from cascade_planner.interfaces.campaign_program_gateway import (
     CampaignProgramGatewayMixin,
 )
@@ -46,9 +51,7 @@ from cascade_planner.orchestration.retrosynthesis_service import (
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.runtime.run_index import RunIndex
 from cascade_planner.providers.builtins import build_default_provider_registry
-from cascade_planner.providers.contracts import ProviderKind
 from cascade_planner.providers.registry import ProviderRegistry
-from cascade_planner.providers.stock import stock_provider_set_authority_binding
 
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -104,7 +107,8 @@ class CampaignGateway(CampaignProgramGatewayMixin):
             target_smiles=target_smiles,
             stock_oracle=(
                 stock_oracle_reference
-                or self._default_stock_oracle_reference(
+                or default_stock_oracle_reference(
+                    self.providers,
                     boundary=resolved_acceptance.stock_boundary
                 )
             ),
@@ -163,7 +167,9 @@ class CampaignGateway(CampaignProgramGatewayMixin):
         if global_plan is not None:
             operations["global_plan"] = service.apply_global_plan(
                 global_plan,
-                idempotency_key=f"gateway:plan:{_digest(global_plan)[:24]}",
+                idempotency_key=(
+                    f"gateway:plan:{campaign_payload_digest(global_plan)[:24]}"
+                ),
             )
         if materialize:
             revision = service.kernel.state.graph_revision
@@ -175,7 +181,7 @@ class CampaignGateway(CampaignProgramGatewayMixin):
             operations["closeout"] = service.closeout(
                 idempotency_key=f"gateway:closeout:{revision}"
             )
-        return self._result(service, operation="run", operations=operations)
+        return campaign_gateway_result(service, operation="run", operations=operations)
 
     def solve_target(self, **kwargs: Any) -> dict[str, Any]:
         from cascade_planner.interfaces.target_solver import solve_target
@@ -216,7 +222,9 @@ class CampaignGateway(CampaignProgramGatewayMixin):
             operations["closeout"] = service.closeout(
                 idempotency_key=f"gateway:resume-closeout:{service.kernel.state.revision}"
             )
-        return self._result(service, operation="resume", operations=operations)
+        return campaign_gateway_result(
+            service, operation="resume", operations=operations
+        )
 
     def apply_plan(
         self,
@@ -230,7 +238,7 @@ class CampaignGateway(CampaignProgramGatewayMixin):
         operations: dict[str, Any] = {
             "global_plan": service.apply_global_plan(
                 plan,
-                idempotency_key=f"gateway:plan:{_digest(plan)[:24]}",
+                idempotency_key=f"gateway:plan:{campaign_payload_digest(plan)[:24]}",
             )
         }
         if materialize:
@@ -238,7 +246,9 @@ class CampaignGateway(CampaignProgramGatewayMixin):
             operations["materialization"] = service.execute_frontier_materialization(
                 idempotency_key=f"gateway:frontier-materialization:{revision}"
             )
-        return self._result(service, operation="apply-plan", operations=operations)
+        return campaign_gateway_result(
+            service, operation="apply-plan", operations=operations
+        )
 
     def status(
         self,
@@ -246,7 +256,9 @@ class CampaignGateway(CampaignProgramGatewayMixin):
         *,
         run_dir: str | Path | None = None,
     ) -> dict[str, Any]:
-        return self._result(self._open(run_id, run_dir=run_dir), operation="status")
+        return campaign_gateway_result(
+            self._open(run_id, run_dir=run_dir), operation="status"
+        )
 
     def workbench(
         self,
@@ -374,51 +386,8 @@ class CampaignGateway(CampaignProgramGatewayMixin):
     def _new_run_id(target_name: str, target_smiles: str) -> str:
         return new_run_id(target_name, target_smiles)
 
-    @staticmethod
-    def _result(
-        service: RetrosynthesisCampaignService,
-        *,
-        operation: str,
-        operations: Mapping[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return {
-            "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
-            "operation": operation,
-            "run_id": service.kernel.spec.run_id,
-            "run_dir": str(service.kernel.run_dir),
-            "campaign_spec": service.kernel.spec.campaign_spec.to_dict(),
-            "status": service.status(),
-            "operations": dict(operations or {}),
-        }
-
-    def _default_stock_oracle_reference(
-        self,
-        *,
-        boundary: str,
-    ) -> StockOracleReference:
-        providers = [
-            self.providers.get(descriptor.provider_id)
-            for descriptor in self.providers.descriptors(kind=ProviderKind.STOCK)
-        ]
-        binding = stock_provider_set_authority_binding(providers)
-        return StockOracleReference.from_binding(
-            oracle_id=f"provider-set:{binding['content_sha256'][:24]}",
-            boundary=boundary,
-            binding=binding,
-        )
-
-
-def _digest(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-
+    def _default_stock_oracle_reference(self, *, boundary: str) -> StockOracleReference:
+        return default_stock_oracle_reference(self.providers, boundary=boundary)
 
 __all__ = [
     "CAMPAIGN_GATEWAY_RESULT_SCHEMA",

@@ -197,6 +197,14 @@
 > `git diff --check` 均通过，Gateway/操作/架构聚焦回归 21 passed，超行数预算项由 3 个降至 2 个；
 > 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.14 秒。
 
+> 2026-08-11 CampaignGateway 职责拆分增量：`campaign_gateway.py` 从 427 行降至 396 行，Gateway
+> 结果封套与计划 payload 摘要迁入 46 行的 `campaign_gateway_projection.py`，默认 provider-set stock
+> oracle 编译迁入 28 行的 `campaign_gateway_stock_oracle.py`。Gateway 继续拥有 run lifecycle、路径/
+> index/provider registry、CLI/Web 委派与 `_open`/`_normalize_run_id`；target solver 依赖的
+> `_default_stock_oracle_reference` 兼容包装保留并委派到新 helper。Ruff、compileall、`git diff --check`
+> 均通过，Gateway/Web/架构聚焦回归 42 passed，validation-fork 3 passed，超行数预算项由 2 个降至
+> 1 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.06 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
