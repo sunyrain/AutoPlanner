@@ -1,0 +1,122 @@
+{
+  "schema_version": "chemenzy_native_parity_panel.v1",
+  "generated_at": "2026-08-11T19:43:12.740195Z",
+  "evidence_date": "2026-08-11",
+  "source_commit": "a9fc3a2",
+  "scope": {
+    "benchmark": "Retro*-190",
+    "benchmark_manifest": "benchmarks/retrostar190_v4.json",
+    "benchmark_manifest_sha256": "2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623",
+    "selection_rule": "manifest prefix; bounded engineering evidence only",
+    "selected_target_count": 3,
+    "full_benchmark_target_count": 190,
+    "not_full_benchmark_result": true
+  },
+  "contract": {
+    "uniform_request_contract": true,
+    "uniform_model_content_binding": true,
+    "uniform_stock_content_binding": true,
+    "request_contract_sha256": [
+      "ead6770fa1fb3b4cdd03fd9f16fb38ffa898475c861a9be44529f7bee68c08ba"
+    ],
+    "model_content_binding_sha256": [
+      "e49ca9286a45429673854ef9c6fa25d4c7b5451d1fbba0f7f7703b097a0d8178"
+    ],
+    "stock_content_binding_sha256": [
+      "7545b41c9c78c33c8f3bac5477c33d381b5676d1ff3e29ef519902a6060e5849"
+    ]
+  },
+  "summary": {
+    "panel_size": 3,
+    "strict_nonvacuous_parity_count": 2,
+    "raw_proposal_parity_count": 3,
+    "search_trace_parity_count": 3,
+    "strict_nonvacuous_parity_rate": 0.666667,
+    "raw_proposal_parity_rate": 1.0,
+    "all_selected_raw_proposals_equal": true,
+    "all_selected_strictly_accepted": false
+  },
+  "rows": [
+    {
+      "case_id": "retrostar190-001-ddec287bee",
+      "target_name": "opaque benchmark target 001",
+      "target_smiles": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+      "parity_accepted": true,
+      "raw_proposal_digest_equal": true,
+      "search_trace_digest_equal": true,
+      "route_fingerprint_rows_equal": true,
+      "backend_failure_free": true,
+      "nonempty_route_set_observed": true,
+      "embedded_route_count": 2,
+      "standalone_route_count": 2,
+      "embedded_quarantined_route_count": 0,
+      "standalone_quarantined_route_count": 0,
+      "embedded_search_trace_count": 1213,
+      "standalone_search_trace_count": 1213,
+      "embedded_raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
+      "standalone_raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
+      "embedded_search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de",
+      "standalone_search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de",
+      "report_content_sha256": "0f66b4311b7cfbf78af06775854378273ad06e36057c7f015c8d295d2bc19f1f",
+      "report_generated_at": "2026-08-11T19:17:01.862301Z",
+      "report_source_commit": "8861883",
+      "disposition": "accepted_nonvacuous"
+    },
+    {
+      "case_id": "retrostar190-002-5e5138eaad",
+      "target_name": "opaque benchmark target 002",
+      "target_smiles": "CCCC[C@@H](C(=O)N1CCC[C@H]1C(=O)O)[C@@H](F)C(=O)OC",
+      "parity_accepted": true,
+      "raw_proposal_digest_equal": true,
+      "search_trace_digest_equal": true,
+      "route_fingerprint_rows_equal": true,
+      "backend_failure_free": true,
+      "nonempty_route_set_observed": true,
+      "embedded_route_count": 2,
+      "standalone_route_count": 2,
+      "embedded_quarantined_route_count": 2,
+      "standalone_quarantined_route_count": 2,
+      "embedded_search_trace_count": 1029,
+      "standalone_search_trace_count": 1029,
+      "embedded_raw_proposal_sha256": "3b5678faf0b30219f685331cb806e6431a32a2e850167c22129826f70d9be1ed",
+      "standalone_raw_proposal_sha256": "3b5678faf0b30219f685331cb806e6431a32a2e850167c22129826f70d9be1ed",
+      "embedded_search_trace_sha256": "b7be798660723e319b4dab458ef0582874e4351c2c52b04360b3b34f60bd0b08",
+      "standalone_search_trace_sha256": "b7be798660723e319b4dab458ef0582874e4351c2c52b04360b3b34f60bd0b08",
+      "report_content_sha256": "e1c533a5345dcfa0f04aa632a227980abd040a4ec1fd15148a65c36cccc86a5c",
+      "report_generated_at": "2026-08-11T19:30:52.748322Z",
+      "report_source_commit": "a9fc3a2",
+      "disposition": "accepted_nonvacuous"
+    },
+    {
+      "case_id": "retrostar190-003-daa4011bac",
+      "target_name": "opaque benchmark target 003",
+      "target_smiles": "CC(C)c1ccc(-n2nc(O)c3c(=O)c4ccc(Cl)cc4[nH]c3c2=O)cc1",
+      "parity_accepted": false,
+      "raw_proposal_digest_equal": true,
+      "search_trace_digest_equal": true,
+      "route_fingerprint_rows_equal": true,
+      "backend_failure_free": true,
+      "nonempty_route_set_observed": false,
+      "embedded_route_count": 0,
+      "standalone_route_count": 0,
+      "embedded_quarantined_route_count": 2,
+      "standalone_quarantined_route_count": 2,
+      "embedded_search_trace_count": 209,
+      "standalone_search_trace_count": 209,
+      "embedded_raw_proposal_sha256": "8584b4bf2da8f0596074278ac501fee9b2f596bbbde6fafb23b8245d9af9d0c9",
+      "standalone_raw_proposal_sha256": "8584b4bf2da8f0596074278ac501fee9b2f596bbbde6fafb23b8245d9af9d0c9",
+      "embedded_search_trace_sha256": "05ce6f22a84da6c938ae18a8e56285cc1e0260d21190271032e12b5492c16114",
+      "standalone_search_trace_sha256": "05ce6f22a84da6c938ae18a8e56285cc1e0260d21190271032e12b5492c16114",
+      "report_content_sha256": "b3e9b41388cda3add9ae158399d6c649e55c28066bbf116421ebd7dff061ed1f",
+      "report_generated_at": "2026-08-11T19:32:04.132106Z",
+      "report_source_commit": "a9fc3a2",
+      "disposition": "deterministic_but_empty_route_set"
+    }
+  ],
+  "limitations": [
+    "This panel is bounded evidence for the selected manifest prefix, not a 190-target result.",
+    "An empty route set is reported as deterministic-but-empty and does not satisfy strict parity acceptance.",
+    "Fresh/uncached CSV preparation remains a separate Windows torchtext compatibility boundary."
+  ],
+  "content_sha256": "d7e9caf46259ba7feb35dcf6a613e7562b0e2bac0e851430ec108b65a37b1e2c"
+}
