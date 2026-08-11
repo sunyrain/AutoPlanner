@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import logging
+import math
 import os
 import time
 from typing import Any, Callable
@@ -56,7 +57,7 @@ def bounded_mol_planner(
                 logging.info("No open nodes!")
                 stop_reason = "no_open_nodes"
                 break
-            m_next = min(open_nodes, key=lambda node: node.v_target())
+            m_next = min(open_nodes, key=_node_selection_key)
             mol_tree.search_status = m_next.v_target()
             try:
                 result = mol_tree.call_expand_fn(expand_fn, m_next)
@@ -99,7 +100,10 @@ def bounded_mol_planner(
                 and not rollout_success
                 and rollout_depth - current_depth < 6
             ):
-                grandchild = mol_tree._select_promising_grandchild(m_next)
+                grandchild = _select_promising_grandchild(m_next)
+                if grandchild is None:
+                    m_next.go_back = True
+                    break
                 if grandchild.go_back:
                     m_next = grandchild
                     continue
@@ -164,6 +168,74 @@ def bounded_mol_planner(
         mol_tree.cascade_expansion_trace,
         search_stop,
     )
+
+
+def _select_promising_grandchild(mol_node: Any) -> Any | None:
+    """Select a rollout node without process-address-dependent set ordering.
+
+    The vendor implementation deduplicates successful siblings with
+    ``list(set(nodes))``. ``MolNode`` uses the default object hash, so equal
+    searches in independent processes can choose different tied siblings.
+    Preserve first-seen topology for deduplication and use the stable tree node
+    ID as the explicit tie-breaker.
+    """
+
+    children = list(getattr(mol_node, "children", []) or [])
+    if not children and bool(getattr(mol_node, "open", False)):
+        return None
+    if int(getattr(mol_node, "depth", 0)) == int(
+        getattr(mol_node, "max_depth", 0)
+    ) - 1:
+        mol_node.go_back = True
+        return mol_node
+
+    grandchildren: list[Any] = []
+    successful_siblings: list[Any] = []
+    seen_siblings: set[tuple[int, int, str]] = set()
+    for reaction in children:
+        if reaction is None:
+            continue
+        for grandchild in list(getattr(reaction, "children", []) or []):
+            grandchildren.append(grandchild)
+            if not (
+                bool(getattr(grandchild, "succ", False))
+                and getattr(grandchild, "sibling", None)
+            ):
+                continue
+            for sibling in list(grandchild.sibling):
+                identity = _node_identity_key(sibling)
+                if identity in seen_siblings:
+                    continue
+                seen_siblings.add(identity)
+                successful_siblings.append(sibling)
+
+    candidates = successful_siblings or grandchildren
+    if not candidates:
+        return None
+    return min(candidates, key=_node_selection_key)
+
+
+def _node_identity_key(node: Any) -> tuple[int, int, str]:
+    return (
+        int(getattr(node, "id", -1)),
+        int(getattr(node, "depth", -1)),
+        str(getattr(node, "mol", "")),
+    )
+
+
+def _node_selection_key(node: Any) -> tuple[float, int, int, str]:
+    terminal = getattr(node, "is_terminal", None)
+    if callable(terminal) and terminal():
+        value = math.inf
+    else:
+        try:
+            value = float(node.v_target())
+        except (AttributeError, TypeError, ValueError):
+            value = math.inf
+        if math.isnan(value):
+            value = math.inf
+    node_id, depth, mol = _node_identity_key(node)
+    return value, node_id, depth, mol
 
 
 def _rollout_with_trace(

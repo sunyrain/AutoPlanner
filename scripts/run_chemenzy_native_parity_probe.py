@@ -34,6 +34,7 @@ def compile_native_parity_report(
     standalone_raw: Mapping[str, Any],
     embedded_elapsed_s: float,
     standalone_elapsed_s: float,
+    stock_content_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     target = str(request.get("target_smiles") or "")
     embedded = compile_chemenzy_route_fingerprints(
@@ -46,8 +47,11 @@ def compile_native_parity_report(
     )
     binding = dict(stage.get("provider_invocation_binding") or {})
     runtime = dict(binding.get("runtime_binding") or {})
+    stock_binding = dict(stock_content_binding or {})
     embedded_backend_failures = list(embedded_raw.get("backend_failures") or [])
     standalone_backend_failures = list(standalone_raw.get("backend_failures") or [])
+    embedded_trace = _search_trace_summary(embedded_raw)
+    standalone_trace = _search_trace_summary(standalone_raw)
     report = {
         "schema_version": "chemenzy_native_parity_probe.v1",
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -73,8 +77,21 @@ def compile_native_parity_report(
         "model_content_identity_complete": bool(
             runtime.get("model_content_identity_complete") is True
         ),
-        "embedded": _fingerprint_summary(embedded, embedded_elapsed_s),
-        "standalone": _fingerprint_summary(standalone, standalone_elapsed_s),
+        "stock_content_binding_sha256": str(
+            stock_binding.get("content_sha256") or ""
+        ),
+        "stock_content_identity_complete": bool(
+            stock_binding.get("identity_complete") is True
+        ),
+        "stock_content_binding": stock_binding,
+        "embedded": {
+            **_fingerprint_summary(embedded, embedded_elapsed_s),
+            **embedded_trace,
+        },
+        "standalone": {
+            **_fingerprint_summary(standalone, standalone_elapsed_s),
+            **standalone_trace,
+        },
         "embedded_backend_failure_count": len(embedded_backend_failures),
         "standalone_backend_failure_count": len(standalone_backend_failures),
         "backend_failure_free": not (
@@ -83,6 +100,15 @@ def compile_native_parity_report(
         "nonempty_route_set_observed": bool(
             int(embedded.get("route_count") or 0) > 0
             and int(standalone.get("route_count") or 0) > 0
+        ),
+        "search_trace_identity_complete": bool(
+            embedded_trace["search_trace_count"] > 0
+            and standalone_trace["search_trace_count"] > 0
+        ),
+        "search_trace_digest_equal": bool(
+            embedded_trace["search_trace_sha256"]
+            and embedded_trace["search_trace_sha256"]
+            == standalone_trace["search_trace_sha256"]
         ),
         "raw_proposal_digest_equal": (
             embedded.get("raw_proposal_sha256")
@@ -97,14 +123,19 @@ def compile_native_parity_report(
             "standalone_path_invokes_launcher_directly": True,
             "raw_result_digest_may_differ_due_to_operational_receipts": True,
             "parity_requires_model_content_identity_complete": True,
+            "parity_requires_stock_content_identity_complete": True,
             "parity_requires_backend_failure_free": True,
             "parity_requires_nonempty_route_set": True,
+            "parity_requires_search_trace_identity": True,
         },
     }
     report["parity_accepted"] = bool(
         report["model_content_identity_complete"]
+        and report["stock_content_identity_complete"]
         and report["backend_failure_free"]
         and report["nonempty_route_set_observed"]
+        and report["search_trace_identity_complete"]
+        and report["search_trace_digest_equal"]
         and report["raw_proposal_digest_equal"]
         and report["route_fingerprint_rows_equal"]
     )
@@ -132,6 +163,10 @@ def run_native_parity_probe(args: argparse.Namespace) -> dict[str, Any]:
         run_index_path=output_root / "index" / "runs.sqlite3",
     )
     stock_paths = _stock_paths(args.stock_path)
+    stock_content_binding = _stock_content_binding(
+        stock_names=list(args.stock_name),
+        stock_paths=stock_paths,
+    )
     embedded_started = time.monotonic()
     stage = run_chemenzy_proposal_stage(
         service,
@@ -199,6 +234,7 @@ def run_native_parity_probe(args: argparse.Namespace) -> dict[str, Any]:
         standalone_raw=_read_object(standalone_path),
         embedded_elapsed_s=embedded_elapsed,
         standalone_elapsed_s=standalone_elapsed,
+        stock_content_binding=stock_content_binding,
     )
     (output_root / "chemenzy-native-parity-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
@@ -217,6 +253,16 @@ def _fingerprint_summary(value: Mapping[str, Any], elapsed_s: float) -> dict[str
     }
 
 
+def _search_trace_summary(raw: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = dict(raw.get("raw_backend_metadata") or {})
+    trace = dict(metadata.get("cascade_expansion_trace") or {})
+    rows = list(trace.get("rows") or [])
+    return {
+        "search_trace_count": len(rows),
+        "search_trace_sha256": _digest(rows) if rows else "",
+    }
+
+
 def _stock_paths(values: list[str]) -> dict[str, str]:
     out: dict[str, str] = {}
     for value in values:
@@ -225,6 +271,51 @@ def _stock_paths(values: list[str]) -> dict[str, str]:
             raise ValueError(f"invalid stock path override: {value}")
         out[name.strip()] = str(Path(path.strip()).expanduser().resolve())
     return out
+
+
+def _stock_content_binding(
+    *,
+    stock_names: list[str],
+    stock_paths: Mapping[str, str],
+) -> dict[str, Any]:
+    names = [str(value).strip() for value in stock_names if str(value).strip()]
+    if not names:
+        raise ValueError("at least one --stock-name is required for parity evidence")
+    missing = sorted(set(names) - set(stock_paths))
+    extra = sorted(set(stock_paths) - set(names))
+    if missing or extra:
+        raise ValueError(
+            "parity stock paths must exactly cover selected stocks: "
+            f"missing={missing}, extra={extra}"
+        )
+    rows = []
+    for name in sorted(names):
+        path = Path(stock_paths[name]).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"parity stock file not found: {path}")
+        rows.append(
+            {
+                "stock_name": name,
+                "path": str(path),
+                "size_bytes": path.stat().st_size,
+                "sha256": _file_sha256(path),
+            }
+        )
+    binding = {
+        "schema_version": "chemenzy_native_parity_stock_binding.v1",
+        "identity_complete": bool(rows),
+        "stocks": rows,
+    }
+    binding["content_sha256"] = _digest(binding)
+    return binding
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _read_object(path: Path) -> dict[str, Any]:
