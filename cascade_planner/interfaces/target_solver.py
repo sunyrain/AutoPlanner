@@ -243,6 +243,7 @@ class TargetSolveConfig:
     chemenzy_expansion_topk: int = 20
     chemenzy_timeout_s: float = 90.0
     chemenzy_search_preset: str = "standard"
+    chemenzy_seed: int = 0
     chemenzy_pandarallel_workers: int = 2
     max_guided_chemenzy_frontiers: int = 3
     max_guided_chemenzy_iterations: int = 6
@@ -306,6 +307,12 @@ class TargetSolveConfig:
             self.chemenzy_expansion_topk,
         ) < 1 or self.chemenzy_timeout_s <= 0:
             raise ValueError("target solver ChemEnzy budget is invalid")
+        if (
+            isinstance(self.chemenzy_seed, bool)
+            or not isinstance(self.chemenzy_seed, int)
+            or not 0 <= self.chemenzy_seed <= 2**32 - 1
+        ):
+            raise ValueError("target solver ChemEnzy seed is invalid")
         if self.chemenzy_search_preset not in {
             "quick",
             "standard",
@@ -858,6 +865,7 @@ def solve_target(
             expansion_topk=active.chemenzy_expansion_topk,
             timeout_s=active.chemenzy_timeout_s,
             search_preset=active.chemenzy_search_preset,
+            random_seed=active.chemenzy_seed,
             stock_names=active.chemenzy_stock_names,
             stock_paths=dict(active.chemenzy_stock_paths),
             enable_condition_prediction=active.enable_chemenzy_condition_prediction,
@@ -914,6 +922,7 @@ def solve_target(
             timeout_s=active.guided_chemenzy_timeout_s,
             include_frontier_smiles=(frontier_smiles,),
             search_preset="thorough",
+            random_seed=active.chemenzy_seed,
             stock_names=active.chemenzy_stock_names,
             stock_paths=dict(active.chemenzy_stock_paths),
             enable_condition_prediction=active.enable_chemenzy_condition_prediction,
@@ -4546,9 +4555,16 @@ def _aggregate_guided_chemenzy_action_results(
             "provider_mode": str(result.get("mode") or "guided_frontier"),
             "provider_scope": str(result.get("scope") or ""),
             "provider_request_sha256": str(result.get("request_sha256") or ""),
+            "provider_raw_proposal_sha256": str(
+                result.get("raw_proposal_sha256") or ""
+            ),
             "provider_raw_result_sha256": str(
                 result.get("raw_result_sha256") or ""
             ),
+            "provider_replay_key_sha256": str(
+                result.get("replay_key_sha256") or ""
+            ),
+            "provider_random_seed": int(result.get("random_seed") or 0),
         }
         for result in provider_results
         for lineage in result.get("route_lineage") or []
@@ -6777,7 +6793,15 @@ def _latest_chemenzy_runtime_binding(
                 handler.get("provider_registration") or {}
             ),
             "request_sha256": str(handler.get("request_sha256") or ""),
+            "raw_proposal_sha256": str(
+                handler.get("raw_proposal_sha256") or ""
+            ),
             "raw_result_sha256": str(handler.get("raw_result_sha256") or ""),
+            "replay_key_sha256": str(handler.get("replay_key_sha256") or ""),
+            "random_seed": int(handler.get("random_seed") or 0),
+            "provider_invocation_binding": dict(
+                handler.get("provider_invocation_binding") or {}
+            ),
             "runtime_preflight_sha256": _digest(preflight) if preflight else "",
             "requested_one_step_models": list(
                 preflight.get("requested_one_step_models") or []
@@ -7073,9 +7097,16 @@ def _chemenzy_provider_lineage_rows(
             "provider_mode": str(result.get("mode") or "seed"),
             "provider_scope": str(result.get("scope") or "seed"),
             "provider_request_sha256": str(result.get("request_sha256") or ""),
+            "provider_raw_proposal_sha256": str(
+                result.get("raw_proposal_sha256") or ""
+            ),
             "provider_raw_result_sha256": str(
                 result.get("raw_result_sha256") or ""
             ),
+            "provider_replay_key_sha256": str(
+                result.get("replay_key_sha256") or ""
+            ),
+            "provider_random_seed": int(result.get("random_seed") or 0),
         }
         for value in result.get("route_lineage") or []:
             if not isinstance(value, Mapping):

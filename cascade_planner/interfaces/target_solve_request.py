@@ -160,6 +160,7 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
                 payload.get("chemenzy_search_preset")
                 or ("thorough" if execution_profile == "proof" else "standard")
             ),
+            chemenzy_seed=_int(payload, "chemenzy_seed", 0),
             chemenzy_pandarallel_workers=_int(
                 payload,
                 "chemenzy_pandarallel_workers",

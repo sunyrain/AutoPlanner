@@ -1,15 +1,18 @@
 import importlib
+import os
 from pathlib import Path
 import sqlite3
 import sys
 from copy import deepcopy
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from cascade_planner.baselines.chem_enzy_adapter import (
     ChemEnzyBackendAdapter,
     _SqliteStockMembership,
     _bounded_materialization_result,
     _install_bounded_vendor_mcts,
+    _seed_runtime_state,
     audit_materialized_chem_enzy_route,
     route_candidates_from_chem_enzy_result,
 )
@@ -28,6 +31,30 @@ from scripts.run_chem_enzy_plan_for_web import (
 
 BAD_PRODUCT = "O=C(O)C(O)(CCO)C(=O)OCc1ccccc1"
 BAD_REACTANTS = ["O=C(Cl)OCc1ccccc1", "O=C([O-])[O-]"]
+
+
+def test_runtime_seed_binding_seeds_python_numpy_and_torch() -> None:
+    numpy_seed = Mock()
+    torch_seed = Mock()
+    cuda_seed = Mock()
+    fake_numpy = SimpleNamespace(random=SimpleNamespace(seed=numpy_seed))
+    fake_torch = SimpleNamespace(
+        manual_seed=torch_seed,
+        cuda=SimpleNamespace(is_available=lambda: True, manual_seed_all=cuda_seed),
+    )
+    with (
+        patch.dict(sys.modules, {"numpy": fake_numpy, "torch": fake_torch}),
+        patch.dict(os.environ, {"PYTHONHASHSEED": "17"}),
+        patch("cascade_planner.baselines.chem_enzy_adapter.random.seed") as python_seed,
+    ):
+        binding = _seed_runtime_state(17)
+
+    python_seed.assert_called_once_with(17)
+    numpy_seed.assert_called_once_with(17)
+    torch_seed.assert_called_once_with(17)
+    cuda_seed.assert_called_once_with(17)
+    assert binding["python_hash_seed_matches"] is True
+    assert binding["deterministic_algorithms_enabled"] is False
 
 
 def test_sqlite_stock_membership_supports_mcts_overlay_and_deepcopy(tmp_path: Path) -> None:
@@ -326,6 +353,7 @@ def test_launcher_derives_bounded_annotation_pool_from_host_route_limit() -> Non
                 "max_steps": 20,
                 "chem_enzy_iterations": 200,
                 "chem_enzy_expansion_topk": 120,
+                "chemenzy_seed": 41,
                 "one_step_models": ["fixture"],
                 "stock_names": ["RetroStar-stock"],
                 "stock_paths": {
@@ -342,6 +370,7 @@ def test_launcher_derives_bounded_annotation_pool_from_host_route_limit() -> Non
     assert config.search_flags["max_materialized_routes"] == 32
     assert config.search_flags["max_advisory_materialized_routes"] == 4
     assert config.stock_names == ["RetroStar-stock"]
+    assert config.random_seed == 41
     assert config.search_flags["stock_paths"]["RetroStar-stock"].endswith(
         "data\\retrostar-origin.csv"
     )

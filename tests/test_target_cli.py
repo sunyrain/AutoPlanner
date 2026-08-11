@@ -238,6 +238,8 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
             "12",
             "--chemenzy-timeout-s",
             "45",
+            "--chemenzy-seed",
+            "17",
         ]
     )
     disabled = parser.parse_args(
@@ -262,6 +264,7 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
     assert configured.chemenzy_iterations == 7
     assert configured.chemenzy_expansion_topk == 12
     assert configured.chemenzy_timeout_s == 45.0
+    assert configured.chemenzy_seed == 17
 
 
 def test_validation_fork_supports_parallel_patent_and_literature_sources() -> None:

@@ -26,6 +26,7 @@ from cascade_planner.interfaces.chemenzy_probe_contract import (
     _content_sha256,
     _opaque_target_name,
     _result,
+    provider_invocation_binding,
 )
 from cascade_planner.interfaces.chemenzy_probe_routes import (
     _chemenzy_transformation_hypothesis,
@@ -75,6 +76,7 @@ def run_chemenzy_proposal_stage(
     retron_hints: tuple[str, ...] = (),
     forbidden_smiles: tuple[str, ...] = (),
     search_preset: str = "standard",
+    random_seed: int = 0,
     stock_names: tuple[str, ...] = (),
     stock_paths: Mapping[str, str] | None = None,
     enable_condition_prediction: bool = True,
@@ -98,6 +100,7 @@ def run_chemenzy_proposal_stage(
         "expansion_topk": max(1, int(expansion_topk)),
         "timeout_s": max(1.0, float(timeout_s)),
         "search_preset": str(search_preset or "standard"),
+        "random_seed": int(random_seed),
         "stock_names": [str(value) for value in stock_names if str(value).strip()],
         "stock_paths": {
             str(name): str(path)
@@ -119,6 +122,7 @@ def run_chemenzy_proposal_stage(
         target_name=provider_target_name,
         target_smiles=target_smiles,
         mode=mode,
+        random_seed=int(random_seed),
         frontier_smiles=(target_smiles,) if mode == "guided_frontier" else (),
         route_family_ids=tuple(parent_route_family_ids),
         retron_hints=tuple(retron_hints),
@@ -311,6 +315,29 @@ def run_chemenzy_proposal_stage(
             }
         )
     status = "completed" if hypotheses else str(raw.get("status") or "unresolved")
+    fingerprints = compile_chemenzy_route_fingerprints(raw, target_smiles=target_smiles)
+    request_dict = request.to_dict()
+    request_sha256 = _content_sha256(request_dict)
+    raw_result_sha256 = _content_sha256(raw)
+    invocation_binding = provider_invocation_binding(
+        request_dict,
+        random_seed=int(random_seed),
+        raw_proposal_sha256=str(fingerprints.get("raw_proposal_sha256") or ""),
+        raw_result_sha256=raw_result_sha256,
+        runtime_preflight=raw.get("runtime_preflight") or raw.get("preflight") or {},
+    )
+    for lineage in route_lineage:
+        lineage.update(
+            {
+                "provider_random_seed": int(random_seed),
+                "provider_raw_proposal_sha256": str(
+                    fingerprints.get("raw_proposal_sha256") or ""
+                ),
+                "provider_replay_key_sha256": str(
+                    invocation_binding.get("replay_key_sha256") or ""
+                ),
+            }
+        )
     return _result(
         status,
         mode=mode,
@@ -350,8 +377,12 @@ def run_chemenzy_proposal_stage(
             }
             for route in quarantined_routes
         ],
-        request_sha256=_content_sha256(request.to_dict()),
-        raw_result_sha256=_content_sha256(raw),
+        request_sha256=request_sha256,
+        raw_result_sha256=raw_result_sha256,
+        raw_proposal_sha256=str(fingerprints.get("raw_proposal_sha256") or ""),
+        replay_key_sha256=str(invocation_binding.get("replay_key_sha256") or ""),
+        random_seed=int(random_seed),
+        provider_invocation_binding=invocation_binding,
         route_lineage=route_lineage,
         proposal_count=len(hypotheses),
         changed=applied.get("changed") is True,
@@ -389,6 +420,7 @@ def run_chemenzy_guided_frontier_stage(
     exclude_frontier_smiles: tuple[str, ...] = (),
     include_frontier_smiles: tuple[str, ...] = (),
     search_preset: str = "thorough",
+    random_seed: int = 0,
     stock_names: tuple[str, ...] = (),
     stock_paths: Mapping[str, str] | None = None,
     enable_condition_prediction: bool = True,
@@ -479,6 +511,7 @@ def run_chemenzy_guided_frontier_stage(
                 retron_hints=retrons,
                 forbidden_smiles=(root_target_smiles,),
                 search_preset=search_preset,
+                random_seed=random_seed,
                 stock_names=stock_names,
                 stock_paths=stock_paths,
                 enable_condition_prediction=enable_condition_prediction,
@@ -616,6 +649,7 @@ def _run_builtin_probe(
         "max_steps": limits["max_steps"],
         "chem_enzy_iterations": limits["max_iterations"],
         "chem_enzy_expansion_topk": limits["expansion_topk"],
+        "chemenzy_seed": int(limits.get("random_seed") or 0),
         "stock_mode": "building-block",
         "device": "cpu",
         "enable_rule_verifier_gate": True,
@@ -661,6 +695,7 @@ def _run_builtin_probe(
     environment["CHEMENZY_PANDARALLEL_WORKERS"] = str(
         max(1, min(8, int(limits.get("pandarallel_workers") or 2)))
     )
+    environment["PYTHONHASHSEED"] = str(int(limits.get("random_seed") or 0))
     environment.setdefault("OMP_NUM_THREADS", "2")
     environment.setdefault("MKL_NUM_THREADS", "2")
     queued_at = time.monotonic()

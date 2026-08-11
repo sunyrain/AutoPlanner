@@ -13,6 +13,12 @@ from cascade_planner.interfaces.chemenzy_probe import (
     _select_host_route_portfolio,
     _select_runtime,
 )
+from cascade_planner.interfaces.chemenzy_probe_contract import (
+    provider_invocation_binding,
+)
+from cascade_planner.interfaces.chemenzy_probe_routes import (
+    compile_chemenzy_route_fingerprints,
+)
 from cascade_planner.interfaces.chemenzy_advisory import (
     normalized_quarantined_routes,
 )
@@ -262,6 +268,68 @@ def test_guided_chemenzy_request_binds_canonical_frontier_and_stop_contract() ->
         "acyl substitution"
     ]
     assert policy["compiler_metadata"]["not_raw_reaction_injection"] is True
+
+
+def test_chemenzy_request_seed_is_explicit_and_replay_binding_is_seed_bound() -> None:
+    request = ChemEnzyProposalRequest(
+        target_name="seeded",
+        target_smiles="CCO",
+        random_seed=17,
+        limits={"stock_names": ["stock"]},
+    ).to_dict()
+    binding = provider_invocation_binding(
+        request,
+        random_seed=17,
+        raw_proposal_sha256="a" * 64,
+        raw_result_sha256="b" * 64,
+        runtime_preflight={"python_executable": "python"},
+    )
+    other = provider_invocation_binding(
+        {**request, "random_seed": 18},
+        random_seed=18,
+        raw_proposal_sha256="a" * 64,
+        raw_result_sha256="b" * 64,
+        runtime_preflight={"python_executable": "python"},
+    )
+
+    assert request["random_seed"] == 17
+    assert binding["random_seed"] == 17
+    assert binding["raw_proposal_sha256"] == "a" * 64
+    assert binding["replay_key_sha256"] != other["replay_key_sha256"]
+    assert binding["semantics"]["binding_does_not_fabricate_backend_determinism"]
+
+
+def test_raw_proposal_digest_ignores_operational_receipt_noise() -> None:
+    route = {
+        "steps": [
+            {
+                "product": "CC(=O)OCC",
+                "reactant_smiles": ["CCO", "CC(=O)Cl"],
+                "reaction_smiles": "CCO.CC(=O)Cl>>CC(=O)OCC",
+            }
+        ]
+    }
+    first = compile_chemenzy_route_fingerprints(
+        {
+            "routes": [route],
+            "status": "completed",
+            "stdout_path": "run-a/stdout.log",
+            "elapsed_s": 1.2,
+        },
+        target_smiles="CC(=O)OCC",
+    )
+    second = compile_chemenzy_route_fingerprints(
+        {
+            "routes": [route],
+            "status": "completed",
+            "stdout_path": "run-b/stdout.log",
+            "elapsed_s": 9.8,
+        },
+        target_smiles="CC(=O)OCC",
+    )
+
+    assert first["raw_proposal_sha256"] == second["raw_proposal_sha256"]
+    assert first["raw_result_sha256"] != second["raw_result_sha256"]
 
 
 def test_provider_target_label_is_derived_only_from_structure() -> None:

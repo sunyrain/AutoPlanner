@@ -231,6 +231,7 @@ def replay_cached_embedding(
             chemenzy_search_preset=str(
                 request.get("search_preset") or "thorough"
             ),
+            chemenzy_seed=int(request.get("chemenzy_seed") or request.get("random_seed") or 0),
             chemenzy_pandarallel_workers=2,
             max_director_output_tokens=18_000,
             max_director_wall_time_s=1_200.0,

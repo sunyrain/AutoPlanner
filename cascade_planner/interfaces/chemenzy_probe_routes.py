@@ -70,10 +70,24 @@ def compile_chemenzy_route_fingerprints(
                 "step_count": len(route.get("steps") or []),
             }
         )
+    raw_proposal_sha256 = _content_sha256(
+        {
+            "schema_version": "chemenzy_raw_proposal_set.v1",
+            "routes": [
+                {
+                    "route_index": row["route_index"],
+                    "raw_route_sha256": row["raw_route_sha256"],
+                    "quarantined": row["quarantined"],
+                }
+                for row in rows
+            ],
+        }
+    )
     return {
         "schema_version": "chemenzy_route_fingerprint_set.v1",
         "target_smiles": str(target_smiles),
         "raw_result_sha256": _content_sha256(value),
+        "raw_proposal_sha256": raw_proposal_sha256,
         "route_count": len(routes),
         "quarantined_route_count": len(quarantined),
         "routes": rows,

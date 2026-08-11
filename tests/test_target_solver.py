@@ -92,6 +92,14 @@ def _deterministic_target_identity(monkeypatch: Any) -> None:
 
 def test_target_solver_enables_target_level_chemenzy_seed_by_default() -> None:
     assert TargetSolveConfig().enable_target_chemenzy_baseline is True
+    assert TargetSolveConfig().chemenzy_seed == 0
+
+
+def test_target_solver_rejects_invalid_chemenzy_seed() -> None:
+    with pytest.raises(ValueError, match="ChemEnzy seed"):
+        TargetSolveConfig(chemenzy_seed=-1)
+    with pytest.raises(ValueError, match="ChemEnzy seed"):
+        TargetSolveConfig(chemenzy_seed=2**32)
 
 
 def test_action_handler_projection_preserves_failed_outcome_status_and_reasons() -> None:
@@ -2071,6 +2079,7 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
             enable_replan=False,
             enable_builtin_patent_evidence=False,
             enable_target_chemenzy_baseline=False,
+            chemenzy_seed=23,
             chemenzy_expansion_topk=180,
             max_guided_chemenzy_iterations=60,
         ),
@@ -2097,6 +2106,8 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
     assert [request["mode"] for request in requests] == ["guided_frontier"]
     assert limits_seen[0]["expansion_topk"] == 80
     assert limits_seen[0]["max_iterations"] == 24
+    assert limits_seen[0]["random_seed"] == 23
+    assert requests[0]["random_seed"] == 23
     assert requests[0]["route_family_ids"]
     assert requests[0]["forbidden_smiles"] == [TARGET]
     condition_actions = [

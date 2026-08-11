@@ -14,6 +14,7 @@ class RouteSearchConfig:
     max_iterations: int = 10
     max_depth: int = 6
     expansion_topk: int = 50
+    random_seed: int = 0
     one_step_models: list[str] = field(default_factory=list)
     search_flags: dict[str, Any] = field(default_factory=dict)
 
@@ -115,4 +116,3 @@ class BaselineRunResult:
             "failures": [failure.to_dict() for failure in self.failures],
             "raw_backend_metadata": self.raw_backend_metadata,
         }
-

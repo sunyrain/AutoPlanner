@@ -185,10 +185,17 @@ def compare_embedding(
         seed.get("raw_result_sha256")
         and seed.get("raw_result_sha256") == standalone_set["raw_result_sha256"]
     )
+    raw_proposal_digest_equal = bool(
+        seed.get("raw_proposal_sha256")
+        and seed.get("raw_proposal_sha256") == standalone_set["raw_proposal_sha256"]
+    )
     normalized_multiset_equal = standalone_counter == embedded_counter
     return {
-        "schema_version": "chemenzy_embedding_comparison.v2",
+        "schema_version": "chemenzy_embedding_comparison.v3",
         "target_smiles": target_smiles,
+        "standalone_raw_proposal_sha256": standalone_set["raw_proposal_sha256"],
+        "embedded_raw_proposal_sha256": str(seed.get("raw_proposal_sha256") or ""),
+        "raw_proposal_digest_equal": raw_proposal_digest_equal,
         "standalone_raw_result_sha256": standalone_set["raw_result_sha256"],
         "embedded_raw_result_sha256": str(seed.get("raw_result_sha256") or ""),
         "raw_result_digest_equal": raw_result_digest_equal,

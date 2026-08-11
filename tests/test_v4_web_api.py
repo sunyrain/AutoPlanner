@@ -1063,6 +1063,7 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
             "max_chemenzy_iterations": 4,
             "chemenzy_expansion_topk": 9,
             "chemenzy_timeout_s": 45,
+            "chemenzy_seed": 37,
             "max_model_invocations": 1,
             "forbidden_reagents": ["benzene"],
             "max_route_steps": 7,
@@ -1089,6 +1090,7 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
     assert config.max_chemenzy_iterations == 4
     assert config.chemenzy_expansion_topk == 9
     assert config.chemenzy_timeout_s == 45.0
+    assert config.chemenzy_seed == 37
     assert config.max_guided_chemenzy_frontiers == 3
     assert config.max_guided_chemenzy_iterations == 6
     assert config.execution_profile == "standard"

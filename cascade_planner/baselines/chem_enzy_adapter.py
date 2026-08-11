@@ -11,6 +11,7 @@ import importlib
 import json
 import math
 import os
+import random
 import sqlite3
 import sys
 import time
@@ -112,6 +113,41 @@ _FATAL_ONE_STEP_MODEL_SELECTION_REASONS = {
 
 
 _WINDOWS_EXTENDED_PATH_THRESHOLD = 248
+
+
+def _seed_runtime_state(seed: int) -> dict[str, Any]:
+    """Seed supported RNGs without enabling incompatible global determinism modes."""
+    seed = int(seed)
+    random.seed(seed)
+    binding: dict[str, Any] = {
+        "schema_version": "chemenzy_runtime_seed_binding.v1",
+        "random_seed": seed,
+        "python_random_seeded": True,
+        "numpy_seeded": False,
+        "torch_seeded": False,
+        "torch_cuda_seeded": False,
+        "python_hash_seed": os.environ.get("PYTHONHASHSEED", ""),
+        "python_hash_seed_matches": os.environ.get("PYTHONHASHSEED") == str(seed),
+        "deterministic_algorithms_enabled": False,
+    }
+    try:
+        import numpy as np
+
+        np.random.seed(seed)
+        binding["numpy_seeded"] = True
+    except (ImportError, AttributeError, ValueError):
+        pass
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+        binding["torch_seeded"] = True
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+            binding["torch_cuda_seeded"] = True
+    except (ImportError, AttributeError, RuntimeError, ValueError):
+        pass
+    return binding
 
 
 class _SqliteStockMembership:
@@ -406,6 +442,7 @@ class ChemEnzyBackendAdapter:
     def _run_with_planner(self, planner: Any, config: RouteSearchConfig) -> BaselineRunResult:
         annotation_failures: list[BackendFailure] = []
         annotation_metadata: dict[str, Any] = {}
+        seed_binding = _seed_runtime_state(config.random_seed)
         started = time.monotonic()
         policy_trace = chem_enzy_policy_trace_from_search_flags(config.search_flags)
         availability_report = config.search_flags.get("one_step_model_availability")
@@ -437,6 +474,8 @@ class ChemEnzyBackendAdapter:
                     )
                 ],
                 raw_backend_metadata={
+                    "random_seed": config.random_seed,
+                    "runtime_seed_binding": seed_binding,
                     "elapsed_s": round(time.monotonic() - started, 3),
                     "exception_traceback": traceback_text,
                     **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
@@ -470,6 +509,8 @@ class ChemEnzyBackendAdapter:
                     )
                 ],
                 raw_backend_metadata={
+                    "random_seed": config.random_seed,
+                    "runtime_seed_binding": seed_binding,
                     "elapsed_s": round(elapsed_s, 3),
                     **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
                     **({"one_step_model_availability": availability_report} if availability_report is not None else {}),
@@ -534,6 +575,8 @@ class ChemEnzyBackendAdapter:
             routes=routes,
             failures=annotation_failures,
             raw_backend_metadata={
+                "random_seed": config.random_seed,
+                "runtime_seed_binding": seed_binding,
                 "elapsed_s": round(elapsed_s, 3),
                 "total_elapsed_s": round(time.monotonic() - started, 3),
                 "iter": raw_result.get("iter"),
@@ -555,6 +598,7 @@ class ChemEnzyBackendAdapter:
 
     def _build_planner(self, search_config: RouteSearchConfig) -> Any:
         search_config = chem_enzy_step_strengthened_config(search_config)
+        seed_binding = _seed_runtime_state(search_config.random_seed)
         vendor_config = self._vendor_config(search_config)
         selected_one_step_models = list(search_config.one_step_models or DEFAULT_ONE_STEP_MODELS)
         selected_one_step_models, availability_report = _prune_unavailable_one_step_models(
@@ -628,6 +672,7 @@ class ChemEnzyBackendAdapter:
                 planner._autoplanner_literature_plugin_state = literature_plugin_state
             if guidance_state is not None:
                 planner._autoplanner_guided_policy_state = guidance_state
+            planner._autoplanner_runtime_seed_binding = seed_binding
             return planner
 
     def _attributes_enabled(self) -> bool:
@@ -654,6 +699,7 @@ class ChemEnzyBackendAdapter:
         config["iterations"] = int(search_config.max_iterations)
         config["max_depth"] = int(search_config.max_depth)
         config["expansion_topk"] = int(search_config.expansion_topk)
+        config["random_seed"] = int(search_config.random_seed)
         config["pred_condition"] = bool(self.enable_condition_prediction)
         config["enzyme_assign"] = bool(self.enable_enzyme_assignment)
         config["organic_enzyme_rxn_classification"] = bool(self.enable_enzyme_assignment)
@@ -1805,6 +1851,7 @@ def _planner_signature(config: RouteSearchConfig) -> str:
         "max_iterations": int(config.max_iterations),
         "max_depth": int(config.max_depth),
         "expansion_topk": int(config.expansion_topk),
+        "random_seed": int(config.random_seed),
         "one_step_models": list(config.one_step_models or DEFAULT_ONE_STEP_MODELS),
         "search_flags": search_flags,
     }

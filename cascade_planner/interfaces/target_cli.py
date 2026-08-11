@@ -206,6 +206,12 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--chemenzy-iterations", type=int, default=10)
     solve.add_argument("--chemenzy-expansion-topk", type=int, default=20)
     solve.add_argument("--chemenzy-timeout-s", type=float, default=90.0)
+    solve.add_argument(
+        "--chemenzy-seed",
+        type=int,
+        default=0,
+        help="explicit ChemEnzy Python/NumPy/Torch seed used for replay binding",
+    )
     solve.add_argument("--no-guided-chemenzy", action="store_true")
     solve.add_argument(
         "--guided-chemenzy-frontiers", type=int, choices=range(1, 7), default=3
@@ -679,6 +685,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_chemenzy_iterations=args.chemenzy_iterations,
             chemenzy_expansion_topk=args.chemenzy_expansion_topk,
             chemenzy_timeout_s=args.chemenzy_timeout_s,
+            chemenzy_seed=args.chemenzy_seed,
             max_guided_chemenzy_frontiers=args.guided_chemenzy_frontiers,
             max_guided_chemenzy_iterations=args.guided_chemenzy_iterations,
             guided_chemenzy_timeout_s=args.guided_chemenzy_timeout_s,

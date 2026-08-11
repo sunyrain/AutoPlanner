@@ -48,6 +48,7 @@ def _report(final_row: dict) -> dict:
             {
                 "stage": "chemenzy_baseline",
                 "detail": {
+                    "raw_proposal_sha256": fingerprints["raw_proposal_sha256"],
                     "raw_result_sha256": fingerprints["raw_result_sha256"],
                     "route_lineage": [seed_row],
                 },
@@ -114,6 +115,7 @@ def test_embedding_comparison_separates_materialization_validation_and_stock() -
     assert validated["first_loss_counts"] == {
         "host_validated_not_stock_closed": 1
     }
+    assert validated["raw_proposal_digest_equal"] is True
     assert validated["counts"]["fully_materialized_routes"] == 1
     assert validated["counts"]["host_validated_routes"] == 1
 

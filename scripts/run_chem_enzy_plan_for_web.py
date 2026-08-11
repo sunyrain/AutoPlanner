@@ -190,6 +190,7 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
         max_iterations=iterations,
         max_depth=max_depth,
         expansion_topk=expansion_topk,
+        random_seed=_as_int(payload.get("chemenzy_seed"), 0, lo=0, hi=2**32 - 1),
         one_step_models=one_step_models,
         search_flags=search_flags,
     )
@@ -408,6 +409,7 @@ def _web_payload_from_result(
             "max_depth": config.max_depth,
             "iterations": config.max_iterations,
             "expansion_topk": config.expansion_topk,
+            "random_seed": config.random_seed,
             "condition_prediction_enabled": bool(request_payload.get("enable_condition_prediction", False)),
             "enzyme_assignment_enabled": bool(request_payload.get("enable_enzyme_assignment", False)),
             "chem_enzy_step_strengthening_enabled": bool(
