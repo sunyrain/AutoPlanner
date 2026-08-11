@@ -85,3 +85,20 @@ def test_panel_rejects_tampered_report_digest() -> None:
     report["embedded"]["route_count"] = 99  # type: ignore[index]
     with pytest.raises(ValueError, match="content_sha256 mismatch"):
         compile_native_parity_panel([report])
+
+
+def test_panel_retains_v2_normalization_rejection() -> None:
+    report = _report(target_smiles="CCO", accepted=False, nonempty=True)
+    report["schema_version"] = "chemenzy_native_parity_probe.v2"
+    report["normalization_invariants_complete"] = True
+    report["normalization_invariants_accepted"] = False
+    report["content_sha256"] = _digest(
+        {key: value for key, value in report.items() if key != "content_sha256"}
+    )
+
+    panel = compile_native_parity_panel([report])
+
+    assert panel["rows"][0]["parity_accepted"] is False
+    assert panel["rows"][0]["normalization_invariants_required"] is True
+    assert panel["rows"][0]["normalization_invariants_accepted"] is False
+    assert panel["rows"][0]["disposition"] == "parity_rejected"

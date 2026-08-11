@@ -53,8 +53,10 @@ def compile_native_parity_report(
     standalone_backend_failures = list(standalone_raw.get("backend_failures") or [])
     embedded_trace = _search_trace_summary(embedded_raw)
     standalone_trace = _search_trace_summary(standalone_raw)
+    embedded_summary = _fingerprint_summary(embedded, embedded_elapsed_s)
+    standalone_summary = _fingerprint_summary(standalone, standalone_elapsed_s)
     report = {
-        "schema_version": "chemenzy_native_parity_probe.v1",
+        "schema_version": "chemenzy_native_parity_probe.v2",
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "request": {
             "target_smiles": target,
@@ -96,11 +98,11 @@ def compile_native_parity_report(
         ),
         "stock_content_binding": stock_binding,
         "embedded": {
-            **_fingerprint_summary(embedded, embedded_elapsed_s),
+            **embedded_summary,
             **embedded_trace,
         },
         "standalone": {
-            **_fingerprint_summary(standalone, standalone_elapsed_s),
+            **standalone_summary,
             **standalone_trace,
         },
         "embedded_backend_failure_count": len(embedded_backend_failures),
@@ -121,6 +123,14 @@ def compile_native_parity_report(
             and embedded_trace["search_trace_sha256"]
             == standalone_trace["search_trace_sha256"]
         ),
+        "normalization_invariants_complete": bool(
+            embedded_summary["normalization_invariants_complete"] is True
+            and standalone_summary["normalization_invariants_complete"] is True
+        ),
+        "normalization_invariants_accepted": bool(
+            embedded_summary["normalization_invariants_accepted"] is True
+            and standalone_summary["normalization_invariants_accepted"] is True
+        ),
         "raw_proposal_digest_equal": (
             embedded.get("raw_proposal_sha256")
             == standalone.get("raw_proposal_sha256")
@@ -139,6 +149,7 @@ def compile_native_parity_report(
             "parity_requires_backend_failure_free": True,
             "parity_requires_nonempty_route_set": True,
             "parity_requires_search_trace_identity": True,
+            "parity_requires_normalization_invariants": True,
         },
     }
     report["parity_accepted"] = bool(
@@ -150,6 +161,8 @@ def compile_native_parity_report(
         and report["nonempty_route_set_observed"]
         and report["search_trace_identity_complete"]
         and report["search_trace_digest_equal"]
+        and report["normalization_invariants_complete"]
+        and report["normalization_invariants_accepted"]
         and report["raw_proposal_digest_equal"]
         and report["route_fingerprint_rows_equal"]
     )
@@ -258,12 +271,21 @@ def run_native_parity_probe(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _fingerprint_summary(value: Mapping[str, Any], elapsed_s: float) -> dict[str, Any]:
+    rows = list(value.get("routes") or [])
     return {
         "raw_proposal_sha256": str(value.get("raw_proposal_sha256") or ""),
         "raw_result_sha256": str(value.get("raw_result_sha256") or ""),
         "route_count": int(value.get("route_count") or 0),
         "quarantined_route_count": int(value.get("quarantined_route_count") or 0),
         "elapsed_s": round(float(elapsed_s), 3),
+        "normalization_invariants_complete": all(
+            "normalization_audit_sha256" in row
+            and int(row.get("raw_step_count") or 0) == int(row.get("step_count") or 0)
+            for row in rows
+        ),
+        "normalization_invariants_accepted": all(
+            row.get("normalization_invariants_accepted") is True for row in rows
+        ),
     }
 
 

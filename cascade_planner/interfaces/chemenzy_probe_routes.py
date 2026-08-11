@@ -12,6 +12,11 @@ from cascade_planner.interfaces.chemenzy_advisory import (
     normalized_quarantined_routes,
 )
 from cascade_planner.interfaces.chemenzy_probe_contract import _content_sha256
+from cascade_planner.interfaces.chemenzy_route_invariants import (
+    audit_chemenzy_route_normalization,
+    proposal_product,
+    proposal_reactants,
+)
 from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 
 
@@ -44,7 +49,11 @@ def _normalized_routes(
         )
         ]
     return [
-        _normalize_proposal_route(route, route_index=index)
+        _normalize_proposal_route(
+            route,
+            route_index=index,
+            target_smiles=target_smiles,
+        )
         for index, route in enumerate(raw_routes, start=1)
     ]
 
@@ -58,13 +67,18 @@ def compile_chemenzy_route_fingerprints(
     quarantined = normalized_quarantined_routes(
         value,
         start_index=len(routes) + 1,
-        normalizer=_normalize_proposal_route,
+        normalizer=lambda route, route_index: _normalize_proposal_route(
+            route,
+            route_index=route_index,
+            target_smiles=target_smiles,
+        ),
     )
     rows = []
     for route, is_quarantined in [
         *((route, False) for route in routes),
         *((route, True) for route in quarantined),
     ]:
+        normalization = dict(route.get("normalization_audit") or {})
         rows.append(
             {
                 "route_index": route.get("route_index"),
@@ -77,6 +91,14 @@ def compile_chemenzy_route_fingerprints(
                 "quarantined": is_quarantined,
                 "reasons": list(route.get("admission_reasons") or []),
                 "step_count": len(route.get("steps") or []),
+                "raw_step_count": normalization.get("raw_step_count"),
+                "normalization_invariants_accepted": normalization.get(
+                    "accepted"
+                )
+                is True,
+                "normalization_audit_sha256": str(
+                    normalization.get("content_sha256") or ""
+                ),
             }
         )
     raw_proposal_sha256 = _content_sha256(
@@ -108,7 +130,10 @@ def compile_chemenzy_route_fingerprints(
 
 
 def _normalize_proposal_route(
-    route: Mapping[str, Any], *, route_index: int
+    route: Mapping[str, Any],
+    *,
+    route_index: int,
+    target_smiles: str = "",
 ) -> dict[str, Any]:
     """Translate old and current launcher schemas into proposal-only rows."""
 
@@ -119,8 +144,8 @@ def _normalize_proposal_route(
             admission_reasons.add("invalid_step_payload")
             continue
         step = dict(raw_step)
-        product = str(step.get("product_smiles") or step.get("product") or "").strip()
-        reactants = _proposal_reactants(step)
+        product = proposal_product(step)
+        reactants = proposal_reactants(step)
         audit = audit_retrosynthetic_candidate(product, reactants)
         if audit.get("accepted") is not True:
             admission_reasons.update(
@@ -178,6 +203,12 @@ def _normalize_proposal_route(
                 },
             }
         )
+    normalization_audit = audit_chemenzy_route_normalization(
+        route,
+        normalized_steps,
+        target_smiles=target_smiles,
+    )
+    admission_reasons.update(normalization_audit.get("reasons") or [])
     if not normalized_steps:
         admission_reasons.add("missing_route_steps")
     normalized = {
@@ -187,6 +218,8 @@ def _normalize_proposal_route(
         "stock_status": dict(route.get("stock_status") or {}),
         "search_time_s": route.get("search_time_s"),
         "route_rank": route.get("route_rank", route_index - 1),
+        "raw_step_count": normalization_audit.get("raw_step_count"),
+        "normalization_audit": normalization_audit,
         "raw_backend_metadata": _json_safe_copy(
             route.get("raw_backend_metadata") or {}
         ),
@@ -399,23 +432,6 @@ def _chemenzy_transformation_hypothesis(
     if step.get("rxn_smiles"):
         return f"{source} reaction proposal with retained reaction SMILES"
     return f"{source} one-step retrosynthesis proposal"
-
-
-def _proposal_reactants(step: Mapping[str, Any]) -> list[str]:
-    values = step.get("reactant_smiles") or step.get("precursor_smiles")
-    if isinstance(values, str):
-        values = [part for part in values.split(".") if part]
-    if not isinstance(values, (list, tuple)):
-        main = str(
-            step.get("main_reactant")
-            or step.get("main_reactant_smiles")
-            or ""
-        ).strip()
-        auxiliary = step.get("aux_reactants") or step.get("aux_reactant_smiles") or []
-        if isinstance(auxiliary, str):
-            auxiliary = [part for part in auxiliary.split(".") if part]
-        values = ([main] if main else []) + list(auxiliary or [])
-    return [str(value).strip() for value in values if str(value).strip()]
 
 
 __all__ = ["compile_chemenzy_route_fingerprints"]

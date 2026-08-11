@@ -85,9 +85,12 @@ def test_native_parity_report_accepts_equal_proposals_not_receipts() -> None:
         stock_content_binding=_stock_binding(),
     )
 
+    assert report["schema_version"] == "chemenzy_native_parity_probe.v2"
     assert report["raw_proposal_digest_equal"] is True
     assert report["route_fingerprint_rows_equal"] is True
     assert report["search_trace_digest_equal"] is True
+    assert report["normalization_invariants_complete"] is True
+    assert report["normalization_invariants_accepted"] is True
     assert report["embedded"]["raw_result_sha256"] != report["standalone"]["raw_result_sha256"]
     assert report["parity_accepted"] is True
 
@@ -176,4 +179,24 @@ def test_native_parity_report_rejects_unbound_effective_parameters() -> None:
 
     assert report["raw_proposal_digest_equal"] is True
     assert report["parameter_binding_accepted"] is False
+    assert report["parity_accepted"] is False
+
+
+def test_native_parity_report_rejects_equal_but_directionally_invalid_routes() -> None:
+    invalid = _route("CC")
+    invalid["routes"][0]["steps"][0]["rxn_smiles"] = "CCO>>CC"
+    report = compile_native_parity_report(
+        request={"target_smiles": "CCO", "chemenzy_seed": 0},
+        stage=_stage(),
+        embedded_raw=invalid,
+        standalone_raw=invalid,
+        embedded_elapsed_s=1.0,
+        standalone_elapsed_s=1.0,
+        stock_content_binding=_stock_binding(),
+    )
+
+    assert report["raw_proposal_digest_equal"] is True
+    assert report["route_fingerprint_rows_equal"] is True
+    assert report["normalization_invariants_complete"] is True
+    assert report["normalization_invariants_accepted"] is False
     assert report["parity_accepted"] is False

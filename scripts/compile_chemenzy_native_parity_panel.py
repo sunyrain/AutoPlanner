@@ -36,6 +36,14 @@ def compile_native_parity_panel(
     stock_bindings: set[str] = set()
     for report in reports:
         _require_report_digest(report)
+        report_schema = str(report.get("schema_version") or "")
+        normalization_required = report_schema == "chemenzy_native_parity_probe.v2"
+        normalization_complete = bool(
+            report.get("normalization_invariants_complete")
+        )
+        normalization_accepted = bool(
+            report.get("normalization_invariants_accepted")
+        )
         request = dict(report.get("request") or {})
         target_smiles = str(request.get("target_smiles") or "")
         if not target_smiles:
@@ -78,6 +86,10 @@ def compile_native_parity_panel(
             and nonempty
             and report.get("search_trace_identity_complete")
             and trace_equal
+            and (
+                not normalization_required
+                or (normalization_complete and normalization_accepted)
+            )
             and raw_equal
             and fingerprints_equal
         )
@@ -93,6 +105,9 @@ def compile_native_parity_panel(
                 ),
                 "target_smiles": target_smiles,
                 "parity_accepted": accepted,
+                "normalization_invariants_required": normalization_required,
+                "normalization_invariants_complete": normalization_complete,
+                "normalization_invariants_accepted": normalization_accepted,
                 "parameter_binding_identity_complete": bool(
                     report.get("parameter_binding_identity_complete")
                 ),
@@ -143,7 +158,13 @@ def compile_native_parity_panel(
                     if accepted
                     else (
                         "deterministic_but_empty_route_set"
-                        if raw_equal and trace_equal and fingerprints_equal and backend_failure_free
+                        if (
+                            not nonempty
+                            and raw_equal
+                            and trace_equal
+                            and fingerprints_equal
+                            and backend_failure_free
+                        )
                         else "parity_rejected"
                     )
                 ),
