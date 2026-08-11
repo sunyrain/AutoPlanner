@@ -1,6 +1,6 @@
 {
-  "schema_version": "chemenzy_native_parity_probe.v1",
-  "generated_at": "2026-08-11T20:27:16.402727Z",
+  "schema_version": "chemenzy_native_parity_probe.v2",
+  "generated_at": "2026-08-11T21:33:33.701869Z",
   "request": {
     "target_smiles": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
     "search_preset": "standard",
@@ -188,19 +188,23 @@
   },
   "embedded": {
     "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
-    "raw_result_sha256": "c292ea6823a05e8ffe06d4b3ca891bb9bd1ae734be79123b8418b1333d3f6485",
+    "raw_result_sha256": "3231af2ba113adb2d1d2e8353ea2f0e6dc5bec538dd53ad8ea83f7e510c32376",
     "route_count": 2,
     "quarantined_route_count": 0,
-    "elapsed_s": 81.235,
+    "elapsed_s": 79.797,
+    "normalization_invariants_complete": true,
+    "normalization_invariants_accepted": true,
     "search_trace_count": 1213,
     "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
   },
   "standalone": {
     "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
-    "raw_result_sha256": "a2a55f786db02fe3842d7d8adc9ffa1915633c39fe026274aa65088e31817290",
+    "raw_result_sha256": "cc6da280c8fab9a1b62bf86abefd62db458de95564ac209f3b20bd39bd56502f",
     "route_count": 2,
     "quarantined_route_count": 0,
-    "elapsed_s": 75.125,
+    "elapsed_s": 73.031,
+    "normalization_invariants_complete": true,
+    "normalization_invariants_accepted": true,
     "search_trace_count": 1213,
     "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
   },
@@ -210,6 +214,8 @@
   "nonempty_route_set_observed": true,
   "search_trace_identity_complete": true,
   "search_trace_digest_equal": true,
+  "normalization_invariants_complete": true,
+  "normalization_invariants_accepted": true,
   "raw_proposal_digest_equal": true,
   "route_fingerprint_rows_equal": true,
   "semantics": {
@@ -222,10 +228,11 @@
     "parity_requires_stock_content_identity_complete": true,
     "parity_requires_backend_failure_free": true,
     "parity_requires_nonempty_route_set": true,
-    "parity_requires_search_trace_identity": true
+    "parity_requires_search_trace_identity": true,
+    "parity_requires_normalization_invariants": true
   },
   "parity_accepted": true,
   "evidence_date": "2026-08-11",
-  "source_commit": "6c0b3ce",
-  "content_sha256": "3f7d51643b641c9b435a2ee5c6fc1ecd2064315a315846b36914710280c7235e"
+  "source_commit": "e1f918b",
+  "content_sha256": "36ca690b8a2c262e523bbc79e43f9bac25239b25fe52e783ca732383012405ab"
 }
