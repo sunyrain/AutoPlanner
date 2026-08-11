@@ -13,6 +13,7 @@ from cascade_planner.providers.contracts import (
 from cascade_planner.providers.registry import ProviderRegistry
 from cascade_planner.providers.stock import SnapshotStockProvider
 from cascade_planner.providers.experiment import ManualExperimentExecutorProvider
+from cascade_planner.providers.http_experiment import HttpExperimentExecutorProvider
 
 
 _HOST_BUILTIN_TRUST_POLICY: dict[str, dict[str, Any]] = {
@@ -259,6 +260,7 @@ def build_default_provider_registry(
     include_chemenzy: ChemEnzyProposalProvider | None = None,
     include_literature: LiteratureEvidenceProvider | None = None,
     include_manual_experiment_executor: bool = False,
+    include_http_experiment_executor: HttpExperimentExecutorProvider | None = None,
 ) -> ProviderRegistry:
     registry = ProviderRegistry()
     stock = SnapshotStockProvider()
@@ -287,5 +289,11 @@ def build_default_provider_registry(
             manual,
             trusted_descriptor=_host_trusted_builtin_descriptor(manual),
             authority="autoplanner_host_builtin_allowlist.v1",
+        )
+    if include_http_experiment_executor is not None:
+        registry.register(
+            include_http_experiment_executor,
+            trusted_descriptor=include_http_experiment_executor.descriptor,
+            authority="autoplanner_host_environment_allowlist.v1",
         )
     return registry

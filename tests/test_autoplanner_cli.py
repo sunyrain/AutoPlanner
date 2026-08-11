@@ -21,6 +21,9 @@ from cascade_planner.application.experiment_external_jobs import (
     build_experiment_operator_identity,
 )
 from cascade_planner.cli import _emit, build_parser, main
+from cascade_planner.interfaces.experiment_transport_cli import (
+    dispatch_experiment_transport_command,
+)
 from cascade_planner.web.server import serve_web
 
 
@@ -231,6 +234,32 @@ def test_cli_program_admission_command_requires_explicit_enable_switch() -> None
             ]
         )
 
+
+def test_cli_routes_explicit_experiment_transport_commands(tmp_path: Path) -> None:
+    capabilities_path = tmp_path / "capabilities.json"
+    capabilities_path.write_text(json.dumps([]), encoding="utf-8")
+    gateway = Mock()
+    methods = {
+        "submit-experiment-job": "submit_route_experiment_job",
+        "poll-experiment-job": "poll_route_experiment_job",
+        "transmit-experiment-cancel": "transmit_route_experiment_cancellation",
+    }
+    for command, method_name in methods.items():
+        getattr(gateway, method_name).return_value = {"operation": command}
+        args = build_parser().parse_args([
+            command, "run:transport", "--route-id", "route:transport",
+            "--capabilities-json", str(capabilities_path),
+            "--dispatch-id", "experiment-dispatch:" + "a" * 32,
+            "--timeout-s", "12.5", "--enable-experiment-transport",
+        ])
+        result = dispatch_experiment_transport_command(gateway, args)
+        assert result == {"operation": command}
+        getattr(gateway, method_name).assert_called_once_with(
+            "run:transport", route_id="route:transport", capabilities=[],
+            mechanism_proposals=[], validations=[],
+            dispatch_id="experiment-dispatch:" + "a" * 32,
+            timeout_s=12.5, enable_experiment_transport=True, run_dir=None,
+        )
 
 def test_cli_program_innovations_exposes_read_only_pareto_portfolio(
     tmp_path: Path,

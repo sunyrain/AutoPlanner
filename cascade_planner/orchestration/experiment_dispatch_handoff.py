@@ -7,8 +7,12 @@ from typing import Any, Mapping
 from cascade_planner.application.run_kernel import RunKernel
 from cascade_planner.providers.contracts import ProviderContext
 from cascade_planner.providers.experiment import (
-    EXPERIMENT_DISPATCH_HANDOFF_SCHEMA,
+    EXPERIMENT_DISPATCH_HANDOFF_SCHEMAS,
+    EXPERIMENT_HTTP_DISPATCH_HANDOFF_SCHEMA,
     validate_experiment_dispatch_handoff,
+)
+from cascade_planner.providers.http_experiment import (
+    validate_http_experiment_dispatch_handoff,
 )
 from cascade_planner.providers.registry import ProviderRegistry
 from cascade_planner.runtime.artifact_store import ArtifactRef
@@ -47,10 +51,16 @@ def materialize_experiment_handoff(
             config={"dispatch_id": dispatch_id},
         ),
     )
-    if envelope.accepted is not True or envelope.output_schema != EXPERIMENT_DISPATCH_HANDOFF_SCHEMA:
+    if (
+        envelope.accepted is not True
+        or envelope.output_schema not in EXPERIMENT_DISPATCH_HANDOFF_SCHEMAS
+    ):
         raise ExperimentDispatchError("experiment_executor_handoff_rejected")
     handoff = dict(envelope.payload)
-    validate_experiment_dispatch_handoff(handoff, request=request)
+    if envelope.output_schema == EXPERIMENT_HTTP_DISPATCH_HANDOFF_SCHEMA:
+        validate_http_experiment_dispatch_handoff(handoff, request=request)
+    else:
+        validate_experiment_dispatch_handoff(handoff, request=request)
     if (handoff.get("executor_id"), handoff.get("executor_version")) != (
         descriptor["provider_id"], descriptor["version"]
     ):

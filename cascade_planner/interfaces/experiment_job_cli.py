@@ -7,10 +7,16 @@ import json
 from pathlib import Path
 from typing import Any
 
+from cascade_planner.interfaces.experiment_transport_cli import (
+    EXPERIMENT_TRANSPORT_COMMANDS,
+    add_experiment_transport_commands,
+    dispatch_experiment_transport_command,
+)
+
 
 EXPERIMENT_JOB_COMMANDS = frozenset({
     "record-experiment-job", "cancel-experiment-job"
-})
+}) | EXPERIMENT_TRANSPORT_COMMANDS
 
 
 def add_experiment_job_commands(sub: argparse._SubParsersAction) -> None:
@@ -30,11 +36,14 @@ def add_experiment_job_commands(sub: argparse._SubParsersAction) -> None:
     cancellation.add_argument(
         "--enable-experiment-cancellation", action="store_true", required=True
     )
+    add_experiment_transport_commands(sub)
 
 
 def dispatch_experiment_job_command(
     gateway: Any, args: argparse.Namespace
 ) -> dict[str, Any]:
+    if args.command in EXPERIMENT_TRANSPORT_COMMANDS:
+        return dispatch_experiment_transport_command(gateway, args)
     kwargs = {
         "route_id": args.route_id,
         "capabilities": _read_json(args.capabilities_json),

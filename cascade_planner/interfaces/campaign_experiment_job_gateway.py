@@ -9,9 +9,12 @@ from cascade_planner.interfaces.campaign_experiment_jobs import (
     record_route_experiment_job_receipt_result,
     request_route_experiment_cancellation_result,
 )
+from cascade_planner.interfaces.campaign_experiment_transport_gateway import (
+    CampaignExperimentTransportGatewayMixin,
+)
 
 
-class CampaignExperimentJobGatewayMixin:
+class CampaignExperimentJobGatewayMixin(CampaignExperimentTransportGatewayMixin):
     def record_route_experiment_job_receipt(
         self, run_id: str, *, route_id: str, capabilities: Any, dispatch_id: str,
         job_receipt: Mapping[str, Any],

@@ -51,6 +51,9 @@ from cascade_planner.orchestration.retrosynthesis_service import (
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.runtime.run_index import RunIndex
 from cascade_planner.providers.builtins import build_default_provider_registry
+from cascade_planner.providers.http_experiment import (
+    configured_http_experiment_executor,
+)
 from cascade_planner.providers.registry import ProviderRegistry
 
 
@@ -70,7 +73,8 @@ class CampaignGateway(CampaignProgramGatewayMixin):
         self.paths.ensure_runtime_directories()
         self.index = RunIndex(self.paths.run_index_path)
         self.providers = provider_registry or build_default_provider_registry(
-            include_manual_experiment_executor=True
+            include_manual_experiment_executor=True,
+            include_http_experiment_executor=configured_http_experiment_executor(),
         )
 
     def create_run(

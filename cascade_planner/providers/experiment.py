@@ -26,6 +26,11 @@ from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 EXPERIMENT_EXECUTOR_POLICY_SCHEMA = "experiment_executor_policy.v1"
 EXPERIMENT_EXECUTOR_SELECTION_SCHEMA = "experiment_executor_selection.v1"
 EXPERIMENT_DISPATCH_HANDOFF_SCHEMA = "experiment_dispatch_handoff.v1"
+EXPERIMENT_HTTP_DISPATCH_HANDOFF_SCHEMA = "experiment_http_dispatch_handoff.v1"
+EXPERIMENT_DISPATCH_HANDOFF_SCHEMAS = {
+    EXPERIMENT_DISPATCH_HANDOFF_SCHEMA,
+    EXPERIMENT_HTTP_DISPATCH_HANDOFF_SCHEMA,
+}
 _IDEMPOTENT_CAPABILITY = "experiment.dispatch.idempotent"
 _HANDOFF_REQUIREMENTS = {
     "artifact_sha256_required": True,
@@ -137,7 +142,9 @@ def select_experiment_executor(
             reasons.append("provider_kind_invalid")
         if EXPERIMENT_EXECUTION_REQUEST_SCHEMA not in descriptor.input_schemas:
             reasons.append("provider_request_schema_unsupported")
-        if EXPERIMENT_DISPATCH_HANDOFF_SCHEMA not in descriptor.output_schemas:
+        if not set(descriptor.output_schemas).intersection(
+            EXPERIMENT_DISPATCH_HANDOFF_SCHEMAS
+        ):
             reasons.append("provider_handoff_schema_unsupported")
         if _IDEMPOTENT_CAPABILITY not in descriptor.capabilities:
             reasons.append("provider_dispatch_not_idempotent")
@@ -268,6 +275,8 @@ def _digest_valid(value: Mapping[str, Any]) -> bool:
 
 __all__ = [
     "EXPERIMENT_DISPATCH_HANDOFF_SCHEMA",
+    "EXPERIMENT_DISPATCH_HANDOFF_SCHEMAS",
+    "EXPERIMENT_HTTP_DISPATCH_HANDOFF_SCHEMA",
     "EXPERIMENT_EXECUTOR_POLICY_SCHEMA",
     "ExperimentExecutorPolicyError",
     "ManualExperimentExecutorProvider",

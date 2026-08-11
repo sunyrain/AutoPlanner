@@ -42,6 +42,13 @@ from cascade_planner.providers.experiment import (
     select_experiment_executor,
     validate_experiment_dispatch_handoff,
 )
+from cascade_planner.providers.http_experiment import (
+    EXPERIMENT_HTTP_DISPATCH_HANDOFF_SCHEMA,
+    HttpExperimentExecutorConfig,
+    HttpExperimentExecutorProvider,
+    configured_http_experiment_executor,
+    validate_http_experiment_dispatch_handoff,
+)
 
 __all__ = [
     "AgentBackendProvider",
@@ -77,4 +84,9 @@ __all__ = [
     "ManualExperimentExecutorProvider",
     "select_experiment_executor",
     "validate_experiment_dispatch_handoff",
+    "EXPERIMENT_HTTP_DISPATCH_HANDOFF_SCHEMA",
+    "HttpExperimentExecutorConfig",
+    "HttpExperimentExecutorProvider",
+    "configured_http_experiment_executor",
+    "validate_http_experiment_dispatch_handoff",
 ]

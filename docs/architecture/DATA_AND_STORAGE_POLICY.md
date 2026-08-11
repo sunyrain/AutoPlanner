@@ -49,6 +49,12 @@ legacy launchers retain compatibility temporarily and must be migrated in P7/P9.
 Credentials, source values, and key paths must not appear in metrics, prompts,
 run manifests, artifact metadata, logs, or exceptions.
 
+The external experiment HTTP bridge stores only the configured token variable
+name and an authentication-context digest. The Bearer value is read from that
+host environment variable immediately before a request, is redacted from
+provider status text, and is never written to RunKernel events, CAS objects,
+pointers, operation results, or provider envelopes.
+
 ## Retention and garbage collection
 
 - Run manifest pointers automatically pin their manifest object.

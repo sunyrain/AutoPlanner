@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+import requests
 
 from cascade_planner.application.biocatalytic_programs import (
     BIOCATALYSIS_PROGRAM_VALIDATION_SCHEMA,
@@ -23,6 +24,12 @@ from cascade_planner.interfaces.campaign_gateway import (
     CampaignGateway,
     CampaignGatewayError,
 )
+from cascade_planner.providers.builtins import build_default_provider_registry
+from cascade_planner.providers.http_experiment import (
+    HttpExperimentExecutorConfig,
+    HttpExperimentExecutorProvider,
+)
+from cascade_planner.orchestration import experiment_job_transport_runtime
 from cascade_planner.runtime.paths import RuntimePaths
 
 
@@ -192,6 +199,82 @@ def _external_job_receipt(
         status=status, predecessor_receipt_sha256=predecessor,
         cancellation_request_sha256=cancellation, recorded_by=_operator_identity(),
     )
+
+
+class _TransportResponse:
+    def __init__(self, status: int, value: dict) -> None:
+        self.status_code = status
+        self._body = json.dumps(value).encode("utf-8")
+
+    def iter_content(self, *, chunk_size: int):
+        del chunk_size
+        yield self._body
+
+    def close(self) -> None:
+        pass
+
+
+def _http_gateway(
+    tmp_path: Path, responses: list[dict | Exception]
+) -> tuple[CampaignGateway, list[dict]]:
+    calls: list[dict] = []
+
+    def requester(method, url, **kwargs):
+        calls.append({"method": method, "url": url, **kwargs})
+        value = responses.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return _TransportResponse(200, value)
+
+    provider = HttpExperimentExecutorProvider(
+        HttpExperimentExecutorConfig(
+            provider_id="fixture.gateway-http-experiment", version="1.0.0",
+            base_url="https://lab.example.invalid",
+            auth_token_env="FIXTURE_GATEWAY_LAB_TOKEN",
+            operator_principal_id="service:gateway-http-fixture",
+        ),
+        environ={"FIXTURE_GATEWAY_LAB_TOKEN": "gateway-secret"},
+        requester=requester,
+    )
+    registry = build_default_provider_registry(
+        include_manual_experiment_executor=True,
+        include_http_experiment_executor=provider,
+    )
+    return CampaignGateway(_paths(tmp_path), provider_registry=registry), calls
+
+
+def _http_policy() -> dict:
+    return {
+        "schema_version": "experiment_executor_policy.v1", "enabled": True,
+        "allowed_provider_ids": ["fixture.gateway-http-experiment"],
+        "preferred_provider_ids": ["fixture.gateway-http-experiment"],
+        "allowed_domains": ["biocatalytic"], "allow_network_access": True,
+        "max_estimated_cost_units": 0,
+    }
+
+
+def _prepare_http_dispatch(
+    gateway: CampaignGateway, run_id: str
+) -> tuple[str, dict, dict, dict, dict]:
+    gateway.create_run(
+        run_id=run_id, target_name="ethanol", target_smiles="CCO",
+        global_plan=_reduction_plan(), materialize=True,
+    )
+    route_id = next(iter(gateway.workbench(run_id)["snapshot"]["routes"]))
+    capability = _reduction_capability()
+    review = gateway.route_program_innovations(
+        run_id, route_id=route_id, capabilities=[capability]
+    )
+    proposal = next(iter(review["program_bundle"]["program_proposals"].values()))
+    request = next(iter(review["experimental_work_frontier"]["work_items"].values()))[
+        "execution_request"
+    ]
+    dispatch = gateway.dispatch_route_experiment(
+        run_id, route_id=route_id, capabilities=[capability],
+        request_id=request["request_id"], policy=_http_policy(),
+        enable_experiment_dispatch=True,
+    )["dispatch"]
+    return route_id, capability, proposal, request, dispatch
 
 
 def test_gateway_runs_every_operator_operation_without_model_calls(
@@ -890,6 +973,269 @@ def test_gateway_external_job_completion_gates_result_settlement(
     )["dispatch"]
     assert settled["status"] == "settled"
     assert settled["domain_validation_candidate"] == _biocatalysis_validation(proposal)
+
+
+def test_gateway_http_transport_submits_polls_and_acknowledges_cancellation(
+    tmp_path: Path,
+) -> None:
+    gateway, calls = _http_gateway(tmp_path, [
+        {
+            "external_job_id": "gateway-job:1", "provider_sequence": 1,
+            "status": "submitted", "status_detail": "queued",
+        },
+        {
+            "external_job_id": "gateway-job:1", "provider_sequence": 2,
+            "status": "running", "status_detail": "instrument running",
+        },
+        {
+            "external_job_id": "gateway-job:1", "provider_sequence": 3,
+            "status": "cancelled", "status_detail": "cancelled by device bridge",
+        },
+    ])
+    run_id = "experiment-http-transport"
+    route_id, capability, _, request, dispatch = _prepare_http_dispatch(gateway, run_id)
+    service = gateway._open(run_id)
+    graph_revision = service.kernel.state.graph_revision
+    with pytest.raises(CampaignGatewayError, match="transport_explicit_enable_required"):
+        gateway.submit_route_experiment_job(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"],
+        )
+    submitted = gateway.submit_route_experiment_job(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+    )["dispatch"]
+    assert submitted["changed"] is True
+    assert submitted["job_receipt"]["status"] == "submitted"
+    assert calls[0]["headers"]["Idempotency-Key"] == submitted[
+        "operation_request"
+    ]["operation_id"]
+    assert calls[0]["headers"]["Authorization"] == "Bearer gateway-secret"
+    assert calls[0]["allow_redirects"] is False
+    submitted_again = gateway.submit_route_experiment_job(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+    )["dispatch"]
+    assert submitted_again["cached"] is True
+    assert submitted_again["job_receipt"] == submitted["job_receipt"]
+    assert len(calls) == 1
+    polled = gateway.poll_route_experiment_job(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+    )["dispatch"]
+    assert polled["job_receipt"]["status"] == "running"
+    cancellation = build_experiment_cancellation_request(
+        dispatch_id=dispatch["dispatch_id"], task_id=dispatch["task_id"],
+        request_id=request["request_id"], request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id=polled["job_receipt"]["external_job_id"],
+        current_external_job_receipt_sha256=polled["job_receipt"]["content_sha256"],
+        requested_by=_operator_identity(), reason_code="device-run-no-longer-needed",
+    )
+    gateway.request_route_experiment_cancellation(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], cancellation_request=cancellation,
+        enable_experiment_cancellation=True,
+    )
+    cancelled = gateway.transmit_route_experiment_cancellation(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+    )["dispatch"]
+    assert cancelled["job_receipt"]["status"] == "cancelled"
+    lifecycle = service.kernel.task_lifecycle(dispatch["task_id"])
+    assert lifecycle["status"] == "settled"
+    assert lifecycle["settlement"]["payload"]["status"] == "cancelled"
+    assert len(lifecycle["checkpoints"]) == 7
+    assert service.kernel.state.graph_revision == graph_revision
+    assert "gateway-secret" not in json.dumps(lifecycle)
+
+
+def test_gateway_http_transport_records_timeout_then_retries_same_task(
+    tmp_path: Path,
+) -> None:
+    gateway, calls = _http_gateway(tmp_path, [
+        requests.Timeout("fixture timeout"),
+        {
+            "external_job_id": "gateway-job:retry", "provider_sequence": 1,
+            "status": "running", "status_detail": "accepted on retry",
+        },
+    ])
+    run_id = "experiment-http-timeout-retry"
+    route_id, capability, _, _, dispatch = _prepare_http_dispatch(gateway, run_id)
+    first = gateway.submit_route_experiment_job(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], timeout_s=0.1,
+        enable_experiment_transport=True,
+    )["dispatch"]
+    assert first["transport_result"]["outcome"] == "timeout"
+    assert first["job_receipt"] == {}
+    service = gateway._open(run_id)
+    assert service.kernel.task_lifecycle(dispatch["task_id"])["status"] == "in_flight"
+    second = gateway.submit_route_experiment_job(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], timeout_s=0.2,
+        enable_experiment_transport=True,
+    )["dispatch"]
+    assert second["operation_request"]["attempt_number"] == 2
+    assert second["transport_result"]["outcome"] == "success"
+    assert second["job_receipt"]["status"] == "running"
+    lifecycle = service.kernel.task_lifecycle(dispatch["task_id"])
+    assert lifecycle["status"] == "in_flight"
+    assert len(lifecycle["checkpoints"]) == 3
+    assert len(calls) == 2
+
+
+def test_gateway_http_poll_retries_after_successful_no_change_observation(
+    tmp_path: Path,
+) -> None:
+    gateway, calls = _http_gateway(tmp_path, [
+        {
+            "external_job_id": "gateway-job:poll", "provider_sequence": 1,
+            "status": "running", "status_detail": "started",
+        },
+        {
+            "external_job_id": "gateway-job:poll", "provider_sequence": 1,
+            "status": "running", "status_detail": "still running",
+        },
+        {
+            "external_job_id": "gateway-job:poll", "provider_sequence": 2,
+            "status": "completed", "status_detail": "finished",
+        },
+    ])
+    run_id = "experiment-http-poll-no-change"
+    route_id, capability, _, _, dispatch = _prepare_http_dispatch(gateway, run_id)
+    gateway.submit_route_experiment_job(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+    )
+    unchanged = gateway.poll_route_experiment_job(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+    )["dispatch"]
+    assert unchanged["changed"] is False
+    advanced = gateway.poll_route_experiment_job(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+    )["dispatch"]
+    assert advanced["operation_request"]["attempt_number"] == 2
+    assert advanced["changed"] is True
+    assert advanced["job_receipt"]["status"] == "completed"
+    assert len(calls) == 3
+
+
+def test_gateway_concurrent_http_submit_uses_one_operation_and_receipt_chain(
+    tmp_path: Path,
+) -> None:
+    response = {
+        "external_job_id": "gateway-job:concurrent", "provider_sequence": 1,
+        "status": "submitted", "status_detail": "queued once",
+    }
+    gateway, calls = _http_gateway(tmp_path, [dict(response) for _ in range(4)])
+    run_id = "experiment-http-concurrent-submit"
+    route_id, capability, _, _, dispatch = _prepare_http_dispatch(gateway, run_id)
+
+    def submit() -> dict:
+        return gateway.submit_route_experiment_job(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+        )["dispatch"]
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: submit(), range(4)))
+    receipt_ids = {row["job_receipt"]["content_sha256"] for row in results}
+    assert len(receipt_ids) == 1
+    assert 1 <= len(calls) <= 4
+    assert len({row["headers"]["Idempotency-Key"] for row in calls}) == 1
+    lifecycle = gateway._open(run_id).kernel.task_lifecycle(dispatch["task_id"])
+    assert lifecycle["status"] == "in_flight"
+    assert len(lifecycle["checkpoints"]) == 2
+
+
+def test_gateway_http_transport_recovers_success_after_checkpoint_only_crash(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    gateway, calls = _http_gateway(tmp_path, [{
+        "external_job_id": "gateway-job:recover", "provider_sequence": 1,
+        "status": "submitted", "status_detail": "submitted once",
+    }])
+    run_id = "experiment-http-checkpoint-recovery"
+    route_id, capability, _, _, dispatch = _prepare_http_dispatch(gateway, run_id)
+    original = experiment_job_transport_runtime.record_current_route_experiment_job_receipt
+
+    def fail_after_attempt(*args, **kwargs):
+        del args, kwargs
+        raise experiment_job_transport_runtime.ExperimentDispatchError(
+            "fixture_crash_after_transport_checkpoint"
+        )
+
+    monkeypatch.setattr(
+        experiment_job_transport_runtime,
+        "record_current_route_experiment_job_receipt",
+        fail_after_attempt,
+    )
+    with pytest.raises(CampaignGatewayError, match="fixture_crash_after"):
+        gateway.submit_route_experiment_job(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+        )
+    service = gateway._open(run_id)
+    assert len(service.kernel.task_lifecycle(dispatch["task_id"])["checkpoints"]) == 1
+    monkeypatch.setattr(
+        experiment_job_transport_runtime,
+        "record_current_route_experiment_job_receipt",
+        original,
+    )
+    recovered = gateway.submit_route_experiment_job(
+        run_id, route_id=route_id, capabilities=[capability],
+        dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+    )["dispatch"]
+    assert recovered["cached"] is True
+    assert recovered["job_receipt"]["status"] == "submitted"
+    assert len(calls) == 1
+
+
+def test_gateway_http_transport_rejects_endpoint_config_drift_before_network(
+    tmp_path: Path,
+) -> None:
+    gateway, calls = _http_gateway(tmp_path, [])
+    run_id = "experiment-http-config-drift"
+    route_id, capability, _, _, dispatch = _prepare_http_dispatch(gateway, run_id)
+    provider = gateway.providers.get(dispatch["provider_id"])
+    provider.config = HttpExperimentExecutorConfig(
+        provider_id=provider.descriptor.provider_id,
+        version=provider.descriptor.version,
+        base_url="https://other-lab.example.invalid",
+        auth_token_env="FIXTURE_GATEWAY_LAB_TOKEN",
+        operator_principal_id="service:gateway-http-fixture",
+    )
+    with pytest.raises(CampaignGatewayError, match="config_binding_changed"):
+        gateway.submit_route_experiment_job(
+            run_id, route_id=route_id, capabilities=[capability],
+            dispatch_id=dispatch["dispatch_id"], enable_experiment_transport=True,
+        )
+    assert calls == []
+
+
+def test_gateway_discovers_http_experiment_provider_only_from_host_environment(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTOPLANNER_EXPERIMENT_HTTP_BASE_URL", "https://lab.example.test"
+    )
+    monkeypatch.setenv(
+        "AUTOPLANNER_EXPERIMENT_HTTP_PROVIDER_ID", "fixture.env-gateway-http"
+    )
+    monkeypatch.setenv(
+        "AUTOPLANNER_EXPERIMENT_HTTP_BEARER_TOKEN_ENV", "ENV_GATEWAY_LAB_TOKEN"
+    )
+    monkeypatch.setenv("ENV_GATEWAY_LAB_TOKEN", "environment-secret")
+    gateway = CampaignGateway(_paths(tmp_path))
+    descriptor = gateway.providers.descriptor("fixture.env-gateway-http")
+    assert descriptor.network_access is True
+    assert "experiment.transport.submit" in descriptor.capabilities
 
 
 def test_gateway_durably_admits_only_validated_biocatalytic_programs(

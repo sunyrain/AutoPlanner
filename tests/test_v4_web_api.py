@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from threading import Event, RLock
 import time
+from unittest.mock import Mock
 
 from flask import Flask
 
@@ -79,6 +80,41 @@ def _web_biocatalysis_validation(proposal: dict) -> dict:
             "outcome": {"conversion_fraction": 0.88},
         }
     )
+
+
+def test_web_routes_explicit_experiment_transport_operations() -> None:
+    gateway = Mock()
+    methods = {
+        "submit": "submit_route_experiment_job",
+        "poll": "poll_route_experiment_job",
+        "cancel": "transmit_route_experiment_cancellation",
+    }
+    for operation, method_name in methods.items():
+        getattr(gateway, method_name).return_value = {
+            "operation": operation, "run_id": "web-transport"
+        }
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    payload = {
+        "route_id": "route:web-transport", "capabilities": [],
+        "dispatch_id": "experiment-dispatch:" + "b" * 32,
+        "timeout_s": 9.5, "enable_experiment_transport": True,
+    }
+    for operation, method_name in methods.items():
+        response = client.post(
+            "/api/v4/runs/web-transport/programs/innovations/experiments/"
+            f"transport/{operation}",
+            json=payload,
+        )
+        assert response.status_code == 200
+        assert response.get_json()["operation"] == operation
+        getattr(gateway, method_name).assert_called_once_with(
+            "web-transport", route_id="route:web-transport", capabilities=[],
+            mechanism_proposals=[], validations=[],
+            dispatch_id="experiment-dispatch:" + "b" * 32,
+            timeout_s=9.5, enable_experiment_transport=True,
+        )
 
 
 def test_background_job_finishes_on_the_unified_acceptance_projection(

@@ -52,7 +52,7 @@ def record_current_route_experiment_job_receipt(
 
     if enable_experiment_job_receipt is not True:
         raise ExperimentDispatchError("experiment_job_receipt_explicit_enable_required")
-    lifecycle, metadata, descriptor = _current_dispatch_context(
+    lifecycle, metadata, descriptor = current_experiment_dispatch_context(
         kernel, graph, acceptance_spec=acceptance_spec, route_id=route_id,
         capabilities=capabilities, dispatch_id=dispatch_id, registry=registry,
         mechanism_proposals=mechanism_proposals, validations=validations,
@@ -133,7 +133,7 @@ def request_current_route_experiment_cancellation(
 
     if enable_experiment_cancellation is not True:
         raise ExperimentDispatchError("experiment_cancellation_explicit_enable_required")
-    lifecycle, metadata, descriptor = _current_dispatch_context(
+    lifecycle, metadata, descriptor = current_experiment_dispatch_context(
         kernel, graph, acceptance_spec=acceptance_spec, route_id=route_id,
         capabilities=capabilities, dispatch_id=dispatch_id, registry=registry,
         mechanism_proposals=mechanism_proposals, validations=validations,
@@ -269,7 +269,7 @@ def assert_external_job_result_settleable(
         )
 
 
-def _current_dispatch_context(
+def current_experiment_dispatch_context(
     kernel: RunKernel,
     graph: Mapping[str, Any],
     *,
@@ -374,6 +374,7 @@ __all__ = [
     "EXPERIMENT_CANCELLATION_CHECKPOINT",
     "EXPERIMENT_JOB_RECEIPT_CHECKPOINT",
     "assert_external_job_result_settleable",
+    "current_experiment_dispatch_context",
     "external_job_projection",
     "record_current_route_experiment_job_receipt",
     "request_current_route_experiment_cancellation",
