@@ -1353,6 +1353,7 @@ def _ingest_action_signal(
         reasons.append("action_signal_identity_missing")
     if kind not in {
         "architecture",
+        "evidence",
         "replan",
         "program_discovery",
         "program_review",

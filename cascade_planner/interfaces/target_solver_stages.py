@@ -34,7 +34,11 @@ from cascade_planner.application.reaction_mapping import (
     ReactionMappingError,
     map_reactions_locally,
 )
-from cascade_planner.application.worker_runtime import WorkerBudget, WorkerCommand
+from cascade_planner.application.worker_runtime import (
+    WorkerBudget,
+    WorkerCommand,
+    WorkerResult,
+)
 from cascade_planner.application.retrosynthesis_workers import (
     condition_prediction_commands_for_edges,
     materialization_commands_for_proposals,
@@ -256,7 +260,12 @@ def enrich_materialized_edge_conditions(
     }
 
 
-def validate_materialized_edges(
+PREPARED_MATERIALIZED_EDGE_VALIDATION_SCHEMA = (
+    "prepared_materialized_edge_validation.v1"
+)
+
+
+def prepare_materialized_edge_validation(
     service: RetrosynthesisCampaignService,
     *,
     atom_mapper: ReactionMapper | None = None,
@@ -264,6 +273,8 @@ def validate_materialized_edges(
     edge_ids: Iterable[str] = (),
     revalidate_edge_ids: Iterable[str] = (),
 ) -> dict[str, Any]:
+    """Execute validation workers against one frozen graph without publishing it."""
+
     graph = service.graph_store.load()
     selected_edge_ids = {
         str(value) for value in edge_ids if str(value).strip()
@@ -272,20 +283,23 @@ def validate_materialized_edges(
         str(value) for value in revalidate_edge_ids if str(value).strip()
     }
     requested_edge_ids = selected_edge_ids | forced_edge_ids
-    pending = [
-        dict(edge)
-        for edge in graph["edges"].values()
-        if (
-            (
-                not requested_edge_ids
-                or str(edge.get("edge_id") or "") in requested_edge_ids
+    pending = sorted(
+        [
+            dict(edge)
+            for edge in graph["edges"].values()
+            if (
+                (
+                    not requested_edge_ids
+                    or str(edge.get("edge_id") or "") in requested_edge_ids
+                )
+                and (
+                    not active_reaction_proofs(edge.get("reaction_proofs") or [])
+                    or str(edge.get("edge_id") or "") in forced_edge_ids
+                )
             )
-            and (
-                not active_reaction_proofs(edge.get("reaction_proofs") or [])
-                or str(edge.get("edge_id") or "") in forced_edge_ids
-            )
-        )
-    ]
+        ],
+        key=lambda edge: str(edge.get("edge_id") or ""),
+    )
     reactions = {
         str(edge["edge_id"]): (
             ".".join(str(value) for value in edge.get("precursor_smiles") or [])
@@ -351,9 +365,7 @@ def validate_materialized_edges(
             )
             if binding_id in graph["source_bindings"]
         ]
-        exact_record_digest = _stable_digest(
-            exact_record_ids
-        )[:16]
+        exact_record_digest = _stable_digest(exact_record_ids)[:16]
         commands.append(
             _command(
                 service,
@@ -380,17 +392,122 @@ def validate_materialized_edges(
                 ),
             )
         )
-    execution = (
-        service.execute_commands(
-            commands,
+    service.terminalize_global_budget_if_reached(
+        idempotency_key=(
+            "solve-target:validation:prepare-budget:"
+            f"{int(graph.get('revision') or 0)}"
+        )
+    )
+    results: list[WorkerResult] = []
+    material_events: set[str] = set()
+    stopped_reasons: list[str] = []
+    skipped_command_count = 0
+    if service.kernel.state.status == "budget_exhausted":
+        skipped_command_count = len(commands)
+        stopped_reasons.extend(service.kernel.state.failure_reasons)
+    else:
+        for command in commands:
+            batch = service.workers.execute_pipeline(command)
+            results.extend(batch.results)
+            material_events.update(batch.material_events)
+    prepared = {
+        "schema_version": PREPARED_MATERIALIZED_EDGE_VALIDATION_SCHEMA,
+        "status": (
+            "budget_exhausted"
+            if service.kernel.state.status == "budget_exhausted"
+            else "prepared"
+        ),
+        "input_graph_revision": int(graph.get("revision") or 0),
+        "input_evidence_revision": int(service.kernel.state.evidence_revision),
+        "input_scientific_sha256": str(graph.get("scientific_sha256") or ""),
+        "forced_edge_ids": sorted(forced_edge_ids),
+        "edge_rows": {
+            edge_id: dict(edge_by_id[edge_id]) for edge_id in sorted(edge_by_id)
+        },
+        "reactions_by_edge": {
+            edge_id: reactions[edge_id] for edge_id in sorted(reactions)
+        },
+        "mapping": mapping,
+        "commands": [command.to_dict() for command in commands],
+        "worker_results": [result.to_dict() for result in results],
+        "material_events": sorted(material_events),
+        "skipped_command_count": skipped_command_count,
+        "stopped_reasons": sorted(set(stopped_reasons)),
+        "semantics": {
+            "graph_input_is_frozen": True,
+            "worker_execution_grants_no_canonical_authority": True,
+            "canonical_publication_is_deferred_to_stable_action_order": True,
+        },
+    }
+    prepared["content_sha256"] = _stable_digest(prepared)
+    return prepared
+
+
+def commit_materialized_edge_validation(
+    service: RetrosynthesisCampaignService,
+    prepared: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Publish prepared validation receipts and summarize the canonical result."""
+
+    prepared_row = dict(prepared)
+    supplied_sha256 = str(prepared_row.pop("content_sha256", ""))
+    if (
+        prepared_row.get("schema_version")
+        != PREPARED_MATERIALIZED_EDGE_VALIDATION_SCHEMA
+        or not supplied_sha256
+        or supplied_sha256 != _stable_digest(prepared_row)
+    ):
+        raise ValueError("prepared_materialized_edge_validation_invalid")
+    input_graph_revision = int(prepared_row.get("input_graph_revision") or 0)
+    worker_results = tuple(
+        dict(value)
+        for value in prepared_row.get("worker_results") or []
+        if isinstance(value, Mapping)
+    )
+    if worker_results:
+        applied = service.apply_worker_results(
+            worker_results,
             idempotency_key=(
-                f"solve-target:validation:{service.kernel.state.graph_revision}"
+                "solve-target:validation:commit:"
+                f"{input_graph_revision}:{supplied_sha256[:24]}"
             ),
         )
-        if commands
-        else {"executed_command_count": 0, "material_events": []}
-    )
+    else:
+        applied = {
+            "changed": False,
+            "reused": False,
+            "graph": service.graph_store.load(),
+            "graph_ref": {},
+            "rejected": [],
+        }
+    execution = {
+        **applied,
+        "executed_command_count": len(worker_results),
+        "skipped_command_count": int(
+            prepared_row.get("skipped_command_count") or 0
+        ),
+        "stopped_reasons": list(prepared_row.get("stopped_reasons") or []),
+        "material_events": list(prepared_row.get("material_events") or []),
+    }
     updated = service.graph_store.load()
+    edge_by_id = {
+        str(edge_id): dict(edge)
+        for edge_id, edge in dict(prepared_row.get("edge_rows") or {}).items()
+        if isinstance(edge, Mapping)
+    }
+    reactions = {
+        str(edge_id): str(reaction)
+        for edge_id, reaction in dict(
+            prepared_row.get("reactions_by_edge") or {}
+        ).items()
+    }
+    mapping = dict(prepared_row.get("mapping") or {})
+    mapped = dict(mapping.get("mapped_reactions") or {})
+    forced_edge_ids = {
+        str(value)
+        for value in prepared_row.get("forced_edge_ids") or []
+        if str(value)
+    }
     accepted_ids = sorted(
         edge_id
         for edge_id in edge_by_id
@@ -412,7 +529,7 @@ def validate_materialized_edges(
     rejection_reason_counts: Counter[str] = Counter()
     for edge_id in rejected_ids:
         edge = dict(updated["edges"].get(edge_id) or edge_by_id.get(edge_id) or {})
-        reaction = (
+        reaction = reactions.get(edge_id) or (
             ".".join(str(value) for value in edge.get("precursor_smiles") or [])
             + ">>"
             + str(edge.get("product_smiles") or "")
@@ -442,15 +559,19 @@ def validate_materialized_edges(
     return {
         "stage": "reaction_validation",
         "status": (
-            "completed"
-            if mapping.get("requested_count") == mapping.get("mapped_count")
-            else "partial"
+            "budget_exhausted"
+            if prepared_row.get("status") == "budget_exhausted"
+            else (
+                "completed"
+                if mapping.get("requested_count") == mapping.get("mapped_count")
+                else "partial"
+            )
         ),
-        "pending_edge_count": len(pending),
+        "pending_edge_count": len(edge_by_id),
         "forced_revalidation_edge_count": len(
             forced_edge_ids.intersection(edge_by_id)
         ),
-        "validation_command_count": len(commands),
+        "validation_command_count": len(prepared_row.get("commands") or []),
         "accepted_validation_count": len(accepted_ids),
         "rejected_validation_count": len(rejected_ids),
         "accepted_edge_ids": accepted_ids,
@@ -464,7 +585,33 @@ def validate_materialized_edges(
         ),
         "mapping": mapping,
         "execution": execution,
+        "prepared_input_graph_revision": input_graph_revision,
+        "prepared_validation_sha256": supplied_sha256,
+        "semantics": {
+            "workers_ran_against_one_frozen_graph_revision": True,
+            "canonical_results_committed_in_stable_action_order": True,
+        },
     }
+
+
+def validate_materialized_edges(
+    service: RetrosynthesisCampaignService,
+    *,
+    atom_mapper: ReactionMapper | None = None,
+    max_reactions: int = 48,
+    edge_ids: Iterable[str] = (),
+    revalidate_edge_ids: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Compatibility entry point for sequential validation execution."""
+
+    prepared = prepare_materialized_edge_validation(
+        service,
+        atom_mapper=atom_mapper,
+        max_reactions=max_reactions,
+        edge_ids=edge_ids,
+        revalidate_edge_ids=revalidate_edge_ids,
+    )
+    return commit_materialized_edge_validation(service, prepared)
 
 
 def repair_rejected_precursor_typos(

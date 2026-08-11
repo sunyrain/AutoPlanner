@@ -1,7 +1,6 @@
 """Target-only, bounded V4 retrosynthesis campaign orchestration."""
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
@@ -101,10 +100,12 @@ from cascade_planner.interfaces.target_solver_stages import (
     StockCatalogBuilder,
     audit_authoritative_inventory_stock,
     audit_live_benchmark_stock,
+    commit_materialized_edge_validation,
     discover_director_source_hints,
     enrich_materialized_edge_conditions,
     ingest_source_discovery_observation,
     materialize_discovered_source_routes,
+    prepare_materialized_edge_validation,
     project_existing_stock_audit,
     repair_rejected_precursor_typos,
     validate_materialized_edges,
@@ -138,6 +139,7 @@ from cascade_planner.orchestration.global_campaign_director import (
     director_prompt,
 )
 from cascade_planner.orchestration.unified_campaign_runtime import (
+    CampaignActionDeferredHandler,
     CampaignActionRuntime,
 )
 
@@ -787,6 +789,27 @@ def solve_target(
             revalidate_edge_ids=(action.subject_ids if force_revalidation else ()),
         )
 
+    def prepare_validation(action: CampaignAction) -> dict[str, Any]:
+        force_revalidation = action.metadata.get("force_revalidation") is True
+        return prepare_materialized_edge_validation(
+            service,
+            atom_mapper=atom_mapper,
+            max_reactions=active.max_atom_mapping_reactions,
+            edge_ids=action.subject_ids,
+            revalidate_edge_ids=(action.subject_ids if force_revalidation else ()),
+        )
+
+    def commit_validation(
+        _action: CampaignAction,
+        prepared: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        return commit_materialized_edge_validation(service, prepared)
+
+    deferred_validation_handler = CampaignActionDeferredHandler(
+        prepare=prepare_validation,
+        commit=commit_validation,
+    )
+
     def handle_stock(_action: CampaignAction) -> dict[str, Any]:
         return _audit_stock_stage(
             service,
@@ -1420,8 +1443,13 @@ def solve_target(
         dict(target_identity.get("identity") or {}).get("preferred_name")
         or case.target_name
     )
-    evidence_prefetch_executor: ThreadPoolExecutor | None = None
-    evidence_prefetch_future: Future[dict[str, Any]] | None = None
+    evidence_prefetch_result: dict[str, Any] = {
+        "status": "not_started",
+        "elapsed_s": 0.0,
+        "discovery": {},
+    }
+    evidence_prefetch_request: dict[str, Any] = {}
+    evidence_prefetch_signal_id = ""
     if (
         not outcomes
         and resolved_evidence_connector is not None
@@ -1432,7 +1460,7 @@ def solve_target(
         )
         is True
     ):
-        prefetch_request = compile_evidence_acquisition_request(
+        evidence_prefetch_request = compile_evidence_acquisition_request(
             run_id=service.kernel.spec.run_id,
             target_name=resolved_target_name,
             target_smiles=service.kernel.spec.target_smiles,
@@ -1441,15 +1469,54 @@ def solve_target(
             target_identity=dict(target_identity.get("identity") or {}),
             prefetch_mode=True,
         )
-        evidence_prefetch_executor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="autoplanner-evidence-prefetch",
+        prefetch_sha256 = str(
+            evidence_prefetch_request.get("content_sha256") or ""
         )
-        evidence_prefetch_future = evidence_prefetch_executor.submit(
-            _run_evidence_prefetch,
-            prefetch_request,
-            resolved_evidence_connector,
+        evidence_prefetch_signal_id = (
+            f"event-deficit:evidence-prefetch:{prefetch_sha256}"
         )
+        prefetch_graph = service.graph_store.load()
+        existing_prefetch_signal = dict(
+            dict(prefetch_graph.get("action_signals") or {}).get(
+                evidence_prefetch_signal_id
+            )
+            or {}
+        )
+        if str(existing_prefetch_signal.get("status") or "open") != "resolved":
+            target_object = str(
+                prefetch_graph.get("target_molecule_id")
+                or service.kernel.spec.run_id
+            )
+            service.publish_action_signals(
+                (
+                    {
+                        "signal_id": evidence_prefetch_signal_id,
+                        "kind": "evidence",
+                        "object_id": target_object,
+                        "entity_ids": [target_object],
+                        "route_family_ids": [],
+                        "dependency_ids": [],
+                        "deterministic": False,
+                        "model_allowed": False,
+                        "reason": "target_source_prefetch_requires_evidence_acquisition",
+                        "score": {
+                            "expected_portfolio_gain": 0.2,
+                            "distance_to_closure": 0.1,
+                            "evidence_gain": 0.4,
+                            "route_diversity_gain": 0.0,
+                            "cost_penalty": 0.15,
+                            "failure_risk_penalty": 0.05,
+                        },
+                        "metadata": {
+                            "target_level_evidence_prefetch": True,
+                            "evidence_prefetch_request_sha256": prefetch_sha256,
+                        },
+                    },
+                ),
+                idempotency_key=(
+                    f"unified-evidence-prefetch-signal:{prefetch_sha256[:24]}"
+                ),
+            )
     initial_template_retrieval = self_evo.start(service.graph_store.load())
     stages.append(
         _stage(
@@ -1635,16 +1702,47 @@ def solve_target(
     if not ordered_initial_admission:
         initial_chemenzy_admission_complete.set()
 
-    def handle_unified_evidence(_action: CampaignAction) -> dict[str, Any]:
-        nonlocal evidence_action_completed, latest_evidence_action_result
-        nonlocal resolved_target_name, target_identity
-        if evidence_action_completed:
+    def prepare_unified_evidence(_action: CampaignAction) -> dict[str, Any]:
+        if _action.metadata.get("target_level_evidence_prefetch") is True:
+            expected_sha256 = str(
+                _action.metadata.get("evidence_prefetch_request_sha256") or ""
+            )
+            if (
+                not evidence_prefetch_request
+                or expected_sha256
+                != str(evidence_prefetch_request.get("content_sha256") or "")
+                or resolved_evidence_connector is None
+            ):
+                return {
+                    "mode": "prefetch",
+                    "result": {
+                        "status": "failed",
+                        "changed": False,
+                        "reasons": ["evidence_prefetch_action_binding_invalid"],
+                    },
+                }
             return {
-                "status": "reused",
-                "changed": False,
-                "reason": "unified_evidence_action_already_executed",
+                "mode": "prefetch",
+                "result": _run_evidence_prefetch(
+                    evidence_prefetch_request,
+                    resolved_evidence_connector,
+                ),
             }
-        target_identity = _target_identity_stage(
+        if evidence_action_completed:
+            reused = dict(latest_evidence_action_result)
+            return {
+                "mode": "reused",
+                "result": {
+                    **reused,
+                    "status": "reused",
+                    "reused_evidence_status": str(
+                        reused.get("status") or "completed"
+                    ),
+                    "changed": False,
+                    "reason": "unified_evidence_action_already_executed",
+                },
+            }
+        prepared_target_identity = _target_identity_stage(
             service,
             stages=stages,
             target_name=case.target_name,
@@ -1653,8 +1751,49 @@ def solve_target(
             resolve_named=active.resolve_named_target_identity,
             lookup_now=True,
         )
+        prepared_target_name = str(
+            dict(prepared_target_identity.get("identity") or {}).get(
+                "preferred_name"
+            )
+            or opaque_name
+        )
+        source_frontier = discover_director_source_hints(service, outcomes)
+        return {
+            "mode": "full",
+            "target_identity_stage": prepared_target_identity,
+            "resolved_target_name": prepared_target_name,
+            "prepared_acquisition": _prepare_evidence_acquisition(
+                service,
+                source_stage=source_frontier,
+                connector=resolved_evidence_connector,
+                target_name=prepared_target_name,
+                target_identity=dict(
+                    prepared_target_identity.get("identity") or {}
+                ),
+                allow_target_identity_lookup=active.enable_target_identity,
+            ),
+        }
+
+    def commit_unified_evidence(
+        _action: CampaignAction,
+        prepared: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        nonlocal evidence_action_completed, latest_evidence_action_result
+        nonlocal resolved_target_name, target_identity
+        prepared_row = dict(prepared)
+        mode = str(prepared_row.get("mode") or "")
+        if mode in {"prefetch", "reused"}:
+            return dict(prepared_row.get("result") or {})
+        if mode != "full":
+            return {
+                "status": "failed",
+                "changed": False,
+                "reasons": ["prepared_evidence_action_mode_invalid"],
+            }
+        target_identity = dict(prepared_row.get("target_identity_stage") or {})
         resolved_target_name = str(
-            dict(target_identity.get("identity") or {}).get("preferred_name")
+            prepared_row.get("resolved_target_name")
+            or dict(target_identity.get("identity") or {}).get("preferred_name")
             or opaque_name
         )
         refreshed_identity_stage = _stage(
@@ -1671,10 +1810,9 @@ def solve_target(
             stages[identity_rows[-1]] = refreshed_identity_stage
         else:
             stages.append(refreshed_identity_stage)
-        source_frontier = discover_director_source_hints(service, outcomes)
         result = _acquire_evidence_stage(
             service,
-            source_stage=source_frontier,
+            source_stage={},
             connector=resolved_evidence_connector,
             atom_mapper=atom_mapper,
             visual_provider=visual_evidence_provider,
@@ -1684,10 +1822,18 @@ def solve_target(
             allow_target_identity_lookup=active.enable_target_identity,
             prior_visual_observation=_latest_visual_observation(stages),
             defer_validation=True,
+            prepared_acquisition=dict(
+                prepared_row.get("prepared_acquisition") or {}
+            ),
         )
         evidence_action_completed = True
         latest_evidence_action_result = dict(result)
         return result
+
+    deferred_unified_evidence_handler = CampaignActionDeferredHandler(
+        prepare=prepare_unified_evidence,
+        commit=commit_unified_evidence,
+    )
 
     def handle_unified_replan(action: CampaignAction) -> dict[str, Any]:
         if action.metadata.get("global_replan") is not True:
@@ -2153,7 +2299,7 @@ def solve_target(
 
     unified_core_handlers = {
         CampaignActionKind.MATERIALIZE: handle_materialize,
-        CampaignActionKind.REACTION_VALIDATE: handle_validation,
+        CampaignActionKind.REACTION_VALIDATE: deferred_validation_handler,
         CampaignActionKind.STOCK_AUDIT: handle_stock,
         **(
             {CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_global_architecture}
@@ -2182,8 +2328,12 @@ def solve_target(
         ),
         **(
             {
-                CampaignActionKind.ACQUIRE_EVIDENCE: handle_unified_evidence,
-                CampaignActionKind.BIND_EVIDENCE: handle_unified_evidence,
+                CampaignActionKind.ACQUIRE_EVIDENCE: (
+                    deferred_unified_evidence_handler
+                ),
+                CampaignActionKind.BIND_EVIDENCE: (
+                    deferred_unified_evidence_handler
+                ),
             }
             if resolved_evidence_connector is not None
             else {}
@@ -2207,7 +2357,7 @@ def solve_target(
         index: int,
         execution: Mapping[str, Any],
     ) -> None:
-        nonlocal chemenzy_observation
+        nonlocal chemenzy_observation, evidence_prefetch_result
         stage_sequence = unified_action_stage_offset + index
         execution_row = dict(execution)
         preexecuted_action_backlog.append(execution_row)
@@ -2386,6 +2536,11 @@ def solve_target(
                         repair,
                     )
                 )
+        elif (
+            action_kind == CampaignActionKind.ACQUIRE_EVIDENCE.value
+            and action_metadata.get("target_level_evidence_prefetch") is True
+        ):
+            evidence_prefetch_result = dict(handler_result)
         elif action_kind in {
             CampaignActionKind.ACQUIRE_EVIDENCE.value,
             CampaignActionKind.BIND_EVIDENCE.value,
@@ -2460,12 +2615,26 @@ def solve_target(
                         CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
                         active.enable_codex,
                     ),
+                    (
+                        CampaignActionKind.ACQUIRE_EVIDENCE,
+                        bool(evidence_prefetch_signal_id),
+                    ),
                 )
                 if enabled
             )
             if active.action_scheduler_policy == "adaptive"
             else ()
         ),
+        concurrent_action_kinds=(
+            (
+                CampaignActionKind.ACQUIRE_EVIDENCE,
+                CampaignActionKind.BIND_EVIDENCE,
+                CampaignActionKind.REACTION_VALIDATE,
+            )
+            if active.action_scheduler_policy == "adaptive"
+            else ()
+        ),
+        max_concurrent_actions=4,
         on_execution=observe_unified_core_execution,
     )
     anytime_budget_exhausted = bool(
@@ -2718,6 +2887,18 @@ def solve_target(
         source_frontier: Mapping[str, Any],
         prior_visual_observation: Mapping[str, Any],
     ) -> dict[str, Any]:
+        if phase == "evidence_acquisition" and latest_evidence_action_result:
+            prior_result = dict(latest_evidence_action_result)
+            return {
+                **prior_result,
+                "action_execution_count": 1,
+                "semantics": {
+                    **dict(prior_result.get("semantics") or {}),
+                    "scheduler_owned_execution": True,
+                    "unified_anytime_action_result_reused": True,
+                },
+            }
+
         def handle_evidence(_action: CampaignAction) -> dict[str, Any]:
             return _acquire_evidence_stage(
                 service,
@@ -2965,10 +3146,7 @@ def solve_target(
     # optional replan.  Their host-owned observations therefore enter the next
     # CampaignContext instead of making the director repeat a blind first pass.
     source_stage = discover_director_source_hints(service, outcomes)
-    evidence_prefetch = _resolve_evidence_prefetch(
-        evidence_prefetch_future,
-        evidence_prefetch_executor,
-    )
+    evidence_prefetch = dict(evidence_prefetch_result)
     source_stage = _merge_prefetched_source_hints(source_stage, evidence_prefetch)
     stages.append(_stage("source_frontier", source_stage["status"], source_stage))
     append_condition_stage("post_guided_condition_enrichment")
@@ -5223,6 +5401,91 @@ def _chemenzy_delegation_audit(
     }
 
 
+PREPARED_EVIDENCE_ACQUISITION_SCHEMA = "prepared_evidence_acquisition.v1"
+
+
+def _prepare_evidence_acquisition(
+    service: Any,
+    *,
+    source_stage: Mapping[str, Any],
+    connector: EvidenceConnector | None,
+    target_name: str = "",
+    target_identity: Mapping[str, Any] | None = None,
+    allow_target_identity_lookup: bool = True,
+) -> dict[str, Any]:
+    """Run connector acquisition against one frozen graph without ingesting it."""
+
+    graph = service.graph_store.load()
+    prepared: dict[str, Any] = {
+        "schema_version": PREPARED_EVIDENCE_ACQUISITION_SCHEMA,
+        "status": "unresolved",
+        "input_graph_revision": int(graph.get("revision") or 0),
+        "input_evidence_revision": int(service.kernel.state.evidence_revision),
+        "input_scientific_sha256": str(graph.get("scientific_sha256") or ""),
+        "request": {},
+        "acquired": {},
+        "effective_target_identity": dict(target_identity or {}),
+        "target_identity_resolution": {},
+        "reason": "structured_evidence_connector_not_configured",
+        "semantics": {
+            "connector_output_grants_no_canonical_authority": True,
+            "canonical_ingestion_is_deferred_to_stable_action_order": True,
+        },
+    }
+    if connector is not None:
+        effective_target_identity, target_identity_resolution = (
+            _ensure_evidence_target_identity(
+                service,
+                target_name=target_name or service.kernel.spec.target_name,
+                target_smiles=service.kernel.spec.target_smiles,
+                target_identity=target_identity,
+                allow_remote_lookup=allow_target_identity_lookup,
+            )
+        )
+        request = compile_evidence_acquisition_request(
+            run_id=service.kernel.spec.run_id,
+            target_name=target_name or service.kernel.spec.target_name,
+            target_smiles=service.kernel.spec.target_smiles,
+            graph=graph,
+            source_frontier=source_stage,
+            target_identity=effective_target_identity,
+        )
+        prepared.update(
+            {
+                "request": request,
+                "effective_target_identity": effective_target_identity,
+                "target_identity_resolution": target_identity_resolution,
+                "reason": "",
+            }
+        )
+        try:
+            prepared["acquired"] = acquire_structured_evidence(
+                request,
+                connector=connector,
+            )
+            prepared["status"] = "prepared"
+        except (LiveEvidenceConnectorError, ValueError) as exc:
+            prepared["reason"] = (
+                f"evidence_connector_failed:{type(exc).__name__}:{exc}"
+            )
+    prepared["content_sha256"] = _digest(prepared)
+    return prepared
+
+
+def _validated_prepared_evidence_acquisition(
+    prepared: Mapping[str, Any],
+) -> dict[str, Any]:
+    row = dict(prepared)
+    supplied_sha256 = str(row.pop("content_sha256", ""))
+    if (
+        row.get("schema_version") != PREPARED_EVIDENCE_ACQUISITION_SCHEMA
+        or not supplied_sha256
+        or supplied_sha256 != _digest(row)
+    ):
+        raise ValueError("prepared_evidence_acquisition_invalid")
+    return {**row, "content_sha256": supplied_sha256}
+
+
 def _acquire_evidence_stage(
     service: Any,
     *,
@@ -5237,35 +5500,50 @@ def _acquire_evidence_stage(
     prior_visual_observation: Mapping[str, Any] | None = None,
     validation_runner: Callable[[str], Mapping[str, Any]] | None = None,
     defer_validation: bool = False,
+    prepared_acquisition: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if connector is None:
+    prepared = _validated_prepared_evidence_acquisition(
+        prepared_acquisition
+        or _prepare_evidence_acquisition(
+            service,
+            source_stage=source_stage,
+            connector=connector,
+            target_name=target_name,
+            target_identity=target_identity,
+            allow_target_identity_lookup=allow_target_identity_lookup,
+        )
+    )
+    request = dict(prepared.get("request") or {})
+    target_identity_resolution = dict(
+        prepared.get("target_identity_resolution") or {}
+    )
+    prepared_binding = {
+        "prepared_input_graph_revision": int(
+            prepared.get("input_graph_revision") or 0
+        ),
+        "prepared_acquisition_sha256": str(
+            prepared.get("content_sha256") or ""
+        ),
+    }
+    if prepared.get("status") != "prepared":
         return {
             "stage": "evidence_acquisition",
             "status": "unresolved",
-            "reason": "structured_evidence_connector_not_configured",
+            "reason": str(
+                prepared.get("reason")
+                or "structured_evidence_connector_not_configured"
+            ),
+            "request_sha256": str(request.get("content_sha256") or ""),
+            "target_identity_resolution": target_identity_resolution,
             "model_invocations": 0,
+            "visual_invocations": 0,
+            "false_evidence_claim": False,
+            **prepared_binding,
         }
-    effective_target_identity, target_identity_resolution = (
-        _ensure_evidence_target_identity(
-            service,
-            target_name=target_name or service.kernel.spec.target_name,
-            target_smiles=service.kernel.spec.target_smiles,
-            target_identity=target_identity,
-            allow_remote_lookup=allow_target_identity_lookup,
-        )
-    )
-    request = compile_evidence_acquisition_request(
-        run_id=service.kernel.spec.run_id,
-        target_name=target_name or service.kernel.spec.target_name,
-        target_smiles=service.kernel.spec.target_smiles,
-        graph=service.graph_store.load(),
-        source_frontier=source_stage,
-        target_identity=effective_target_identity,
-    )
+    acquired = dict(prepared.get("acquired") or {})
     visual_stage: dict[str, Any] = {}
     source_route_stage: dict[str, Any] = {}
     try:
-        acquired = acquire_structured_evidence(request, connector=connector)
         receipt = dict(acquired.get("receipt") or {})
         receipt_ref: dict[str, Any] = {}
         if receipt:
@@ -5424,6 +5702,7 @@ def _acquire_evidence_stage(
                     visual_stage.get("visual_invocations") or 0
                 ),
                 "false_evidence_claim": False,
+                **prepared_binding,
                 "material_events": sorted(
                     {
                         "source_material_discovered",
@@ -5511,6 +5790,7 @@ def _acquire_evidence_stage(
             "model_invocations": int(visual_stage.get("model_invocations") or 0),
             "visual_invocations": int(visual_stage.get("visual_invocations") or 0),
             "false_evidence_claim": False,
+            **prepared_binding,
         }
     return {
         "stage": "evidence_acquisition",
@@ -5533,6 +5813,7 @@ def _acquire_evidence_stage(
         "validation": imported["validation"],
         "model_invocations": int(visual_stage.get("model_invocations") or 0),
         "visual_invocations": int(visual_stage.get("visual_invocations") or 0),
+        **prepared_binding,
         "material_events": sorted(
             {
                 *(
@@ -5561,6 +5842,7 @@ def _acquire_evidence_stage(
             "connector_output_requires_normal_host_ingestion": True,
             "connector_cannot_grant_reaction_validation": True,
             "receipt_grants_no_scientific_authority": True,
+            "connector_acquisition_preceded_stable_order_canonical_commit": True,
         },
     }
 
@@ -5667,31 +5949,6 @@ def _run_evidence_prefetch(
             "full_edge_bound_extraction_still_required": True,
         },
     }
-
-
-def _resolve_evidence_prefetch(
-    future: Future[dict[str, Any]] | None,
-    executor: ThreadPoolExecutor | None,
-) -> dict[str, Any]:
-    if future is None:
-        return {
-            "status": "not_started",
-            "elapsed_s": 0.0,
-            "discovery": {},
-        }
-    try:
-        return dict(future.result(timeout=180.0))
-    except Exception as exc:  # bounded optional latency-hiding optimization
-        return {
-            "status": "unresolved",
-            "elapsed_s": 0.0,
-            "reason": f"{type(exc).__name__}:{str(exc)[:500]}",
-            "discovery": {},
-            "semantics": {"failure_does_not_abort_campaign": True},
-        }
-    finally:
-        if executor is not None:
-            executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _merge_prefetched_source_hints(

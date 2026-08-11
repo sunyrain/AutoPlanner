@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, wait
+from dataclasses import dataclass
 import hashlib
 import json
 import time
@@ -35,8 +36,13 @@ CAMPAIGN_ACTION_EXECUTION_SCHEMA = "campaign_action_execution.v1"
 CAMPAIGN_ACTION_COHORT_SCHEMA = "campaign_action_concurrent_cohort.v1"
 CAMPAIGN_ANYTIME_LOOP_SCHEMA = "campaign_anytime_action_loop.v1"
 CAMPAIGN_UNEXECUTED_ACTION_SET_SCHEMA = "campaign_unexecuted_action_set.v1"
+MAX_BOUNDED_ACTION_WORKERS = 4
 
 CampaignActionHandler = Callable[[CampaignAction], Mapping[str, Any]]
+CampaignActionCommitHandler = Callable[
+    [CampaignAction, Mapping[str, Any]],
+    Mapping[str, Any],
+]
 CampaignActionStateProvider = Callable[[], Mapping[str, Any]]
 CampaignActionExecutionObserver = Callable[[int, Mapping[str, Any]], None]
 
@@ -45,13 +51,28 @@ class CampaignActionRuntimeError(RuntimeError):
     """Raised when a persisted action receipt cannot be trusted or replayed."""
 
 
+@dataclass(frozen=True, slots=True)
+class CampaignActionDeferredHandler:
+    """Split expensive compute from stable-order canonical commit."""
+
+    prepare: CampaignActionHandler
+    commit: CampaignActionCommitHandler
+
+    def __post_init__(self) -> None:
+        if not callable(self.prepare) or not callable(self.commit):
+            raise TypeError("deferred campaign action handlers must be callable")
+
+
 class CampaignActionRuntime:
     """Schedule and execute registered actions without a second work queue."""
 
     def __init__(
         self,
         kernel: RunKernel,
-        handlers: Mapping[CampaignActionKind | str, CampaignActionHandler],
+        handlers: Mapping[
+            CampaignActionKind | str,
+            CampaignActionHandler | CampaignActionDeferredHandler,
+        ],
         *,
         scheduler_policy: str = "adaptive",
     ) -> None:
@@ -65,7 +86,11 @@ class CampaignActionRuntime:
             ): handler
             for kind, handler in handlers.items()
         }
-        if any(not callable(handler) for handler in self.handlers.values()):
+        if any(
+            not callable(handler)
+            and not isinstance(handler, CampaignActionDeferredHandler)
+            for handler in self.handlers.values()
+        ):
             raise TypeError("campaign action handlers must be callable")
 
     def action_service_history(self) -> tuple[str, ...]:
@@ -253,6 +278,8 @@ class CampaignActionRuntime:
         max_consecutive_no_gain: int = 3,
         excluded_action_ids: tuple[str, ...] = (),
         concurrent_start_kinds: tuple[CampaignActionKind | str, ...] = (),
+        concurrent_action_kinds: tuple[CampaignActionKind | str, ...] = (),
+        max_concurrent_actions: int = MAX_BOUNDED_ACTION_WORKERS,
         on_execution: CampaignActionExecutionObserver | None = None,
     ) -> dict[str, Any]:
         """Own one bounded anytime loop over the latest canonical revision."""
@@ -292,7 +319,47 @@ class CampaignActionRuntime:
             )
             for kind in concurrent_start_kinds
         )
+        normalized_concurrent_kinds = tuple(
+            dict.fromkeys(
+                kind
+                if isinstance(kind, CampaignActionKind)
+                else CampaignActionKind(str(kind))
+                for kind in concurrent_action_kinds
+            )
+        )
+        concurrent_worker_limit = min(
+            MAX_BOUNDED_ACTION_WORKERS,
+            max(1, int(max_concurrent_actions)),
+        )
         start_cohort: dict[str, Any] = {}
+        concurrent_cohorts: list[dict[str, Any]] = []
+
+        def record_execution(execution: Mapping[str, Any]) -> None:
+            nonlocal consecutive_no_gain
+            execution_row = dict(execution)
+            executions.append(execution_row)
+            action_row = dict(execution_row.get("action") or {})
+            action_id = str(action_row.get("action_id") or "")
+            action_revision = int(
+                action_row.get("input_revision")
+                if action_row.get("input_revision") is not None
+                else self.kernel.state.graph_revision
+            )
+            if action_id:
+                attempted_by_revision.setdefault(action_revision, set()).add(
+                    action_id
+                )
+            if on_execution is not None:
+                on_execution(len(executions), execution_row)
+            gained = _execution_gained(execution_row)
+            if action_id and not gained:
+                no_gain_bindings[action_id] = str(
+                    action_row.get("opportunity_sha256") or ""
+                )
+            elif action_id:
+                no_gain_bindings.pop(action_id, None)
+            consecutive_no_gain = 0 if gained else consecutive_no_gain + 1
+
         initial_kernel_termination = _kernel_loop_termination(self.kernel.state)
         if initial_kernel_termination is not None:
             termination, termination_reasons = initial_kernel_termination
@@ -323,6 +390,7 @@ class CampaignActionRuntime:
                             | start_no_gain_excluded
                         )
                     ),
+                    max_actions=min(concurrent_worker_limit, action_limit),
                 )
             except RunKernelBudgetError as exc:
                 reasons = _terminal_budget_reasons(exc)
@@ -334,31 +402,15 @@ class CampaignActionRuntime:
             cohort_executions = [
                 dict(value) for value in start_cohort.get("executions") or []
             ][:action_limit]
+            if cohort_executions:
+                concurrent_cohorts.append(dict(start_cohort))
             for execution in cohort_executions:
-                executions.append(execution)
-                action_row = dict(execution.get("action") or {})
-                action_id = str(action_row.get("action_id") or "")
-                action_revision = int(
-                    action_row.get("input_revision")
-                    if action_row.get("input_revision") is not None
-                    else initial_revision
-                )
-                if action_id:
-                    attempted_by_revision.setdefault(action_revision, set()).add(
-                        action_id
-                    )
-                if on_execution is not None:
-                    on_execution(len(executions), execution)
-                gained = _execution_gained(execution)
-                if action_id and not gained:
-                    no_gain_bindings[action_id] = str(
-                        action_row.get("opportunity_sha256") or ""
-                    )
-                elif action_id:
-                    no_gain_bindings.pop(action_id, None)
-                consecutive_no_gain = 0 if gained else consecutive_no_gain + 1
+                record_execution(execution)
+            if cohort_executions and consecutive_no_gain >= no_gain_limit:
+                termination = "converged_low_marginal_gain"
+                action_limit = len(executions)
 
-        for index in range(len(executions) + 1, action_limit + 1):
+        while len(executions) < action_limit:
             kernel_termination = _kernel_loop_termination(self.kernel.state)
             if kernel_termination is not None:
                 termination, termination_reasons = kernel_termination
@@ -370,14 +422,51 @@ class CampaignActionRuntime:
                 opportunity_set,
                 no_gain_bindings,
             )
+            excluded = tuple(
+                sorted(globally_excluded | attempted | no_gain_excluded)
+            )
+            remaining_action_slots = action_limit - len(executions)
+            if (
+                len(normalized_concurrent_kinds) >= 2
+                and remaining_action_slots >= 2
+                and concurrent_worker_limit >= 2
+            ):
+                try:
+                    cohort = self.execute_concurrent_cohort(
+                        opportunity_set,
+                        action_kinds=normalized_concurrent_kinds,
+                        milestones=milestones_provider(),
+                        resource_availability=resource_availability_provider(),
+                        excluded_action_ids=excluded,
+                        max_actions=min(
+                            concurrent_worker_limit,
+                            remaining_action_slots,
+                        ),
+                    )
+                except RunKernelBudgetError as exc:
+                    reasons = _terminal_budget_reasons(exc)
+                    if not reasons:
+                        raise
+                    termination = "budget_exhausted"
+                    termination_reasons = list(reasons)
+                    break
+                cohort_executions = [
+                    dict(value) for value in cohort.get("executions") or []
+                ][:remaining_action_slots]
+                if cohort_executions:
+                    concurrent_cohorts.append(dict(cohort))
+                    for execution in cohort_executions:
+                        record_execution(execution)
+                    if consecutive_no_gain >= no_gain_limit:
+                        termination = "converged_low_marginal_gain"
+                        break
+                    continue
             execution = self.schedule_and_execute(
                 opportunity_set,
                 milestones=milestones_provider(),
                 resource_availability=resource_availability_provider(),
-                excluded_action_ids=tuple(
-                    sorted(globally_excluded | attempted | no_gain_excluded)
-                ),
-                round_robin_cursor=index - 1,
+                excluded_action_ids=excluded,
+                round_robin_cursor=len(executions),
             )
             if execution.get("status") == "no_action":
                 termination = "no_action"
@@ -390,25 +479,7 @@ class CampaignActionRuntime:
                     if str(value)
                 ]
                 break
-            executions.append(execution)
-            action_id = str(
-                dict(execution.get("action") or {}).get("action_id") or ""
-            )
-            if action_id:
-                attempted.add(action_id)
-            if on_execution is not None:
-                on_execution(index, execution)
-            gained = _execution_gained(execution)
-            if action_id and not gained:
-                no_gain_bindings[action_id] = str(
-                    dict(execution.get("action") or {}).get(
-                        "opportunity_sha256"
-                    )
-                    or ""
-                )
-            elif action_id:
-                no_gain_bindings.pop(action_id, None)
-            consecutive_no_gain = 0 if gained else consecutive_no_gain + 1
+            record_execution(execution)
             if consecutive_no_gain >= no_gain_limit:
                 termination = "converged_low_marginal_gain"
                 break
@@ -480,6 +551,8 @@ class CampaignActionRuntime:
             ),
             "convergence_ledger": final_convergence,
             "start_cohort": start_cohort,
+            "concurrent_cohorts": concurrent_cohorts,
+            "concurrent_worker_limit": concurrent_worker_limit,
             "executions": executions,
             "kernel_stop_decision": kernel_stop_decision,
             "unexecuted_actions": unexecuted_actions,
@@ -496,6 +569,9 @@ class CampaignActionRuntime:
                 ),
                 "cohort_failures_do_not_cancel_peers": True,
                 "cohort_observation_order_is_stable": True,
+                "all_concurrency_is_owned_by_this_action_loop": True,
+                "concurrent_workers_are_hard_bounded": True,
+                "cohort_falls_back_to_single_action_when_fewer_than_two_fit": True,
                 "unexecuted_actions_have_explicit_reasons": True,
                 "B4_and_B5_do_not_stop_the_loop": True,
                 "no_action_and_low_gain_converge_finitely": True,
@@ -525,17 +601,24 @@ class CampaignActionRuntime:
         milestones: Mapping[str, Any],
         resource_availability: Mapping[str, Any],
         excluded_action_ids: tuple[str, ...] = (),
+        max_actions: int = MAX_BOUNDED_ACTION_WORKERS,
     ) -> dict[str, Any]:
         """Reserve same-revision actions first, then execute without peer cancellation."""
 
         input_revision = self.kernel.state.graph_revision
         normalized_kinds = tuple(
-            (
-                kind
-                if isinstance(kind, CampaignActionKind)
-                else CampaignActionKind(str(kind))
+            dict.fromkeys(
+                (
+                    kind
+                    if isinstance(kind, CampaignActionKind)
+                    else CampaignActionKind(str(kind))
+                )
+                for kind in action_kinds
             )
-            for kind in action_kinds
+        )
+        worker_limit = min(
+            MAX_BOUNDED_ACTION_WORKERS,
+            max(1, int(max_actions)),
         )
         decisions: list[dict[str, Any]] = []
         actions: list[CampaignAction] = []
@@ -543,7 +626,11 @@ class CampaignActionRuntime:
         selected_action_ids = {
             str(value) for value in excluded_action_ids if str(value)
         }
+        selected_resource_classes: set[str] = set()
+        resource_collisions: list[str] = []
         for kind in normalized_kinds:
+            if len(actions) >= worker_limit:
+                break
             decision = schedule_next_action(
                 opportunity_set,
                 milestones=milestones,
@@ -559,10 +646,38 @@ class CampaignActionRuntime:
             if not decision.get("selected_action_id"):
                 continue
             action = bind_scheduled_action(decision, input_revision=input_revision)
+            if action.resource_class in selected_resource_classes:
+                resource_collisions.append(kind.value)
+                continue
             decisions.append(decision)
             actions.append(action)
             selected_action_ids.add(action.action_id)
+            selected_resource_classes.add(action.resource_class)
             service_history.append(action.kind.value)
+        available_wrapper_slots = int(
+            dict(
+                dict(self.kernel.task_budget().get("dimensions") or {}).get(
+                    "total"
+                )
+                or {}
+            ).get("remaining")
+            or 0
+        )
+        selected: list[
+            tuple[CampaignAction, Mapping[str, Any], Mapping[str, Any] | None]
+        ] = []
+        omitted_for_wrapper_budget: list[str] = []
+        for action, decision in zip(actions, decisions, strict=True):
+            cached = self._load_cached(action)
+            if cached is not None:
+                selected.append((action, decision, cached))
+            elif available_wrapper_slots > 0:
+                selected.append((action, decision, None))
+                available_wrapper_slots -= 1
+            else:
+                omitted_for_wrapper_budget.append(action.action_id)
+        actions = [value[0] for value in selected]
+        decisions = [dict(value[1]) for value in selected]
         if len(actions) < 2:
             result = {
                 "schema_version": CAMPAIGN_ACTION_COHORT_SCHEMA,
@@ -572,9 +687,14 @@ class CampaignActionRuntime:
                 "selected_action_ids": [action.action_id for action in actions],
                 "decisions": decisions,
                 "executions": [],
+                "worker_limit": worker_limit,
+                "resource_collision_kinds": resource_collisions,
+                "omitted_for_wrapper_budget": omitted_for_wrapper_budget,
                 "semantics": {
                     "cohort_requires_multiple_eligible_actions": True,
                     "fallback_to_single_scheduler_loop": True,
+                    "resource_class_is_exclusive_within_one_cohort": True,
+                    "wrapper_reservations_fit_current_total_task_capacity": True,
                 },
             }
             result["content_sha256"] = _digest(result)
@@ -584,8 +704,13 @@ class CampaignActionRuntime:
             tuple[CampaignAction, Mapping[str, Any], Mapping[str, Any]]
         ] = []
         cached_by_execution_id: dict[str, dict[str, Any]] = {}
+        cached_by_action_id = {
+            value[0].action_id: value[2]
+            for value in selected
+            if value[2] is not None
+        }
         for action, decision in zip(actions, decisions, strict=True):
-            cached = self._load_cached(action)
+            cached = cached_by_action_id.get(action.action_id)
             if cached is not None:
                 cached_by_execution_id[action.execution_id] = {
                     "schema_version": CAMPAIGN_ACTION_EXECUTION_SCHEMA,
@@ -615,18 +740,26 @@ class CampaignActionRuntime:
         futures = {}
         if prepared:
             with ThreadPoolExecutor(
-                max_workers=len(prepared),
-                thread_name_prefix="campaign-start",
+                max_workers=min(worker_limit, len(prepared)),
+                thread_name_prefix="campaign-action",
             ) as executor:
-                futures = {
-                    action.execution_id: executor.submit(
-                        self._execute_reserved,
-                        action,
-                        decision=decision,
-                        resource_reservation=resource_reservation,
-                    )
-                    for action, decision, resource_reservation in prepared
-                }
+                futures = {}
+                for action, decision, resource_reservation in prepared:
+                    handler = self.handlers[action.kind]
+                    if isinstance(handler, CampaignActionDeferredHandler):
+                        future = executor.submit(
+                            self._prepare_deferred,
+                            action,
+                            handler=handler,
+                        )
+                    else:
+                        future = executor.submit(
+                            self._execute_reserved,
+                            action,
+                            decision=decision,
+                            resource_reservation=resource_reservation,
+                        )
+                    futures[action.execution_id] = future
                 wait(tuple(futures.values()))
 
         executions: list[dict[str, Any]] = []
@@ -641,7 +774,31 @@ class CampaignActionRuntime:
             if action.execution_id in cached_by_execution_id:
                 execution = dict(cached_by_execution_id[action.execution_id])
             else:
-                execution = dict(futures[action.execution_id].result())
+                handler = self.handlers[action.kind]
+                if isinstance(handler, CampaignActionDeferredHandler):
+                    prepared_by_execution_id = {
+                        prepared_action.execution_id: (
+                            prepared_decision,
+                            prepared_reservation,
+                        )
+                        for (
+                            prepared_action,
+                            prepared_decision,
+                            prepared_reservation,
+                        ) in prepared
+                    }
+                    prepared_decision, prepared_reservation = (
+                        prepared_by_execution_id[action.execution_id]
+                    )
+                    execution = self._commit_deferred(
+                        action,
+                        handler=handler,
+                        prepared=dict(futures[action.execution_id].result()),
+                        decision=prepared_decision,
+                        resource_reservation=prepared_reservation,
+                    )
+                else:
+                    execution = dict(futures[action.execution_id].result())
             execution["cohort"] = {
                 "cohort_id": cohort_id,
                 "input_revision": input_revision,
@@ -658,14 +815,21 @@ class CampaignActionRuntime:
             "selected_action_ids": [action.action_id for action in actions],
             "action_execution_ids": action_execution_ids,
             "decisions": decisions,
+            "worker_limit": worker_limit,
             "max_in_flight_action_count": len(prepared),
+            "resource_collision_kinds": resource_collisions,
+            "omitted_for_wrapper_budget": omitted_for_wrapper_budget,
             "executions": executions,
             "semantics": {
                 "all_actions_bound_to_one_input_revision": True,
                 "reservations_precede_handler_start": True,
                 "handler_failure_does_not_cancel_peer": True,
                 "observation_order_follows_requested_kind_order": True,
+                "deferred_commits_follow_stable_action_order": True,
                 "canonical_handlers_retain_union_merge_authority": True,
+                "resource_class_is_exclusive_within_one_cohort": True,
+                "worker_pool_is_runtime_owned_and_hard_bounded": True,
+                "no_background_scheduler_or_second_queue": True,
             },
         }
         result["content_sha256"] = _digest(result)
@@ -821,7 +985,14 @@ class CampaignActionRuntime:
             raise CampaignActionRuntimeError(
                 f"campaign_action_handler_missing:{action.kind.value}"
             )
-        action_row = action.to_dict()
+        if isinstance(handler, CampaignActionDeferredHandler):
+            return self._commit_deferred(
+                action,
+                handler=handler,
+                prepared=self._prepare_deferred(action, handler=handler),
+                decision=decision,
+                resource_reservation=resource_reservation,
+            )
         started = time.perf_counter()
         failure_reasons: list[str] = []
         with self.kernel.action_resource_scope(
@@ -847,10 +1018,125 @@ class CampaignActionRuntime:
                 failure_reasons.append(
                     f"campaign_action_handler_error:{type(exc).__name__}:{str(exc)[:500]}"
                 )
+        return self._finalize_reserved(
+            action,
+            decision=decision,
+            resource_reservation=resource_reservation,
+            raw_result=raw_result,
+            status=status,
+            failure_reasons=failure_reasons,
+            started=started,
+        )
+
+    def _prepare_deferred(
+        self,
+        action: CampaignAction,
+        *,
+        handler: CampaignActionDeferredHandler,
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        with self.kernel.action_resource_scope(
+            action_execution_id=action.execution_id,
+            expected_resources_sha256=str(
+                action.expected_resources.get("content_sha256") or ""
+            ),
+        ):
+            try:
+                value = dict(handler.prepare(action) or {})
+                return {
+                    "status": "prepared",
+                    "prepared_result": value,
+                    "started": started,
+                    "failure_reasons": [],
+                }
+            except Exception as exc:
+                return {
+                    "status": "failed",
+                    "prepared_result": {},
+                    "started": started,
+                    "failure_reasons": [
+                        "campaign_action_prepare_error:"
+                        f"{type(exc).__name__}:{str(exc)[:500]}"
+                    ],
+                }
+
+    def _commit_deferred(
+        self,
+        action: CampaignAction,
+        *,
+        handler: CampaignActionDeferredHandler,
+        prepared: Mapping[str, Any],
+        decision: Mapping[str, Any] | None,
+        resource_reservation: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        prepared_row = dict(prepared)
+        started = float(prepared_row.get("started") or time.perf_counter())
+        failure_reasons = [
+            str(value)
+            for value in prepared_row.get("failure_reasons") or []
+            if str(value)
+        ]
+        raw_result: dict[str, Any] = {}
+        status = "failed" if failure_reasons else "completed"
+        if not failure_reasons:
+            with self.kernel.action_resource_scope(
+                action_execution_id=action.execution_id,
+                expected_resources_sha256=str(
+                    action.expected_resources.get("content_sha256") or ""
+                ),
+            ):
+                try:
+                    raw_result = dict(
+                        handler.commit(
+                            action,
+                            dict(prepared_row.get("prepared_result") or {}),
+                        )
+                        or {}
+                    )
+                    status = str(raw_result.get("status") or "completed")
+                    if _is_failure_settlement(status):
+                        failure_reasons.extend(
+                            str(value)
+                            for value in raw_result.get("reasons")
+                            or raw_result.get("failure_reasons")
+                            or [f"handler_status:{status}"]
+                            if str(value)
+                        )
+                except Exception as exc:
+                    status = "failed"
+                    raw_result = {}
+                    failure_reasons.append(
+                        "campaign_action_commit_error:"
+                        f"{type(exc).__name__}:{str(exc)[:500]}"
+                    )
+        return self._finalize_reserved(
+            action,
+            decision=decision,
+            resource_reservation=resource_reservation,
+            raw_result=raw_result,
+            status=status,
+            failure_reasons=failure_reasons,
+            started=started,
+        )
+
+    def _finalize_reserved(
+        self,
+        action: CampaignAction,
+        *,
+        decision: Mapping[str, Any] | None,
+        resource_reservation: Mapping[str, Any],
+        raw_result: Mapping[str, Any],
+        status: str,
+        failure_reasons: Iterable[str],
+        started: float,
+    ) -> dict[str, Any]:
+        action_row = action.to_dict()
+        result_row = dict(raw_result)
+        reason_rows = [str(value) for value in failure_reasons if str(value)]
         self._settle_owned_children(
             action,
             status=status,
-            failure_reasons=failure_reasons,
+            failure_reasons=reason_rows,
         )
         elapsed_s = round(max(0.0, time.perf_counter() - started), 6)
         actual_resources = self.kernel.action_resource_usage(
@@ -871,22 +1157,22 @@ class CampaignActionRuntime:
             status=status,
             input_revision=action.input_revision,
             output_revision=output_revision,
-            immutable_artifact_refs=_immutable_artifact_refs(raw_result),
+            immutable_artifact_refs=_immutable_artifact_refs(result_row),
             actual_resources=actual_resources,
             resource_accounting=resource_accounting,
             resource_reservation=dict(resource_reservation),
-            material_events=_material_events(raw_result),
-            candidate_delta=_candidate_delta(raw_result),
+            material_events=_material_events(result_row),
+            candidate_delta=_candidate_delta(result_row),
             fact_delta={
                 "graph_revision_delta": graph_revision_delta,
                 "changed": graph_revision_delta > 0,
-                "handler_reported_changed": raw_result.get("changed") is True,
+                "handler_reported_changed": result_row.get("changed") is True,
                 "authority": "run_kernel_canonical_graph_revision",
             },
-            failure_type=_failure_type(status, failure_reasons),
-            failure_reasons=tuple(sorted(set(failure_reasons))),
+            failure_type=_failure_type(status, reason_rows),
+            failure_reasons=tuple(sorted(set(reason_rows))),
             elapsed_s=elapsed_s,
-            handler_result=_json_result(raw_result),
+            handler_result=_json_result(result_row),
         ).to_dict()
         ref = self.kernel.artifacts.put_json(
             outcome,
@@ -898,7 +1184,7 @@ class CampaignActionRuntime:
             idempotency_key=f"{action.idempotency_key}:settle",
             status=status,
             output_sha256=ref.sha256,
-            failure_reasons=failure_reasons,
+            failure_reasons=reason_rows,
             elapsed_s=elapsed_s,
             resource_usage=actual_resources,
         )

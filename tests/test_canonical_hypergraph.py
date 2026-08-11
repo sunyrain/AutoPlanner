@@ -136,13 +136,28 @@ def test_action_signal_is_canonical_frontier_work_not_scientific_fact(
     assert resolved["scientific_sha256"] == initial["scientific_sha256"]
 
 
-def test_program_validation_and_feedback_signals_reach_canonical_frontier(
+def test_evidence_program_and_feedback_signals_reach_canonical_frontier(
     tmp_path: Path,
 ) -> None:
     store = CanonicalHypergraphStore(_kernel(tmp_path))
     initial = store.load()
     target_id = str(initial["target_molecule_id"])
     signals = (
+        {
+            "signal_id": "event-deficit:evidence-prefetch:test",
+            "kind": "evidence",
+            "object_id": target_id,
+            "entity_ids": [target_id],
+            "route_family_ids": [],
+            "dependency_ids": [],
+            "deterministic": False,
+            "model_allowed": False,
+            "reason": "target_source_prefetch_requires_evidence_acquisition",
+            "metadata": {
+                "target_level_evidence_prefetch": True,
+                "evidence_prefetch_request_sha256": "prefetch:test",
+            },
+        },
         {
             "signal_id": "event-deficit:program-validation:test",
             "kind": "program_validation",
@@ -183,8 +198,12 @@ def test_program_validation_and_feedback_signals_reach_canonical_frontier(
     }
 
     assert result["rejected"] == []
-    assert frontier_by_id[signals[0]["signal_id"]]["kind"] == "program_validation"
-    assert frontier_by_id[signals[1]["signal_id"]]["kind"] == "experiment_feedback"
+    assert frontier_by_id[signals[0]["signal_id"]]["kind"] == "evidence"
+    assert frontier_by_id[signals[0]["signal_id"]]["metadata"][
+        "target_level_evidence_prefetch"
+    ] is True
+    assert frontier_by_id[signals[1]["signal_id"]]["kind"] == "program_validation"
+    assert frontier_by_id[signals[2]["signal_id"]]["kind"] == "experiment_feedback"
     assert graph["scientific_sha256"] == initial["scientific_sha256"]
     assert target_id == graph["target_molecule_id"]
 

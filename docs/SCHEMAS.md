@@ -18,6 +18,10 @@
 | `campaign_action_resource_usage.v1` | 按 action execution ID 从 RunKernel 事件链归因的实际 task/native/model/墙钟消耗 | `RunKernel` |
 | `campaign_action_resource_accounting.v1` | 同一 Action 的预计、实际与逐维 variance；不授予科学权威 | action runtime |
 | `campaign_action_result.v1` | revision-bound Action 收据：不可变工件引用、实际资源、状态、material events、候选/事实增量与失败类型；事实增量只认 RunKernel canonical graph revision，失败/timeout/cancel/partial 会释放该 Action 遗留子任务 | action runtime |
+| `campaign_action_concurrent_cohort.v1` | 同一 input revision 的跨 resource Action 选择、wrapper reservation、bounded worker 上限、稳定 observation/commit 顺序、resource collision 与容量回退收据；不创建第二队列或科学权威 | action runtime |
+| `campaign_anytime_action_loop.v1` | 单一 Action loop 的 start cohort、后续 concurrent cohorts、稳定 execution、收敛与未执行候选投影 | action runtime |
+| `prepared_evidence_acquisition.v1` | frozen graph/request、connector acquisition、目标身份观察与摘要绑定；只允许后续稳定顺序 canonical ingestion，本身不授予 evidence authority | target solver evidence Action |
+| `prepared_materialized_edge_validation.v1` | frozen graph edge/mapping、validation commands 与不可变 WorkerResult 摘要绑定；worker 执行不发布 canonical revision，稳定 commit 后才产生 reaction-proof ingestion | target solver validation Action |
 | `active_campaign_action.v1` | 从 RunKernel in-flight wrapper reservation 投影的当前 Action 身份、类别、producer 与资源类；child task 不重复展示，不是第二队列 | campaign service status |
 | `campaign_action_timeline.v1` | 将 checkpoint 中已结算 Action 与 RunKernel 当前 reservation 合并为 ChemEnzy/Codex/evidence/validation/condition/stock/Program/experiment 的统一只读时间线 | Web job progress |
 | `saved_run_objective_compatibility.v1` | saved-run 恢复时记录 checkpoint/report 中旧 objective 字段及当前兼容视图；历史值只作 provenance，不能启停、排序或绑定 Action | target solver compatibility reader |

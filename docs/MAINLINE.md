@@ -73,6 +73,13 @@ Gateway export 同时从摘要验证通过的 target report 生成 `campaign_rev
 摘要损坏时相应内容失败关闭。开放的 evidence/condition/Program 门不会被错误归入运行失败。
 初始 ChemEnzy 与 Codex provider 计算仍从同一 frozen revision 并发启动；同一 cohort 的 canonical
 admission 固定为 ChemEnzy 后 Codex，避免线程完成先后泄漏到 graph/frontier 和后续 Action trace。
+安全的 evidence prefetch 也作为 canonical `evidence` Action signal 进入同一 start cohort，不再拥有独立
+executor。后续 exact evidence 与 reaction validation 通过 `CampaignActionDeferredHandler` 对同一 frozen
+revision 并行 prepare：connector acquisition 和 validation WorkerResult 都不在 worker 线程发布 canonical
+revision；barrier 后由同一 Action runtime 按稳定 Action 顺序 commit。`campaign_action_concurrent_cohort.v1`
+最多使用 4 个 runtime-owned workers，同 resource class 排他，并在 wrapper task 容量不足时整体回退单
+Action 调度；prepare/commit failure 可重放且不取消 peer。该机制继续只使用一个 anytime loop、一个
+RunKernel in-flight registry 和一个 canonical graph，不创建后台 scheduler、Blackboard 或 phase queue。
 Web 运行中心每 2.5 秒读取同一状态链生成 `campaign_action_timeline.v1`：已结算项来自 target
 checkpoint，正在执行项只来自 RunKernel in-flight Action wrapper；child tasks 不重复成行。ChemEnzy、
 Codex、证据、验证、条件、库存及 Program/实验均在一个时间线上显示，时间线既不调度也不授予科学权威。

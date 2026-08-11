@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from threading import Event
+from threading import Barrier, Event
 
 import pytest
 
@@ -26,6 +26,7 @@ from cascade_planner.orchestration.retrosynthesis_service import (
     RetrosynthesisCampaignService,
 )
 from cascade_planner.orchestration.unified_campaign_runtime import (
+    CampaignActionDeferredHandler,
     CampaignActionRuntime,
     CampaignActionRuntimeError,
 )
@@ -98,6 +99,69 @@ def _no_gain_opportunity_set(*, count: int = 3) -> dict:
                     "score": {},
                 }
                 for index in range(count)
+            ],
+        }
+    )
+
+
+def _concurrent_opportunity_set() -> dict:
+    shared = {
+        "dependency_ids": [],
+        "deterministic": False,
+        "model_allowed": True,
+        "priority": 700.0,
+        "score": {
+            "expected_portfolio_gain": 0.7,
+            "evidence_gain": 0.7,
+        },
+    }
+    return compile_action_opportunities(
+        {
+            "content_sha256": "bounded-concurrent-actions",
+            "items": [
+                {
+                    **shared,
+                    "deficit_id": "deficit:expansion:concurrent",
+                    "kind": "expansion",
+                    "object_id": "mol:frontier",
+                    "entity_ids": ["mol:frontier"],
+                    "route_family_ids": ["route:search"],
+                    "reason": "frontier_requires_local_generation",
+                    "metadata": {
+                        "frontier_smiles": "CCO",
+                        "provider_preferences": ["chemenzy"],
+                    },
+                },
+                {
+                    **shared,
+                    "deficit_id": "deficit:replan:concurrent",
+                    "kind": "replan",
+                    "object_id": "target:1",
+                    "entity_ids": ["target:1"],
+                    "route_family_ids": [],
+                    "reason": "material_event_requires_global_replan",
+                    "metadata": {"global_replan": True},
+                },
+                {
+                    **shared,
+                    "deficit_id": "deficit:evidence:concurrent",
+                    "kind": "evidence",
+                    "object_id": "edge:evidence",
+                    "entity_ids": ["edge:evidence"],
+                    "route_family_ids": ["route:proof"],
+                    "reason": "edge_requires_exact_source_acquisition",
+                    "metadata": {},
+                },
+                {
+                    **shared,
+                    "deficit_id": "deficit:validation:concurrent",
+                    "kind": "validation",
+                    "object_id": "edge:validation",
+                    "entity_ids": ["edge:validation"],
+                    "route_family_ids": ["route:proof"],
+                    "reason": "materialized_edge_requires_reaction_validation",
+                    "metadata": {},
+                },
             ],
         }
     )
@@ -1012,6 +1076,330 @@ def test_budget_terminal_is_not_overwritten_by_unresolved_disposition(
     assert late_kernel.state.failure_reasons == (
         "run_total_task_budget_exhausted",
     )
+
+
+def test_anytime_loop_runs_bounded_cross_class_cohorts_and_replays(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    opportunities = _concurrent_opportunity_set()
+    rendezvous = Barrier(4)
+    started: list[str] = []
+    observed: list[tuple[int, str]] = []
+
+    def handle(action) -> dict:
+        started.append(action.kind.value)
+        rendezvous.wait(timeout=2.0)
+        return {"status": "completed", "changed": False}
+
+    concurrent_kinds = (
+        CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,
+        CampaignActionKind.CODEX_REPLAN,
+        CampaignActionKind.ACQUIRE_EVIDENCE,
+        CampaignActionKind.REACTION_VALIDATE,
+    )
+    runtime = CampaignActionRuntime(
+        kernel,
+        {kind: handle for kind in concurrent_kinds},
+    )
+
+    result = runtime.run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {
+            "native_search_frontier": True,
+            "model": True,
+            "evidence": True,
+            "validation": True,
+        },
+        max_actions=4,
+        max_consecutive_no_gain=5,
+        concurrent_action_kinds=concurrent_kinds,
+        max_concurrent_actions=99,
+        on_execution=lambda index, execution: observed.append(
+            (index, str(dict(execution.get("action") or {}).get("kind") or ""))
+        ),
+    )
+
+    assert set(started) == {kind.value for kind in concurrent_kinds}
+    assert [row["action"]["kind"] for row in result["executions"]] == [
+        kind.value for kind in concurrent_kinds
+    ]
+    assert observed == [
+        (index, kind.value)
+        for index, kind in enumerate(concurrent_kinds, start=1)
+    ]
+    assert result["execution_count"] == 4
+    assert result["concurrent_worker_limit"] == 4
+    assert len(result["concurrent_cohorts"]) == 1
+    cohort = result["concurrent_cohorts"][0]
+    assert cohort["worker_limit"] == 4
+    assert cohort["max_in_flight_action_count"] == 4
+    assert cohort["semantics"][
+        "worker_pool_is_runtime_owned_and_hard_bounded"
+    ] is True
+    assert result["semantics"][
+        "all_concurrency_is_owned_by_this_action_loop"
+    ] is True
+    assert kernel.state.in_flight_tasks == {}
+
+    replay = runtime.execute_concurrent_cohort(
+        opportunities,
+        action_kinds=concurrent_kinds,
+        milestones={},
+        resource_availability={
+            "native_search_frontier": True,
+            "model": True,
+            "evidence": True,
+            "validation": True,
+        },
+        max_actions=4,
+    )
+
+    assert replay["cohort_id"] == cohort["cohort_id"]
+    assert replay["max_in_flight_action_count"] == 0
+    assert all(row["cache_hit"] is True for row in replay["executions"])
+
+
+def test_concurrent_cohort_excludes_same_resource_and_fits_wrapper_budget(
+    tmp_path: Path,
+) -> None:
+    opportunities = _concurrent_opportunity_set()
+    acquire = next(
+        row
+        for row in opportunities["actions"]
+        if row["kind"] == CampaignActionKind.ACQUIRE_EVIDENCE.value
+    )
+    validation = next(
+        row
+        for row in opportunities["actions"]
+        if row["kind"] == CampaignActionKind.REACTION_VALIDATE.value
+    )
+    bind = {
+        **acquire,
+        "action_id": "action:bind_exact_evidence:resource-collision",
+        "kind": CampaignActionKind.BIND_EVIDENCE.value,
+        "deficit_id": "deficit:evidence:binding",
+        "content_sha256": "bind-resource-collision",
+    }
+    proof_opportunities = {
+        "content_sha256": "proof-resource-collision",
+        "actions": [acquire, bind, validation],
+    }
+    rendezvous = Barrier(2)
+    calls: list[str] = []
+
+    def handle(action) -> dict:
+        calls.append(action.kind.value)
+        rendezvous.wait(timeout=2.0)
+        return {"status": "completed", "changed": False}
+
+    handlers = {
+        CampaignActionKind.ACQUIRE_EVIDENCE: handle,
+        CampaignActionKind.BIND_EVIDENCE: handle,
+        CampaignActionKind.REACTION_VALIDATE: handle,
+    }
+    runtime = CampaignActionRuntime(_kernel(tmp_path / "resource"), handlers)
+    cohort = runtime.execute_concurrent_cohort(
+        proof_opportunities,
+        action_kinds=tuple(handlers),
+        milestones={},
+        resource_availability={"evidence": True, "validation": True},
+        max_actions=4,
+    )
+
+    assert cohort["status"] == "completed"
+    assert cohort["resource_collision_kinds"] == [
+        CampaignActionKind.BIND_EVIDENCE.value
+    ]
+    assert set(calls) == {
+        CampaignActionKind.ACQUIRE_EVIDENCE.value,
+        CampaignActionKind.REACTION_VALIDATE.value,
+    }
+    assert cohort["max_in_flight_action_count"] == 2
+
+    limited_kernel = _kernel(tmp_path / "limited", max_total_tasks=1)
+    limited = CampaignActionRuntime(
+        limited_kernel,
+        {
+            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle,
+            CampaignActionKind.CODEX_REPLAN: handle,
+            CampaignActionKind.ACQUIRE_EVIDENCE: handle,
+            CampaignActionKind.REACTION_VALIDATE: handle,
+        },
+    ).execute_concurrent_cohort(
+        opportunities,
+        action_kinds=(
+            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,
+            CampaignActionKind.CODEX_REPLAN,
+            CampaignActionKind.ACQUIRE_EVIDENCE,
+            CampaignActionKind.REACTION_VALIDATE,
+        ),
+        milestones={},
+        resource_availability={
+            "native_search_frontier": True,
+            "model": True,
+            "evidence": True,
+            "validation": True,
+        },
+        max_actions=4,
+    )
+
+    assert limited["status"] == "not_launched"
+    assert len(limited["selected_action_ids"]) == 1
+    assert len(limited["omitted_for_wrapper_budget"]) == 3
+    assert limited_kernel.state.in_flight_tasks == {}
+
+
+def test_deferred_cohort_commits_in_action_order_after_reversed_prepare_completion(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    opportunities = _concurrent_opportunity_set()
+    validation_prepared = Event()
+    commit_order: list[str] = []
+
+    def prepare_evidence(_action) -> dict:
+        assert validation_prepared.wait(timeout=2.0)
+        return {"prepared": "evidence"}
+
+    def prepare_validation(_action) -> dict:
+        validation_prepared.set()
+        return {"prepared": "validation"}
+
+    def commit(action, prepared) -> dict:
+        commit_order.append(action.kind.value)
+        return {
+            "status": "completed",
+            "prepared": str(prepared.get("prepared") or ""),
+        }
+
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.ACQUIRE_EVIDENCE: CampaignActionDeferredHandler(
+                prepare=prepare_evidence,
+                commit=commit,
+            ),
+            CampaignActionKind.REACTION_VALIDATE: CampaignActionDeferredHandler(
+                prepare=prepare_validation,
+                commit=commit,
+            ),
+        },
+    )
+
+    cohort = runtime.execute_concurrent_cohort(
+        opportunities,
+        action_kinds=(
+            CampaignActionKind.ACQUIRE_EVIDENCE,
+            CampaignActionKind.REACTION_VALIDATE,
+        ),
+        milestones={},
+        resource_availability={"evidence": True, "validation": True},
+        max_actions=2,
+    )
+
+    assert [row["status"] for row in cohort["executions"]] == [
+        "completed",
+        "completed",
+    ]
+    assert commit_order == [
+        CampaignActionKind.ACQUIRE_EVIDENCE.value,
+        CampaignActionKind.REACTION_VALIDATE.value,
+    ]
+    assert cohort["semantics"]["deferred_commits_follow_stable_action_order"] is True
+    assert kernel.state.in_flight_tasks == {}
+
+
+def test_deferred_prepare_failure_does_not_cancel_peer_and_commit_failure_replays(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path / "prepare")
+    opportunities = _concurrent_opportunity_set()
+    rendezvous = Barrier(2)
+    validation_commits = 0
+
+    def fail_prepare(_action) -> dict:
+        rendezvous.wait(timeout=2.0)
+        raise RuntimeError("prepare boom")
+
+    def prepare_validation(_action) -> dict:
+        rendezvous.wait(timeout=2.0)
+        return {"prepared": True}
+
+    def commit_validation(_action, _prepared) -> dict:
+        nonlocal validation_commits
+        validation_commits += 1
+        return {"status": "completed"}
+
+    cohort = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.ACQUIRE_EVIDENCE: CampaignActionDeferredHandler(
+                prepare=fail_prepare,
+                commit=lambda _action, _prepared: {"status": "completed"},
+            ),
+            CampaignActionKind.REACTION_VALIDATE: CampaignActionDeferredHandler(
+                prepare=prepare_validation,
+                commit=commit_validation,
+            ),
+        },
+    ).execute_concurrent_cohort(
+        opportunities,
+        action_kinds=(
+            CampaignActionKind.ACQUIRE_EVIDENCE,
+            CampaignActionKind.REACTION_VALIDATE,
+        ),
+        milestones={},
+        resource_availability={"evidence": True, "validation": True},
+        max_actions=2,
+    )
+
+    assert [row["status"] for row in cohort["executions"]] == [
+        "failed",
+        "completed",
+    ]
+    assert cohort["executions"][0]["outcome"]["failure_reasons"] == [
+        "campaign_action_prepare_error:RuntimeError:prepare boom"
+    ]
+    assert validation_commits == 1
+    assert kernel.state.in_flight_tasks == {}
+
+    replay_kernel = _kernel(tmp_path / "commit")
+    decision = _decision(kind="validation")
+    action = bind_scheduled_action(
+        decision,
+        input_revision=replay_kernel.state.graph_revision,
+    )
+    calls = {"prepare": 0, "commit": 0}
+
+    def prepare_once(_action) -> dict:
+        calls["prepare"] += 1
+        return {"prepared": True}
+
+    def fail_commit(_action, _prepared) -> dict:
+        calls["commit"] += 1
+        raise RuntimeError("commit boom")
+
+    replay_runtime = CampaignActionRuntime(
+        replay_kernel,
+        {
+            CampaignActionKind.REACTION_VALIDATE: CampaignActionDeferredHandler(
+                prepare=prepare_once,
+                commit=fail_commit,
+            )
+        },
+    )
+    first = replay_runtime.execute(action, decision=decision)
+    replay = replay_runtime.execute(action, decision=decision)
+
+    assert first["status"] == "failed"
+    assert first["outcome"]["failure_reasons"] == [
+        "campaign_action_commit_error:RuntimeError:commit boom"
+    ]
+    assert replay["cache_hit"] is True
+    assert replay["outcome"] == first["outcome"]
+    assert calls == {"prepare": 1, "commit": 1}
 
 
 def test_chemenzy_timeout_keeps_codex_peer_and_names_unstarted_validation(

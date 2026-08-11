@@ -147,6 +147,8 @@ Program opportunity pressure 切片新增 311 行的 target-blind `campaign_prog
 
 Cheap structural preflight 切片新增 target-blind `campaign_action_preflight.v1`：不复制 chemistry validator，只从同一个 Action opportunity set 识别 canonical materialization deficit，并复用既有 admission/materialization 对 identity、非法结构、元素库存、原子跳跃、self-loop、祖先/图循环与重复边的确定性检查。只有当前 handler/resource 可处理的 cheap gate 才收窄 eligibility；模型、evidence、conditions、Program/experiment 等昂贵动作全局等待，validation、stock 与 route closure 只等待同 route 候选。空图初始 ChemEnzy/Codex discovery 保持豁免，cohort 单类型过滤、round-robin、资源 blocker、标签变化和 replay 不能绕过或篡改投影；scheduler 不修改 opportunity/canonical topology，也不创建第二队列、预算或科学权威。scheduler/runtime/worker/architecture 聚焦 69 passed，target solver/canonical/scientific closure/experiment scheduling 75 passed，campaign/proof 集成 44 passed；Ruff、compileall、全部架构/行数预算门与 `git diff --check` 通过。第一次完整门仅遇到 1 次无关 Windows CAS pointer `os.replace` 瞬时文件锁，同一并发用例随后连续 5 次通过；第二次不做 deselect 的完整离线套件为 2761 passed、3 skipped、11 warnings、2 subtests passed，用时 208.44 秒。
 
+统一 Action 并发切片新增 `campaign_action_concurrent_cohort.v1` 与 `CampaignActionDeferredHandler` 两阶段协议：同一 frozen revision 的 ChemEnzy、Codex 和 evidence prefetch 可在 start cohort 并发；后续 exact evidence acquisition/binding 与 reaction validation 在 runtime 自有的最多 4 个 bounded workers 中并行 prepare。evidence connector 只返回摘要绑定的 prepared acquisition，validation worker 只返回不可变 WorkerResult；barrier 后按稳定 Action 顺序串行执行 canonical ingestion，从而消除 graph revision/pointer 发布竞态。相同 resource class 在 cohort 内排他，wrapper task 容量不足时不启动 cohort，prepare/commit 失败均结算为可重放 Action failure，cache replay 不重复 reservation 或 provider/worker 调用。旧的 `autoplanner-evidence-prefetch` 独立 executor 已删除，没有新增后台 scheduler、Blackboard 或 phase queue。真实 target-solver barrier、反转 prepare 完成顺序、peer failure、commit failure replay、同 revision、稳定 observation、exact evidence/B3 与两类专利闭环均已回归。目标求解 42 passed，runtime/canonical 聚焦 51 passed；Ruff、compileall、全部架构门与 `git diff --check` 通过；不做 deselect 的完整离线套件为 2765 passed、3 skipped、11 warnings、2 subtests passed，用时 240.97 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
@@ -351,11 +353,11 @@ W2 验收门：
 ### 6.4 公平调度而非样本分组
 
 - [x] 对四个固定 action classes 使用所有目标一致的 12-Action minimum service window；blocked/absent class 当轮自动出借服务槽，借用不增加 RunKernel 硬预算。
-- [ ] ChemEnzy、Codex、evidence 和 validation 可并发，但共享同一事件循环、in-flight registry 和 canonical state。
+- [x] ChemEnzy、Codex、evidence 和 validation 可并发，但共享同一事件循环、in-flight registry 和 canonical state。
 - [x] 初始 ChemEnzy/Codex cohort 结果按 revision、幂等键和稳定 action 顺序合并，cache replay 不重复 reservation/settlement。
 - [x] 任何 action class 都不能因目标来自某个数据集而被开启、关闭或获得额外预算；静态禁词门与 metadata/insertion-order 回归覆盖该约束。
 - [x] 初始状态同时生成 target-native 与 global-architecture opportunities；同 revision cohort 保证两者都获得启动机会，而不是用目标类别选择先后。
-- [ ] 第一版并发只允许 runtime 管理的 bounded workers；禁止为了并发另建后台 scheduler、Blackboard 或 phase queue。
+- [x] 第一版并发只允许 runtime 管理的 bounded workers；禁止为了并发另建后台 scheduler、Blackboard 或 phase queue。
 
 ## 7. 单一候选图与 Pareto 保留
 
@@ -651,3 +653,4 @@ W2 验收门：
 - [x] 第十八刀（Codex 动态重规划压力）：新增 `campaign_replan_pressure.v1`，从 gates、物质事件和摘要验证的 convergence ledger 形成 target-blind score。固定 3 次 durable no-gain 与 B1 路线多样性缺口共同派生停滞事件；关键边、新路线族、共享瓶颈和来源冲突独立加权。纯文本停滞、标签变化和篡改 ledger 均不能触发，模型预算耗尽仍由原 budget gate 拒绝；没有增加调用预算、队列或科学权威。
 - [x] 第十九刀（科学闭环动态提权）：新增 `campaign_scientific_closure_pressure.v1`，只从同一 Action set 和 B1/B4 milestones 投影 validation、exact evidence/conflict 与 conditions 的阶段价值。原 validation/evidence 基础权重保持；路线组合、库存闭合和最后开放轴按固定增量逐级提权，condition 即使在 B2/B3 已闭合后仍保持 last-mile 调度价值。round-robin、资源 blocker、预算、action service 与 canonical topology authority 均不改变。
 - [x] 第二十刀（Program 动态机会压力）：新增 `campaign_program_opportunity_pressure.v1`/`campaign_program_review_pressure.v1`，对 bounded 连续 conventional span、route risk、结构 capability match、开放 selectivity 边、step savings 和合法 mechanism proposal 分量化提权。discovery/review signal 绑定 route-family + pressure digest，机会状态不变不重筛，materialization/validation 后从无匹配变为有匹配时允许同一 family 重开；solve 内 memoization 仅复用只读计算。候选、Program、proof、completion、acceptance 与 conventional fallback 权威均未改变。
+- [x] 第二十一刀（统一 bounded Action 并发）：`campaign_action_concurrent_cohort.v1` 在单一 anytime loop 和 RunKernel in-flight registry 中最多启动 4 个跨 resource Action；evidence/validation 使用 prepare→barrier→稳定 commit，两者共享 canonical state 而不并发发布 graph revision。初始 evidence prefetch 已从独立 executor 迁入 ChemEnzy/Codex start cohort；无第二 scheduler、Blackboard 或 phase queue。

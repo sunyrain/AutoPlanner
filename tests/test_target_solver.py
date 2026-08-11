@@ -6,7 +6,7 @@ from io import BytesIO
 import json
 from pathlib import Path
 import shutil
-from threading import Event
+from threading import Event, current_thread
 import time
 from typing import Any
 
@@ -2142,7 +2142,59 @@ def test_resume_reuses_fresh_negative_stock_audits_without_spending_attempts(
     )
 def test_target_solver_ingests_connector_rows_before_stock_and_closeout(
     tmp_path: Path,
+    monkeypatch: Any,
 ) -> None:
+    evidence_prepare_started = Event()
+    validation_prepare_started = Event()
+    prepared_revisions: dict[str, int] = {}
+    prepare_threads: dict[str, str] = {}
+    original_evidence_prepare = target_solver_module._prepare_evidence_acquisition
+    original_validation_prepare = (
+        target_solver_module.prepare_materialized_edge_validation
+    )
+
+    def prepare_evidence(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        service = args[0]
+        prepared_revisions["evidence"] = int(
+            service.graph_store.load().get("revision") or 0
+        )
+        prepare_threads["evidence"] = current_thread().name
+        evidence_prepare_started.set()
+        assert validation_prepare_started.wait(timeout=2.0)
+        return original_evidence_prepare(*args, **kwargs)
+
+    def prepare_validation(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        service = args[0]
+        graph = service.graph_store.load()
+        opportunity_kinds = {
+            str(row.get("kind") or "")
+            for row in target_solver_module.compile_action_opportunities(
+                dict(graph.get("deficit_frontier") or {})
+            ).get("actions")
+            or []
+        }
+        if opportunity_kinds.intersection(
+            {
+                CampaignActionKind.ACQUIRE_EVIDENCE.value,
+                CampaignActionKind.BIND_EVIDENCE.value,
+            }
+        ):
+            prepared_revisions["validation"] = int(graph.get("revision") or 0)
+            prepare_threads["validation"] = current_thread().name
+            validation_prepare_started.set()
+            assert evidence_prepare_started.wait(timeout=2.0)
+        return original_validation_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(
+        target_solver_module,
+        "_prepare_evidence_acquisition",
+        prepare_evidence,
+    )
+    monkeypatch.setattr(
+        target_solver_module,
+        "prepare_materialized_edge_validation",
+        prepare_validation,
+    )
     gateway = CampaignGateway(_paths(tmp_path))
     result = gateway.solve_target(
         target_name="blind evidence target",
@@ -2184,6 +2236,37 @@ def test_target_solver_ingests_connector_rows_before_stock_and_closeout(
     )
     assert evidence_stage["status"] == "completed"
     assert evidence_stage["detail"]["exact_record_count"] == 6
+    assert prepared_revisions["evidence"] == prepared_revisions["validation"]
+    assert set(prepare_threads.values()) == {
+        "campaign-action_0",
+        "campaign-action_1",
+    }
+    anytime_core = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "campaign_anytime_core"
+    )["detail"]
+    evidence_validation_cohort = next(
+        cohort
+        for cohort in anytime_core["concurrent_cohorts"]
+        if {
+            CampaignActionKind.REACTION_VALIDATE.value,
+            CampaignActionKind.BIND_EVIDENCE.value,
+        }
+        <= {
+            execution["action"]["kind"]
+            for execution in cohort["executions"]
+        }
+    )
+    assert evidence_validation_cohort["input_revision"] == prepared_revisions[
+        "evidence"
+    ]
+    assert evidence_validation_cohort["semantics"][
+        "deferred_commits_follow_stable_action_order"
+    ] is True
+    assert evidence_validation_cohort["semantics"][
+        "no_background_scheduler_or_second_queue"
+    ] is True
 
 
 def test_target_solver_overlaps_safe_evidence_prefetch_with_global_director(
@@ -2191,9 +2274,11 @@ def test_target_solver_overlaps_safe_evidence_prefetch_with_global_director(
 ) -> None:
     prefetch_started = Event()
     director_started = Event()
+    prefetch_threads: list[str] = []
 
     def connector(request: Any) -> dict[str, Any]:
         if not request["edges"]:
+            prefetch_threads.append(current_thread().name)
             prefetch_started.set()
             assert director_started.wait(timeout=2.0)
             return _discovery_only_connector(request)
@@ -2233,6 +2318,18 @@ def test_target_solver_overlaps_safe_evidence_prefetch_with_global_director(
         "US7654321A1"
     )
     assert evidence_stage["detail"]["latency_hidden_by_global_s"] >= 0.0
+    anytime_core = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "campaign_anytime_core"
+    )["detail"]
+    assert CampaignActionKind.ACQUIRE_EVIDENCE.value in {
+        execution["action"]["kind"]
+        for execution in anytime_core["start_cohort"]["executions"]
+    }
+    assert prefetch_threads
+    assert all(name.startswith("campaign-action") for name in prefetch_threads)
+    assert all("evidence-prefetch" not in name for name in prefetch_threads)
 
 
 def test_target_solver_replans_globally_from_unbound_source_discovery(
