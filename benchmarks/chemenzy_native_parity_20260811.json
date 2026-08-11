@@ -1,8 +1,6 @@
 {
   "schema_version": "chemenzy_native_parity_probe.v1",
-  "evidence_date": "2026-08-11",
-  "source_commit": "8861883",
-  "generated_at": "2026-08-11T19:17:01.862301Z",
+  "generated_at": "2026-08-11T20:27:16.402727Z",
   "request": {
     "target_smiles": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
     "search_preset": "standard",
@@ -20,11 +18,159 @@
     "condition_prediction": false,
     "enzyme_assignment": false
   },
-  "launcher_request_sha256": "1b68f70cd35731df4b05b84f598d14e3b8643540bec5016bd29ad66475b9e4e1",
-  "proposal_request_sha256": "e2d338099aba5f5fcf9b7b589126a85c58efdf741c01c9944876c28a5e41ecde",
-  "replay_key_sha256": "65e57b174c906b456310db29449ca643019192a2d3ab8a60709ab88f1c17bbe1",
+  "launcher_request_sha256": "2004d13c04b6fdacf35ebd8be302d34410bfe94e4b9b47e5209570eff44b8da0",
+  "proposal_request_sha256": "bb879d6ac14bce3dd03e8c954b0a7f5414ca1a49775470b5f5b84e78cd4bf37e",
+  "replay_key_sha256": "87df9684216471fe687c707d2f311fb007ab4db53ff85c8ba2f146896edb4433",
   "model_content_binding_sha256": "e49ca9286a45429673854ef9c6fa25d4c7b5451d1fbba0f7f7703b097a0d8178",
   "model_content_identity_complete": true,
+  "parameter_binding_sha256": "f3b147d4e120e87e80d13acea0c6ab9b47fd3d2bb21a0bf5178375224df142de",
+  "parameter_binding_identity_complete": true,
+  "parameter_binding_accepted": true,
+  "parameter_binding": {
+    "schema_version": "chemenzy_parameter_binding.v1",
+    "accepted": true,
+    "identity_complete": true,
+    "mismatch_fields": [],
+    "incomplete_fields": [],
+    "fields": {
+      "target_smiles": {
+        "expected": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+        "launcher_request": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+        "effective": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+        "identity_complete": true,
+        "equal": true
+      },
+      "search_preset": {
+        "expected": "standard",
+        "launcher_request": "standard",
+        "effective": "standard",
+        "identity_complete": true,
+        "equal": true
+      },
+      "max_routes": {
+        "expected": 2,
+        "launcher_request": 2,
+        "effective": 2,
+        "identity_complete": true,
+        "equal": true
+      },
+      "max_steps": {
+        "expected": 14,
+        "launcher_request": 14,
+        "effective": 14,
+        "identity_complete": true,
+        "equal": true
+      },
+      "iterations": {
+        "expected": 12,
+        "launcher_request": 12,
+        "effective": 12,
+        "identity_complete": true,
+        "equal": true
+      },
+      "expansion_topk": {
+        "expected": 100,
+        "launcher_request": 100,
+        "effective": 100,
+        "identity_complete": true,
+        "equal": true
+      },
+      "timeout_s": {
+        "expected": 240.0,
+        "launcher_request": 240.0,
+        "effective": 240.0,
+        "identity_complete": true,
+        "equal": true
+      },
+      "random_seed": {
+        "expected": 0,
+        "launcher_request": 0,
+        "effective": 0,
+        "identity_complete": true,
+        "equal": true
+      },
+      "one_step_models": {
+        "expected": [
+          "graphfp_models.USPTO-full_remapped",
+          "onmt_models.bionav_native_one_step"
+        ],
+        "launcher_request": [
+          "graphfp_models.USPTO-full_remapped",
+          "onmt_models.bionav_native_one_step"
+        ],
+        "effective": [
+          "graphfp_models.USPTO-full_remapped",
+          "onmt_models.bionav_native_one_step"
+        ],
+        "identity_complete": true,
+        "equal": true
+      },
+      "stock_names": {
+        "expected": [
+          "RetroStar-stock"
+        ],
+        "launcher_request": [
+          "RetroStar-stock"
+        ],
+        "effective": [
+          "RetroStar-stock"
+        ],
+        "identity_complete": true,
+        "equal": true
+      },
+      "stock_paths": {
+        "expected": {
+          "RetroStar-stock": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3"
+        },
+        "launcher_request": {
+          "RetroStar-stock": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3"
+        },
+        "effective": {
+          "RetroStar-stock": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3"
+        },
+        "identity_complete": true,
+        "equal": true
+      },
+      "condition_prediction": {
+        "expected": false,
+        "launcher_request": false,
+        "effective": false,
+        "identity_complete": true,
+        "equal": true
+      },
+      "enzyme_assignment": {
+        "expected": false,
+        "launcher_request": false,
+        "effective": false,
+        "identity_complete": true,
+        "equal": true
+      },
+      "enzyme_coverage_sidecar": {
+        "expected": false,
+        "launcher_request": false,
+        "effective": false,
+        "identity_complete": true,
+        "equal": true
+      },
+      "pandarallel_workers": {
+        "expected": 2,
+        "launcher_request": 2,
+        "effective": 2,
+        "identity_complete": true,
+        "equal": true
+      }
+    },
+    "runtime_requested_one_step_models": [
+      "graphfp_models.USPTO-full_remapped",
+      "onmt_models.bionav_native_one_step"
+    ],
+    "semantics": {
+      "proposal_launcher_and_effective_values_must_match": true,
+      "builtin_execution_fails_closed_on_mismatch": true,
+      "custom_provider_without_launcher_receipt_is_not_claimed_bound": true
+    },
+    "content_sha256": "f3b147d4e120e87e80d13acea0c6ab9b47fd3d2bb21a0bf5178375224df142de"
+  },
   "stock_content_binding_sha256": "7545b41c9c78c33c8f3bac5477c33d381b5676d1ff3e29ef519902a6060e5849",
   "stock_content_identity_complete": true,
   "stock_content_binding": {
@@ -42,19 +188,19 @@
   },
   "embedded": {
     "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
-    "raw_result_sha256": "b4ae31ade5fd2dcb8737ce080cb6fa41288fe782bef7b4db2b358d43d48271c4",
+    "raw_result_sha256": "c292ea6823a05e8ffe06d4b3ca891bb9bd1ae734be79123b8418b1333d3f6485",
     "route_count": 2,
     "quarantined_route_count": 0,
-    "elapsed_s": 79.672,
+    "elapsed_s": 81.235,
     "search_trace_count": 1213,
     "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
   },
   "standalone": {
     "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
-    "raw_result_sha256": "9b08fb9b589979e7f4ec30625d6b999cba4c16838b0fcc2c87f26b070431ca81",
+    "raw_result_sha256": "a2a55f786db02fe3842d7d8adc9ffa1915633c39fe026274aa65088e31817290",
     "route_count": 2,
     "quarantined_route_count": 0,
-    "elapsed_s": 73.86,
+    "elapsed_s": 75.125,
     "search_trace_count": 1213,
     "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
   },
@@ -72,11 +218,14 @@
     "standalone_path_invokes_launcher_directly": true,
     "raw_result_digest_may_differ_due_to_operational_receipts": true,
     "parity_requires_model_content_identity_complete": true,
+    "parity_requires_parameter_binding": true,
     "parity_requires_stock_content_identity_complete": true,
     "parity_requires_backend_failure_free": true,
     "parity_requires_nonempty_route_set": true,
     "parity_requires_search_trace_identity": true
   },
   "parity_accepted": true,
-  "content_sha256": "0f66b4311b7cfbf78af06775854378273ad06e36057c7f015c8d295d2bc19f1f"
+  "evidence_date": "2026-08-11",
+  "source_commit": "6c0b3ce",
+  "content_sha256": "3f7d51643b641c9b435a2ee5c6fc1ecd2064315a315846b36914710280c7235e"
 }
