@@ -56,6 +56,22 @@ def _graph_and_route() -> tuple[dict, dict]:
     )
 
 
+def _analog_graph_and_route() -> tuple[dict, dict]:
+    graph, route = deepcopy(_graph_and_route())
+    analog_smiles = [
+        "CC(=O)C1CCCC1",
+        "CC(O)(O)C1CCCC1",
+        "CC(Cl)C1CCCC1",
+        "CC(O)C1CCCC1",
+    ]
+    for index, smiles in enumerate(analog_smiles):
+        graph["molecules"][f"m:{index}"]["canonical_smiles"] = smiles
+    graph["run_id"] = "experience-analog-fixture"
+    route["route_id"] = "route:experience-analog-fixture"
+    route["route_family_id"] = "family:experience-analog-fixture"
+    return graph, route
+
+
 def _capability() -> dict:
     return {
         "capability_id": "fixture:cyclic-ketone-reduction",
@@ -160,8 +176,43 @@ def test_replay_validated_claims_become_bounded_ranking_memory(tmp_path) -> None
     assert candidate["priority_score"] > candidate["base_priority_score"]
     assert candidate["experience_memory"]["strongest_transfer_scope"] == "exact_boundary"
     assert candidate["experience_memory"]["current_candidate_still_requires_exact_validation"] is True
+    assert candidate["experience_memory"]["applicability_score"] > 0
+    assert candidate["experience_memory"]["confidence_score"] > 0
+    assert candidate["experience_memory"]["applicability_model"][
+        "content_sha256"
+    ]
     assert "EXACT_SUBSTRATE_UNVALIDATED" in candidate["warning_codes"]
     assert reranked["program_experience"]["matched_candidate_count"] == 1
+    assert reranked["program_experience"]["counts"]["exact_boundary_models"] == 1
+
+
+def test_structural_analog_applicability_is_weighted_below_exact_memory(tmp_path) -> None:
+    graph, route = _graph_and_route()
+    discovery = discover_route_innovations(graph, route, capabilities=[_capability()])
+    path = tmp_path / "program-experience.json"
+    synchronize_program_experience_library(
+        path, [{"graph": graph, "discovery": discovery, "claim_set": _claim_set(discovery)}]
+    )
+    library, _ = read_program_experience_library(path)
+    exact = discover_route_innovations(
+        graph, route, capabilities=[_capability()], experience_library=library
+    )["candidates"][0]
+    analog_graph, analog_route = _analog_graph_and_route()
+    analog_review = discover_route_innovations(
+        analog_graph,
+        analog_route,
+        capabilities=[_capability()],
+        experience_library=library,
+    )
+    analog = analog_review["candidates"][0]
+
+    assert analog["experience_memory"]["strongest_transfer_scope"] == "structural_analog"
+    assert analog["experience_memory"]["structural_analog_observation_count"] == 1
+    assert 0 < analog["experience_memory"]["priority_adjustment"] < exact[
+        "experience_memory"
+    ]["priority_adjustment"]
+    assert analog["experience_memory"]["current_candidate_still_requires_exact_validation"] is True
+    assert analog_review["program_experience"]["counts"]["structural_analog_models"] == 1
 
 
 def test_experience_hint_reaches_validation_plan_without_granting_validation(tmp_path) -> None:

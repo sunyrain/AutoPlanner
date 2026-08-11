@@ -79,8 +79,14 @@ def compile_experimental_work_scheduling(
     disposition = _experience_disposition(memory)
     transfer_scope = str(memory.get("strongest_transfer_scope") or "unobserved")
     transfer_factor = 0.75 if transfer_scope == "exact_boundary" else 1.0
-    experience_information = round(
-        _INFORMATION_BY_DISPOSITION[disposition] * transfer_factor, 6
+    experience_information = (
+        round(
+            (0.06 + 0.12 * _bounded_number(memory["uncertainty_score"], default=1.0))
+            * transfer_factor,
+            6,
+        )
+        if "uncertainty_score" in memory
+        else round(_INFORMATION_BY_DISPOSITION[disposition] * transfer_factor, 6)
     )
     information_components = {
         "canonical_deficit_signal": 0.28 if linked else 0.0,
@@ -115,7 +121,11 @@ def compile_experimental_work_scheduling(
     estimated_cost = round(sum(cost_components.values()), 6)
     value_per_cost = round(information_gain / estimated_cost, 9)
     normalized_cost_penalty = round(estimated_cost / (estimated_cost + 10.0), 6)
-    failure_risk_penalty = _RISK_BY_DISPOSITION[disposition]
+    failure_risk_penalty = (
+        round(0.04 + 0.16 * _bounded_number(memory["risk_score"], default=0.5), 6)
+        if "risk_score" in memory
+        else _RISK_BY_DISPOSITION[disposition]
+    )
     action_score = {
         "expected_portfolio_gain": round(0.04 + 0.06 * priority, 6),
         "distance_to_closure": 0.08 if linked else 0.02,
@@ -160,6 +170,15 @@ def compile_experimental_work_scheduling(
             "estimated_cost": cost_components,
             "experience_disposition": disposition,
             "experience_transfer_scope": transfer_scope,
+            "applicability_score": _signed_bounded_number(
+                memory.get("applicability_score"), default=0.0
+            ),
+            "applicability_confidence_score": _bounded_number(
+                memory.get("confidence_score"), default=0.0
+            ),
+            "applicability_uncertainty_score": _bounded_number(
+                memory.get("uncertainty_score"), default=1.0
+            ),
         },
         "reasons": reasons,
         "action_score": action_score,
@@ -258,6 +277,11 @@ def _bounded_number(value: Any, *, default: float) -> float:
 
 def _nonnegative_number(value: Any, *, default: float) -> float:
     return max(0.0, _finite_number(value, default=default))
+
+
+def _signed_bounded_number(value: Any, *, default: float) -> float:
+    number = _finite_number(value, default=default)
+    return min(1.0, max(-1.0, number))
 
 
 def _positive_number(value: Any, *, default: float) -> float:

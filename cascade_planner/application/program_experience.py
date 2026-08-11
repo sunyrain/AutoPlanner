@@ -16,8 +16,12 @@ from cascade_planner.application.program_experience_store import (
     validate_program_experience_library,
     write_program_experience_library,
 )
+from cascade_planner.application.program_applicability import (
+    claim_program_strategy_signature,
+    compile_program_applicability_model,
+    program_experience_subject_key,
+)
 from cascade_planner.application.route_structure_matching import (
-    molecule_similarity,
     structure_transition,
 )
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
@@ -96,56 +100,55 @@ def apply_program_experience(
     records = [dict(value) for value in dict(library.get("experiences") or {}).values()]
     annotated: list[dict[str, Any]] = []
     matched_ids: set[str] = set()
+    applicability_models: dict[str, dict[str, Any]] = {}
     for raw_candidate in candidates:
         candidate = dict(raw_candidate)
-        matches = [
-            match
-            for record in records
-            if (match := _candidate_match(candidate, record)) is not None
-        ]
-        if not matches:
+        model = compile_program_applicability_model(candidate, records)
+        if not model:
             annotated.append(candidate)
             continue
-        matched_ids.update(str(value["experience_id"]) for value in matches)
-        positive = sum(int(value["counts"].get("positive") or 0) for value in matches)
-        negative = sum(int(value["counts"].get("negative") or 0) for value in matches)
-        exact = any(value["transfer_scope"] == "exact_boundary" for value in matches)
-        adjustment = _priority_adjustment(matches, positive=positive, negative=negative)
+        candidate_id = str(candidate.get("candidate_id") or "")
+        applicability_models[candidate_id] = model
+        matched_ids.update(str(value) for value in model["matched_experience_ids"])
+        counts = dict(model["evidence_counts"])
+        adjustment = float(model["priority_adjustment"])
         base = float(candidate.get("priority_score") or 0.0)
         candidate["base_priority_score"] = round(base, 6)
         candidate["priority_score"] = round(min(1.0, max(0.0, base + adjustment)), 6)
         candidate["experience_memory"] = {
-            "match_count": len(matches),
-            "matched_experience_ids": sorted(
-                str(value["experience_id"]) for value in matches
+            "match_count": int(model["match_count"]),
+            "matched_experience_ids": list(model["matched_experience_ids"]),
+            "positive_observation_count": int(counts["positive"]),
+            "negative_observation_count": int(counts["negative"]),
+            "inconclusive_observation_count": int(counts["inconclusive"]),
+            "exact_observation_count": int(model["exact_observation_count"]),
+            "structural_analog_observation_count": int(
+                model["structural_analog_observation_count"]
             ),
-            "positive_observation_count": positive,
-            "negative_observation_count": negative,
-            "inconclusive_observation_count": sum(
-                int(value["counts"].get("inconclusive") or 0) for value in matches
-            ),
-            "strongest_transfer_scope": "exact_boundary" if exact else "structural_analog",
+            "strongest_transfer_scope": str(model["strongest_transfer_scope"]),
+            "weighted_evidence": dict(model["weighted_evidence"]),
+            "applicability_score": float(model["applicability_score"]),
+            "evidence_strength": float(model["evidence_strength"]),
+            "confidence_score": float(model["confidence_score"]),
+            "uncertainty_score": float(model["uncertainty_score"]),
+            "risk_score": float(model["risk_score"]),
             "priority_adjustment": adjustment,
-            "disposition": (
-                "conflicting"
-                if positive and negative
-                else "supported"
-                if positive
-                else "contraindicated"
-                if negative
-                else "inconclusive"
-            ),
+            "disposition": str(model["disposition"]),
+            "applicability_model": {
+                "schema_version": str(model["schema_version"]),
+                "content_sha256": str(model["content_sha256"]),
+            },
             "authority_scope": "proposal_ranking_and_validation_priority_only",
             "current_candidate_still_requires_exact_validation": True,
         }
         warnings = {str(value) for value in candidate.get("warning_codes") or []}
         warnings.add(
             "SELF_EVOLUTION_CONFLICTING_PRIOR"
-            if positive and negative
+            if model["disposition"] == "conflicting"
             else "SELF_EVOLUTION_NEGATIVE_PRIOR"
-            if negative
+            if model["disposition"] == "contraindicated"
             else "SELF_EVOLUTION_POSITIVE_PRIOR"
-            if positive
+            if model["disposition"] == "supported"
             else "SELF_EVOLUTION_INCONCLUSIVE_PRIOR"
         )
         candidate["warning_codes"] = sorted(warnings)
@@ -157,9 +160,28 @@ def apply_program_experience(
         "candidate_count": len(candidates),
         "matched_candidate_count": sum("experience_memory" in row for row in annotated),
         "matched_experience_ids": sorted(matched_ids),
+        "candidate_applicability_models": {
+            key: applicability_models[key] for key in sorted(applicability_models)
+        },
+        "counts": {
+            "exact_boundary_models": sum(
+                row["strongest_transfer_scope"] == "exact_boundary"
+                for row in applicability_models.values()
+            ),
+            "structural_analog_models": sum(
+                row["strongest_transfer_scope"] == "structural_analog"
+                for row in applicability_models.values()
+            ),
+            "conflicting_models": sum(
+                row["disposition"] == "conflicting"
+                for row in applicability_models.values()
+            ),
+        },
         "semantics": {
             "ranking_adjustments_are_bounded": True,
             "similarity_is_not_validation": True,
+            "cross_boundary_applicability_is_weighted_and_explainable": True,
+            "execution_domains_do_not_share_applicability_evidence": True,
             "negative_and_conflicting_results_remain_visible": True,
             "cannot_grant_program_validation_proof_completion_or_acceptance": True,
             "cannot_mutate_or_disable_capability_catalog": True,
@@ -184,10 +206,10 @@ def _experience_observation(
         return {}
     domain = str(claim.get("domain") or "")
     subject_refs = dict(claim.get("subject_refs") or {})
-    strategy = _claim_strategy_signature(discovery, domain, subject_refs)
+    strategy = claim_program_strategy_signature(discovery, domain, subject_refs)
     identity = {
         "domain": domain,
-        "subject_key": _subject_key(domain, subject_refs, strategy),
+        "subject_key": program_experience_subject_key(domain, subject_refs, strategy),
         "input_smiles": input_smiles,
         "output_smiles": output_smiles,
     }
@@ -273,68 +295,6 @@ def _merge_experience(
     return row
 
 
-def _candidate_match(
-    candidate: Mapping[str, Any], record: Mapping[str, Any]
-) -> dict[str, Any] | None:
-    domain = _candidate_domain(candidate)
-    if domain != record.get("domain"):
-        return None
-    candidate_strategy = _candidate_strategy_signature(candidate, domain)
-    if _subject_key(
-        domain,
-        _candidate_subject_refs(candidate, domain),
-        candidate_strategy,
-    ) != _subject_key(
-        domain,
-        dict(record.get("subject_refs") or {}),
-        str(record.get("strategy_signature_sha256") or ""),
-    ):
-        return None
-    boundary = dict(candidate.get("boundary") or {})
-    precursor = str(boundary.get("precursor_smiles") or "")
-    product = str(boundary.get("product_smiles") or "")
-    observed = dict(record.get("exact_boundary") or {})
-    prior_inputs = list(observed.get("input_smiles") or [])
-    prior_outputs = list(observed.get("output_smiles") or [])
-    if not precursor or not product or not prior_inputs or not prior_outputs:
-        return None
-    exact = precursor == prior_inputs[0] and product == prior_outputs[0]
-    similarity = 1.0 if exact else min(
-        molecule_similarity(precursor, prior_inputs[0]),
-        molecule_similarity(product, prior_outputs[0]),
-    )
-    current_transition = structure_transition(precursor, product)
-    prior_transition = dict(record.get("structural_transition") or {})
-    transition_equal = (
-        current_transition.get("valid") is True
-        and prior_transition.get("valid") is True
-        and current_transition.get("motif_delta") == prior_transition.get("motif_delta")
-        and current_transition.get("element_delta") == prior_transition.get("element_delta")
-    )
-    if not exact and (similarity < 0.72 or not transition_equal):
-        return None
-    return {
-        "experience_id": str(record.get("experience_id") or ""),
-        "transfer_scope": "exact_boundary" if exact else "structural_analog",
-        "similarity": round(similarity, 6),
-        "counts": dict(record.get("counts") or {}),
-    }
-
-
-def _priority_adjustment(
-    matches: Sequence[Mapping[str, Any]], *, positive: int, negative: int
-) -> float:
-    if positive and negative:
-        return 0.0
-    strongest = max(float(value.get("similarity") or 0.0) for value in matches)
-    exact = any(value.get("transfer_scope") == "exact_boundary" for value in matches)
-    if positive:
-        return round((0.12 if exact else 0.08 * strongest), 6)
-    if negative:
-        return round(-(0.18 if exact else 0.12 * strongest), 6)
-    return 0.0
-
-
 def _state_smiles(graph: Mapping[str, Any], state_ids: Sequence[str]) -> list[str]:
     molecules = dict(graph.get("molecules") or {})
     values: list[str] = []
@@ -344,59 +304,6 @@ def _state_smiles(graph: Mapping[str, Any], state_ids: Sequence[str]) -> list[st
         if smiles:
             values.append(smiles)
     return values
-
-
-def _claim_strategy_signature(
-    discovery: Mapping[str, Any], domain: str, subject_refs: Mapping[str, Any]
-) -> str:
-    if domain != "mechanism":
-        return ""
-    innovation_id = str(subject_refs.get("innovation_id") or "")
-    for candidate in discovery.get("candidates") or []:
-        innovation = dict(dict(candidate).get("route_innovation") or {})
-        if innovation.get("innovation_id") == innovation_id:
-            return _mechanism_strategy_signature(innovation)
-    return ""
-
-
-def _candidate_strategy_signature(candidate: Mapping[str, Any], domain: str) -> str:
-    if domain != "mechanism":
-        return ""
-    return _mechanism_strategy_signature(dict(candidate.get("route_innovation") or {}))
-
-
-def _mechanism_strategy_signature(innovation: Mapping[str, Any]) -> str:
-    anchor = dict(innovation.get("anchor") or {})
-    return strict_canonical_json_sha256(
-        {
-            "anchor_source_refs": list(anchor.get("source_refs") or []),
-            "mechanistic_rationale": str(innovation.get("mechanistic_rationale") or ""),
-            "elementary_steps": list(innovation.get("elementary_steps") or []),
-            "falsifiable_checks": list(innovation.get("falsifiable_checks") or []),
-        }
-    )
-
-
-def _candidate_domain(candidate: Mapping[str, Any]) -> str:
-    return {
-        "enzyme_window": "biocatalytic",
-        "program_execution_window": "execution",
-        "mechanism_one_hop": "mechanism",
-    }.get(str(candidate.get("candidate_kind") or ""), "")
-
-
-def _candidate_subject_refs(candidate: Mapping[str, Any], domain: str) -> dict[str, str]:
-    if domain in {"biocatalytic", "execution"}:
-        return {"capability_id": str(candidate.get("capability_id") or "")}
-    return {}
-
-
-def _subject_key(
-    domain: str, subject_refs: Mapping[str, Any], strategy_signature: str
-) -> str:
-    if domain in {"biocatalytic", "execution"}:
-        return str(subject_refs.get("capability_id") or "")
-    return strategy_signature
 
 
 def _claim_ids(records: Iterable[Mapping[str, Any]]) -> set[str]:

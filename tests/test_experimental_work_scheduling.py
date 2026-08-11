@@ -191,6 +191,32 @@ def test_experience_changes_priority_but_cannot_inject_authority() -> None:
     assert "grants_validation" not in supported["action_score"]
 
 
+def test_applicability_uncertainty_and_risk_feed_experiment_priority_only() -> None:
+    plan = _plan(
+        memory={
+            "positive_observation_count": 1,
+            "disposition": "supported",
+            "applicability_score": 0.7,
+            "confidence_score": 0.8,
+            "uncertainty_score": 0.2,
+            "risk_score": 0.1,
+            "current_candidate_still_requires_exact_validation": True,
+        }
+    )
+    scheduling = compile_experimental_work_scheduling(
+        "biocatalytic", plan, [], [], _request(plan)
+    )
+    components = scheduling["components"]
+
+    assert components["applicability_score"] == 0.7
+    assert components["applicability_confidence_score"] == 0.8
+    assert components["applicability_uncertainty_score"] == 0.2
+    assert scheduling["action_score"]["failure_risk_penalty"] == 0.056
+    assert scheduling["semantics"][
+        "experience_memory_changes_priority_only"
+    ] is True
+
+
 def test_recomputed_scheduling_tamper_fails_closed() -> None:
     plan = _plan()
     request = _request(plan)
