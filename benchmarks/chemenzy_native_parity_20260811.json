@@ -1,8 +1,8 @@
 {
   "schema_version": "chemenzy_native_parity_probe.v1",
   "evidence_date": "2026-08-11",
-  "source_commit": "c2cda55",
-  "content_sha256": "784e27702f3bcb9bc18b963c385b70d1d3dcc09295f24eb09b27a237d426cf8a",
+  "source_commit": "57a5b92",
+  "generated_at": "2026-08-11T18:41:36.292223Z",
   "request": {
     "target_smiles": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
     "search_preset": "standard",
@@ -14,43 +14,69 @@
     "stock_names": [
       "RetroStar-stock"
     ],
+    "stock_paths": {
+      "RetroStar-stock": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3"
+    },
     "condition_prediction": false,
     "enzyme_assignment": false
   },
+  "launcher_request_sha256": "1b68f70cd35731df4b05b84f598d14e3b8643540bec5016bd29ad66475b9e4e1",
   "proposal_request_sha256": "e2d338099aba5f5fcf9b7b589126a85c58efdf741c01c9944876c28a5e41ecde",
-  "replay_key_sha256": "0917507d2e1bb338cf007678d8dd1fa15cd296485710ab2f749e759b9586152b",
+  "replay_key_sha256": "d0db808d9f3ba4eb7532b092233ef7b57f54831dd71daae179bfad0c49201ebb",
   "model_content_binding_sha256": "e49ca9286a45429673854ef9c6fa25d4c7b5451d1fbba0f7f7703b097a0d8178",
   "model_content_identity_complete": true,
+  "stock_content_binding_sha256": "7545b41c9c78c33c8f3bac5477c33d381b5676d1ff3e29ef519902a6060e5849",
+  "stock_content_identity_complete": true,
+  "stock_content_binding": {
+    "schema_version": "chemenzy_native_parity_stock_binding.v1",
+    "identity_complete": true,
+    "stocks": [
+      {
+        "stock_name": "RetroStar-stock",
+        "path": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3",
+        "size_bytes": 999251968,
+        "sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c"
+      }
+    ],
+    "content_sha256": "7545b41c9c78c33c8f3bac5477c33d381b5676d1ff3e29ef519902a6060e5849"
+  },
   "embedded": {
-    "raw_proposal_sha256": "e2b9856279fde1871d029e1a166e410f5268ead92fe53f56d1e1be339dd20e6c",
-    "raw_result_sha256": "c617ca93c4c2109344a8aaa6b8f1ee5bd2d9ddbc39ca09b0f466e02f87801e7f",
+    "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
+    "raw_result_sha256": "3f18fe089b768fed844b216ff7bd4b2e1d9a10e873815d9d791c62138b9da836",
     "route_count": 2,
     "quarantined_route_count": 0,
-    "elapsed_s": 77.25
+    "elapsed_s": 79.235,
+    "search_trace_count": 1213,
+    "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
   },
   "standalone": {
-    "raw_proposal_sha256": "e2b9856279fde1871d029e1a166e410f5268ead92fe53f56d1e1be339dd20e6c",
-    "raw_result_sha256": "2333e31f0b1e8eda46aa5193fcdac3f0a8360fcbc288e500c16319538f04766a",
+    "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
+    "raw_result_sha256": "5004efd1563d7518880c3b99def73a54e78e05085d8b0a50ae7fd52ab5d926a6",
     "route_count": 2,
     "quarantined_route_count": 0,
-    "elapsed_s": 70.5
+    "elapsed_s": 73.906,
+    "search_trace_count": 1213,
+    "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
   },
   "embedded_backend_failure_count": 0,
   "standalone_backend_failure_count": 0,
   "backend_failure_free": true,
   "nonempty_route_set_observed": true,
+  "search_trace_identity_complete": true,
+  "search_trace_digest_equal": true,
   "raw_proposal_digest_equal": true,
   "route_fingerprint_rows_equal": true,
-  "parity_accepted": true,
-  "total_elapsed_s": 147.828,
   "semantics": {
     "two_independent_native_searches_executed": true,
     "embedded_path_uses_v4_proposal_ingestion": true,
     "standalone_path_invokes_launcher_directly": true,
     "raw_result_digest_may_differ_due_to_operational_receipts": true,
+    "parity_requires_model_content_identity_complete": true,
+    "parity_requires_stock_content_identity_complete": true,
     "parity_requires_backend_failure_free": true,
     "parity_requires_nonempty_route_set": true,
-    "unit_tests_alone_do_not_establish_native_parity": true,
-    "single_fixed_request_does_not_prove_all_request_parity": true
-  }
+    "parity_requires_search_trace_identity": true
+  },
+  "parity_accepted": true,
+  "content_sha256": "566817320525d6e37e8d07dcfe7b5842cd120839c6511a63d04c1c52b7d88f07"
 }
