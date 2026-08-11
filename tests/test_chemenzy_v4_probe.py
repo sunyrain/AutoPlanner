@@ -282,7 +282,13 @@ def test_chemenzy_request_seed_is_explicit_and_replay_binding_is_seed_bound() ->
         random_seed=17,
         raw_proposal_sha256="a" * 64,
         raw_result_sha256="b" * 64,
-        runtime_preflight={"python_executable": "python"},
+        runtime_preflight={
+            "python_executable": "python",
+            "capability_probe": {
+                "model_content_binding_sha256": "c" * 64,
+                "model_content_identity_complete": True,
+            },
+        },
     )
     other = provider_invocation_binding(
         {**request, "random_seed": 18},
@@ -295,6 +301,9 @@ def test_chemenzy_request_seed_is_explicit_and_replay_binding_is_seed_bound() ->
     assert request["random_seed"] == 17
     assert binding["random_seed"] == 17
     assert binding["raw_proposal_sha256"] == "a" * 64
+    assert binding["runtime_binding"]["model_content_binding_sha256"] == "c" * 64
+    assert binding["runtime_binding"]["model_content_identity_complete"] is True
+    assert binding["semantics"]["full_model_file_content_identity_is_not_proven"] is False
     assert binding["replay_key_sha256"] != other["replay_key_sha256"]
     assert binding["semantics"]["binding_does_not_fabricate_backend_determinism"]
 

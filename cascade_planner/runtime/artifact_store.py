@@ -449,16 +449,27 @@ class ArtifactStore:
         digest: str,
         size_bytes: int | None,
     ) -> None:
-        if not path.is_file():
-            raise ArtifactCorruptionError(f"artifact_object_missing:{digest}")
-        if size_bytes is not None and path.stat().st_size != int(size_bytes):
-            raise ArtifactCorruptionError(f"artifact_object_size_mismatch:{digest}")
-        observed = hashlib.sha256()
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                observed.update(block)
-        if observed.hexdigest() != str(digest).lower():
-            raise ArtifactCorruptionError(f"artifact_object_digest_mismatch:{digest}")
+        for attempt in range(8):
+            try:
+                if not path.is_file():
+                    raise ArtifactCorruptionError(f"artifact_object_missing:{digest}")
+                if size_bytes is not None and path.stat().st_size != int(size_bytes):
+                    raise ArtifactCorruptionError(
+                        f"artifact_object_size_mismatch:{digest}"
+                    )
+                observed = hashlib.sha256()
+                with path.open("rb") as handle:
+                    for block in iter(lambda: handle.read(1024 * 1024), b""):
+                        observed.update(block)
+                if observed.hexdigest() != str(digest).lower():
+                    raise ArtifactCorruptionError(
+                        f"artifact_object_digest_mismatch:{digest}"
+                    )
+                return
+            except PermissionError:
+                if attempt == 7:
+                    raise
+                time.sleep(min(0.4, 0.025 * (2**attempt)))
 
     def _publish_temporary(
         self,

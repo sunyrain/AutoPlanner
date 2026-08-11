@@ -6809,6 +6809,18 @@ def _latest_chemenzy_runtime_binding(
             "model_override_digest": str(
                 preflight.get("model_override_digest") or ""
             ),
+            "model_content_binding_sha256": str(
+                capability.get("model_content_binding_sha256")
+                or preflight.get("model_content_binding_sha256")
+                or ""
+            ),
+            "model_content_identity_complete": bool(
+                capability.get(
+                    "model_content_identity_complete",
+                    preflight.get("model_content_identity_complete"),
+                )
+                is True
+            ),
             "model_path_checks": list(capability.get("model_path_checks") or []),
             "stock_path_checks": list(capability.get("stock_path_checks") or []),
         }

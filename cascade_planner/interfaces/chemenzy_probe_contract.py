@@ -108,6 +108,8 @@ def provider_invocation_binding(
         "vendor_root": str(preflight.get("vendor_root") or ""),
         "requested_one_step_models": list(preflight.get("requested_one_step_models") or []),
         "model_override_digest": str(preflight.get("model_override_digest") or ""),
+        "model_content_binding_sha256": str(capability.get("model_content_binding_sha256") or preflight.get("model_content_binding_sha256") or ""),
+        "model_content_identity_complete": (capability.get("model_content_identity_complete", preflight.get("model_content_identity_complete")) is True),
         "model_path_checks": list(capability.get("model_path_checks") or []),
         "stock_path_checks": list(capability.get("stock_path_checks") or []),
         "requested_stock_names": list(limits.get("stock_names") or []),
@@ -115,10 +117,8 @@ def provider_invocation_binding(
     }
     runtime_sha256 = _content_sha256(runtime)
     replay_key_sha256 = _content_sha256({
-        "schema_version": "chemenzy_provider_replay_key.v1",
-        "request_sha256": _content_sha256(request),
-        "random_seed": int(random_seed),
-        "runtime_binding_sha256": runtime_sha256,
+        "schema_version": "chemenzy_provider_replay_key.v1", "request_sha256": _content_sha256(request),
+        "random_seed": int(random_seed), "runtime_binding_sha256": runtime_sha256,
     })
     return {
         "schema_version": "chemenzy_provider_invocation_binding.v1",
@@ -134,7 +134,7 @@ def provider_invocation_binding(
             "raw_result_sha_binds_complete_operational_receipt": True,
             "replay_key_detects_input_or_runtime_conflict_only": True,
             "binding_does_not_fabricate_backend_determinism": True,
-            "full_model_file_content_identity_is_not_proven": True,
+            "full_model_file_content_identity_is_not_proven": not runtime["model_content_identity_complete"],
         },
     }
 __all__ = ["ChemEnzyProposalRequest", "provider_invocation_binding"]

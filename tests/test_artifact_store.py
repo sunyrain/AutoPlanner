@@ -150,6 +150,28 @@ def test_pointer_retries_transient_atomic_replace_lock(
     assert store.load_pointer("runs/example/retry")[0] == ref
 
 
+def test_immutable_object_verification_retries_transient_reader_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ArtifactStore(tmp_path / "store")
+    ref = store.put_bytes(b"immutable object")
+    object_path = store.object_path(ref.sha256)
+    real_open = Path.open
+    attempts = 0
+
+    def flaky_open(path: Path, *args: object, **kwargs: object):
+        nonlocal attempts
+        if path == object_path and attempts < 2:
+            attempts += 1
+            raise PermissionError("transient immutable reader lock")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", flaky_open)
+    assert store.put_bytes(b"immutable object") == ref
+    assert attempts == 2
+
+
 def test_pointer_rejects_path_escape_and_invalid_json(tmp_path: Path) -> None:
     store = ArtifactStore(tmp_path / "store")
     ref = store.put_bytes(b"data")
