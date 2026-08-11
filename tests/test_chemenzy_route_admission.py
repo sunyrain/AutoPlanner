@@ -2,12 +2,16 @@ import importlib
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from cascade_planner.baselines.chem_enzy_adapter import (
+    CHEMENZY_WORKER_BOOTSTRAP_ENV,
+    CHEMENZY_WORKER_EASIFA_ENV,
+    CHEMENZY_WORKER_GRAPHVIZ_ENV,
     ChemEnzyBackendAdapter,
     _SqliteStockMembership,
     _bounded_materialization_result,
@@ -24,6 +28,8 @@ from cascade_planner.baselines.chem_enzy_bounded_mcts import bounded_mol_planner
 from cascade_planner.baselines.route_contract import RouteStepCandidate
 from cascade_planner.baselines.route_contract import BaselineRunResult, RouteSearchConfig
 from scripts.run_chem_enzy_plan_for_web import (
+    _bootstrap_pandarallel_worker_from_environment,
+    _configure_pandarallel_worker_environment,
     _route_config_from_payload,
     _web_payload_from_result,
 )
@@ -55,6 +61,61 @@ def test_runtime_seed_binding_seeds_python_numpy_and_torch() -> None:
     cuda_seed.assert_called_once_with(17)
     assert binding["python_hash_seed_matches"] is True
     assert binding["deterministic_algorithms_enabled"] is False
+
+
+def test_launcher_configures_spawn_worker_compatibility_environment() -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        _configure_pandarallel_worker_environment(
+            {"enable_easifa": True, "viz": False}
+        )
+
+        assert os.environ[CHEMENZY_WORKER_BOOTSTRAP_ENV] == "1"
+        assert os.environ[CHEMENZY_WORKER_EASIFA_ENV] == "1"
+        assert os.environ[CHEMENZY_WORKER_GRAPHVIZ_ENV] == "0"
+
+
+def test_spawn_worker_replays_import_compatibility_from_environment() -> None:
+    environment = {
+        CHEMENZY_WORKER_BOOTSTRAP_ENV: "1",
+        CHEMENZY_WORKER_EASIFA_ENV: "0",
+        CHEMENZY_WORKER_GRAPHVIZ_ENV: "1",
+    }
+    with (
+        patch.dict(os.environ, environment, clear=True),
+        patch(
+            "scripts.run_chem_enzy_plan_for_web.install_chemenzy_import_compatibility"
+        ) as install,
+    ):
+        assert _bootstrap_pandarallel_worker_from_environment() is True
+
+    install.assert_called_once_with(enable_easifa=False, enable_graphviz=True)
+
+
+def test_fresh_interpreter_worker_bootstrap_restores_torchtext_field() -> None:
+    root = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    environment[CHEMENZY_WORKER_BOOTSTRAP_ENV] = "1"
+    environment[CHEMENZY_WORKER_EASIFA_ENV] = "0"
+    environment[CHEMENZY_WORKER_GRAPHVIZ_ENV] = "0"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import scripts.run_chem_enzy_plan_for_web; "
+                "from torchtext.data import Field; "
+                "assert Field is not None"
+            ),
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_sqlite_stock_membership_supports_mcts_overlay_and_deepcopy(tmp_path: Path) -> None:

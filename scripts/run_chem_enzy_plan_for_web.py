@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -17,9 +18,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from cascade_planner.baselines.chem_enzy_adapter import (
+    CHEMENZY_WORKER_BOOTSTRAP_ENV,
+    CHEMENZY_WORKER_EASIFA_ENV,
+    CHEMENZY_WORKER_GRAPHVIZ_ENV,
     ChemEnzyBackendAdapter,
     DEFAULT_ONE_STEP_MODELS,
     DEFAULT_STOCKS,
+    install_chemenzy_import_compatibility,
 )
 from cascade_planner.baselines.chem_enzy_budget import (
     budgeted_chemenzy_payload,
@@ -42,6 +47,21 @@ from cascade_planner.legacy.guard import LEGACY_RESEARCH_ENV, legacy_research_en
 RDLogger.DisableLog("rdApp.*")
 
 
+def _bootstrap_pandarallel_worker_from_environment() -> bool:
+    """Replay parent import shims in Windows spawn workers before dill loads."""
+
+    if os.environ.get(CHEMENZY_WORKER_BOOTSTRAP_ENV) != "1":
+        return False
+    install_chemenzy_import_compatibility(
+        enable_easifa=os.environ.get(CHEMENZY_WORKER_EASIFA_ENV) == "1",
+        enable_graphviz=os.environ.get(CHEMENZY_WORKER_GRAPHVIZ_ENV) == "1",
+    )
+    return True
+
+
+_bootstrap_pandarallel_worker_from_environment()
+
+
 DEFAULT_LEARNED_VERIFIER_MODEL = Path(
     "results/shared/cascade_verifier_mainline_20260521/learned_verifier_v4_30k_stage_aware.joblib"
 )
@@ -56,6 +76,7 @@ def main() -> None:
     args = ap.parse_args()
 
     payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
+    _configure_pandarallel_worker_environment(payload)
     embedded_resolution = payload.get("chem_enzy_budget_resolution")
     if isinstance(embedded_resolution, dict):
         budget_resolution = resolution_from_dict(embedded_resolution)
@@ -92,10 +113,33 @@ def main() -> None:
     )
     result = adapter.run_target(config)
     output = _web_payload_from_result(result, payload, config, time.monotonic() - started, vendor_root=Path(args.vendor_root))
+    output["runtime_compatibility"] = {
+        "pandarallel_spawn_bootstrap_configured": True,
+        "worker_import_shims": [
+            "numpy_legacy_aliases",
+            "torchdata_legacy_aliases",
+            "torchtext_legacy_aliases",
+            "dgl_graphbolt_optional_import",
+            "optional_easifa_import",
+            "optional_graphviz_import",
+        ],
+    }
     output["chem_enzy_budget_resolution"] = budget_resolution.to_dict()
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+
+
+def _configure_pandarallel_worker_environment(payload: dict[str, Any]) -> None:
+    """Configure import-time compatibility for later Windows spawn workers."""
+
+    os.environ[CHEMENZY_WORKER_BOOTSTRAP_ENV] = "1"
+    os.environ[CHEMENZY_WORKER_EASIFA_ENV] = (
+        "1" if bool(payload.get("enable_easifa", False)) else "0"
+    )
+    os.environ[CHEMENZY_WORKER_GRAPHVIZ_ENV] = (
+        "1" if bool(payload.get("viz", False)) else "0"
+    )
 
 
 def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearchConfig:

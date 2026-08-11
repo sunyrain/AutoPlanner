@@ -91,6 +91,9 @@ CHEMENZY_ONMT_MODEL_PATH_ENV = "AUTOPLANNER_CHEMENZY_ONMT_MODEL_PATH"
 CHEMENZY_ONMT_TOKENIZER_ENV = "AUTOPLANNER_CHEMENZY_ONMT_TOKENIZER"
 CHEMENZY_ONMT_SOURCE_PREFIX_ENV = "AUTOPLANNER_CHEMENZY_ONMT_SOURCE_PREFIX"
 CHEMENZY_ONMT_PRETOKENIZE_MODE_ENV = "AUTOPLANNER_CHEMENZY_ONMT_PRETOKENIZE_MODE"
+CHEMENZY_WORKER_BOOTSTRAP_ENV = "AUTOPLANNER_CHEMENZY_WORKER_BOOTSTRAP"
+CHEMENZY_WORKER_EASIFA_ENV = "AUTOPLANNER_CHEMENZY_WORKER_ENABLE_EASIFA"
+CHEMENZY_WORKER_GRAPHVIZ_ENV = "AUTOPLANNER_CHEMENZY_WORKER_ENABLE_GRAPHVIZ"
 CHEMENZY_STEP_STRENGTHENING_SCHEMA = "chem_enzy_step_strengthening.v1"
 _RUNTIME_SEARCH_FLAGS = {
     # Row-derived cascade state changes how a target is searched, but it does
@@ -622,12 +625,10 @@ class ChemEnzyBackendAdapter:
             vendor_root=self.vendor_root,
         )
         with _vendor_pythonpath(self.vendor_root):
-            _patch_numpy_legacy_aliases()
-            _patch_torchdata_legacy_aliases()
-            _patch_torchtext_legacy_aliases()
-            _patch_dgl_graphbolt_optional_import()
-            _patch_optional_easifa_import(self.enable_easifa)
-            _patch_optional_graphviz_import(bool(search_config.search_flags.get("viz", False)))
+            install_chemenzy_import_compatibility(
+                enable_easifa=self.enable_easifa,
+                enable_graphviz=bool(search_config.search_flags.get("viz", False)),
+            )
             api = importlib.import_module("retro_planner.api")
             _install_sqlite_stock_runtime(api, vendor_config)
             _install_bounded_vendor_mcts(
@@ -1941,6 +1942,27 @@ def _patch_optional_graphviz_import(enable_viz: bool) -> None:
     graphviz_mod = types.ModuleType("graphviz")
     graphviz_mod.Digraph = _NoOpDigraph
     sys.modules["graphviz"] = graphviz_mod
+
+
+def install_chemenzy_import_compatibility(
+    *,
+    enable_easifa: bool = False,
+    enable_graphviz: bool = False,
+) -> None:
+    """Install the import shims needed by the launcher and spawned workers.
+
+    Windows pandarallel uses ``multiprocessing`` with the ``spawn`` context.
+    Those child interpreters do not inherit the parent's in-memory module
+    patches, so the launcher replays this same bounded compatibility bootstrap
+    before dill imports the vendor stock-preparation closure.
+    """
+
+    _patch_numpy_legacy_aliases()
+    _patch_torchdata_legacy_aliases()
+    _patch_torchtext_legacy_aliases()
+    _patch_dgl_graphbolt_optional_import()
+    _patch_optional_easifa_import(enable_easifa)
+    _patch_optional_graphviz_import(enable_graphviz)
 
 
 def _normalize_source_policy_paths(policy_config: dict[str, Any]) -> None:
