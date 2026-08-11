@@ -21,7 +21,7 @@
 - [x] Codex 保留 campaign 级全局规划、文献假设、失败重规划和酶/机理 Program 设计职责。
 - [x] ChemEnzy 保留目标级原生多步搜索能力；Codex 指导只能增量加权或补充候选，不能取代或裁掉原生 frontier。
 - [x] proposal、reaction proof、exact evidence、stock、conditions、Program validation 分轴记录；缺少高层证明不能删除低层有效候选。
-- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，目前已完成十个职责拆分切片，超限模块由 17 个降至 7 个。
+- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，目前已完成十一个职责拆分切片，超限模块由 17 个降至 6 个。
 
 ## 当前架构蓝图
 
@@ -110,6 +110,8 @@
 第九个维护切片把 `visual_observation_normalization.py` 从 402 行降至 295 行：RDKit canonicalization、连接性标准化、host 反应物子集准入、spectator 分区和标签映射迁入 131 行的 `visual_observation_chemistry.py`。原 normalization 模块继续拥有 provider digest 校验、链路锚定、条件候选降权、观察协议和内容摘要；`normalize_visual_observation` 公共入口与 visual evidence facade 不变。Ruff、compileall、`git diff --check` 均通过，visual/架构聚焦回归 27 passed，target solver visual 集成 3 passed，超预算模块由 9 个降至 8 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 167.98 秒。
 
 第十个维护切片把 `literature_procedure_fragments.py` 从 147 行降至 52 行：专利 `(1) product` 与期刊 `product (Entry 1)` 的逐行标题识别、产品名过滤和过程信号判断迁入 107 行的 `literature_procedure_line_fragments.py`。原 facade 继续优先调用 line parser，并在无逐行片段时回退到压平文本的显式 `Compound N`/命名化合物标题解析；`source_procedure_fragments` 及 HTML parser 兼容导出不变。Ruff、compileall、`git diff --check` 均通过，procedure/literature/架构聚焦回归 37 passed，超预算模块由 8 个降至 7 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 174.44 秒。
+
+第十一个维护切片把 `literature_materialization.py` 从 322 行降至 241 行：授权出版商结构化文本与补充 PDF 的联合物化、视觉页投影、来源 receipt 和语义标记迁入 97 行的 `literature_authorized_pdf_assets.py`。facade 继续拥有 structured-fulltext/PDF 获取顺序、缓存、代理和最终 PDF fallback；新 helper 通过显式 `pdf_materializer` 参数接收当前实现，保留测试 monkeypatch 与运行时注入。Ruff、compileall、`git diff --check` 均通过，literature/PDF/source-route/架构聚焦回归 55 passed，超预算模块由 7 个降至 6 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 174.19 秒。
 
 ## 1. 不可破坏的架构约束
 
@@ -588,7 +590,7 @@ W2 验收门：
 - [x] 不把 enzyme/mechanism superstep 伪装成已验证普通 reaction edge。
 - [ ] 不通过恢复 legacy scheduler 或 Blackboard 快速绕过统一设计。
 - [ ] 不在全 190 test targets 上边看结果边逐目标调参。
-- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成十个维护切片，剩余 7 个超限模块。
+- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成十一个维护切片，剩余 6 个超限模块。
 
 ## 18. 当前施工序列
 

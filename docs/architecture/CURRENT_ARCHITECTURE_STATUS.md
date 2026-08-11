@@ -161,6 +161,14 @@
 > 聚焦回归 37 passed，超行数预算项由 8 个降至 7 个；完整离线套件为 2699 passed、3 skipped、
 > 1 deselected、2 subtests passed，用时 174.44 秒。
 
+> 2026-08-11 literature materialization 职责拆分增量：`literature_materialization.py` 从 322 行
+> 降至 241 行，授权出版商结构化文本与补充 PDF 的联合物化、视觉页投影、来源 receipt 和语义标记
+> 迁入 97 行的 `literature_authorized_pdf_assets.py`。facade 继续拥有 structured-fulltext/PDF 获取
+> 顺序、缓存、代理与最终 PDF fallback；helper 通过显式 `pdf_materializer` 接收当前实现，保留
+> monkeypatch 与运行时注入。Ruff、compileall、`git diff --check` 均通过，literature/PDF/source-route/
+> 架构聚焦回归 55 passed，超行数预算项由 7 个降至 6 个；完整离线套件为 2699 passed、3 skipped、
+> 1 deselected、2 subtests passed，用时 174.19 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
