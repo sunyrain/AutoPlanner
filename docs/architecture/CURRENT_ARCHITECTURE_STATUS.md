@@ -85,6 +85,13 @@
 > graph revision，同一个 `condition_enrich` 不会在单次 campaign 中重复到 action limit。完整离线套件
 > 在同一环境由 500.38 秒降至 178.18 秒，结果为 2699 passed、3 skipped、1 个已批准延期门 deselected。
 
+> 2026-08-11 visual evidence 职责拆分增量：原 1250 行 facade 已拆为 595 行的 provider/预算/回放
+> facade、491 行的 hash-bound request compilation/来源相关性模块，以及 190 行的 canonical host
+> materialization 模块。`interfaces.visual_evidence` 的公共导入保持不变；视觉模型输出仍只具 proposal
+> authority，必须经过 host normalization/admission，不能授予 exact evidence。相关集成回归 115 passed，
+> 新聚焦模块超行数预算项由 17 个降至 16 个。拆分后的完整离线套件为 2699 passed、3 skipped、
+> 1 个既定行数预算门 deselected、2 subtests passed，用时 173.10 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA

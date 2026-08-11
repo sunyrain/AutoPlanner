@@ -21,7 +21,7 @@
 - [x] Codex 保留 campaign 级全局规划、文献假设、失败重规划和酶/机理 Program 设计职责。
 - [x] ChemEnzy 保留目标级原生多步搜索能力；Codex 指导只能增量加权或补充候选，不能取代或裁掉原生 frontier。
 - [x] proposal、reaction proof、exact evidence、stock、conditions、Program validation 分轴记录；缺少高层证明不能删除低层有效候选。
-- [x] 本轮不处理“新聚焦模块超行数预算”测试；除该已批准延期项外，其余架构、功能和评测门必须通过。
+- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，本轮已先完成 visual evidence 职责拆分。
 
 ## 当前架构蓝图
 
@@ -93,7 +93,7 @@
 
 当前批准范围内的 W8-P 已完成，W8-F 不再计入本轮剩余工作量。若未来为 benchmark-wide 论文主张独立启动 W8-F，必须从新的 fresh root 按原冻结门执行 190×4，不能把 20-target pilot 或任何中断根拼入全量结果。
 
-当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，分别进入 Program/experiment 独立 RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 四臂和汇总器已实现，`-d` fresh preflight 为 760/760。提交 `a330a88` 收束预算终态后，`-i` 因外部中断保留为非结果审计。提交 `225df39` 支持冻结的 manifest-prefix pilot；`retrostar190-w8-pilot-20260807-a` 四臂各 20 completed、0 failed，B4 分别为 ChemEnzy-only 16/20、Codex-only 1/20、round-robin 15/20、adaptive 15/20。2026-08-09 启动的 `-j` 在 0 个完整 case 时因范围缩减主动停止并排除。Checkpoint F 已补齐 B4 后同轨迹 science Action 集成门，官方 EPO 三案例迁移至 parser v14 后通过严格离线 replay。2026-08-10 已完成 `UnifiedCampaignSpec`/`RunSpec v2`、不可变 Stock Oracle 绑定、八轴 `CampaignQualityState`、B4/B5 非早停、ChemEnzy/Codex 并发计算后的确定性 canonical admission、可配置且可重放的多维资源账本、Action v2 预计/实际资源归因，以及 `campaign_action_estimate.v1`/`campaign_action_result.v1` 完整契约；Director plan provenance 已与运行 task/context receipt 分离，三种旧 objective、交换并发完成顺序、replay 与 resume 的 Action binding/canonical scientific digest 回归通过。2026-08-11 修复证据阶段绕过 `enable_target_identity=False` 的 PubChem 网络旁路，并让 validation fork 复用源运行身份；目标求解集成测试改用确定性结构身份。空 condition prediction 现在只保留在 Action outcome，不再写入 canonical graph 或反复推进 revision；原 110 次同 ID condition Action 已收敛为 1 次。最终仓库门为 2699 passed、3 skipped、1 个已批准延期的行数预算门 deselected、2 subtests passed，总耗时由 500.38 秒降至 178.18 秒。当前评测结论见 `docs/evaluation/RETROSTAR190_W8_PILOT20_RESULTS_20260808.md`，统一输入契约见 `docs/architecture/UNIFIED_CAMPAIGN_CONTRACT.md`，科学层门见 `docs/architecture/SCIENTIFIC_LAYER_REGRESSION_20260809.md`。
+当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，分别进入 Program/experiment 独立 RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 四臂和汇总器已实现，`-d` fresh preflight 为 760/760。提交 `a330a88` 收束预算终态后，`-i` 因外部中断保留为非结果审计。提交 `225df39` 支持冻结的 manifest-prefix pilot；`retrostar190-w8-pilot-20260807-a` 四臂各 20 completed、0 failed，B4 分别为 ChemEnzy-only 16/20、Codex-only 1/20、round-robin 15/20、adaptive 15/20。2026-08-09 启动的 `-j` 在 0 个完整 case 时因范围缩减主动停止并排除。Checkpoint F 已补齐 B4 后同轨迹 science Action 集成门，官方 EPO 三案例迁移至 parser v14 后通过严格离线 replay。2026-08-10 已完成 `UnifiedCampaignSpec`/`RunSpec v2`、不可变 Stock Oracle 绑定、八轴 `CampaignQualityState`、B4/B5 非早停、ChemEnzy/Codex 并发计算后的确定性 canonical admission、可配置且可重放的多维资源账本、Action v2 预计/实际资源归因，以及 `campaign_action_estimate.v1`/`campaign_action_result.v1` 完整契约；Director plan provenance 已与运行 task/context receipt 分离，三种旧 objective、交换并发完成顺序、replay 与 resume 的 Action binding/canonical scientific digest 回归通过。2026-08-11 修复证据阶段绕过 `enable_target_identity=False` 的 PubChem 网络旁路，并让 validation fork 复用源运行身份；目标求解集成测试改用确定性结构身份。空 condition prediction 现在只保留在 Action outcome，不再写入 canonical graph 或反复推进 revision；原 110 次同 ID condition Action 已收敛为 1 次。最终仓库门为 2699 passed、3 skipped、1 个已批准延期的行数预算门 deselected、2 subtests passed，总耗时由 500.38 秒降至 178.18 秒。随后开始增量偿还行数预算债务：`visual_evidence.py` 从 1250 行降至 595 行，请求编译/来源相关性迁入 491 行的 `visual_evidence_request.py`，canonical host materialization 迁入 190 行的 `visual_evidence_materialization.py`；facade 继续拥有 provider 执行、预算结算和 observation replay，公共导入保持不变。相关集成回归 115 passed，超预算模块由 17 个降至 16 个；拆分后的完整离线套件再次通过，结果为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 173.10 秒。当前评测结论见 `docs/evaluation/RETROSTAR190_W8_PILOT20_RESULTS_20260808.md`，统一输入契约见 `docs/architecture/UNIFIED_CAMPAIGN_CONTRACT.md`，科学层门见 `docs/architecture/SCIENTIFIC_LAYER_REGRESSION_20260809.md`。
 
 ## 1. 不可破坏的架构约束
 
@@ -572,7 +572,7 @@ W2 验收门：
 - [x] 不把 enzyme/mechanism superstep 伪装成已验证普通 reaction edge。
 - [ ] 不通过恢复 legacy scheduler 或 Blackboard 快速绕过统一设计。
 - [ ] 不在全 190 test targets 上边看结果边逐目标调参。
-- [ ] 不在本轮处理已明确延期的新聚焦模块超行数预算。
+- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成 visual evidence 切片。
 
 ## 18. 当前施工序列
 
