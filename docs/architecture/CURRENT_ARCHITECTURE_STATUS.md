@@ -137,6 +137,14 @@
 > target solver/CLI/Web/OCR/HTML 集成 106 passed，超行数预算项由 11 个降至 10 个；完整离线套件为
 > 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 175.43 秒。
 
+> 2026-08-11 V4 route condition resolution 职责拆分增量：`v4_route_evidence_projection.py` 从 283 行
+> 降至 171 行，条件状态摘要与缺口生命周期解析迁入 125 行的 `v4_route_condition_resolution.py`；原
+> 85 行的 `v4_route_condition_projection.py` 保持来源/模型条件行投影职责。evidence facade 继续兼容导出
+> `condition_summary` 与 `condition_resolution`，Workbench、planned route branches 和 PDF 消费端入口
+> 不变。Ruff、compileall、`git diff --check` 均通过，Workbench/Web/架构聚焦回归 57 passed，超行数
+> 预算项由 10 个降至 9 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，
+> 用时 176.97 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
