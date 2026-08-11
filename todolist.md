@@ -21,7 +21,7 @@
 - [x] Codex 保留 campaign 级全局规划、文献假设、失败重规划和酶/机理 Program 设计职责。
 - [x] ChemEnzy 保留目标级原生多步搜索能力；Codex 指导只能增量加权或补充候选，不能取代或裁掉原生 frontier。
 - [x] proposal、reaction proof、exact evidence、stock、conditions、Program validation 分轴记录；缺少高层证明不能删除低层有效候选。
-- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，目前已完成八个职责拆分切片，超限模块由 17 个降至 9 个。
+- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，目前已完成九个职责拆分切片，超限模块由 17 个降至 8 个。
 
 ## 当前架构蓝图
 
@@ -106,6 +106,8 @@
 第七个维护切片把 `literature_pdf_materialization.py` 从 266 行降至 157 行：manifest 原子发布、视觉页面选择、source-evidence 行和 target-focus 摘要迁入 159 行的 `literature_pdf_projection.py`。原 materialization 函数继续负责 PDF 大小/页数校验、内容摘要、focus/extraction 调用、全文 UTF-8 与摘要校验、procedure 编译和最终来源记录，实际获取与解析顺序不变。文献/source-route/visual/架构聚焦回归 60 passed，相关 target solver/CLI/Web/OCR/HTML 集成 106 passed，超预算模块由 11 个降至 10 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 175.43 秒。
 
 第八个维护切片把 `v4_route_evidence_projection.py` 从 283 行降至 171 行：条件证据状态摘要与缺口解析迁入 125 行的 `v4_route_condition_resolution.py`；原 85 行的 `v4_route_condition_projection.py` 继续只负责来源/模型条件行投影，没有混入状态解析职责。evidence projection 保留兼容导出，因此 Workbench、planned route branches 与 PDF 消费端无需改入口。Ruff、compileall、`git diff --check` 均通过，Workbench/Web/架构聚焦回归 57 passed，超预算模块由 10 个降至 9 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 176.97 秒。
+
+第九个维护切片把 `visual_observation_normalization.py` 从 402 行降至 295 行：RDKit canonicalization、连接性标准化、host 反应物子集准入、spectator 分区和标签映射迁入 131 行的 `visual_observation_chemistry.py`。原 normalization 模块继续拥有 provider digest 校验、链路锚定、条件候选降权、观察协议和内容摘要；`normalize_visual_observation` 公共入口与 visual evidence facade 不变。Ruff、compileall、`git diff --check` 均通过，visual/架构聚焦回归 27 passed，target solver visual 集成 3 passed，超预算模块由 9 个降至 8 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 167.98 秒。
 
 ## 1. 不可破坏的架构约束
 
@@ -584,7 +586,7 @@ W2 验收门：
 - [x] 不把 enzyme/mechanism superstep 伪装成已验证普通 reaction edge。
 - [ ] 不通过恢复 legacy scheduler 或 Blackboard 快速绕过统一设计。
 - [ ] 不在全 190 test targets 上边看结果边逐目标调参。
-- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成八个维护切片，剩余 9 个超限模块。
+- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成九个维护切片，剩余 8 个超限模块。
 
 ## 18. 当前施工序列
 

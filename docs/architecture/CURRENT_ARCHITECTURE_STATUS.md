@@ -145,6 +145,14 @@
 > 预算项由 10 个降至 9 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，
 > 用时 176.97 秒。
 
+> 2026-08-11 visual observation chemistry 职责拆分增量：`visual_observation_normalization.py` 从
+> 402 行降至 295 行，RDKit canonicalization、连接性标准化、host 反应物子集准入、spectator 分区和
+> 标签映射迁入 131 行的 `visual_observation_chemistry.py`。normalization 继续拥有 provider digest
+> 校验、链路锚定、条件候选降权、观察协议与内容摘要；`normalize_visual_observation` 公共入口不变。
+> Ruff、compileall、`git diff --check` 均通过，visual/架构聚焦回归 27 passed，target solver visual
+> 集成 3 passed，超行数预算项由 9 个降至 8 个；完整离线套件为 2699 passed、3 skipped、
+> 1 deselected、2 subtests passed，用时 167.98 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
