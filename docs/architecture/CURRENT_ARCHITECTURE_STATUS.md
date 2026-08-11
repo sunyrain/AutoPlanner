@@ -169,6 +169,14 @@
 > 架构聚焦回归 55 passed，超行数预算项由 7 个降至 6 个；完整离线套件为 2699 passed、3 skipped、
 > 1 deselected、2 subtests passed，用时 174.19 秒。
 
+> 2026-08-11 route Workbench proof vector 职责拆分增量：`route_workbench_proof_vectors.py` 从
+> 289 行降至 106 行，edge exact/procedure/observation 收集、来源条件候选归一化、条件完整性与独立
+> 证明轴编译迁入 199 行的 `route_workbench_edge_proof_vector.py`。原模块继续拥有 route 级
+> weakest-edge 聚合，并兼容导出 `edge_proof_vector` 与 schema 常量，现有 Workbench 消费入口不变。
+> Ruff、compileall、`git diff --check` 均通过，Workbench/condition/架构聚焦回归 40 passed，超行数
+> 预算项由 6 个降至 5 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，
+> 用时 173.98 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA
