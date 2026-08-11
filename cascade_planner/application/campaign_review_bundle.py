@@ -5,6 +5,8 @@ import hashlib
 import json
 from typing import Any, Iterable, Mapping
 
+from cascade_planner.application.candidate_lifecycle import candidate_lifecycle_export
+
 
 CAMPAIGN_REVIEW_BUNDLE_SCHEMA = "campaign_review_bundle.v1"
 CAMPAIGN_ACTION_TRACE_SCHEMA = "campaign_action_trace.v1"
@@ -38,6 +40,7 @@ def compile_campaign_review_bundle(report: Mapping[str, Any] | None) -> dict[str
     ]
     trajectory = dict(trusted_source.get("trajectory") or {})
     trajectory_valid = _content_digest_valid(trajectory)
+    candidate_lifecycle = dict(trusted_source.get("candidate_lifecycle") or {})
     action_trace = _component(
         CAMPAIGN_ACTION_TRACE_SCHEMA,
         records=_action_records(stages),
@@ -58,10 +61,11 @@ def compile_campaign_review_bundle(report: Mapping[str, Any] | None) -> dict[str
     )
     route_lineage = _component(
         CAMPAIGN_ROUTE_LINEAGE_EXPORT_SCHEMA,
-        records=_route_lineage_records(stages, trajectory),
+        records=_route_lineage_records(stages, trajectory, candidate_lifecycle),
         semantics={
             "provider_and_canonical_lineage_are_separate": True,
             "raw_normalized_admitted_materialized_dispositions_are_retained": True,
+            "candidate_lifecycle_dispositions_are_digest_verified": True,
             "lineage_does_not_upgrade_route_proof": True,
         },
     )
@@ -234,6 +238,7 @@ def _failure_records(
 def _route_lineage_records(
     stages: Iterable[Mapping[str, Any]],
     trajectory: Mapping[str, Any],
+    candidate_lifecycle: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     records = []
     for stage_index, stage in enumerate(stages):
@@ -269,6 +274,11 @@ def _route_lineage_records(
                 "routes": _json_value(latest.get("pareto_archive") or []),
             }
         )
+    if candidate_lifecycle:
+        records.append({
+            "kind": "canonical_candidate_lifecycle",
+            **candidate_lifecycle_export(candidate_lifecycle),
+        })
     return records
 
 

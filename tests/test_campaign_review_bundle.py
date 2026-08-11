@@ -50,6 +50,31 @@ def _report() -> dict:
     return _with_digest({
         "run_id": "review-example",
         "trajectory": compile_campaign_trajectory([snapshot]),
+        "candidate_lifecycle": _with_digest(
+            {
+                "schema_version": "canonical_candidate_lifecycle.v1",
+                "graph_revision": 1,
+                "graph_scientific_sha256": "a" * 64,
+                "portfolio_sha256": "b" * 64,
+                "candidate_count": 1,
+                "canonical_candidate_count": 1,
+                "status_counts": {
+                    "rejected_invalid": 0,
+                    "quarantined_reviewable": 0,
+                    "admitted_unproved": 0,
+                    "validated": 1,
+                    "accepted": 0,
+                },
+                "ignored_ingestion_report_count": 0,
+                "records": [
+                    {
+                        "candidate_id": "edge:1",
+                        "status": "validated",
+                    }
+                ],
+                "semantics": {"projection_is_read_only": True},
+            }
+        ),
         "stages": [
             {
                 "stage": "campaign_action_unified_core_01",
@@ -101,7 +126,14 @@ def test_review_bundle_exports_all_four_independently_hashed_traces() -> None:
     assert all(len(value) == 64 for value in bundle["component_sha256"].values())
     assert bundle["components"]["action_trace"]["record_count"] == 1
     assert bundle["components"]["failure_trace"]["record_count"] == 2
-    assert bundle["components"]["route_lineage"]["record_count"] == 2
+    assert bundle["components"]["route_lineage"]["record_count"] == 3
+    lifecycle = next(
+        row
+        for row in bundle["components"]["route_lineage"]["records"]
+        if row["kind"] == "canonical_candidate_lifecycle"
+    )
+    assert lifecycle["available"] is True
+    assert lifecycle["lifecycle"]["status_counts"]["validated"] == 1
     assert bundle["components"]["resource_curve"]["available"] is True
     assert bundle["components"]["resource_curve"]["records"][0][
         "wall_time_s"
@@ -150,3 +182,20 @@ def test_open_scientific_gate_is_not_exported_as_a_runtime_failure() -> None:
 
     records = bundle["components"]["failure_trace"]["records"]
     assert all(record.get("stage") != "exact_evidence_binding" for record in records)
+
+
+def test_review_bundle_fails_closed_for_tampered_candidate_lifecycle() -> None:
+    report = _report()
+    report["candidate_lifecycle"]["status_counts"]["accepted"] = 1
+    report = _with_digest(report)
+
+    bundle = compile_campaign_review_bundle(report)
+
+    lifecycle = next(
+        row
+        for row in bundle["components"]["route_lineage"]["records"]
+        if row["kind"] == "canonical_candidate_lifecycle"
+    )
+    assert lifecycle["available"] is False
+    assert lifecycle["lifecycle"] == {}
+    assert lifecycle["unavailable_reason"] == "candidate_lifecycle_digest_invalid"

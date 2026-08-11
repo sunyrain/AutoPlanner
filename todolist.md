@@ -365,8 +365,9 @@ W2 验收门：
 
 - [ ] 所有 ChemEnzy、Codex、文献、模板、人工和 Program 候选进入同一个 canonical ingestion 边界。
 - [ ] 在 raw proposal、normalized proposal、host admission、reaction proof、stock closure 之间保留完整 provenance。
-- [ ] 明确区分 `rejected-invalid`、`quarantined-reviewable`、`admitted-unproved`、`validated` 和 `accepted`。
-- [ ] 缺 exact evidence、条件或采购事实只能降低对应 proof axis，不能删除合法拓扑。
+  当前 `canonical_candidate_lifecycle.v1` 已覆盖 canonical hypothesis/materialized edge、reaction proof、exact evidence、stock/portfolio 与摘要有效的 ingestion rejection；provider raw → normalized 的逐源 parity 尚未统一进入该投影，因此本项保持未完成。
+- [x] 明确区分 `rejected-invalid`、`quarantined-reviewable`、`admitted-unproved`、`validated` 和 `accepted`。
+- [x] 缺 exact evidence、条件或采购事实只能降低对应 proof axis，不能删除合法拓扑。
 - [ ] Codex 未选中不能成为删除 ChemEnzy 分支的理由。
 - [ ] guided ChemEnzy 只能新增局部搜索，不能替换 target-level native route pool。
 - [ ] 路线排序使用多维向量/Pareto dominance；不得用一个科学成熟度总分提前淘汰结构上有效的路线。
@@ -657,3 +658,4 @@ W2 验收门：
 - [x] 第二十刀（Program 动态机会压力）：新增 `campaign_program_opportunity_pressure.v1`/`campaign_program_review_pressure.v1`，对 bounded 连续 conventional span、route risk、结构 capability match、开放 selectivity 边、step savings 和合法 mechanism proposal 分量化提权。discovery/review signal 绑定 route-family + pressure digest，机会状态不变不重筛，materialization/validation 后从无匹配变为有匹配时允许同一 family 重开；solve 内 memoization 仅复用只读计算。候选、Program、proof、completion、acceptance 与 conventional fallback 权威均未改变。
 - [x] 第二十一刀（统一 bounded Action 并发）：`campaign_action_concurrent_cohort.v1` 在单一 anytime loop 和 RunKernel in-flight registry 中最多启动 4 个跨 resource Action；evidence/validation 使用 prepare→barrier→稳定 commit，两者共享 canonical state 而不并发发布 graph revision。初始 evidence prefetch 已从独立 executor 迁入 ChemEnzy/Codex start cohort；无第二 scheduler、Blackboard 或 phase queue。
 - [x] 第二十二刀（单 runtime 实例收束）：删除兼容 phase 为筛选 Action kind 创建的伪 runtime 和从不参与 dispatch 的 supplemental deficit/handler 装配；`solve_target()` 只构造一个 `CampaignActionRuntime`、只调用一次 `run_anytime()`，所有旧 stage 仅消费统一 execution backlog。AST 架构门禁止 projector 重新获得 execute/run_anytime 能力。
+- [x] 第二十三刀（canonical 候选生命周期）：新增只读、target-blind 的 `canonical_candidate_lifecycle.v1` / `canonical_candidate_lifecycle_record.v1`，从同一 canonical graph、摘要绑定 portfolio 与 ingestion rejection 投影 `rejected_invalid`、`quarantined_reviewable`、`admitted_unproved`、`validated`、`accepted` 五态。`accepted` 必须同时满足 configured portfolio acceptance 与 selected complete route；proof、evidence、stock、conditions 保持独立轴，摘要损坏的 ingestion report/review export 失败关闭，拒绝记录不获得 canonical identity。最终 target report 与既有四组件 review bundle 已接入该投影，没有新增队列、写入入口或科学权威。聚焦门 20 passed，`target_solver` 42 passed；最终完整套件为 2770 passed、3 skipped、11 warnings、2 subtests passed，Ruff、compileall 与 `git diff --check` 均通过。

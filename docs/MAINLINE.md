@@ -71,6 +71,12 @@ Program 首达时间、binding epochs 与资源曲线；resume 沿用累计 RunK
 Gateway export 同时从摘要验证通过的 target report 生成 `campaign_review_bundle.v1`，并拆分写出 Action trace、
 失败 trace、provider/canonical route lineage 和累计资源曲线。四个组件各有独立 SHA-256；报告或 trajectory
 摘要损坏时相应内容失败关闭。开放的 evidence/condition/Program 门不会被错误归入运行失败。
+最终 target report 还从同一 canonical graph、摘要绑定 portfolio 与 ingestion rejection 只读编译
+`canonical_candidate_lifecycle.v1`。每条候选明确投影为 `rejected_invalid`、`quarantined_reviewable`、
+`admitted_unproved`、`validated` 或 `accepted`；configured portfolio 未接受、或候选不属于 selected complete
+route 时不得标记 `accepted`。proof、exact evidence、stock、conditions 与 route selection 保持独立轴，开放轴
+不会删除 topology。损坏的 ingestion report 被忽略并计数，拒绝记录只用于审计且不获得 canonical identity；
+review bundle 在 route-lineage 组件内摘要验证该投影，不创建第五个平行组件或第二套状态权威。
 初始 ChemEnzy 与 Codex provider 计算仍从同一 frozen revision 并发启动；同一 cohort 的 canonical
 admission 固定为 ChemEnzy 后 Codex，避免线程完成先后泄漏到 graph/frontier 和后续 Action trace。
 安全的 evidence prefetch 也作为 canonical `evidence` Action signal 进入同一 start cohort，不再拥有独立

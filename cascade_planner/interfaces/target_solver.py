@@ -30,6 +30,9 @@ from cascade_planner.application.campaign_context import CampaignContextTooLarge
 from cascade_planner.application.campaign_quality_state import (
     compile_campaign_quality_state,
 )
+from cascade_planner.application.candidate_lifecycle import (
+    compile_candidate_lifecycle,
+)
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalIngestionBatch,
     molecule_identity,
@@ -3957,6 +3960,12 @@ def solve_target(
             trajectory=trajectory,
         )
     )
+    report_stages = _deduplicate_stages(stages)
+    candidate_lifecycle = compile_candidate_lifecycle(
+        final_graph,
+        closeout["portfolio"],
+        ingestion_observations=report_stages,
+    )
     report = {
         "schema_version": TARGET_SOLVE_REPORT_SCHEMA,
         "run_id": identity,
@@ -3968,8 +3977,9 @@ def solve_target(
         "acceptance": resolved_acceptance.to_dict(),
         "budget": resolved_budget.to_dict(),
         "director_outcomes": outcomes,
-        "stages": _deduplicate_stages(stages),
+        "stages": report_stages,
         "trajectory": trajectory,
+        "candidate_lifecycle": candidate_lifecycle,
         "next_action": {
             "selected_action_id": final_action_decision["selected_action_id"],
             "selected_action": final_action_decision["selected_action"],

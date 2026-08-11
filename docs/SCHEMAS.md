@@ -35,8 +35,10 @@
 | `campaign_review_bundle.v1` | 从摘要验证通过的 target solve report 生成四个独立内容寻址的审稿投影；报告损坏或缺失时失败关闭，不读取未验证 stage | campaign export / Gateway |
 | `campaign_action_trace.v1` | 按报告 stage 顺序去重的 Action execution、reservation 前 estimate、scheduler decision 与不可变 outcome；不授予科学权威 | review bundle |
 | `campaign_failure_trace.v1` | 显式 Action/stage failure、timeout、cancel、partial 与终态原因；开放的科学门不会被改写成运行失败 | review bundle |
-| `campaign_route_lineage_export.v1` | provider raw/normalized/admitted/materialized lineage 与最终 canonical Pareto lineage 的分层只读导出 | review bundle |
+| `campaign_route_lineage_export.v1` | provider raw/normalized/admitted/materialized lineage、最终 canonical Pareto lineage 与摘要验证候选生命周期的分层只读导出 | review bundle |
 | `campaign_resource_curve_export.v1` | 经 trajectory 内容摘要验证的累计资源曲线、首达时间、resume continuity 与 binding epochs；不从零散 stage timing 重算 | review bundle |
+| `canonical_candidate_lifecycle.v1` | 绑定 canonical graph revision/scientific SHA 与 portfolio digest 的五态候选审计投影；合并 canonical topology、proof、evidence、conditions、stock/route selection 和摘要有效的 ingestion rejection，不创建科学权威 | target report / review bundle |
+| `canonical_candidate_lifecycle_record.v1` | 单个候选的 `rejected_invalid`、`quarantined_reviewable`、`admitted_unproved`、`validated` 或 `accepted` disposition，以及 canonical IDs、origin、独立 proof/evidence/stock/conditions/portfolio 轴和逐记录摘要 | candidate lifecycle |
 | `autoplanner_run_event.v1` | 可重放运行事件 | `RunKernel` |
 | `global_campaign_plan.v1` | 全局路线族和多步骨架 proposal | Global Director / replay |
 | `canonical_retrosynthesis_hypergraph.v1` | 分子、超边、来源、库存和拓扑 | canonical ingestion |

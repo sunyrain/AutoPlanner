@@ -2236,6 +2236,20 @@ def test_target_solver_ingests_connector_rows_before_stock_and_closeout(
     )
     assert evidence_stage["status"] == "completed"
     assert evidence_stage["detail"]["exact_record_count"] == 6
+    lifecycle = result["candidate_lifecycle"]
+    final_graph = gateway._open(
+        result["run_id"],
+        run_dir=Path(result["run_dir"]),
+    ).graph_store.load()
+    assert lifecycle["graph_revision"] == final_graph["revision"]
+    assert lifecycle["graph_scientific_sha256"] == final_graph["scientific_sha256"]
+    assert lifecycle["status_counts"]["accepted"] >= 1
+    assert any(
+        row["status"] == "accepted"
+        and row["evidence"]["exact_record_count"] > 0
+        and row["portfolio"]["accepted_route_ids"]
+        for row in lifecycle["records"]
+    )
     assert prepared_revisions["evidence"] == prepared_revisions["validation"]
     assert set(prepare_threads.values()) == {
         "campaign-action_0",
