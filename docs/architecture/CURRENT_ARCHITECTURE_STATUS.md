@@ -177,6 +177,13 @@
 > 预算项由 6 个降至 5 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，
 > 用时 173.98 秒。
 
+> 2026-08-11 UnifiedCampaignSpec 契约工具职责拆分增量：`unified_campaign_spec.py` 从 425 行
+> 降至 382 行，JSON 值冻结/还原、字符串规范化、SHA-256 校验、规范摘要与 digest-bound row 编译
+> 迁入 66 行的 `campaign_contract_json.py`。四个不可变契约数据类、stock oracle builder 与所有公开
+> 导出保持原位，原模块通过私有别名继续使用相同 helper 语义。Ruff、compileall、`git diff --check`
+> 均通过，契约/RunKernel/Gateway/Web/架构聚焦回归 72 passed，超行数预算项由 5 个降至 4 个；
+> 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 174.21 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA

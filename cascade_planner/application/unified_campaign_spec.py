@@ -9,11 +9,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import inspect
-import json
 import math
-from types import MappingProxyType
 from typing import Any, Mapping
 
+from cascade_planner.application.campaign_contract_json import (
+    bound_row as _bound_row,
+    digest as _digest,
+    freeze_json as _freeze_json,
+    is_sha256 as _is_sha256,
+    normalized_strings as _normalized_strings,
+    plain_json as _plain_json,
+)
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisRunBudget,
 )
@@ -361,55 +367,6 @@ def stock_oracle_reference_from_builder(
         boundary=boundary,
         binding=binding,
     )
-
-
-def _bound_row(value: Mapping[str, Any]) -> dict[str, Any]:
-    row = _plain_json(value)
-    row.pop("content_sha256", None)
-    row["content_sha256"] = _digest(row)
-    return row
-
-
-def _normalized_strings(values: Any) -> tuple[str, ...]:
-    return tuple(sorted({str(value).strip() for value in values or () if str(value).strip()}))
-
-
-def _freeze_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType(
-            {str(key): _freeze_json(item) for key, item in sorted(value.items())}
-        )
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_json(item) for item in value)
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    raise ValueError("campaign contract values must be JSON-compatible")
-
-
-def _plain_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _plain_json(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_plain_json(item) for item in value]
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    raise ValueError("campaign contract values must be JSON-compatible")
-
-
-def _is_sha256(value: str) -> bool:
-    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
-
-
-def _digest(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            _plain_json(value),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
 
 
 __all__ = [
