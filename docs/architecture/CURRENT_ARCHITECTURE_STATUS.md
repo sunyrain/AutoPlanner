@@ -122,6 +122,14 @@
 > 回归 30 passed，相关 Web/Workspace/Gateway 集成 69 passed，超行数预算项由 13 个降至 12 个；
 > 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 190.90 秒。
 
+> 2026-08-11 literature evidence 职责拆分增量：原 607 行 connector facade 已拆为 156 行的配置/
+> resolver cache/依赖注入 facade、466 行的并行检索、来源物化、授权浏览器重试、route binding 与
+> discovery/receipt 执行器，以及 58 行的确定性摘要/压缩/binding eligibility contract。facade 在每次
+> 调用时传入当前 materializer，保留 monkeypatch 与自定义实现；授权下载仍只形成 hash-bound source，
+> route binding 和 exact evidence 继续经过既有 host gate。文献/Web/架构聚焦回归 56 passed，相关
+> literature/target solver/CLI/source-route/visual 集成 122 passed，超行数预算项由 12 个降至 11 个；
+> 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.17 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA

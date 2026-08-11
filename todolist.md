@@ -101,6 +101,8 @@
 
 第五个维护切片把 `v4_api.py` 从 520 行降至 333 行：同步 target solve、后台 job 启动/列表/状态/删除、objective 兼容警告和 workspace queue visibility 迁入 230 行的 `v4_target_routes.py`。Blueprint 总装配、错误处理、run lifecycle、Program/Workbench/PDF 路由仍留在 facade；注册器通过参数接收原模块的 `_solve_target_request`、`_run_target_job` 与 payload reader，保留现有测试和运行时注入点。Web/架构聚焦回归 30 passed，相关 Web/Workspace/Gateway 集成 69 passed，超预算模块由 13 个降至 12 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 190.90 秒。
 
+第六个维护切片把 `literature_evidence.py` 从 607 行降至 156 行：并行检索、来源物化、授权浏览器重试、route binding、discovery/receipt 编译迁入 466 行的 `literature_evidence_connector.py`，纯确定性的摘要、discovery 压缩和 binding eligibility 迁入 58 行的 `literature_evidence_contract.py`。facade 继续拥有配置校验、resolver cache 生命周期与依赖注入；`_materialize_candidate` 在每次调用时传入执行器，保留 monkeypatch/自定义物化器行为，原候选辅助兼容导出也已保留。文献/Web/架构聚焦回归 56 passed，相关 literature/target solver/CLI/source-route/visual 集成 122 passed，超预算模块由 12 个降至 11 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.17 秒。
+
 ## 1. 不可破坏的架构约束
 
 ### 2026-08-06 实施进度
