@@ -184,6 +184,12 @@
 > 均通过，契约/RunKernel/Gateway/Web/架构聚焦回归 72 passed，超行数预算项由 5 个降至 4 个；
 > 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 174.21 秒。
 
+> 2026-08-11 planned route branches 行数预算收口增量：仅超限 1 行的
+> `v4_planned_route_branches.py` 从 401 行压缩到 399 行，只将单符号 `source_conditions` 导入改为
+> 等价单行写法，没有迁移职责、增加抽象或改变 planned branch 投影。Ruff、compileall、
+> `git diff --check` 均通过，Workbench/架构聚焦回归 36 passed，超行数预算项由 4 个降至 3 个；
+> 完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 179.41 秒。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA

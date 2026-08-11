@@ -21,7 +21,7 @@
 - [x] Codex 保留 campaign 级全局规划、文献假设、失败重规划和酶/机理 Program 设计职责。
 - [x] ChemEnzy 保留目标级原生多步搜索能力；Codex 指导只能增量加权或补充候选，不能取代或裁掉原生 frontier。
 - [x] proposal、reaction proof、exact evidence、stock、conditions、Program validation 分轴记录；缺少高层证明不能删除低层有效候选。
-- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，目前已完成十三个职责拆分切片，超限模块由 17 个降至 4 个。
+- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，目前已完成十四个维护切片，超限模块由 17 个降至 3 个。
 
 ## 当前架构蓝图
 
@@ -116,6 +116,8 @@
 第十二个维护切片把 `route_workbench_proof_vectors.py` 从 289 行降至 106 行：edge exact/procedure/observation 收集、来源条件候选归一化、条件完整性和独立证明轴编译迁入 199 行的 `route_workbench_edge_proof_vector.py`。原模块继续拥有 route 级 weakest-edge 聚合，并兼容导出 `edge_proof_vector` 与 `PROOF_VECTOR_SCHEMA`，inspectors、fact rows 和 route rows 的入口不变。Ruff、compileall、`git diff --check` 均通过，Workbench/condition/架构聚焦回归 40 passed，超预算模块由 6 个降至 5 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 173.98 秒。
 
 第十三个维护切片把 `unified_campaign_spec.py` 从 425 行降至 382 行：JSON 值冻结/还原、字符串规范化、SHA-256 校验、规范摘要和 digest-bound row 编译迁入 66 行的 `campaign_contract_json.py`。四个不可变契约数据类、stock oracle builder 和所有公开导出保持原位；原模块通过私有别名继续使用相同 helper 语义。Ruff、compileall、`git diff --check` 均通过，契约/RunKernel/Gateway/Web/架构聚焦回归 72 passed，超预算模块由 5 个降至 4 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 174.21 秒。
+
+第十四个维护切片把仅超限 1 行的 `v4_planned_route_branches.py` 从 401 行压缩到 399 行：只将单符号 `source_conditions` 导入改为等价单行写法，没有迁移职责、增加抽象或改变 planned branch 投影。Ruff、compileall、`git diff --check` 均通过，Workbench/架构聚焦回归 36 passed，超预算模块由 4 个降至 3 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 179.41 秒。
 
 ## 1. 不可破坏的架构约束
 
@@ -594,7 +596,7 @@ W2 验收门：
 - [x] 不把 enzyme/mechanism superstep 伪装成已验证普通 reaction edge。
 - [ ] 不通过恢复 legacy scheduler 或 Blackboard 快速绕过统一设计。
 - [ ] 不在全 190 test targets 上边看结果边逐目标调参。
-- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成十三个维护切片，剩余 4 个超限模块。
+- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成十四个维护切片，剩余 3 个超限模块。
 
 ## 18. 当前施工序列
 
