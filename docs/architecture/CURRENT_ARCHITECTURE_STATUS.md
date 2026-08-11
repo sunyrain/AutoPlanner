@@ -205,6 +205,14 @@
 > 均通过，Gateway/Web/架构聚焦回归 42 passed，validation-fork 3 passed，超行数预算项由 2 个降至
 > 1 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.06 秒。
 
+> 2026-08-11 V4 route Workbench node/depiction 职责拆分与预算债务收口：
+> `v4_route_workbench.py` 从 823 行降至 773 行，RDKit 2D depiction、结构 SVG 消毒和 Workbench
+> molecule node 构造迁入 59 行的 `v4_route_nodes.py`。主编译器继续通过 `_node`/`_depiction` 兼容
+> 别名构造 canonical route、hypothesis 与 mechanism overlay 节点，route forest/HTML 公共入口不变。
+> Ruff、compileall、`git diff --check` 均通过，Workbench/HTML/Web/架构聚焦回归 158 passed，超行数
+> 预算项由 1 个降至 0 个；完整测试不再 deselect 行数预算门，最终离线套件为 2700 passed、3 skipped、
+> 2 subtests passed，用时 169.22 秒。自 17 项起始债务以来的十七个维护切片至此全部闭合。
+
 ## 1. 结论
 
 新架构**尚未完整实现**。当前处于“Canonical V4 可运行主干 + 统一 Action runtime 迁移层 + 路线创新过渡层 + GRIA

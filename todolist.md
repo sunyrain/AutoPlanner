@@ -21,7 +21,7 @@
 - [x] Codex 保留 campaign 级全局规划、文献假设、失败重规划和酶/机理 Program 设计职责。
 - [x] ChemEnzy 保留目标级原生多步搜索能力；Codex 指导只能增量加权或补充候选，不能取代或裁掉原生 frontier。
 - [x] proposal、reaction proof、exact evidence、stock、conditions、Program validation 分轴记录；缺少高层证明不能删除低层有效候选。
-- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后按独立小切片逐项偿还，目前已完成十六个维护切片，超限模块由 17 个降至 1 个。
+- [x] “新聚焦模块超行数预算”不阻断 W7 主线验收；主线闭合后已通过十七个独立维护切片全部偿还，超限模块由 17 个降至 0 个。
 
 ## 当前架构蓝图
 
@@ -45,7 +45,7 @@
 
 - [x] 对当前未验证切片执行一次 `py_compile`，只修复真实语法/导入问题，不顺手扩散重构。
 - [x] 新增 `tests/test_unified_campaign_runtime.py`，覆盖 action binding identity、RunKernel reserve/settle、cache replay、stale revision、handler unavailable、outcome digest tamper。
-- [x] 将 `unified_campaign_runtime.py` 纳入 `tests/test_v4_architecture.py::V4_MODULES`，接受现有 V4 依赖门；超行数预算门继续按批准范围延期。
+- [x] 将 `unified_campaign_runtime.py` 纳入 `tests/test_v4_architecture.py::V4_MODULES`，接受现有 V4 依赖门；当时批准延期的超行数预算债务现已全部偿还。
 - [x] 验证 wrapper `other` task 不重复计算 child worker 的 model/search/validation/stock 成本，也不增加 proposal attempt count。
 - [x] 验证同一 slice 中失败、无 revision 增益或 cache replay 不会形成无限 action 重试。
 - [x] 聚焦集合一次通过：runtime、scheduler、condition、V4 dependency/token gate、ChemEnzy seed、legacy objective invariant、stock recovery 和 replan，共 18 tests。
@@ -87,7 +87,7 @@
 | W4 | Program validation/实验 feedback Action 化 | `PROGRAM_VALIDATE`、`EXPERIMENT_FEEDBACK_INGEST`、shadow/canonical 权限测试 | W2 | proposal-only、conventional fallback、Claim 与 canonical graph 边界不变 | 2–4 天 |
 | W5 | 兼容层与入口收束 | `target_solver_compat`、CLI/API/Web 映射、resume/trajectory 一致性 | W2–W4 | 所有入口只装配同一 runtime；旧 objective 仅为展示兼容 | 2–3 天 |
 | W6 | embedded 首损边界定因 | 真实失败目标复现包、逐层 route diff、修复与回归 | W1–W5 | standalone host-audited 路线在 unified trajectory 可追踪或有确定性拒绝证据 | 1–3 天 + 外部运行 |
-| W7 | 冻结与预评测门 | commit/config/stock/provider/scheduler manifest、全量离线门 | W6 | 除已批准延期的超行数预算项外全部通过 | 1–2 天 |
+| W7 | 冻结与预评测门 | commit/config/stock/provider/scheduler manifest、全量离线门 | W6 | 全部通过，包括聚焦模块行数预算门 | 1–2 天 |
 | W8-P | RetroStar-190 前 20 目标 pilot | 四臂 pilot、paired metrics、失败分类、停止判定 | W7 | 四臂各 20 completed、结果可复现、论断不外推 190 | 已完成 |
 | W8-F | RetroStar-190 publication-scale 防御包 | 四个全目标消融与审稿材料 | W8-P | 190 目标无挑样、无逐目标调参、结果可复现 | 非当前范围；未来独立立项时再评估 |
 
@@ -122,6 +122,8 @@
 第十五个维护切片把 `campaign_operations.py` 从 181 行降至 135 行：model-free status/oracle/workbench benchmark、CPU/wall time 与 peak-memory 采样迁入 64 行的 `campaign_benchmark.py`。原操作模块继续拥有 Workbench/review bundle 导出、artifact GC 计划与兼容 `benchmark_campaign` 导出；Gateway 调用入口不变。Ruff、compileall、`git diff --check` 均通过，Gateway/操作/架构聚焦回归 21 passed，超预算模块由 3 个降至 2 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.14 秒。
 
 第十六个维护切片把 `campaign_gateway.py` 从 427 行降至 396 行：Gateway 结果封套与计划 payload 摘要迁入 46 行的 `campaign_gateway_projection.py`，默认 provider-set stock oracle 编译迁入 28 行的 `campaign_gateway_stock_oracle.py`。Gateway 继续拥有 run lifecycle、路径/index/provider registry、CLI/Web 委派和 `_open`/`_normalize_run_id`；target solver 依赖的 `_default_stock_oracle_reference` 私有兼容包装保留并委派到新 helper。Ruff、compileall、`git diff --check` 均通过，Gateway/Web/架构聚焦回归 42 passed，validation-fork 3 passed，超预算模块由 2 个降至 1 个；完整离线套件为 2699 passed、3 skipped、1 deselected、2 subtests passed，用时 177.06 秒。
+
+第十七个维护切片把 `v4_route_workbench.py` 从 823 行降至 773 行：RDKit 2D depiction、结构 SVG 消毒和 Workbench molecule node 构造迁入 59 行的 `v4_route_nodes.py`。主编译器继续通过 `_node`/`_depiction` 兼容别名构造 canonical route、hypothesis 与 mechanism overlay 节点；route forest 和 HTML 公共入口不变。Ruff、compileall、`git diff --check` 均通过，Workbench/HTML/Web/架构聚焦回归 158 passed，超预算模块由 1 个降至 0 个，行数预算门首次全绿；不再 deselect 任何测试的完整离线套件为 2700 passed、3 skipped、2 subtests passed，用时 169.22 秒。
 
 ## 1. 不可破坏的架构约束
 
@@ -183,7 +185,7 @@
 - [x] 同一运行可连续导出 time-to-first-route、B1、B2、B3、B4、B5 和 Program milestone。
 - [ ] RetroStar-190 对 190 个目标使用同一 commit、同一配置、同一 scheduler、同一预算规则和冻结 stock hash。
 - [ ] 完成 ChemEnzy-only、Codex-only、固定调度和统一自适应调度的全目标组件消融。
-- [x] 除已延期的超行数预算模块外，focused tests、完整离线测试、Ruff、架构门和 `git diff --check` 全部通过。
+- [x] focused tests、完整离线测试、Ruff、全部架构门（含聚焦模块行数预算）和 `git diff --check` 全部通过。
 - [ ] `docs/MAINLINE.md`、当前架构状态、CLI/API/Web 语义和实际代码一致。
 
 ## 3. 先冻结基线与变更边界
@@ -427,7 +429,7 @@ W2 验收门：
 - [x] `target_solver.py` 不再包含 benchmark 专用 finalize 或 B4 early return。
 - [x] V4 dependency gate 禁止主线重新导入 legacy frontier、Blackboard、旧 route portfolio 或旧 controller。
 - [x] application Action modules 禁止反向依赖 orchestration；统一 Action runtime 不导入 canonical graph/service，不能自行写图，只能由注册的 host handler 经 canonical ingestion 提交。
-- [x] 继续执行现有 V4 dependency gate；仅既有超行数预算项按批准决定单独 deselect，未扩大豁免范围。
+- [x] 继续执行现有 V4 dependency gate；既有超行数预算债务已清零，完整测试不再需要 deselect 该门。
 
 ### 12.2 单元测试
 
@@ -600,7 +602,7 @@ W2 验收门：
 - [x] 不把 enzyme/mechanism superstep 伪装成已验证普通 reaction edge。
 - [ ] 不通过恢复 legacy scheduler 或 Blackboard 快速绕过统一设计。
 - [ ] 不在全 190 test targets 上边看结果边逐目标调参。
-- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界逐模块拆分并独立回归，当前已完成十六个维护切片，仅剩 1 个超限模块。
+- [x] 不用一次大重构清空已延期的行数预算债务；主线收口后按职责边界完成十七个独立维护切片，17 个超限模块已全部清零。
 
 ## 18. 当前施工序列
 

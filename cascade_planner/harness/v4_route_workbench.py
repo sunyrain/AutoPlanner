@@ -2,19 +2,11 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
 import hashlib
 import json
 from typing import Any, Iterable, Mapping
 
-from rdkit import Chem
-from rdkit.Chem import rdDepictor, rdMolDescriptors
-from rdkit.Chem.Draw import rdMolDraw2D
-
-from cascade_planner.harness.route_forest_delivery import (
-    render_route_forest_html,
-    sanitize_structure_svg,
-)
+from cascade_planner.harness.route_forest_delivery import render_route_forest_html
 from cascade_planner.harness import v4_workbench_authority as _authority
 from cascade_planner.harness.v4_route_display import compile_route_display_rows
 from cascade_planner.harness.v4_route_branch import route_branch as _route_branch
@@ -22,6 +14,8 @@ from cascade_planner.harness import v4_planned_route_branches as _planned_routes
 from cascade_planner.harness import v4_route_evidence_projection as _evidence
 from cascade_planner.harness import v4_route_condition_projection as _condition_projection
 from cascade_planner.harness import v4_route_graph_projection as _graph
+from cascade_planner.harness.v4_route_nodes import depiction as _depiction
+from cascade_planner.harness.v4_route_nodes import node as _node
 from cascade_planner.harness.v4_program_overlay import compile_program_overlay_layer
 from cascade_planner.harness.v4_mechanism_hypothesis_overlay import (
     project_mechanism_hypothesis_overlays,
@@ -559,50 +553,6 @@ def _validate_workbench(value: Mapping[str, Any]) -> None:
     route_count = len(dict(value.get("routes") or {}))
     if route_count > 5:
         raise ValueError("v4_route_workbench_route_limit_exceeded")
-
-
-def _node(molecule_id: str, value: Mapping[str, Any]) -> dict[str, Any]:
-    smiles = str(value.get("canonical_smiles") or "")
-    depiction = _depiction(smiles)
-    return {
-        "node_id": molecule_id,
-        "label": str(value.get("label") or "")
-        or depiction["formula"]
-        or str(value.get("role") or "Molecule"),
-        "canonical_isomeric_smiles": smiles,
-        "smiles": smiles,
-        "role": str(value.get("role") or "intermediate"),
-        "roles": [str(value.get("role") or "intermediate")],
-        "formula": depiction["formula"],
-        "heavy_atom_count": depiction["heavy_atom_count"],
-        "structure_svg": depiction["structure_svg"],
-        "stock_closed": value.get("stock_closed") is True,
-        "stock_observation_id": str(value.get("stock_observation_id") or ""),
-        "stock_authority_scope": str(value.get("stock_authority_scope") or ""),
-        "stock_observation_accepted": (value.get("stock_observation_accepted") is True),
-        "inactive_fact_count": int(value.get("inactive_fact_count") or 0),
-        "inactive_facts": list(value.get("inactive_facts") or []),
-    }
-
-
-@lru_cache(maxsize=1024)
-def _depiction(smiles: str) -> dict[str, Any]:
-    mol = Chem.MolFromSmiles(smiles) if smiles else None
-    if mol is None:
-        return {"formula": "", "heavy_atom_count": None, "structure_svg": ""}
-    rdDepictor.Compute2DCoords(mol)
-    drawer = rdMolDraw2D.MolDraw2DSVG(240, 170)
-    drawer.drawOptions().clearBackground = False
-    drawer.drawOptions().padding = 0.08
-    drawer.DrawMolecule(mol)
-    drawer.FinishDrawing()
-    raw = drawer.GetDrawingText().replace("svg:", "")
-    raw = raw[raw.find("<svg") :] if "<svg" in raw else raw
-    return {
-        "formula": rdMolDescriptors.CalcMolFormula(mol),
-        "heavy_atom_count": int(mol.GetNumHeavyAtoms()),
-        "structure_svg": sanitize_structure_svg(raw),
-    }
 
 
 def _project_stoichiometric_inputs(
