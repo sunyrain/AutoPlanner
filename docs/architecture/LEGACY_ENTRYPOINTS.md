@@ -66,6 +66,7 @@ blackboard route adapter、外部边 receipt 和 admitted-hyperedge journal 位�
 - `legacy/smoke_route_forest_history.py`
 - `legacy/migrate_codex_campaign_v2.py`
 - `legacy/audit_architecture_v2.py`
+- `legacy/compile_source_route_portfolio.py`（冻结的 V3 source-route portfolio/acceptance 重放）
 - `legacy/serve_combined_web.py`（显式启动冻结 combined UI；不属于主 CLI）
 
 迁移完成条件是 Nirmatrelvir/Paclitaxel golden 和历史 saved run 都能从 V4 canonical artifacts 重放。之后才能删除对应大模块，不能提前用“没有引用”判断科学兼容性。

@@ -25,6 +25,7 @@ from cascade_planner.web.v4_target_runtime import (
 from cascade_planner.interfaces.target_solve_request import _target_constraints
 from cascade_planner.web.v4_target_routes import register_target_routes
 from cascade_planner.web.v4_experiment_api import register_experiment_routes
+from cascade_planner.web.v4_milestone_api import register_milestone_routes
 from cascade_planner.web.v4_program_innovation_api import (
     register_program_innovation_routes,
 )
@@ -56,6 +57,7 @@ def create_v4_blueprint(
     register_experiment_routes(blueprint, factory)
     register_program_innovation_routes(blueprint, factory)
     register_workspace_routes(blueprint, factory)
+    register_milestone_routes(blueprint, factory, payload_reader=_payload)
     register_target_routes(
         blueprint,
         factory,

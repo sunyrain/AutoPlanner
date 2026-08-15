@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 from threading import Barrier, Event
+from time import sleep
 
 import pytest
 
@@ -307,6 +308,110 @@ def test_runtime_reserves_settles_and_replays_without_double_counting(
     ]
     assert kernel.state.attempt_count == 0
     assert kernel.state.model_totals["model_invocations"] == 0
+
+
+def test_native_handler_checkpoint_resumes_without_second_provider_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kernel = _kernel(tmp_path)
+    decision = schedule_next_action(
+        _concurrent_opportunity_set(),
+        milestones={},
+        resource_availability={"native_search_frontier": True},
+        available_action_kinds=(
+            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value,
+        ),
+    )
+    action = bind_scheduled_action(decision, input_revision=0)
+    calls = 0
+
+    def handle(_action) -> dict:
+        nonlocal calls
+        calls += 1
+        return {
+            "status": "completed",
+            "frontier_smiles": ["CCO"],
+            "proposal_count": 1,
+            "provider_invocation_count": 1,
+            "provider_result_replay_count": 1,
+        }
+
+    runtime = CampaignActionRuntime(
+        kernel,
+        {CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle},
+    )
+    original_finalize = runtime._finalize_reserved
+
+    def interrupt_after_checkpoint(*_args, **_kwargs):
+        raise RuntimeError("simulated_host_interrupt_after_provider_return")
+
+    monkeypatch.setattr(runtime, "_finalize_reserved", interrupt_after_checkpoint)
+    with pytest.raises(
+        RuntimeError,
+        match="simulated_host_interrupt_after_provider_return",
+    ):
+        runtime.execute(action, decision=decision)
+
+    lifecycle = kernel.task_lifecycle(action.task_id)
+    assert lifecycle["status"] == "in_flight"
+    assert lifecycle["checkpoints"][-1]["payload"]["checkpoint_kind"] == (
+        "campaign_action_handler_result"
+    )
+    monkeypatch.setattr(runtime, "_finalize_reserved", original_finalize)
+
+    resumed = CampaignActionRuntime(
+        _kernel(tmp_path),
+        {CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle},
+    ).execute(action, decision=decision)
+
+    assert resumed["status"] == "completed"
+    assert resumed["handler_checkpoint_replayed"] is True
+    assert resumed["outcome"]["handler_result"]["frontier_smiles"] == [
+        "CCO"
+    ]
+    assert resumed["outcome"]["handler_result"][
+        "provider_result_replay_count"
+    ] == 1
+    assert calls == 1
+
+
+def test_action_history_exposes_guided_frontier_from_durable_outcome(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    decision = schedule_next_action(
+        _concurrent_opportunity_set(),
+        milestones={},
+        resource_availability={"native_search_frontier": True},
+        available_action_kinds=(
+            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value,
+        ),
+    )
+    action = bind_scheduled_action(decision, input_revision=0)
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: lambda _action: {
+                "status": "unresolved",
+                "frontier_smiles": ["CCO"],
+                "proposal_count": 0,
+                "provider_invocation_count": 1,
+                "provider_result_replay_count": 1,
+            }
+        },
+    )
+
+    runtime.execute(action, decision=decision)
+    history = CampaignActionRuntime(
+        _kernel(tmp_path),
+        runtime.handlers,
+    ).action_execution_history()
+
+    assert history[-1]["settled"] is True
+    assert history[-1]["handler_result"]["frontier_smiles"] == ["CCO"]
+    assert history[-1]["handler_result"]["provider_invocation_count"] == 1
+    assert history[-1]["handler_result"]["provider_result_replay_count"] == 1
 
 
 def test_action_class_service_history_replays_across_runtime_reopen(
@@ -835,6 +940,44 @@ def test_configured_acceptance_is_a_snapshot_and_does_not_stop_action_loop(
     assert result["execution_count"] == 1
     assert result["termination"] == "action_limit"
     assert result["semantics"]["B4_and_B5_do_not_stop_the_loop"] is True
+
+
+def test_explicit_stock_delivery_boundary_stops_after_b4_snapshot(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    calls = 0
+
+    def handle(_action) -> dict:
+        nonlocal calls
+        calls += 1
+        return {"status": "completed", "changed": True}
+
+    runtime = CampaignActionRuntime(
+        kernel,
+        {CampaignActionKind.MATERIALIZE: handle},
+    )
+
+    result = runtime.run_anytime(
+        opportunity_provider=_opportunity_set,
+        milestones_provider=lambda: {
+            "B4_stock_boundary": calls >= 1,
+        },
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=4,
+        stop_milestone="B4_stock_boundary",
+    )
+
+    assert calls == 1
+    assert result["execution_count"] == 1
+    assert result["termination"] == "milestone_reached"
+    assert result["termination_reasons"] == [
+        "delivery_milestone_reached:B4_stock_boundary"
+    ]
+    assert result["semantics"]["B4_and_B5_do_not_stop_the_loop"] is False
+    assert result["semantics"]["configured_stop_milestone"] == (
+        "B4_stock_boundary"
+    )
 
 
 def test_anytime_loop_treats_total_task_budget_as_normal_terminal(
@@ -1672,6 +1815,357 @@ def test_codex_failure_timeout_or_contract_rejection_keeps_chemenzy_peer(
     ]
     assert executions[1]["outcome"]["failure_reasons"] == [failure_reason]
     assert kernel.state.settled_task_count == 2
+    assert kernel.state.in_flight_tasks == {}
+
+
+def test_slow_codex_peer_does_not_inflate_chemenzy_first_proposal_timing(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path / "first-proposal-latency")
+    rendezvous = Barrier(2)
+    chemenzy_returning = Event()
+
+    def handle_chemenzy(_action) -> dict:
+        rendezvous.wait(timeout=2.0)
+        chemenzy_returning.set()
+        return {
+            "status": "completed",
+            "routes": [{"route_trace_id": "route:chem-enzy:first"}],
+        }
+
+    def handle_codex(_action) -> dict:
+        rendezvous.wait(timeout=2.0)
+        assert chemenzy_returning.wait(timeout=2.0)
+        sleep(0.05)
+        return {"status": "completed", "plan": {"proposal_count": 1}}
+
+    opportunities = compile_action_opportunities(
+        {
+            "content_sha256": "first-proposal-latency",
+            "items": [
+                {
+                    "deficit_id": "deficit:target-native:first-proposal",
+                    "kind": "expansion",
+                    "object_id": "target:1",
+                    "entity_ids": ["target:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": False,
+                    "priority": 900.0,
+                    "reason": "target_requires_native_multi_step_search",
+                    "score": {"expected_portfolio_gain": 1.0},
+                    "metadata": {
+                        "provider_preferences": ["chemenzy"],
+                        "target_level_native_search": True,
+                        "native_budget_reservation": "target_level",
+                    },
+                },
+                {
+                    "deficit_id": "deficit:architecture:first-proposal",
+                    "kind": "architecture",
+                    "object_id": "target:1",
+                    "entity_ids": ["target:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": True,
+                    "priority": 880.0,
+                    "reason": "target_requires_global_architecture",
+                    "score": {"expected_portfolio_gain": 1.0},
+                    "metadata": {"global_architecture": True},
+                },
+            ],
+        }
+    )
+    result = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle_chemenzy,
+            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_codex,
+        },
+    ).run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {
+            "native_search_target": True,
+            "model": True,
+        },
+        max_actions=2,
+        concurrent_start_kinds=(
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
+        ),
+    )
+
+    audit = result["start_cohort"]["latency_audit"]
+    first = audit["chemenzy_first_proposal"]
+    assert audit["applicable"] is True
+    assert audit["accepted"] is True
+    assert audit[
+        "both_initial_providers_submitted_before_either_completed"
+    ] is True
+    assert audit["completion_order_action_kinds"][0] == (
+        CampaignActionKind.CHEMENZY_TARGET_EXPAND.value
+    )
+    assert first["nonempty_raw_proposal_observed"] is True
+    assert first["codex_peer_in_flight_at_chemenzy_completion"] is True
+    assert first["peer_wait_excluded_s"] > 0
+    assert result["first_result_timing"] == first
+    assert result["semantics"][
+        "first_proposal_timing_excludes_codex_peer_wait"
+    ] is True
+
+
+def test_result_delivery_materializes_and_stocks_before_slow_codex_peer(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path / "progressive-delivery")
+    phase = {"value": "start"}
+    delivery_cancelled = Event()
+    codex_started = Event()
+
+    def opportunities() -> dict:
+        if phase["value"] == "start":
+            items = [
+                {
+                    "deficit_id": "deficit:target-native:progressive",
+                    "kind": "expansion",
+                    "object_id": "target:1",
+                    "entity_ids": ["target:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": False,
+                    "priority": 900.0,
+                    "reason": "target_requires_native_multi_step_search",
+                    "score": {"expected_portfolio_gain": 1.0},
+                    "metadata": {
+                        "provider_preferences": ["chemenzy"],
+                        "target_level_native_search": True,
+                        "native_budget_reservation": "target_level",
+                    },
+                },
+                {
+                    "deficit_id": "deficit:architecture:progressive",
+                    "kind": "architecture",
+                    "object_id": "target:1",
+                    "entity_ids": ["target:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": True,
+                    "priority": 880.0,
+                    "reason": "target_requires_global_architecture",
+                    "score": {"expected_portfolio_gain": 1.0},
+                    "metadata": {"global_architecture": True},
+                },
+            ]
+        elif phase["value"] == "materialize":
+            items = [
+                {
+                    "deficit_id": "deficit:materialization:progressive",
+                    "kind": "materialization",
+                    "object_id": "hypothesis:1",
+                    "entity_ids": ["hypothesis:1"],
+                    "route_family_ids": ["route:1"],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "priority": 800.0,
+                    "reason": "provider_route_requires_materialization",
+                    "score": {"expected_portfolio_gain": 1.0},
+                }
+            ]
+        elif phase["value"] == "stock":
+            items = [
+                {
+                    "deficit_id": "deficit:stock:progressive",
+                    "kind": "stock",
+                    "object_id": "mol:leaf",
+                    "entity_ids": ["mol:leaf"],
+                    "route_family_ids": ["route:1"],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "priority": 700.0,
+                    "reason": "selected_leaf_requires_trusted_stock_audit",
+                    "score": {"expected_portfolio_gain": 1.0},
+                }
+            ]
+        else:
+            items = []
+        return compile_action_opportunities(
+            {"content_sha256": f"progressive-{phase['value']}", "items": items}
+        )
+
+    def handle_chemenzy(_action) -> dict:
+        assert codex_started.wait(timeout=2.0)
+        phase["value"] = "materialize"
+        return {
+            "status": "completed",
+            "routes": [{"route_trace_id": "route:progressive:1"}],
+        }
+
+    def handle_codex(_action) -> dict:
+        codex_started.set()
+        assert delivery_cancelled.wait(timeout=2.0)
+        return {
+            "status": "cancelled",
+            "reasons": ["delivery_milestone_reached"],
+        }
+
+    def handle_materialize(_action) -> dict:
+        phase["value"] = "stock"
+        return {"status": "completed", "changed": True}
+
+    def handle_stock(_action) -> dict:
+        phase["value"] = "closed"
+        return {"status": "completed", "changed": True}
+
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle_chemenzy,
+            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_codex,
+            CampaignActionKind.MATERIALIZE: handle_materialize,
+            CampaignActionKind.STOCK_AUDIT: handle_stock,
+        },
+    )
+    result = runtime.run_anytime(
+        opportunity_provider=opportunities,
+        milestones_provider=lambda: {
+            "B4_stock_boundary": phase["value"] == "closed"
+        },
+        resource_availability_provider=lambda: {
+            "native_search_target": True,
+            "model": True,
+            "deterministic": True,
+            "stock": True,
+        },
+        max_actions=4,
+        concurrent_start_kinds=(
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
+        ),
+        stop_milestone="B4_stock_boundary",
+        progressive_start_kind=CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+        progressive_delivery_action_kinds=(
+            CampaignActionKind.MATERIALIZE,
+            CampaignActionKind.STOCK_AUDIT,
+        ),
+        on_delivery_milestone=delivery_cancelled.set,
+    )
+
+    assert [row["action"]["kind"] for row in result["executions"]] == [
+        CampaignActionKind.CHEMENZY_TARGET_EXPAND.value,
+        CampaignActionKind.MATERIALIZE.value,
+        CampaignActionKind.STOCK_AUDIT.value,
+        CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE.value,
+    ]
+    assert result["executions"][-1]["status"] == "cancelled"
+    assert result["termination"] == "milestone_reached"
+    assert delivery_cancelled.is_set()
+    assert kernel.state.in_flight_tasks == {}
+    assert result["start_cohort"]["semantics"][
+        "completed_nondeferred_action_can_publish_before_peer_barrier"
+    ] is True
+
+
+def test_progressive_delivery_does_not_cancel_peer_before_milestone(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path / "progressive-no-delivery")
+    codex_started = Event()
+    chemenzy_finished = Event()
+    delivery_cancelled = Event()
+
+    def opportunities() -> dict:
+        if chemenzy_finished.is_set():
+            items = []
+        else:
+            items = [
+                {
+                    "deficit_id": "deficit:target-native:no-delivery",
+                    "kind": "expansion",
+                    "object_id": "target:1",
+                    "entity_ids": ["target:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": False,
+                    "priority": 900.0,
+                    "reason": "target_requires_native_multi_step_search",
+                    "score": {"expected_portfolio_gain": 1.0},
+                    "metadata": {
+                        "provider_preferences": ["chemenzy"],
+                        "target_level_native_search": True,
+                        "native_budget_reservation": "target_level",
+                    },
+                },
+                {
+                    "deficit_id": "deficit:architecture:no-delivery",
+                    "kind": "architecture",
+                    "object_id": "target:1",
+                    "entity_ids": ["target:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": True,
+                    "priority": 880.0,
+                    "reason": "target_requires_global_architecture",
+                    "score": {"expected_portfolio_gain": 1.0},
+                    "metadata": {"global_architecture": True},
+                },
+            ]
+        return compile_action_opportunities(
+            {"content_sha256": "progressive-no-delivery", "items": items}
+        )
+
+    def handle_chemenzy(_action) -> dict:
+        assert codex_started.wait(timeout=2.0)
+        chemenzy_finished.set()
+        return {"status": "completed", "routes": []}
+
+    def handle_codex(_action) -> dict:
+        codex_started.set()
+        assert chemenzy_finished.wait(timeout=2.0)
+        return {"status": "completed", "routes": [{"route_trace_id": "codex:1"}]}
+
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle_chemenzy,
+            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_codex,
+        },
+    )
+    result = runtime.run_anytime(
+        opportunity_provider=opportunities,
+        milestones_provider=lambda: {"B4_stock_boundary": False},
+        resource_availability_provider=lambda: {
+            "native_search_target": True,
+            "model": True,
+        },
+        max_actions=2,
+        concurrent_start_kinds=(
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
+        ),
+        stop_milestone="B4_stock_boundary",
+        progressive_start_kind=CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+        progressive_delivery_action_kinds=(
+            CampaignActionKind.MATERIALIZE,
+            CampaignActionKind.STOCK_AUDIT,
+        ),
+        on_delivery_milestone=delivery_cancelled.set,
+    )
+
+    assert [row["status"] for row in result["executions"]] == [
+        "completed",
+        "completed",
+    ]
+    assert result["termination"] != "milestone_reached"
+    assert delivery_cancelled.is_set() is False
     assert kernel.state.in_flight_tasks == {}
 
 

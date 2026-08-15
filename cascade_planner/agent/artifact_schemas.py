@@ -114,6 +114,13 @@ class RetrosynthesisProposalReport(ArtifactBase):
     schema_version = "retrosynthesis_proposal_report_artifact.v1"
 
 
+class ChemicalStrategyCritique(ArtifactBase):
+    """Independent Codex forward critique; never a proof artifact."""
+
+    artifact_type = "ChemicalStrategyCritique"
+    schema_version = "chemical_strategy_critique_artifact.v1"
+
+
 class GlobalCampaignPlan(ArtifactBase):
     """Draft whole-campaign strategy emitted by the global director."""
 
@@ -302,6 +309,7 @@ ARTIFACT_CLASSES: dict[str, type[ArtifactBase]] = {
         HypothesisExecutionReport,
         ResearchReport,
         RetrosynthesisProposalReport,
+        ChemicalStrategyCritique,
         GlobalCampaignPlan,
         LiteratureScoutReport,
         EvidenceCard,

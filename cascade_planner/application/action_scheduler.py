@@ -27,16 +27,40 @@ _ROUTE_ACTIONS = frozenset(
         "chemenzy_frontier_expand",
         "codex_global_architecture",
         "codex_global_replan",
+        "recompute_route_closure",
+    }
+)
+_RESULT_FIRST_DEFERRED_ACTIONS = frozenset(
+    {
+        "resolve_conflict",
+        "acquire_exact_evidence",
+        "bind_exact_evidence",
+        "condition_enrich",
         "program_discover",
         "program_review",
         "program_admit",
-        "recompute_route_closure",
+        "program_validate",
+        "experiment_feedback_ingest",
     }
 )
 _PROGRAM_PROOF_ACTIONS = frozenset(
     {
         "program_validate",
         "experiment_feedback_ingest",
+    }
+)
+_CLOSURE_PIPELINE = (
+    "host_materialize",
+    "reaction_validate",
+    "stock_audit",
+    "recompute_route_closure",
+)
+_NEW_FRONTIER_ACTIONS = frozenset(
+    {
+        "chemenzy_target_expand",
+        "chemenzy_frontier_expand",
+        "codex_global_architecture",
+        "codex_global_replan",
     }
 )
 _KIND_ORDER = {
@@ -123,6 +147,29 @@ def schedule_next_action(
             action_preflight.get("check_contract_block_reasons") or {}
         ).items()
     }
+    pending_closure_stage = ""
+    if (
+        gates.get("target_rooted_route_exists") is True
+        or gates.get("B1_global_multi_route") is True
+    ):
+        for closure_kind in _CLOSURE_PIPELINE:
+            if any(
+                str(row.get("kind") or "") == closure_kind
+                and str(row.get("action_id") or "") not in in_flight
+                and not preflight_block_reasons.get(str(row.get("action_id") or ""))
+                and not check_contract_block_reasons.get(
+                    str(row.get("action_id") or "")
+                )
+                and (
+                    not handler_filter_applied
+                    or closure_kind in available_kinds
+                )
+                and resources.get(str(row.get("resource_class") or ""), True)
+                is not False
+                for row in raw_actions
+            ):
+                pending_closure_stage = closure_kind
+                break
     candidates = []
     for row in raw_actions:
         action_id = str(row.get("action_id") or "")
@@ -151,6 +198,32 @@ def schedule_next_action(
                 and metadata.get("global_replan") is not True
             ):
                 blocked_reasons.append("global_replan_scope_missing")
+        if (
+            scheduler_policy == "adaptive"
+            and "B4_stock_boundary" in gates
+            and gates.get("B4_stock_boundary") is not True
+            and kind in _RESULT_FIRST_DEFERRED_ACTIONS
+            and not (
+                kind == "program_discover"
+                and dict(row.get("metadata") or {}).get(
+                    "strategy_native_competitor"
+                )
+                is True
+            )
+        ):
+            blocked_reasons.append("result_first_stock_boundary_not_reached")
+        if pending_closure_stage:
+            closure_rank = _CLOSURE_PIPELINE.index(pending_closure_stage)
+            if kind in _NEW_FRONTIER_ACTIONS:
+                blocked_reasons.append(
+                    f"route_closure_pipeline_pending:{pending_closure_stage}"
+                )
+            elif kind in _CLOSURE_PIPELINE and (
+                _CLOSURE_PIPELINE.index(kind) > closure_rank
+            ):
+                blocked_reasons.append(
+                    f"earlier_route_closure_stage_pending:{pending_closure_stage}"
+                )
         blocked_reasons.extend(preflight_block_reasons.get(action_id, ()))
         base = float(row.get("base_priority") or 0.0)
         state_bonus = _state_bonus(kind, gates)
@@ -338,6 +411,14 @@ def schedule_next_action(
         ),
         "handler_filter_applied": handler_filter_applied,
         "scheduler_policy": scheduler_policy,
+        "result_first_phase": (
+            "credibility_and_program"
+            if gates.get("B4_stock_boundary") is True
+            else "route_stock_closure"
+            if "B4_stock_boundary" in gates
+            else "unscoped"
+        ),
+        "pending_route_closure_stage": pending_closure_stage,
         "round_robin_cursor": cursor,
         "action_class_service": action_class_service,
         "scientific_closure_pressure": scientific_closure_pressure,
@@ -356,6 +437,11 @@ def schedule_next_action(
             "service_borrowing_cannot_expand_run_kernel_budget": True,
             "scientific_closure_pressure_uses_the_same_action_set": True,
             "scientific_closure_pressure_cannot_expand_budget": True,
+            "adaptive_defers_evidence_and_program_proof_until_B4": (
+                scheduler_policy == "adaptive"
+            ),
+            "strategy_native_program_discovery_may_compete_before_B4": True,
+            "new_frontiers_wait_for_materialize_validate_stock": True,
             "structural_preflight_uses_the_same_action_set": True,
             "structural_preflight_cannot_expand_budget_or_authority": True,
             "round_robin_ignores_adaptive_value_score_for_ordering": (

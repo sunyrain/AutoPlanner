@@ -65,23 +65,39 @@ def complete_chemenzy_delegation(
             if str(value).strip()
         }
         target = canonicalize(priority.get("target_smiles"))
-        if "chemenzy" not in providers or target != campaign_target:
+        if "chemenzy" not in providers:
             continue
         proposal_id = str(priority.get("proposal_id") or "")
         candidate = candidates.get(proposal_id)
-        if candidate is not None:
+        candidate_targets = {
+            str(value.get("canonical_product") or "") for value in candidates.values()
+        }
+        invalid_provider_target = not target or (
+            target != campaign_target and target not in candidate_targets
+        )
+        if candidate is not None and (target == campaign_target or invalid_provider_target):
             priorities[index]["target_smiles"] = candidate["canonical_product"]
             priorities[index]["route_family_ids"] = list(candidate["route_family_ids"])
-            reason = "campaign_target_provider_rebound_to_selected_non_root_candidate"
+            reason = (
+                "campaign_target_provider_rebound_to_selected_non_root_candidate"
+                if target == campaign_target
+                else "invalid_provider_target_rebound_to_selected_non_root_candidate"
+            )
             replacement = candidate["canonical_product"]
-        else:
+        elif target == campaign_target or invalid_provider_target:
             priorities[index]["provider_preferences"] = [
                 value
                 for value in priority.get("provider_preferences") or []
                 if str(value).strip().lower() != "chemenzy"
             ]
-            reason = "campaign_target_provider_downgraded_to_host_priority"
-            replacement = campaign_target
+            reason = (
+                "campaign_target_provider_downgraded_to_host_priority"
+                if target == campaign_target
+                else "unbound_provider_target_downgraded_to_host_priority"
+            )
+            replacement = target
+        else:
+            continue
         repairs.append(
             {
                 "schema_version": "global_campaign_contract_repair.v1",

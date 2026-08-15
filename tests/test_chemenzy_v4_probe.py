@@ -164,7 +164,7 @@ def test_chemenzy_parameter_binding_freezes_three_execution_layers(
     assert mismatch["mismatch_fields"] == ["expansion_topk"]
 
 
-def test_builtin_probe_fails_closed_on_parameter_binding_mismatch(
+def test_builtin_probe_retains_parameter_mismatch_as_advisory(
     tmp_path: Path,
 ) -> None:
     service = RetrosynthesisCampaignService.create(
@@ -193,6 +193,7 @@ def test_builtin_probe_fails_closed_on_parameter_binding_mismatch(
             "cascade_planner.interfaces.chemenzy_probe._run_builtin_probe",
             return_value={
                 "search_executed": True,
+                "provider_result_replayed": True,
                 "runtime_preflight": {},
                 "runtime_discovery": {},
                 "routes": [],
@@ -211,9 +212,15 @@ def test_builtin_probe_fails_closed_on_parameter_binding_mismatch(
             enabled=True,
         )
 
-    assert result["status"] == "failed"
-    assert result["reason"] == "chemenzy_parameter_binding_mismatch"
-    assert result["provider_parameter_binding"] == binding
+    assert result["status"] == "unresolved"
+    recorded = result["provider_parameter_binding"]
+    assert recorded["accepted"] is False
+    assert recorded["mismatch_fields"] == ["expansion_topk"]
+    assert recorded["disposition"] == "advisory_warning"
+    assert recorded["semantics"][
+        "parameter_mismatch_does_not_discard_provider_routes"
+    ] is True
+    assert result["provider_result_replayed"] is True
 
 
 def test_chemenzy_runtime_can_fall_back_to_bounded_conda_discovery(
@@ -317,6 +324,46 @@ def test_provider_capability_does_not_call_import_probe_campaign_ready() -> None
     assert executed["levels"]["campaign_ready"] is True
 
 
+def test_builtin_runtime_preflight_failure_is_not_counted_as_provider_search(
+    tmp_path: Path,
+) -> None:
+    service = RetrosynthesisCampaignService.create(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=RunSpec(
+            run_id="preflight-not-search",
+            target_name="preflight not search",
+            target_smiles="CCO",
+            created_at="2026-08-14T00:00:00Z",
+            limits=RunLimits(max_total_tasks=8),
+        ),
+        artifact_store_root=tmp_path / "cas",
+        run_index_path=tmp_path / "index" / "runs.sqlite3",
+    )
+    with patch(
+        "cascade_planner.interfaces.chemenzy_probe._run_builtin_probe",
+        return_value={
+            "status": "runtime_unavailable",
+            "search_executed": False,
+            "runtime_preflight": {
+                "production_ready": False,
+                "issues": ["fixture_runtime_unavailable"],
+            },
+            "routes": [],
+        },
+    ):
+        result = run_chemenzy_proposal_stage(
+            service,
+            target_name="preflight not search",
+            target_smiles="CCO",
+            enabled=True,
+        )
+
+    assert result["proposal_count"] == 0
+    assert result["provider_invocation_count"] == 0
+    assert result["provider_capability"]["search_executed"] is False
+
+
 def test_current_launcher_route_schema_is_normalized_without_solved_flag() -> None:
     routes = _normalized_routes(
         {
@@ -342,6 +389,70 @@ def test_current_launcher_route_schema_is_normalized_without_solved_flag() -> No
     assert routes[0]["backend_route_status"]["solved"] is None
     assert routes[0]["steps"][0]["product_smiles"] == "CC(=O)OCC"
     assert routes[0]["steps"][0]["reactant_smiles"] == ["CCO", "CC(=O)Cl"]
+
+
+def test_provider_stage_imports_complete_route_beyond_search_depth_contract(
+    tmp_path: Path,
+) -> None:
+    service = RetrosynthesisCampaignService.create(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=RunSpec(
+            run_id="complete-provider-route",
+            target_name="complete provider route",
+            target_smiles="CCCCO",
+            created_at="2026-08-14T00:00:00Z",
+            limits=RunLimits(max_total_tasks=16),
+        ),
+        artifact_store_root=tmp_path / "cas",
+        run_index_path=tmp_path / "index" / "runs.sqlite3",
+    )
+    route = {
+        "steps": [
+            {
+                "product": "CCCCO",
+                "main_reactant": "CCCC=O",
+                "aux_reactants": [],
+            },
+            {
+                "product": "CCCC=O",
+                "main_reactant": "CCC(C)=O",
+                "aux_reactants": [],
+            },
+        ]
+    }
+
+    result = run_chemenzy_proposal_stage(
+        service,
+        target_name="complete provider route",
+        target_smiles="CCCCO",
+        enabled=True,
+        max_routes=1,
+        max_host_routes=1,
+        max_steps=1,
+        provider=lambda **_kwargs: {"status": "completed", "routes": [route]},
+    )
+
+    assert result["proposal_count"] == 2
+    assert result["returned_route_exceeds_search_depth_count"] == 1
+    assert result["max_returned_route_steps"] == 2
+    assert result["topology_conservation_accepted"] is True
+    assert result["topology_conservation_failure_count"] == 0
+    lineage = next(
+        row
+        for row in result["route_lineage"]
+        if row["host_portfolio_selected"] is True
+    )
+    assert lineage["provider_step_count"] == 2
+    assert lineage["normalized_step_count"] == 2
+    assert lineage["imported_proposal_count"] == 2
+    assert lineage["canonical_bound_step_count"] == 2
+    assert lineage["missing_imported_proposal_ids"] == []
+    assert lineage["missing_canonical_proposal_ids"] == []
+    assert lineage["topology_conservation_accepted"] is True
+    assert result["semantics"]["complete_provider_routes_are_never_truncated"] is True
+    graph = service.graph_store.load()
+    assert len(graph["hypotheses"]) == 2
 
 
 def test_structurally_invalid_launcher_route_is_rejected_by_host_not_solved_flag() -> None:

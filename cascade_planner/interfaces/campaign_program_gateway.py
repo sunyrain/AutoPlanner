@@ -17,6 +17,13 @@ from cascade_planner.interfaces.campaign_programs import (
 
 
 class CampaignProgramGatewayMixin(CampaignProgramInnovationGatewayMixin):
+    def import_strategy_routes(self, **kwargs: Any) -> dict[str, Any]:
+        from cascade_planner.interfaces.external_strategy_import import (
+            import_external_strategy_routes,
+        )
+
+        return import_external_strategy_routes(self, **kwargs)
+
     """Keep Program migration concerns out of the primary gateway facade."""
 
     def program_projection(

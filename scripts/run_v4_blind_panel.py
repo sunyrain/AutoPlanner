@@ -34,7 +34,17 @@ from cascade_planner.application.campaign_trajectory import (  # noqa: E402
     project_campaign_trajectory_at_cutoff,
 )
 from cascade_planner.interfaces.target_runtime_dependencies import (  # noqa: E402
+    SYNTHEX_MATCHED_PROFILE_DEFAULTS,
     TARGET_PROFILE_DEFAULTS,
+)
+from scripts.compare_v4_matched_panels import (  # noqa: E402
+    _markdown as _comparison_markdown,
+    compare_matched_panels,
+)
+from scripts.summarize_v4_blind_panel import (  # noqa: E402
+    _hydrate_report_diagnostics,
+    _markdown as _summary_markdown,
+    summarize_panel,
 )
 
 
@@ -42,8 +52,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--output-root", required=True)
-    parser.add_argument("--model", default="gpt-5.5")
-    parser.add_argument("--reasoning-effort", choices=("low", "medium"), default="low")
+    parser.add_argument(
+        "--model", default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["model"]
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=("low", "medium"),
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["reasoning_effort"],
+    )
     parser.add_argument(
         "--execution-profile",
         choices=("fast", "standard", "proof"),
@@ -56,7 +72,11 @@ def main(argv: list[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--fixed-cutoff-wall-time-s", type=float, default=7_200.0)
-    parser.add_argument("--fixed-cutoff-total-tasks", type=int, default=256)
+    parser.add_argument(
+        "--fixed-cutoff-total-tasks",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_total_tasks"],
+    )
     parser.add_argument("--workers", type=int, choices=(1, 2), default=1)
     parser.add_argument("--only", action="append", default=[])
     parser.add_argument(
@@ -69,6 +89,13 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--matched-baseline-summary",
+        help=(
+            "Optional frozen v4_blind_panel_summary JSON. After this panel "
+            "finishes, compare the selected case set and publish matched-comparison."
+        ),
+    )
     parser.add_argument("--visual", action="store_true")
     parser.add_argument(
         "--preflight-only",
@@ -139,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="NAME=PATH",
-        help="override a selected ChemEnzy stock with an explicit CSV path",
+        help="override a selected ChemEnzy stock with an explicit CSV or SQLite path",
     )
     args = parser.parse_args(argv)
     if args.objective_mode is not None:
@@ -169,6 +196,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     if not cases:
         raise SystemExit("No benchmark cases selected")
+    matched_baseline_path = _optional_file(
+        args.matched_baseline_summary,
+        "matched_baseline_summary",
+    )
+    matched_baseline = (
+        json.loads(matched_baseline_path.read_text(encoding="utf-8"))
+        if matched_baseline_path is not None
+        else None
+    )
+    if matched_baseline is not None:
+        _validate_matched_baseline(matched_baseline, cases=cases)
+
+    try:
+        chemenzy_stock_names, chemenzy_stock_paths = _resolve_panel_chemenzy_stock_binding(
+            benchmark_stock_index=args.benchmark_stock_index,
+            benchmark_stock_name=args.benchmark_stock_name,
+            stock_names=tuple(args.chemenzy_stock_name),
+            stock_paths=tuple(args.chemenzy_stock_path),
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     for name in ("audit", "runtime", "runs", "artifacts", "external", "logs"):
         (output_root / name).mkdir(parents=True, exist_ok=True)
@@ -184,8 +232,8 @@ def main(argv: list[str] | None = None) -> int:
         visual=args.visual,
         ablation=args.ablation,
         chemenzy_env_prefix=args.chemenzy_env_prefix,
-        chemenzy_stock_names=tuple(args.chemenzy_stock_name),
-        chemenzy_stock_paths=tuple(args.chemenzy_stock_path),
+        chemenzy_stock_names=chemenzy_stock_names,
+        chemenzy_stock_paths=chemenzy_stock_paths,
         self_evo_library_seed=args.self_evo_library_seed,
         inventory_snapshot=args.inventory_snapshot,
         benchmark_stock_index=args.benchmark_stock_index,
@@ -194,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         resume=args.resume,
     )
     status_path = output_root / "panel-status.json"
+    previous_state = _load_resume_panel_state(status_path) if args.resume else {}
     state_lock = Lock()
     state: dict[str, Any] = {
         "schema_version": "v4_blind_panel_status.v1",
@@ -208,18 +257,41 @@ def main(argv: list[str] | None = None) -> int:
         "ablation": args.ablation,
         "worker_count": args.workers,
         "chemenzy_env_prefix": str(args.chemenzy_env_prefix or ""),
-        "chemenzy_stock_names": [str(value) for value in args.chemenzy_stock_name],
-        "chemenzy_stock_paths": [str(value) for value in args.chemenzy_stock_path],
+        "chemenzy_stock_names": list(chemenzy_stock_names),
+        "chemenzy_stock_paths": list(chemenzy_stock_paths),
+        "chemenzy_stock_alignment": {
+            "benchmark_index_bound_to_provider": bool(args.benchmark_stock_index),
+            "provider_and_host_search_boundary_equal": bool(
+                args.benchmark_stock_index and chemenzy_stock_paths
+            ),
+        },
+        "matched_baseline": (
+            {
+                "path": str(matched_baseline_path),
+                "file_sha256": _file_sha256(matched_baseline_path),
+                "content_sha256": str(
+                    dict(matched_baseline).get("content_sha256") or ""
+                ),
+                "selected_case_ids": [case.case_id for case in cases],
+            }
+            if matched_baseline_path is not None
+            and isinstance(matched_baseline, Mapping)
+            else {}
+        ),
         "frozen_snapshot": {
             "path": str(output_root / "snapshots" / "benchmark-snapshot.json"),
             "content_sha256": str(snapshot.get("content_sha256") or ""),
-            "base_environment_sha256": str(snapshot.get("base_environment_sha256") or ""),
+            "base_environment_sha256": str(
+                snapshot.get("base_environment_sha256") or ""
+            ),
             "manifest_sha256": str(snapshot.get("manifest_sha256") or ""),
             "self_evo_library_sha256": str(
-                dict(snapshot.get("knowledge") or {}).get("self_evo_library_sha256") or ""
+                dict(snapshot.get("knowledge") or {}).get("self_evo_library_sha256")
+                or ""
             ),
             "inventory_snapshot_sha256": str(
-                dict(snapshot.get("knowledge") or {}).get("inventory_snapshot_sha256") or ""
+                dict(snapshot.get("knowledge") or {}).get("inventory_snapshot_sha256")
+                or ""
             ),
             "benchmark_stock_index_sha256": str(
                 dict(snapshot.get("knowledge") or {}).get(
@@ -228,7 +300,8 @@ def main(argv: list[str] | None = None) -> int:
                 or ""
             ),
             "leakage_audit_pack_sha256": str(
-                dict(snapshot.get("knowledge") or {}).get("leakage_audit_pack_sha256") or ""
+                dict(snapshot.get("knowledge") or {}).get("leakage_audit_pack_sha256")
+                or ""
             ),
         },
         "target_count": len(cases),
@@ -241,7 +314,8 @@ def main(argv: list[str] | None = None) -> int:
             "manifest_order_preserved": True,
         },
         "targets": {
-            case.target_name: {"status": "queued", "case_id": case.case_id} for case in cases
+            case.target_name: {"status": "queued", "case_id": case.case_id}
+            for case in cases
         },
         "semantics": {
             "target_name_and_smiles_only": True,
@@ -255,6 +329,19 @@ def main(argv: list[str] | None = None) -> int:
             "scores_are_fixed_cutoff_trajectory_projections": True,
             "legacy_objective_mode_does_not_reach_the_solver": True,
         },
+    }
+    completed_on_resume = _resume_completed_targets(
+        previous_state,
+        cases=cases,
+        output_root=output_root,
+        snapshot=snapshot,
+        ablation=args.ablation,
+    )
+    state["targets"].update(completed_on_resume)
+    state["resume"] = {
+        "requested": bool(args.resume),
+        "completed_targets_reused": len(completed_on_resume),
+        "unfinished_targets_submitted": len(cases) - len(completed_on_resume),
     }
     _write_json(status_path, state)
 
@@ -280,7 +367,10 @@ def main(argv: list[str] | None = None) -> int:
                 passed += 1
             except Exception as exc:  # bounded audit supervisor boundary
                 failure_path = (
-                    output_root / "snapshots" / "cases" / f"{case.case_id}.preflight-failed.json"
+                    output_root
+                    / "snapshots"
+                    / "cases"
+                    / f"{case.case_id}.preflight-failed.json"
                 )
                 state["targets"][case.target_name] = {
                     "status": "preflight_failed",
@@ -322,8 +412,8 @@ def main(argv: list[str] | None = None) -> int:
             resume=args.resume,
             visual=args.visual,
             chemenzy_env_prefix=args.chemenzy_env_prefix,
-            chemenzy_stock_names=tuple(args.chemenzy_stock_name),
-            chemenzy_stock_paths=tuple(args.chemenzy_stock_path),
+            chemenzy_stock_names=chemenzy_stock_names,
+            chemenzy_stock_paths=chemenzy_stock_paths,
             snapshot=snapshot,
             ablation=args.ablation,
             self_evo_library_seed=args.self_evo_library_seed,
@@ -333,8 +423,9 @@ def main(argv: list[str] | None = None) -> int:
             leakage_audit_pack=args.leakage_audit_pack,
         )
 
+    cases_to_run = [case for case in cases if case.target_name not in completed_on_resume]
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = {executor.submit(run, case): case for case in cases}
+        futures = {executor.submit(run, case): case for case in cases_to_run}
         for future in as_completed(futures):
             case = futures[future]
             try:
@@ -355,8 +446,139 @@ def main(argv: list[str] | None = None) -> int:
         row.get("status") == "completed" for row in state["targets"].values()
     )
     _write_json(status_path, state)
+    summary_path = _write_result_summary(output_root, state)
+    state["result_summary"] = {
+        "status": "completed",
+        "json_path": str(summary_path),
+        "markdown_path": str(summary_path.with_suffix(".md")),
+    }
+    if matched_baseline is not None and matched_baseline_path is not None:
+        comparison_path = _write_matched_comparison(
+            output_root,
+            baseline=matched_baseline,
+            baseline_path=matched_baseline_path,
+            candidate_path=summary_path,
+        )
+        state["matched_comparison"] = {
+            "status": "completed",
+            "json_path": str(comparison_path),
+            "markdown_path": str(comparison_path.with_suffix(".md")),
+        }
+    _write_json(status_path, state)
     print(json.dumps(state, ensure_ascii=False, indent=2))
     return 0 if state["completed_count"] == len(cases) else 2
+
+
+def _load_resume_panel_state(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _write_result_summary(
+    output_root: Path,
+    state: Mapping[str, Any],
+) -> Path:
+    """Publish the result-first panel report immediately after the batch."""
+
+    summary = summarize_panel(_hydrate_report_diagnostics(state))
+    path = output_root / "panel-summary.json"
+    _write_json(path, summary)
+    path.with_suffix(".md").write_text(
+        _summary_markdown(summary),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _validate_matched_baseline(
+    baseline: Any,
+    *,
+    cases: list[BlindCase],
+) -> None:
+    if not isinstance(baseline, Mapping):
+        raise ValueError("matched_baseline_summary_not_object")
+    if baseline.get("schema_version") == "v4_blind_panel_summary.v3" and not (
+        _json_digest_valid(baseline)
+    ):
+        raise ValueError("matched_baseline_summary_digest_invalid")
+    case_ids = {
+        str(row.get("case_id") or "")
+        for row in baseline.get("per_target") or []
+        if isinstance(row, Mapping)
+    }
+    missing = [case.case_id for case in cases if case.case_id not in case_ids]
+    if missing:
+        raise ValueError(
+            f"selected_cases_missing_from_matched_baseline:{','.join(missing)}"
+        )
+
+
+def _write_matched_comparison(
+    output_root: Path,
+    *,
+    baseline: Mapping[str, Any],
+    baseline_path: Path,
+    candidate_path: Path,
+) -> Path:
+    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    comparison = compare_matched_panels(
+        baseline,
+        candidate,
+        baseline_path=baseline_path,
+        candidate_path=candidate_path,
+    )
+    path = output_root / "matched-comparison.json"
+    _write_json(path, comparison)
+    path.with_suffix(".md").write_text(
+        _comparison_markdown(comparison),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _resume_completed_targets(
+    previous: Mapping[str, Any],
+    *,
+    cases: list[BlindCase],
+    output_root: Path,
+    snapshot: Mapping[str, Any],
+    ablation: str,
+) -> dict[str, dict[str, Any]]:
+    """Reuse only completed, report-backed rows from an identical panel binding."""
+
+    if not previous:
+        return {}
+    if str(previous.get("schema_version") or "") != "v4_blind_panel_status.v1":
+        raise RuntimeError("resume_panel_status_schema_mismatch")
+    if str(previous.get("ablation") or "") != str(ablation):
+        raise RuntimeError("resume_panel_ablation_mismatch")
+    expected_ids = [case.case_id for case in cases]
+    previous_ids = list(dict(previous.get("selection") or {}).get("selected_case_ids") or [])
+    if previous_ids != expected_ids:
+        raise RuntimeError("resume_panel_case_selection_mismatch")
+    previous_snapshot = dict(previous.get("frozen_snapshot") or {})
+    if previous_snapshot.get("content_sha256") != snapshot.get("content_sha256"):
+        raise RuntimeError("resume_panel_snapshot_mismatch")
+    previous_targets = dict(previous.get("targets") or {})
+    completed: dict[str, dict[str, Any]] = {}
+    for case in cases:
+        row = dict(previous_targets.get(case.target_name) or {})
+        report_path = output_root / "runs" / case.target_name / "target-only-solve-report.json"
+        if (
+            row.get("status") == "completed"
+            and row.get("case_id") == case.case_id
+            and report_path.is_file()
+        ):
+            completed[case.target_name] = {
+                **row,
+                "resume_reused_completed_report": True,
+            }
+    return completed
 
 
 def _select_cases(
@@ -399,7 +621,9 @@ def _run_case(
     benchmark_stock_name: str,
     leakage_audit_pack: str | None,
     fixed_cutoff_wall_time_s: float = 7_200.0,
-    fixed_cutoff_total_tasks: int = 256,
+    fixed_cutoff_total_tasks: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_total_tasks"]
+    ),
 ) -> dict[str, Any]:
     run_id = _run_id_for_case(case)
     run_dir = output_root / "runs" / case.target_name
@@ -417,27 +641,31 @@ def _run_case(
     budget = dict(case.budget)
     proof_profile = execution_profile == "proof"
     profile_defaults = TARGET_PROFILE_DEFAULTS[execution_profile]
+    matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
     max_model_invocations = max(
-        3 if visual or proof_profile else 2,
+        int(matched["max_model_invocations"]),
         int(budget.get("max_model_invocations") or 0),
     )
     max_input_tokens = max(
-        int(profile_defaults["max_input_tokens"]),
+        int(matched["max_input_tokens"]),
         int(budget.get("max_total_input_tokens") or 0),
     )
     max_output_tokens = max(
-        int(profile_defaults["max_output_tokens"]),
+        int(matched["max_output_tokens"]),
         int(budget.get("max_total_output_tokens") or 0),
     )
     max_wall_time_s = max(
-        int(profile_defaults["max_model_wall_time_s"]),
+        int(matched["max_model_wall_time_s"]),
         int(budget.get("max_total_wall_time_s") or 0),
     )
     max_accepted_expansions = max(
-        64,
+        int(matched["max_accepted_expansions"]),
         int(budget.get("max_accepted_expansions") or 0),
     )
-    max_attempt_runs = max(128, int(budget.get("max_attempt_runs") or 0))
+    max_attempt_runs = max(
+        int(matched["max_attempt_runs"]),
+        int(budget.get("max_attempt_runs") or 0),
+    )
     cutoff = {
         "wall_time_s": float(fixed_cutoff_wall_time_s),
         "settled_task_count": int(fixed_cutoff_total_tasks),
@@ -448,7 +676,9 @@ def _run_case(
         "output_tokens": max_output_tokens,
         "model_wall_time_s": float(max_wall_time_s),
     }
-    can_resume = resume and (run_dir / ".autoplanner" / "kernel" / "run_spec.json").is_file()
+    can_resume = (
+        resume and (run_dir / ".autoplanner" / "kernel" / "run_spec.json").is_file()
+    )
     if run_dir.exists() and any(run_dir.iterdir()) and not can_resume:
         if report_path.is_file():
             return _summarize_report(
@@ -459,7 +689,6 @@ def _run_case(
                 cutoff=cutoff,
             )
         raise RuntimeError("non_fresh_run_dir_requires_resume")
-    generous_search = max_accepted_expansions >= 96 or max_model_invocations >= 5
     command = [
         sys.executable,
         "-m",
@@ -483,11 +712,23 @@ def _run_case(
         reasoning_effort,
         "--execution-profile",
         execution_profile,
-        "--target-chemenzy-baseline",
+        "--strategy-search-profile",
+        str(matched["strategy_search_profile"]),
+        "--strategy-branches",
+        str(matched["strategy_branches"]),
+        "--node-expansions-per-branch",
+        str(matched["node_expansions_per_branch"]),
+        "--route-local-repair-rounds",
+        str(matched["route_local_repair_rounds"]),
+        "--max-node-prompt-bytes",
+        str(matched["max_node_prompt_bytes"]),
+        "--delivery-boundary",
+        "stock_result",
+        "--no-target-chemenzy-baseline",
         "--chemenzy-provider-route-reserve",
         "16",
         "--chemenzy-host-route-portfolio",
-        "8",
+        "16",
         "--display-route-limit",
         "4",
         "--initial-director-web-search",
@@ -501,7 +742,12 @@ def _run_case(
         "--max-model-wall-time-s",
         str(max_wall_time_s),
         "--max-prompt-context-bytes",
-        str(int(budget.get("max_prompt_context_bytes") or 96_000)),
+        str(
+            int(
+                budget.get("max_prompt_context_bytes")
+                or matched["max_prompt_context_bytes"]
+            )
+        ),
         "--max-accepted-expansions",
         str(max_accepted_expansions),
         "--max-attempt-runs",
@@ -511,43 +757,40 @@ def _run_case(
         "--max-run-wall-time-s",
         str(float(fixed_cutoff_wall_time_s)),
         "--max-map-reactions",
-        "64",
+        str(matched["max_atom_mapping_reactions"]),
         "--max-stock-molecules",
-        "32",
+        str(matched["max_stock_molecules"]),
         "--chemenzy-max-steps",
-        str(profile_defaults["steps"]),
+        str(matched["short_tail_steps"]),
         "--chemenzy-iterations",
-        str(profile_defaults["iterations"]),
+        str(matched["short_tail_iterations"]),
         "--chemenzy-expansion-topk",
         str(profile_defaults["topk"]),
         "--chemenzy-timeout-s",
-        str(profile_defaults["timeout"]),
+        str(matched["short_tail_timeout_s"]),
         "--max-patent-sources",
         "3",
         "--max-literature-sources",
         "4",
-        "--guided-chemenzy-frontiers",
-        "5" if generous_search else "3",
-        "--guided-chemenzy-iterations",
-        "8" if generous_search else "6",
-        "--guided-chemenzy-timeout-s",
-        "90" if generous_search else "60",
+        *_guided_chemenzy_cli_args(execution_profile),
         "--max-visual-invocations",
         "1" if visual else "0",
         "--max-visual-pages",
-        "10" if visual and generous_search else "6",
+        "10" if visual and proof_profile else "6",
     ]
     command.extend(_ablation_cli_args(ablation))
     self_evo_path = str(case_snapshot.get("self_evo_library_path") or "")
     if self_evo_path:
         command.extend(["--self-evo-library", self_evo_path])
-    if inventory_snapshot and str(case.acceptance.get("stock_boundary") or "") == "procurement":
-        command.extend(["--inventory-snapshot", str(Path(inventory_snapshot).resolve())])
-    benchmark_index_sha256 = str(
-        dict(snapshot.get("knowledge") or {}).get(
-            "benchmark_stock_index_sha256"
+    if (
+        inventory_snapshot
+        and str(case.acceptance.get("stock_boundary") or "") == "procurement"
+    ):
+        command.extend(
+            ["--inventory-snapshot", str(Path(inventory_snapshot).resolve())]
         )
-        or ""
+    benchmark_index_sha256 = str(
+        dict(snapshot.get("knowledge") or {}).get("benchmark_stock_index_sha256") or ""
     )
     if benchmark_stock_index:
         if str(case.acceptance.get("stock_boundary") or "") != "benchmark_search":
@@ -580,8 +823,12 @@ def _run_case(
             "AUTOPLANNER_RUNTIME_ROOT": str(output_root / "runtime"),
             "AUTOPLANNER_RUNS_ROOT": str(output_root / "runs"),
             "AUTOPLANNER_ARTIFACT_STORE_ROOT": str(output_root / "artifacts"),
-            "AUTOPLANNER_RUN_INDEX_PATH": str(output_root / "runtime" / "run_index.sqlite3"),
-            "AUTOPLANNER_EXTERNAL_DATA_ROOT": str(output_root / "external" / case.case_id),
+            "AUTOPLANNER_RUN_INDEX_PATH": str(
+                output_root / "runtime" / "run_index.sqlite3"
+            ),
+            "AUTOPLANNER_EXTERNAL_DATA_ROOT": str(
+                output_root / "external" / case.case_id
+            ),
             "AUTOPLANNER_VENDOR_ROOT": str(ROOT / "vendor"),
         }
     )
@@ -641,6 +888,19 @@ def _acceptance_cli_args(case: BlindCase) -> list[str]:
     ]
 
 
+def _guided_chemenzy_cli_args(execution_profile: str) -> list[str]:
+    """Materialize profile costs without overriding the unified frontier budget."""
+
+    del execution_profile
+    profile = SYNTHEX_MATCHED_PROFILE_DEFAULTS
+    return [
+        "--guided-chemenzy-iterations",
+        str(int(profile["short_tail_iterations"])),
+        "--guided-chemenzy-timeout-s",
+        str(float(profile["short_tail_timeout_s"])),
+    ]
+
+
 def _ablation_cli_args(ablation: str) -> list[str]:
     return {
         "baseline": [],
@@ -679,9 +939,7 @@ def _prepare_panel_snapshot(
     snapshot_path = output_root / "snapshots" / "benchmark-snapshot.json"
     seed = _optional_file(self_evo_library_seed, "self_evo_library_seed")
     inventory = _optional_file(inventory_snapshot, "inventory_snapshot")
-    benchmark_index = _optional_file(
-        benchmark_stock_index, "benchmark_stock_index"
-    )
+    benchmark_index = _optional_file(benchmark_stock_index, "benchmark_stock_index")
     leakage_pack = _optional_file(leakage_audit_pack, "leakage_audit_pack")
     chemenzy_python = _chemenzy_python(chemenzy_env_prefix)
     provider_snapshot = {
@@ -710,7 +968,8 @@ def _prepare_panel_snapshot(
         "leakage_audit_pack_path": str(leakage_pack or ""),
         "leakage_audit_pack_sha256": _file_sha256(leakage_pack) if leakage_pack else "",
         "benchmark_stock_is_a_search_boundary_not_procurement": any(
-            str(case.acceptance.get("stock_boundary") or "") == "benchmark_search" for case in cases
+            str(case.acceptance.get("stock_boundary") or "") == "benchmark_search"
+            for case in cases
         ),
     }
     environment_material = {
@@ -784,7 +1043,8 @@ def _prepare_case_snapshot(
         if (
             not _json_digest_valid(current)
             or current.get("case_id") != case.case_id
-            or current.get("panel_snapshot_sha256") != str(snapshot.get("content_sha256") or "")
+            or current.get("panel_snapshot_sha256")
+            != str(snapshot.get("content_sha256") or "")
             or current.get("self_evo_library_sha256") != seed_sha
         ):
             raise RuntimeError("blind_case_snapshot_receipt_mismatch")
@@ -880,10 +1140,24 @@ def _summarize_report(
     projection_available = projection.get("available") is True
     projected_gates = dict(projection.get("gate_summary") or {})
     projected_counts = dict(projection.get("gate_counts") or {})
+    projected_route_counts = dict(projection.get("route_counts") or {})
     projected_resources = dict(projection.get("observed_resources") or {})
     projected_model = dict(
         dict(projection.get("resource_usage") or {}).get("model") or {}
     )
+    final_paper_equivalent = dict(report.get("paper_equivalent") or {})
+    paper_equivalent = {
+        **final_paper_equivalent,
+        "paper_equivalent_solved": (
+            int(
+                projected_route_counts.get("stock_closed_skeletons")
+                or projected_counts.get("stock_closed_skeletons")
+                or 0
+            )
+            > 0
+        ),
+        "metric_cutoff_bound": True,
+    }
     stages = list(report.get("stages") or [])
     chemenzy_stages = [
         {"stage": str(row.get("stage") or ""), **dict(row.get("detail") or {})}
@@ -910,8 +1184,10 @@ def _summarize_report(
     global_stages = [
         row
         for row in stages
-        if isinstance(row, Mapping) and row.get("stage") in {"global_campaign", "global_replan"}
+        if isinstance(row, Mapping)
+        and row.get("stage") in {"global_campaign", "global_replan"}
     ]
+    failure_events = _panel_failure_events(stages)
     preflight_case = dict(dict(report.get("preflight") or {}).get("case") or {})
     return {
         "status": "completed" if projection_available else "projection_unavailable",
@@ -931,14 +1207,17 @@ def _summarize_report(
         "snapshot_receipt": dict(snapshot_receipt or {}),
         "model_cost": projected_model,
         "within_resource_budget": projection_available,
-        "false_closure_claim_count": int(gate_report.get("false_closure_claim_count") or 0),
+        "false_closure_claim_count": int(
+            gate_report.get("false_closure_claim_count") or 0
+        ),
         "attempt_count": int(projected_resources.get("attempt_count") or 0),
         "accepted_expansion_count": int(
             projected_resources.get("accepted_expansion_count") or 0
         ),
         "gate_summary": projected_gates,
-        "route_counts": projected_counts,
-        "anytime_route_counts": dict(projection.get("route_counts") or {}),
+        "route_counts": {**projected_counts, **projected_route_counts},
+        "paper_equivalent": paper_equivalent,
+        "anytime_route_counts": projected_route_counts,
         "fixed_cutoff_projection": projection,
         "final_state": {
             "claim": claim,
@@ -964,7 +1243,9 @@ def _summarize_report(
                 if any(row.get("status") == "completed" for row in chemenzy_stages)
                 else str(baseline.get("status") or "")
             ),
-            "frontier_count": sum(int(row.get("frontier_count") or 0) for row in chemenzy_stages),
+            "frontier_count": sum(
+                int(row.get("frontier_count") or 0) for row in chemenzy_stages
+            ),
             "provider_invocation_count": sum(
                 int(
                     row.get("provider_invocation_count")
@@ -978,7 +1259,9 @@ def _summarize_report(
                 )
                 for row in chemenzy_stages
             ),
-            "proposal_count": sum(int(row.get("proposal_count") or 0) for row in chemenzy_stages),
+            "proposal_count": sum(
+                int(row.get("proposal_count") or 0) for row in chemenzy_stages
+            ),
             "initial_delegation_status": str(baseline.get("status") or ""),
             "stock_recovery_used": any(
                 row.get("stage") == "chemenzy_stock_recovery"
@@ -992,9 +1275,12 @@ def _summarize_report(
                 row.get("stage") == "global_replan" for row in global_stages
             ),
         },
+        "failure_events": failure_events,
         "evidence": {
             "pass_count": len(evidence_stages),
-            "source_count": sum(int(row.get("source_count") or 0) for row in evidence_stages),
+            "source_count": sum(
+                int(row.get("source_count") or 0) for row in evidence_stages
+            ),
             "exact_record_count": sum(
                 int(row.get("exact_record_count") or 0) for row in evidence_stages
             ),
@@ -1005,7 +1291,10 @@ def _summarize_report(
                 int(row.get("proposal_count") or 0) for row in source_routes
             ),
             "source_route_host_accepted_count": sum(
-                int(dict(row.get("validation") or {}).get("accepted_validation_count") or 0)
+                int(
+                    dict(row.get("validation") or {}).get("accepted_validation_count")
+                    or 0
+                )
                 for row in source_routes
             ),
         },
@@ -1022,6 +1311,42 @@ def _summarize_report(
             "legacy_objective_claim_does_not_control_scoring": True,
         },
     }
+
+
+def _panel_failure_events(stages: list[Any]) -> list[dict[str, Any]]:
+    """Retain bounded, typed stage failures instead of collapsing them to unsolved."""
+
+    events: list[dict[str, Any]] = []
+    for raw in stages:
+        if not isinstance(raw, Mapping):
+            continue
+        status = str(raw.get("status") or "")
+        detail = dict(raw.get("detail") or {})
+        detail_status = str(detail.get("status") or "")
+        if status not in {"failed", "rejected", "timeout", "error", "partial"} and (
+            detail_status
+            not in {"failed", "rejected", "timeout", "error", "partial"}
+        ):
+            continue
+        raw_reasons = detail.get("reasons")
+        reasons = (
+            [str(value) for value in raw_reasons if str(value)]
+            if isinstance(raw_reasons, list)
+            else []
+        )
+        reason = str(detail.get("reason") or "")
+        if reason:
+            reasons.append(reason)
+        if not reasons:
+            reasons.append(detail_status or status)
+        events.append(
+            {
+                "stage": str(raw.get("stage") or ""),
+                "status": status or detail_status,
+                "reasons": sorted(set(reasons))[:8],
+            }
+        )
+    return events
 
 
 def _optional_file(value: str | None, label: str) -> Path | None:
@@ -1063,7 +1388,9 @@ def _case_leakage_needles(
             if len(str(item).strip()) >= 5
         }
     )
-    synonym_not_applicable = str(row.get("target_synonym_not_applicable_reason") or "").strip()
+    synonym_not_applicable = str(
+        row.get("target_synonym_not_applicable_reason") or ""
+    ).strip()
     intermediate_smiles = sorted(
         {
             canonical
@@ -1102,6 +1429,48 @@ def _chemenzy_python(prefix: str | None) -> str | None:
         root / "bin" / "python",
     )
     return str(next((path for path in candidates if path.is_file()), "")) or None
+
+
+def _resolve_panel_chemenzy_stock_binding(
+    *,
+    benchmark_stock_index: str | None,
+    benchmark_stock_name: str,
+    stock_names: tuple[str, ...],
+    stock_paths: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Resolve one stock boundary shared by ChemEnzy search and host B4."""
+
+    names = tuple(
+        dict.fromkeys(
+            str(value).strip() for value in stock_names if str(value).strip()
+        )
+    )
+    raw_paths = tuple(str(value).strip() for value in stock_paths if str(value).strip())
+    if not str(benchmark_stock_index or "").strip():
+        return names, raw_paths
+
+    benchmark_path = Path(str(benchmark_stock_index)).expanduser().resolve()
+    if not names and not raw_paths:
+        aligned_name = str(benchmark_stock_name or "").strip() or "Benchmark-stock"
+        return (aligned_name,), (f"{aligned_name}={benchmark_path}",)
+
+    parsed: dict[str, Path] = {}
+    for raw in raw_paths:
+        name, separator, path = raw.partition("=")
+        if not separator or not name.strip() or not path.strip():
+            raise ValueError("chemenzy_stock_path_must_be_NAME_EQUALS_PATH")
+        if name.strip() in parsed:
+            raise ValueError(f"duplicate_chemenzy_stock_path:{name.strip()}")
+        parsed[name.strip()] = Path(path.strip()).expanduser().resolve()
+    if not parsed:
+        raise ValueError("benchmark_stock_requires_chemenzy_path_alignment")
+    if not names:
+        names = tuple(parsed)
+    if set(names) != set(parsed) or len(parsed) != 1:
+        raise ValueError("benchmark_stock_requires_one_matching_chemenzy_stock")
+    if next(iter(parsed.values())) != benchmark_path:
+        raise ValueError("benchmark_and_chemenzy_stock_paths_differ")
+    return names, tuple(f"{name}={parsed[name]}" for name in names)
 
 
 def _binary_fingerprint(value: str | None) -> dict[str, Any]:

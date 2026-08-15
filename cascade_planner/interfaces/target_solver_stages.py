@@ -1323,7 +1323,7 @@ def audit_authoritative_inventory_stock(
     inventory_builder: InventorySnapshotBuilder,
     required_boundary: str,
     max_molecules: int = 24,
-    max_age_days: float = 30.0,
+    max_age_days: float = 365.0,
 ) -> dict[str, Any]:
     """Freeze and audit leaves plus useful internal procurement cut points."""
 

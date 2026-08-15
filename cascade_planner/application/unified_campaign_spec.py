@@ -340,6 +340,9 @@ def stock_oracle_reference_from_builder(
                 "source_sha256": str(getattr(builder, "source_sha256", "")),
                 "catalog_name": str(getattr(builder, "catalog_name", "")),
                 "member_count": int(getattr(builder, "member_count", 0)),
+                "identity_key": str(
+                    getattr(builder, "identity_key", "canonical_smiles")
+                ),
             }
         )
         oracle_id = f"frozen-index:{str(builder.index_sha256)[:24]}"

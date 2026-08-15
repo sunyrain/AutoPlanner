@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import warnings
 from typing import Any
 
@@ -23,6 +24,9 @@ from cascade_planner.interfaces.live_stock import (
 from cascade_planner.interfaces.target_solver import (
     DEFAULT_TARGET_DIRECTOR_MODEL,
     TargetSolveConfig,
+)
+from cascade_planner.interfaces.target_runtime_dependencies import (
+    SYNTHEX_MATCHED_PROFILE_DEFAULTS,
 )
 from cascade_planner.interfaces.validation_fork import ValidationForkConfig
 
@@ -68,17 +72,49 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument(
         "--reasoning-effort",
         choices=("low", "medium", "high"),
-        default="low",
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["reasoning_effort"],
     )
     solve.add_argument(
         "--execution-profile",
         choices=("fast", "standard", "proof"),
-        default="fast",
+        default="standard",
         help=(
             "fast is the default and returns a compact two-family architecture; "
             "standard expands breadth; proof permits up to 24-step skeletons "
             "for long-route dossiers"
         ),
+    )
+    solve.add_argument(
+        "--strategy-search-profile",
+        choices=("legacy_global", "synthex_matched"),
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_search_profile"],
+        help=(
+            "synthex_matched runs three independent compact Codex policy "
+            "branches with continuous node expansion"
+        ),
+    )
+    solve.add_argument(
+        "--strategy-branches",
+        type=int,
+        choices=range(1, 9),
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_branches"],
+    )
+    solve.add_argument(
+        "--node-expansions-per-branch",
+        type=int,
+        choices=range(1, 65),
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["node_expansions_per_branch"],
+    )
+    solve.add_argument(
+        "--route-local-repair-rounds",
+        type=int,
+        choices=range(1, 13),
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["route_local_repair_rounds"],
+    )
+    solve.add_argument(
+        "--max-node-prompt-bytes",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_node_prompt_bytes"],
     )
     solve.add_argument(
         "--objective-mode",
@@ -123,6 +159,15 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         default="adaptive",
         help="shared target-blind action ordering policy",
     )
+    solve.add_argument(
+        "--delivery-boundary",
+        choices=("full", "stock_result"),
+        default="stock_result",
+        help=(
+            "stock_result (default) closes after the first B4 snapshot; full "
+            "continues through the lower-priority C2-C6 credibility work"
+        ),
+    )
     solve.add_argument("--no-live-benchmark-stock", action="store_true")
     solve.add_argument(
         "--benchmark-stock-index",
@@ -150,8 +195,11 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument(
         "--target-chemenzy-baseline",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="run ChemEnzy on the final target before Codex; use --no-target-chemenzy-baseline for ablation",
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["target_chemenzy_baseline"],
+        help=(
+            "run the separate whole-target ChemEnzy baseline arm; disabled "
+            "for the matched Codex strategic/stitched arm"
+        ),
     )
     solve.add_argument(
         "--chemenzy-env-prefix",
@@ -175,7 +223,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         action="append",
         default=[],
         metavar="NAME=PATH",
-        help="override a selected ChemEnzy vendor stock with an explicit CSV path",
+        help="override a selected ChemEnzy stock with an explicit CSV or SQLite path",
     )
     solve.add_argument(
         "--chemenzy-provider-route-reserve",
@@ -187,7 +235,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         "--chemenzy-host-route-portfolio",
         type=int,
         choices=range(1, 17),
-        default=8,
+        default=16,
     )
     solve.add_argument(
         "--display-route-limit",
@@ -203,9 +251,17 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         help="deprecated compatibility alias for --chemenzy-provider-route-reserve",
     )
     solve.add_argument("--chemenzy-max-steps", type=int, default=6)
-    solve.add_argument("--chemenzy-iterations", type=int, default=10)
+    solve.add_argument(
+        "--chemenzy-iterations",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_iterations"],
+    )
     solve.add_argument("--chemenzy-expansion-topk", type=int, default=20)
-    solve.add_argument("--chemenzy-timeout-s", type=float, default=90.0)
+    solve.add_argument(
+        "--chemenzy-timeout-s",
+        type=float,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_timeout_s"],
+    )
     solve.add_argument(
         "--chemenzy-seed",
         type=int,
@@ -214,10 +270,21 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     )
     solve.add_argument("--no-guided-chemenzy", action="store_true")
     solve.add_argument(
-        "--guided-chemenzy-frontiers", type=int, choices=range(1, 7), default=3
+        "--guided-chemenzy-frontiers",
+        type=int,
+        default=None,
+        help="optional compatibility cap; default inherits the unified native-search budget",
     )
-    solve.add_argument("--guided-chemenzy-iterations", type=int, default=6)
-    solve.add_argument("--guided-chemenzy-timeout-s", type=float, default=60.0)
+    solve.add_argument(
+        "--guided-chemenzy-iterations",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_iterations"],
+    )
+    solve.add_argument(
+        "--guided-chemenzy-timeout-s",
+        type=float,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_timeout_s"],
+    )
     solve.add_argument(
         "--no-patent-self-evo",
         action="store_true",
@@ -302,11 +369,31 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         default=[],
         help="repeatable allowed source id within the configured stock oracle",
     )
-    solve.add_argument("--max-model-invocations", type=int, default=2)
-    solve.add_argument("--max-input-tokens", type=int, default=50_000)
-    solve.add_argument("--max-output-tokens", type=int, default=14_000)
-    solve.add_argument("--max-model-wall-time-s", type=float, default=720.0)
-    solve.add_argument("--max-prompt-context-bytes", type=int, default=96_000)
+    solve.add_argument(
+        "--max-model-invocations",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_model_invocations"],
+    )
+    solve.add_argument(
+        "--max-input-tokens",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_input_tokens"],
+    )
+    solve.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_output_tokens"],
+    )
+    solve.add_argument(
+        "--max-model-wall-time-s",
+        type=float,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_model_wall_time_s"],
+    )
+    solve.add_argument(
+        "--max-prompt-context-bytes",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_prompt_context_bytes"],
+    )
     solve.add_argument(
         "--max-visual-invocations",
         type=int,
@@ -315,17 +402,37 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         help="opt in to at most one sparse Codex page-vision call; default is zero",
     )
     solve.add_argument("--max-visual-pages", type=int, choices=range(1, 13), default=6)
-    solve.add_argument("--max-accepted-expansions", type=int, default=32)
-    solve.add_argument("--max-attempt-runs", type=int, default=72)
-    solve.add_argument("--max-total-tasks", type=int, default=256)
+    solve.add_argument(
+        "--max-accepted-expansions",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_accepted_expansions"],
+    )
+    solve.add_argument(
+        "--max-attempt-runs",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_attempt_runs"],
+    )
+    solve.add_argument(
+        "--max-total-tasks",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_total_tasks"],
+    )
     solve.add_argument("--max-evidence-tasks", type=int, default=64)
     solve.add_argument("--max-stock-tasks", type=int, default=128)
     solve.add_argument("--max-validation-tasks", type=int, default=128)
     solve.add_argument("--max-program-tasks", type=int, default=64)
     solve.add_argument("--max-experiment-tasks", type=int, default=32)
     solve.add_argument("--max-run-wall-time-s", type=float, default=7_200.0)
-    solve.add_argument("--max-map-reactions", type=int, default=48)
-    solve.add_argument("--max-stock-molecules", type=int, default=24)
+    solve.add_argument(
+        "--max-map-reactions",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_atom_mapping_reactions"],
+    )
+    solve.add_argument(
+        "--max-stock-molecules",
+        type=int,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_stock_molecules"],
+    )
     solve.add_argument("--max-patent-sources", type=int, default=3)
     solve.add_argument("--max-literature-sources", type=int, choices=range(1, 9), default=3)
     solve.add_argument("--max-self-evo-candidates", type=int, default=12)
@@ -596,6 +703,16 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             )
         )
 
+    chemenzy_stock_names, chemenzy_stock_paths = _resolve_chemenzy_stock_binding(
+        stock_names=tuple(
+            str(value) for value in args.chemenzy_stock_name if str(value).strip()
+        ),
+        stock_paths=_parse_chemenzy_stock_paths(args.chemenzy_stock_path),
+        benchmark_stock_index=args.benchmark_stock_index,
+        benchmark_stock_name=args.benchmark_stock_name,
+        chemenzy_enabled=not args.no_chemenzy,
+    )
+
     result = gateway.solve_target(
         target_name=args.target_name,
         target_smiles=args.target_smiles,
@@ -638,6 +755,11 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             model=args.model,
             reasoning_effort=args.reasoning_effort,
             execution_profile=args.execution_profile,
+            strategy_search_profile=args.strategy_search_profile,
+            strategy_branch_count=args.strategy_branches,
+            max_node_expansions_per_branch=args.node_expansions_per_branch,
+            max_route_local_repair_rounds=args.route_local_repair_rounds,
+            max_node_prompt_bytes=args.max_node_prompt_bytes,
             objective_mode=objective_compatibility_view,
             use_coordinator=args.coordinator and not args.single_agent,
             enable_web_search=not args.no_web_search,
@@ -650,17 +772,14 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             blind_audit_root=args.blind_audit_root,
             enable_replan=not args.no_replan,
             action_scheduler_policy=args.action_scheduler,
+            delivery_boundary=args.delivery_boundary,
             enable_live_benchmark_stock=not args.no_live_benchmark_stock,
             enable_chemenzy=not args.no_chemenzy,
             enable_target_chemenzy_baseline=args.target_chemenzy_baseline,
             enable_guided_chemenzy=not args.no_guided_chemenzy,
             chemenzy_env_prefix=args.chemenzy_env_prefix,
-            chemenzy_stock_names=tuple(
-                str(value) for value in args.chemenzy_stock_name if str(value).strip()
-            ),
-            chemenzy_stock_paths=_parse_chemenzy_stock_paths(
-                args.chemenzy_stock_path
-            ),
+            chemenzy_stock_names=chemenzy_stock_names,
+            chemenzy_stock_paths=chemenzy_stock_paths,
             enable_patent_self_evolution=not args.no_patent_self_evo,
             self_evo_library_path=args.self_evo_library,
             enable_builtin_patent_evidence=(
@@ -727,6 +846,53 @@ def _parse_chemenzy_stock_paths(values: list[str] | tuple[str, ...]) -> tuple[tu
     return tuple(parsed)
 
 
+def _resolve_chemenzy_stock_binding(
+    *,
+    stock_names: tuple[str, ...],
+    stock_paths: tuple[tuple[str, str], ...],
+    benchmark_stock_index: str,
+    benchmark_stock_name: str,
+    chemenzy_enabled: bool,
+) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...]]:
+    """Keep provider search and host scoring on the same benchmark stock.
+
+    A benchmark index is a search boundary, not merely a post-hoc scoring
+    oracle.  Falling back to ChemEnzy's vendor default here makes the provider
+    optimize against a different terminal set than the host uses for B4.
+    Explicit stock bindings remain supported, but benchmark runs must bind
+    exactly the same index.
+    """
+
+    names = tuple(
+        dict.fromkeys(
+            str(value).strip() for value in stock_names if str(value).strip()
+        )
+    )
+    paths = tuple(
+        (str(name).strip(), str(path).strip()) for name, path in stock_paths
+    )
+    if not chemenzy_enabled or not str(benchmark_stock_index or "").strip():
+        if paths and not names:
+            names = tuple(name for name, _path in paths)
+        return names, paths
+
+    benchmark_path = Path(benchmark_stock_index).expanduser().resolve()
+    if not names and not paths:
+        aligned_name = str(benchmark_stock_name or "").strip() or "Benchmark-stock"
+        return (aligned_name,), ((aligned_name, str(benchmark_path)),)
+
+    if not paths:
+        raise ValueError("benchmark_stock_requires_chemenzy_path_alignment")
+    path_map = {name: Path(path).expanduser().resolve() for name, path in paths}
+    if not names:
+        names = tuple(path_map)
+    if set(names) != set(path_map) or len(path_map) != 1:
+        raise ValueError("benchmark_stock_requires_one_matching_chemenzy_stock")
+    if next(iter(path_map.values())) != benchmark_path:
+        raise ValueError("benchmark_and_chemenzy_stock_paths_differ")
+    return names, tuple((name, str(path_map[name])) for name in names)
+
+
 def _parse_safety_limits(values: list[str] | tuple[str, ...]) -> dict[str, Any]:
     parsed: dict[str, Any] = {}
     for raw in values:
@@ -771,6 +937,7 @@ def _compact_target_result(result: Any) -> dict[str, Any]:
             gates.get("highest_contiguous_gate") or "none"
         ),
         "counts": dict(gates.get("counts") or {}),
+        "paper_equivalent": dict(row.get("paper_equivalent") or {}),
         "quality_state": dict(row.get("quality_state") or {}),
         "claim": dict(row.get("claim") or {}),
         "planning_depth": dict(row.get("planning_depth") or {}),

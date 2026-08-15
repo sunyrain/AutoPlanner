@@ -6,11 +6,15 @@ import json
 from typing import Any, Iterable, Mapping
 
 from cascade_planner.application.candidate_lifecycle import candidate_lifecycle_export
+from cascade_planner.application.candidate_provider_route_audit import (
+    PROVIDER_ROUTE_PROVENANCE_RECORD_SCHEMA,
+    lineage_matches,
+    provider_route_record,
+)
 
 
 CANONICAL_CANDIDATE_PROVENANCE_SCHEMA = "canonical_candidate_provenance.v1"
 CANDIDATE_PROVENANCE_RECORD_SCHEMA = "canonical_candidate_provenance_record.v1"
-PROVIDER_ROUTE_PROVENANCE_RECORD_SCHEMA = "provider_route_provenance_record.v1"
 _PROVIDER_LINEAGE_SCHEMA = "chemenzy_route_lineage.v1"
 
 
@@ -35,7 +39,7 @@ def compile_candidate_provenance(
         _candidate_record(record, provider_rows) for record in lifecycle_records
     ]
     provider_records = [
-        _provider_record(source, lifecycle_records) for source in provider_rows
+        provider_route_record(source, lifecycle_records) for source in provider_rows
     ]
     first_loss_counts = {
         boundary: sum(
@@ -61,6 +65,16 @@ def compile_candidate_provenance(
         "bound_provider_route_count": sum(
             bool(row.get("candidate_ids")) for row in provider_records
         ),
+        "fully_conserved_provider_route_count": sum(
+            row.get("topology_conservation_accepted") is True
+            for row in provider_records
+        ),
+        "partially_bound_provider_route_count": sum(
+            bool(row.get("candidate_ids"))
+            and row.get("topology_conservation_applicable") is True
+            and row.get("topology_conservation_accepted") is not True
+            for row in provider_records
+        ),
         "provider_only_route_count": sum(
             not bool(row.get("candidate_ids")) for row in provider_records
         ),
@@ -74,6 +88,7 @@ def compile_candidate_provenance(
             "unbound_provider_routes_remain_visible": True,
             "proof_evidence_stock_and_acceptance_are_not_inferred": True,
             "first_loss_is_a_deterministic_audit_boundary": True,
+            "any_step_overlap_is_not_complete_route_conservation": True,
         },
     }
     payload["content_sha256"] = _digest(payload)
@@ -121,7 +136,7 @@ def _candidate_record(
 ) -> dict[str, Any]:
     row = dict(lifecycle)
     links = [
-        dict(source) for source in provider_rows if _lineage_matches(row, source)
+        dict(source) for source in provider_rows if lineage_matches(row, source)
     ]
     origins = [
         dict(value)
@@ -184,121 +199,6 @@ def _candidate_record(
         },
     }
     return _with_digest(record)
-
-
-def _provider_record(
-    source: Mapping[str, Any],
-    lifecycle_records: Iterable[Mapping[str, Any]],
-) -> dict[str, Any]:
-    row = dict(source)
-    linked = [
-        dict(value)
-        for value in lifecycle_records
-        if _lineage_matches(value, row)
-    ]
-    stock_routes = sorted(
-        {
-            str(route_id)
-            for value in linked
-            for route_id in dict(value.get("portfolio") or {}).get(
-                "stock_closed_route_ids"
-            )
-            or []
-            if str(route_id)
-        }
-    )
-    record = {
-        "schema_version": PROVIDER_ROUTE_PROVENANCE_RECORD_SCHEMA,
-        "provider_id": "chemenzy",
-        "source_lineage_sha256": str(row.get("source_lineage_sha256") or ""),
-        "route_trace_id": str(row.get("route_trace_id") or ""),
-        "raw_route_sha256": str(row.get("raw_route_sha256") or ""),
-        "normalized_route_sha256": str(
-            row.get("normalized_route_sha256") or ""
-        ),
-        "proposal_eligible": row.get("proposal_eligible") is True,
-        "host_portfolio_selected": row.get("host_portfolio_selected") is True,
-        "preserved_as_advisory": row.get("preserved_as_advisory") is True,
-        "provider_disposition": str(row.get("disposition") or ""),
-        "final_disposition": str(row.get("final_disposition") or ""),
-        "reasons": sorted(str(value) for value in row.get("reasons") or []),
-        "canonical_route_family_id": str(
-            row.get("canonical_route_family_id") or ""
-        ),
-        "canonical_hypothesis_ids": sorted(
-            str(value) for value in row.get("canonical_hypothesis_ids") or []
-        ),
-        "canonical_edge_ids": sorted(
-            str(value) for value in row.get("canonical_edge_ids") or []
-        ),
-        "canonical_route_ids": sorted(
-            str(value) for value in row.get("canonical_route_ids") or []
-        ),
-        "stock_closed_route_ids": stock_routes,
-        "candidate_ids": sorted(str(value.get("candidate_id") or "") for value in linked),
-        "candidate_statuses": sorted(
-            {str(value.get("status") or "") for value in linked} - {""}
-        ),
-    }
-    record["first_loss_boundary"] = _first_loss(row, linked, stock_routes)
-    return _with_digest(record)
-
-
-def _first_loss(
-    source: Mapping[str, Any],
-    linked: Iterable[Mapping[str, Any]],
-    stock_routes: list[str],
-) -> str:
-    rows = [dict(value) for value in linked]
-    if not str(source.get("raw_route_sha256") or ""):
-        return "raw_proposal_unobserved"
-    if not str(source.get("normalized_route_sha256") or ""):
-        return "provider_normalization"
-    if source.get("proposal_eligible") is not True:
-        return "host_quarantine" if source.get("preserved_as_advisory") is True or source.get("quarantined") is True else "host_admission"
-    if source.get("host_portfolio_selected") is not True:
-        return (
-            "host_quarantine"
-            if source.get("preserved_as_advisory") is True
-            or source.get("quarantined") is True
-            else "host_portfolio_selection"
-        )
-    if not rows:
-        return "canonical_ingestion"
-    if any(
-        dict(value.get("materialization") or {}).get("materialized") is not True
-        for value in rows
-    ):
-        return "canonical_materialization"
-    if any(
-        dict(value.get("validation") or {}).get("accepted") is not True
-        for value in rows
-    ):
-        return "reaction_validation"
-    return "none" if stock_routes else "stock_closure"
-
-
-def _lineage_matches(
-    lifecycle: Mapping[str, Any],
-    lineage: Mapping[str, Any],
-) -> bool:
-    canonical_ids = {
-        *(str(value) for value in lifecycle.get("canonical_entity_ids") or []),
-        str(lifecycle.get("edge_id") or ""),
-    } - {""}
-    lineage_ids = {
-        *(str(value) for value in lineage.get("canonical_edge_ids") or []),
-        *(str(value) for value in lineage.get("canonical_hypothesis_ids") or []),
-    } - {""}
-    proposal_ids = {
-        str(dict(value).get("proposal_id") or "")
-        for value in lifecycle.get("origin_records") or []
-        if isinstance(value, Mapping)
-    } - {""}
-    step_ids = {
-        str(value) for value in lineage.get("step_proposal_ids") or [] if str(value)
-    }
-    return bool(canonical_ids & lineage_ids or proposal_ids & step_ids)
 
 
 def _verified_lineage_reports(

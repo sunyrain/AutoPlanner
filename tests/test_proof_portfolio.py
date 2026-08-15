@@ -29,6 +29,10 @@ from cascade_planner.application.worker_runtime import (
     WorkerCommand,
     WorkerRuntime,
 )
+from cascade_planner.application.route_strategy_value import (
+    compile_evidence_maturity_vector,
+    compile_strategic_value_vector,
+)
 
 
 TARGET = "CCOC(C)=O"
@@ -50,6 +54,51 @@ ROUTES = (
         ),
     },
 )
+
+
+def test_strategic_value_and_evidence_maturity_are_independent_axes() -> None:
+    graph = {
+        "edges": {
+            "edge:root": {
+                "precursor_molecule_ids": ["mol:a", "mol:b"],
+                "source_binding_ids": [],
+            }
+        }
+    }
+    card = {
+        "key_bond_changes": ["form C-O bond"],
+        "skeleton_change_class": "fragment union",
+        "key_forward_transformation": "convergent coupling",
+        "expected_complexity_drop": "high",
+        "stereochemical_plan": "substrate controlled",
+        "protection_policy": "avoid protection",
+    }
+    first = compile_strategic_value_vector(
+        graph,
+        edge_ids=["edge:root"],
+        root_edge_ids=["edge:root"],
+        strategy_card=card,
+        convergence_score=0.0,
+    )
+    graph["edges"]["edge:root"]["source_binding_ids"] = ["source:1", "source:2"]
+    second = compile_strategic_value_vector(
+        graph,
+        edge_ids=["edge:root"],
+        root_edge_ids=["edge:root"],
+        strategy_card=card,
+        convergence_score=0.0,
+    )
+    evidence = compile_evidence_maturity_vector(
+        reaction_feasibility_rate=0.25,
+        exact_evidence_rate=0.0,
+        condition_completeness_rate=0.0,
+        source_independence_met=False,
+    )
+
+    assert first == second
+    assert first["score"] > evidence["score"]
+    assert first["basis"] == "strategy_card_and_canonical_topology_only"
+    assert evidence["basis"] == "host_proof_and_source_records_only"
 
 
 def _digest(value: object) -> str:
@@ -348,6 +397,30 @@ def test_two_route_portfolio_is_proof_stitched_and_published(tmp_path: Path) -> 
         assert route["content_sha256"] == _digest(
             {key: value for key, value in route.items() if key != "content_sha256"}
         )
+        vector = route["pareto_objective_vector"]
+        assert vector["schema_version"] == "route_pareto_objective_vector.v1"
+        assert set(vector["axes"]) == {
+            "strategic_value",
+            "evidence_maturity",
+            "topology_closure",
+            "stock_closure",
+            "reaction_feasibility",
+            "proof_evidence",
+            "condition_completeness",
+            "route_diversity",
+            "cost_length",
+            "program_readiness",
+        }
+        assert vector["axes"]["cost_length"]["known"] is False
+        assert vector["axes"]["cost_length"]["unknown_cost_is_not_zero"] is True
+        assert vector["axes"]["program_readiness"]["applicability"] == "not_applicable"
+        assert vector["axes"]["program_readiness"]["score"] == 1.0
+        assert vector["axes"]["strategic_value"]["evidence_independent"] is True
+        assert (
+            vector["axes"]["evidence_maturity"]["strategy_wording_independent"]
+            is True
+        )
+        assert vector["semantics"]["scalar_utility_is_display_only"] is True
 
     published = publish_proof_portfolio(
         kernel,

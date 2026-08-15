@@ -5,13 +5,13 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+
 import tomllib
 
 from cascade_planner.application.compatibility_inventory import (
     compatibility_inventory,
     record_compatibility_use,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 V4_MODULES = (
@@ -25,19 +25,24 @@ V4_MODULES = (
     "cascade_planner/application/canonical_identity.py",
     "cascade_planner/application/canonical_hypergraph.py",
     "cascade_planner/application/campaign_actions.py",
+    "cascade_planner/application/campaign_action_latency.py",
     "cascade_planner/application/campaign_action_status.py",
     "cascade_planner/application/campaign_work_policy.py",
     "cascade_planner/application/campaign_trajectory.py",
+    "cascade_planner/application/guided_search_progress.py",
     "cascade_planner/application/campaign_review_bundle.py",
     "cascade_planner/application/campaign_quality_state.py",
     "cascade_planner/application/candidate_lifecycle.py",
     "cascade_planner/application/candidate_provenance.py",
+    "cascade_planner/application/candidate_provider_route_audit.py",
     "cascade_planner/application/action_convergence.py",
     "cascade_planner/application/action_preflight.py",
     "cascade_planner/application/action_service_policy.py",
     "cascade_planner/application/action_scheduler.py",
     "cascade_planner/application/replan_pressure.py",
     "cascade_planner/application/scientific_closure_pressure.py",
+    "cascade_planner/application/strategy_experiment_closure.py",
+    "cascade_planner/application/strategy_experiment_closure_route.py",
     "cascade_planner/application/unified_campaign_spec.py",
     "cascade_planner/orchestration/unified_campaign_runtime.py",
     "cascade_planner/application/candidate_innovation_screen.py",
@@ -51,6 +56,7 @@ V4_MODULES = (
     "cascade_planner/application/execution_program_validations.py",
     "cascade_planner/application/execution_programs.py",
     "cascade_planner/application/execution_validation_frontier.py",
+    "cascade_planner/application/external_strategy_routes.py",
     "cascade_planner/application/experiment_execution_contracts.py",
     "cascade_planner/application/experiment_execution_results.py",
     "cascade_planner/application/experiment_external_jobs.py",
@@ -76,6 +82,9 @@ V4_MODULES = (
     "cascade_planner/application/mechanism_program_store_replay.py",
     "cascade_planner/application/mechanism_experiment_feedback.py",
     "cascade_planner/application/mechanism_validation_frontier.py",
+    "cascade_planner/application/milestone_subscription.py",
+    "cascade_planner/application/milestone_notification.py",
+    "cascade_planner/application/milestone_outbox_store.py",
     "cascade_planner/application/frontier_runtime.py",
     "cascade_planner/application/pareto.py",
     "cascade_planner/application/portfolio_selection.py",
@@ -104,10 +113,12 @@ V4_MODULES = (
     "cascade_planner/application/reaction_template_library.py",
     "cascade_planner/application/reaction_template_store.py",
     "cascade_planner/application/reaction_condition_records.py",
+    "cascade_planner/application/reactionjson_replay.py",
     "cascade_planner/application/route_variants.py",
     "cascade_planner/application/route_execution_capabilities.py",
     "cascade_planner/application/route_execution_discovery.py",
     "cascade_planner/application/route_innovations.py",
+    "cascade_planner/application/route_pareto_vector.py",
     "cascade_planner/application/route_innovation_chemenzy.py",
     "cascade_planner/application/route_innovation_capabilities.py",
     "cascade_planner/application/route_innovation_discovery.py",
@@ -138,6 +149,7 @@ V4_MODULES = (
     "cascade_planner/harness/v4_planned_route_branches.py",
     "cascade_planner/harness/source_condition_text.py",
     "cascade_planner/interfaces/campaign_gateway.py",
+    "cascade_planner/interfaces/campaign_milestone_gateway.py",
     "cascade_planner/interfaces/campaign_benchmark.py",
     "cascade_planner/interfaces/biocatalytic_program_gc.py",
     "cascade_planner/interfaces/campaign_experimental_claim_store.py",
@@ -161,6 +173,7 @@ V4_MODULES = (
     "cascade_planner/interfaces/campaign_recovery_stores.py",
     "cascade_planner/interfaces/experimental_claim_cli.py",
     "cascade_planner/interfaces/experimental_claim_gc.py",
+    "cascade_planner/interfaces/external_strategy_import.py",
     "cascade_planner/interfaces/mechanism_program_gc.py",
     "cascade_planner/interfaces/experiment_dispatch_cli.py",
     "cascade_planner/interfaces/experiment_job_cli.py",
@@ -172,11 +185,13 @@ V4_MODULES = (
     "cascade_planner/interfaces/program_gc.py",
     "cascade_planner/interfaces/program_migration.py",
     "cascade_planner/interfaces/replay_store_gc.py",
+    "cascade_planner/interfaces/chemenzy_builtin_runtime.py",
     "cascade_planner/interfaces/chemenzy_probe.py",
     "cascade_planner/interfaces/chemenzy_probe_contract.py",
     "cascade_planner/interfaces/chemenzy_parameter_binding.py",
     "cascade_planner/interfaces/chemenzy_probe_routes.py",
     "cascade_planner/interfaces/chemenzy_route_invariants.py",
+    "cascade_planner/interfaces/chemenzy_route_topology.py",
     "cascade_planner/interfaces/literature_candidates.py",
     "cascade_planner/interfaces/literature_relevance.py",
     "cascade_planner/interfaces/literature_evidence.py",
@@ -252,11 +267,16 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/application/action_service_policy.py": 240,
     "cascade_planner/application/replan_pressure.py": 180,
     "cascade_planner/application/scientific_closure_pressure.py": 180,
+    "cascade_planner/application/strategy_experiment_closure.py": 180,
+    "cascade_planner/application/strategy_experiment_closure_route.py": 180,
+    "cascade_planner/application/campaign_action_latency.py": 220,
     "cascade_planner/application/campaign_action_status.py": 70,
+    "cascade_planner/application/guided_search_progress.py": 140,
     "cascade_planner/application/campaign_review_bundle.py": 340,
     "cascade_planner/application/campaign_quality_state.py": 280,
     "cascade_planner/application/candidate_lifecycle.py": 380,
     "cascade_planner/application/candidate_provenance.py": 390,
+    "cascade_planner/application/candidate_provider_route_audit.py": 220,
     "cascade_planner/application/campaign_contract_json.py": 100,
     "cascade_planner/application/unified_campaign_spec.py": 400,
     "cascade_planner/application/biocatalytic_program_contracts.py": 320,
@@ -277,6 +297,7 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/application/execution_program_validations.py": 260,
     "cascade_planner/application/execution_programs.py": 420,
     "cascade_planner/application/execution_validation_frontier.py": 230,
+    "cascade_planner/application/external_strategy_routes.py": 470,
     "cascade_planner/application/experiment_execution_contracts.py": 250,
     "cascade_planner/application/experiment_execution_results.py": 280,
     "cascade_planner/application/experiment_external_jobs.py": 320,
@@ -331,7 +352,13 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/application/reaction_template_library.py": 500,
     "cascade_planner/application/reaction_template_store.py": 170,
     "cascade_planner/application/reaction_condition_records.py": 220,
+    "cascade_planner/application/reactionjson_replay.py": 380,
     "cascade_planner/application/route_variants.py": 400,
+    "cascade_planner/application/route_pareto_vector.py": 220,
+    "cascade_planner/application/milestone_subscription.py": 320,
+    "cascade_planner/application/milestone_notification.py": 90,
+    "cascade_planner/application/milestone_outbox_store.py": 150,
+    "cascade_planner/interfaces/campaign_milestone_gateway.py": 80,
     "cascade_planner/application/route_execution_capabilities.py": 270,
     "cascade_planner/application/route_execution_discovery.py": 150,
     "cascade_planner/application/route_innovations.py": 400,
@@ -394,6 +421,7 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/interfaces/campaign_recovery_stores.py": 50,
     "cascade_planner/interfaces/experimental_claim_cli.py": 80,
     "cascade_planner/interfaces/experimental_claim_gc.py": 60,
+    "cascade_planner/interfaces/external_strategy_import.py": 90,
     "cascade_planner/interfaces/mechanism_program_gc.py": 60,
     "cascade_planner/interfaces/experiment_dispatch_cli.py": 140,
     "cascade_planner/interfaces/experiment_job_cli.py": 110,
@@ -406,6 +434,8 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/interfaces/program_migration.py": 160,
     "cascade_planner/interfaces/replay_store_gc.py": 100,
     "cascade_planner/interfaces/chemenzy_probe.py": 820,
+    "cascade_planner/interfaces/chemenzy_route_topology.py": 100,
+    "cascade_planner/interfaces/chemenzy_builtin_runtime.py": 240,
     "cascade_planner/interfaces/chemenzy_probe_contract.py": 140,
     "cascade_planner/interfaces/chemenzy_parameter_binding.py": 220,
     "cascade_planner/interfaces/chemenzy_probe_routes.py": 440,
@@ -451,6 +481,7 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/runtime/immutable_event_store.py": 70,
     "cascade_planner/runtime/immutable_json_events.py": 70,
     "cascade_planner/web/v4_api.py": 360,
+    "cascade_planner/web/v4_milestone_api.py": 100,
     "cascade_planner/web/v4_target_routes.py": 300,
     "cascade_planner/web/v4_experiment_api.py": 120,
     "cascade_planner/web/v4_experiment_job_api.py": 80,
@@ -520,10 +551,12 @@ def test_v4_modules_do_not_import_frozen_ownership_paths() -> None:
         for imported in _imports(ROOT / relative):
             if imported.startswith(FORBIDDEN_V4_DEPENDENCIES):
                 violations.append(f"{relative}->{imported}")
-            if relative.startswith("cascade_planner/application/") and imported.startswith(
-                "cascade_planner.orchestration"
-            ):
-                violations.append(f"application_reverse_dependency:{relative}->{imported}")
+            if relative.startswith(
+                "cascade_planner/application/"
+            ) and imported.startswith("cascade_planner.orchestration"):
+                violations.append(
+                    f"application_reverse_dependency:{relative}->{imported}"
+                )
     assert violations == []
 
 
@@ -570,9 +603,7 @@ def test_benchmark_harness_does_not_pass_a_result_view_into_the_solver() -> None
         for node in ast.walk(run_case)
         if isinstance(node, ast.Constant) and isinstance(node.value, str)
     }
-    w8_source = (ROOT / "scripts/run_retrostar190_w8.py").read_text(
-        encoding="utf-8"
-    )
+    w8_source = (ROOT / "scripts/run_retrostar190_w8.py").read_text(encoding="utf-8")
 
     assert "--objective-mode" not in string_literals
     assert "--objective-mode" not in w8_source
@@ -586,6 +617,190 @@ def test_action_runtime_cannot_write_the_canonical_graph_directly() -> None:
 
     assert "cascade_planner.application.canonical_hypergraph" not in imported
     assert "cascade_planner.orchestration.retrosynthesis_service" not in imported
+
+
+def test_all_active_packages_have_one_canonical_store_owner_and_audited_writers() -> None:
+    """Keep canonical writes behind the campaign service across the full package.
+
+    The curated ``V4_MODULES`` dependency test protects the intended mainline.
+    This wider scan prevents a new provider, Program adapter, Web handler, or
+    manual-import surface from quietly constructing a second graph owner or
+    mutating ``service.graph_store`` outside an explicitly audited boundary.
+    """
+
+    allowed_store_constructors = {
+        "cascade_planner/orchestration/retrosynthesis_service.py",
+    }
+    allowed_graph_store_writers = {
+        "cascade_planner/orchestration/retrosynthesis_service_execution.py",
+        # Replay may append digest-bound lifecycle facts through the same store;
+        # it does not ingest provider chemistry or grant new proof authority.
+        "cascade_planner/interfaces/replay_lifecycle.py",
+    }
+    constructor_calls: set[str] = set()
+    graph_store_writes: set[str] = set()
+    forbidden_imports: list[str] = []
+    package_root = ROOT / "cascade_planner"
+    for path in sorted(package_root.rglob("*.py")):
+        relative = path.relative_to(ROOT).as_posix()
+        if relative.startswith(
+            ("cascade_planner/legacy/", "cascade_planner/research/")
+        ):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for imported in _imports(path):
+            if imported.startswith(
+                ("cascade_planner.legacy", "cascade_planner.research")
+            ):
+                forbidden_imports.append(f"{relative}->{imported}")
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "CanonicalHypergraphStore"
+            ) or (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "CanonicalHypergraphStore"
+            ):
+                constructor_calls.add(relative)
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "apply"
+                and isinstance(node.func.value, ast.Attribute)
+                and node.func.value.attr == "graph_store"
+            ):
+                graph_store_writes.add(relative)
+
+    assert forbidden_imports == []
+    assert constructor_calls == allowed_store_constructors
+    assert graph_store_writes == allowed_graph_store_writers
+
+
+def test_all_candidate_producers_enter_one_canonical_ingestion_surface() -> None:
+    """Freeze every production construction and submission point for graph input.
+
+    Provider, literature, template, manual, and Program adapters may prepare
+    different proposal contracts.  They must nevertheless submit through the
+    campaign service and its ``CanonicalIngestionBatch`` boundary; adding a new
+    call site requires an explicit architecture review here.
+    """
+
+    allowed_batch_constructors = {
+        "cascade_planner/orchestration/retrosynthesis_service_execution.py",
+        "cascade_planner/orchestration/retrosynthesis_service_planning.py",
+        "cascade_planner/interfaces/chemenzy_probe.py",
+        "cascade_planner/interfaces/patent_self_evolution.py",
+        # Lifecycle replay can append only validated, digest-bound fact events.
+        "cascade_planner/interfaces/replay_lifecycle.py",
+        "cascade_planner/interfaces/target_solver.py",
+        "cascade_planner/interfaces/target_solver_stages.py",
+    }
+    allowed_service_batch_callers = {
+        "cascade_planner/orchestration/retrosynthesis_service_execution.py",
+        "cascade_planner/orchestration/retrosynthesis_service_planning.py",
+        "cascade_planner/interfaces/chemenzy_probe.py",
+        "cascade_planner/interfaces/patent_self_evolution.py",
+        "cascade_planner/interfaces/target_solver.py",
+        "cascade_planner/interfaces/target_solver_stages.py",
+    }
+    allowed_global_plan_callers = {
+        "cascade_planner/orchestration/retrosynthesis_service_planning.py",
+        "cascade_planner/interfaces/campaign_gateway.py",
+        "cascade_planner/interfaces/external_strategy_import.py",
+        "cascade_planner/interfaces/replay_pack.py",
+        "cascade_planner/interfaces/validation_fork.py",
+    }
+    batch_constructors: set[str] = set()
+    service_batch_callers: set[str] = set()
+    global_plan_callers: set[str] = set()
+    package_root = ROOT / "cascade_planner"
+    for path in sorted(package_root.rglob("*.py")):
+        relative = path.relative_to(ROOT).as_posix()
+        if relative.startswith(
+            ("cascade_planner/legacy/", "cascade_planner/research/")
+        ):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "CanonicalIngestionBatch"
+            ) or (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "CanonicalIngestionBatch"
+            ):
+                batch_constructors.add(relative)
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "apply_batch":
+                service_batch_callers.add(relative)
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "apply_global_plan"
+            ):
+                global_plan_callers.add(relative)
+
+    assert batch_constructors == allowed_batch_constructors
+    assert service_batch_callers == allowed_service_batch_callers
+    assert global_plan_callers == allowed_global_plan_callers
+
+    canonical_source = (
+        ROOT / "cascade_planner/application/canonical_hypergraph.py"
+    ).read_text(encoding="utf-8")
+    canonical_tree = ast.parse(canonical_source)
+    origin_assignment = next(
+        node
+        for node in canonical_tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "_ORIGIN_KINDS"
+            for target in node.targets
+        )
+    )
+    origin_kinds = set(ast.literal_eval(origin_assignment.value))
+    assert {
+        "codex_global_director",
+        "chemenzy",
+        "template",
+        "self_evo_patent_template",
+        "literature",
+        "literature_source_route",
+        "literature_visual_extraction",
+        "external_strategy",
+        "manual",
+        "biocatalysis_hypothesis",
+        "mechanism_hypothesis",
+    }.issubset(origin_kinds)
+
+
+def test_root_scripts_do_not_import_frozen_legacy_control_flow() -> None:
+    """Keep V3 campaign owners behind explicit ``scripts/legacy`` entrypoints."""
+
+    allowed_guard_import = {
+        (
+            "scripts/run_chem_enzy_plan_for_web.py",
+            "cascade_planner.legacy.guard",
+        ),
+    }
+    violations: list[str] = []
+    scripts_root = ROOT / "scripts"
+    for path in sorted(scripts_root.glob("*.py")):
+        relative = path.relative_to(ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            imported: list[str] = []
+            if isinstance(node, ast.Import):
+                imported.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.append(node.module)
+            for module in imported:
+                if not module.startswith("cascade_planner.legacy"):
+                    continue
+                if (relative, module) not in allowed_guard_import:
+                    violations.append(f"{relative}->{module}")
+
+    assert violations == []
 
 
 def test_target_solver_constructs_one_runtime_and_projects_stages_read_only() -> None:
@@ -613,8 +828,7 @@ def test_target_solver_constructs_one_runtime_and_projects_stages_read_only() ->
     projector = next(
         node
         for node in solve_target.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "project_action_results"
+        if isinstance(node, ast.FunctionDef) and node.name == "project_action_results"
     )
     projector_dispatch_calls = sorted(
         {
@@ -675,7 +889,10 @@ def test_isolated_v4_web_surface_does_not_import_combined_compatibility_app() ->
     imports = _imports(ROOT / "cascade_planner/web/v4_app.py")
 
     assert "cascade_planner.legacy.web_runtime.app" not in imports
-    assert "cascade_planner.legacy.harness_runtime.agentic_blackboard_controller" not in imports
+    assert (
+        "cascade_planner.legacy.harness_runtime.agentic_blackboard_controller"
+        not in imports
+    )
 
 
 def test_every_compatibility_shim_has_replacement_telemetry_and_milestone() -> None:

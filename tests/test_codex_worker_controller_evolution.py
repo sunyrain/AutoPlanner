@@ -4,6 +4,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -32,11 +33,13 @@ from cascade_planner.agent.codex_worker import (
     WorkerProcessResult,
     WorkerRunRecord,
     WorkerTask,
+    WorkerCancelledError,
     WorkerTimeoutError,
     _api_json_config,
     _codex_cli_runtime_environment,
     _codex_cli_worker_environment,
     _codex_cli_command,
+    _codex_worker_prompt,
     _run_worker_command,
     _worker_output_json_schema,
     _task_allows_cli_search,
@@ -51,6 +54,73 @@ from cascade_planner.agent.evolution_manager import (
 
 
 class CodexWorkerControllerEvolutionTest(unittest.TestCase):
+    def test_strategy_worker_schema_does_not_require_evidence_metadata(self):
+        task = WorkerTask(
+            task_id="strategy",
+            case_id="opaque-case",
+            task_type="strategic_disconnection_mining",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+
+        schema = _worker_output_json_schema(task)
+        candidate = schema["properties"]["payload"]["properties"]["candidates"][
+            "items"
+        ]
+        prompt = _codex_worker_prompt(task)
+
+        self.assertFalse(
+            {
+                "source_channel",
+                "source_refs",
+                "evidence_refs",
+                "evidence_level",
+                "confidence",
+            }
+            & set(candidate["required"])
+        )
+        self.assertIn("blind strategy design", prompt)
+        self.assertNotIn("Prefer traceable sources", prompt)
+
+    def test_chemical_strategy_critic_has_closed_no_authority_schema(self):
+        task = WorkerTask(
+            task_id="critic",
+            case_id="opaque-critic",
+            task_type="route_chemistry_critique",
+            required_artifact_type="ChemicalStrategyCritique",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+
+        payload = _worker_output_json_schema(task)["properties"]["payload"]
+
+        self.assertFalse(payload["additionalProperties"])
+        self.assertEqual(
+            payload["properties"]["no_reaction_proof"]["enum"], [True]
+        )
+        self.assertEqual(
+            payload["properties"]["no_source_authority"]["enum"], [True]
+        )
+
+    def test_global_plan_schema_binds_full_context_ref_not_prompt_digest(self):
+        task = WorkerTask(
+            task_id="director",
+            case_id="case",
+            task_type="global_campaign_direction",
+            required_artifact_type="GlobalCampaignPlan",
+            input_refs=["a" * 64],
+        )
+
+        schema = _worker_output_json_schema(task)
+
+        context_schema = schema["properties"]["payload"]["properties"][
+            "context_sha256"
+        ]
+        self.assertEqual(context_schema["enum"], ["a" * 64])
+
     def test_mock_worker_returns_valid_draft_artifact(self):
         task = WorkerTask(
             task_id="target_research_1",
@@ -285,6 +355,39 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             elapsed = time.monotonic() - started
 
             self.assertLess(elapsed, 4.0)
+            if pid_path.exists():
+                _kill_test_process_tree(int(pid_path.read_text(encoding="utf-8")))
+
+    def test_worker_command_cancellation_terminates_process_tree_promptly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pid_path = root / "descendant.pid"
+            script = (
+                "import pathlib, subprocess, sys, time\n"
+                f"pid_path = pathlib.Path({str(pid_path)!r})\n"
+                "desc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)\n"
+                "pid_path.write_text(str(desc.pid), encoding='utf-8')\n"
+                "time.sleep(30)\n"
+            )
+            cancel_event = threading.Event()
+            timer = threading.Timer(0.2, cancel_event.set)
+            timer.start()
+            started = time.monotonic()
+            try:
+                with self.assertRaises(WorkerCancelledError) as raised:
+                    _run_worker_command(
+                        [sys.executable, "-c", script],
+                        cwd=root,
+                        timeout_s=30.0,
+                        cancel_event=cancel_event,
+                        cancel_backend="fixture_backend",
+                    )
+            finally:
+                timer.cancel()
+            elapsed = time.monotonic() - started
+
+            self.assertLess(elapsed, 4.0)
+            self.assertEqual(raised.exception.backend, "fixture_backend")
             if pid_path.exists():
                 _kill_test_process_tree(int(pid_path.read_text(encoding="utf-8")))
 

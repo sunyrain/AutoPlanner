@@ -33,6 +33,7 @@ from cascade_planner.application.retrosynthesis_workers import (
     normalize_source_binding,
 )
 from cascade_planner.application.run_kernel import RunKernel, RunLimits, RunSpec
+from cascade_planner.application.strategy_contract import normalize_strategy_card
 from cascade_planner.application.worker_runtime import (
     WorkerBudget,
     WorkerCommand,
@@ -472,6 +473,110 @@ def _plan() -> dict:
     }
 
 
+def _strategy_card() -> dict:
+    return normalize_strategy_card(
+        {
+            "scaffold_motif": "ester target assembled from two fragments",
+            "key_forward_transformation": "convergent acyl substitution",
+            "key_bond_changes": ["form acyl C-O bond"],
+            "functional_group_conflicts": [],
+            "protection_policy": "avoid protection",
+            "stereochemical_plan": "not applicable",
+            "convergence_plan": "join alcohol and acyl donor",
+            "strategic_step_count": 1,
+            "skeleton_change_class": "fragment union",
+            "expected_complexity_drop": "high",
+            "orthogonality_basis": "acyl C-O construction",
+            "strategy_signature": "convergent esterification",
+            "execution_domain": "chemical",
+        }
+    )
+
+
+def test_strategy_card_survives_plan_hypothesis_materialization_and_route(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    plan = _plan()
+    card = _strategy_card()
+    plan["route_families"][0]["strategy_card"] = card
+    plan["route_families"][0]["chemical_critic"] = {
+        "schema_version": "chemical_strategy_critique.v1",
+        "status": "viable",
+        "overall_assessment": "viable",
+        "strategy_adherence": True,
+        "step_assessments": [],
+        "route_level_risks": [],
+        "no_reaction_proof": True,
+        "no_source_authority": True,
+        "no_solved_claim": True,
+    }
+    step = plan["multi_step_skeletons"][0]["steps"][0]
+    step["strategy_card"] = card
+    step["strategy_id"] = card["strategy_id"]
+    step["strategy_digest"] = card["strategy_digest"]
+    step["strategy_anchor"] = True
+
+    admitted = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="strategy-plan",
+    )["graph"]
+    route = next(iter(admitted["route_families"].values()))
+    hypothesis = next(iter(admitted["hypotheses"].values()))
+    assert route["strategy_digest"] == card["strategy_digest"]
+    assert hypothesis["strategy_digest"] == card["strategy_digest"]
+    assert route["chemical_critic"]["status"] == "viable"
+
+    commands = materialization_commands_for_global_plan(
+        plan,
+        run_id=kernel.spec.run_id,
+        input_revision=kernel.state.graph_revision,
+    )
+    assert commands[0].payload["strategy_cards"][0]["strategy_digest"] == card[
+        "strategy_digest"
+    ]
+    results = tuple(runtime.execute(command) for command in commands)
+    graph = store.apply(
+        CanonicalIngestionBatch(worker_results=results),
+        worker_runtime=runtime,
+        idempotency_key="strategy-materialized",
+    )["graph"]
+    edge = next(iter(graph["edges"].values()))
+    assert edge["strategy_cards"][0]["strategy_digest"] == card["strategy_digest"]
+    assert edge["chemical_strategy_critic"]["semantics"][
+        "runs_before_evidence_acquisition"
+    ] is True
+
+
+def test_route_step_cannot_silently_replace_frozen_strategy(tmp_path: Path) -> None:
+    store = CanonicalHypergraphStore(_kernel(tmp_path))
+    plan = _plan()
+    frozen = _strategy_card()
+    replacement = normalize_strategy_card(
+        {
+            **frozen,
+            "key_forward_transformation": "late oxidation instead of fragment union",
+            "key_bond_changes": ["change C-O bond order"],
+            "skeleton_change_class": "redox FGI",
+            "strategy_signature": "late oxidation",
+        }
+    )
+    plan["route_families"][0]["strategy_card"] = frozen
+    plan["multi_step_skeletons"][0]["steps"][0]["strategy_card"] = replacement
+
+    graph = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="strategy-replacement",
+    )["graph"]
+    hypothesis = next(iter(graph["hypotheses"].values()))
+
+    assert hypothesis["status"] == "admission_rejected"
+    assert "strategy_replacement_conflict" in hypothesis["admission_reasons"]
+    assert not store.frontier_materialization_commands()
+
+
 def _command(
     kernel: RunKernel,
     worker_type: str,
@@ -610,6 +715,65 @@ def test_global_codex_plan_enters_real_frontier_then_materializes_once(
     assert graph["deficit_frontier"]["summary"]["by_kind"]["materialization"] == 0
     assert graph["deficit_frontier"]["summary"]["by_kind"]["validation"] == 1
     assert kernel.state.graph_revision == 2
+
+
+def test_guided_frontier_materialization_preserves_canonical_parent_family(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    planned = store.apply(
+        CanonicalIngestionBatch(global_plans=(_plan(),)),
+        idempotency_key="guided-parent-plan",
+    )["graph"]
+    parent_id = next(iter(planned["route_families"]))
+
+    guided = store.apply(
+        CanonicalIngestionBatch(
+            hypotheses=(
+                {
+                    "step_id": "chemenzy:guided:route:1:step:1",
+                    "proposal_id": "chemenzy:guided:route:1:step:1",
+                    "route_family_id": "chemenzy:guided:route:1",
+                    "canonical_route_family_id": parent_id,
+                    "product_smiles": "CCO",
+                    "precursor_smiles": ["CC=O"],
+                    "origin_kind": "chemenzy",
+                    "origin_ref": "guided-provider",
+                    "transformation_hypothesis": "guided upstream expansion",
+                },
+            )
+        ),
+        idempotency_key="guided-parent-hypothesis",
+    )["graph"]
+    guided_hypothesis = next(
+        row
+        for row in guided["hypotheses"].values()
+        if row["product_smiles"] == "CCO"
+    )
+    assert guided_hypothesis["route_family_ids"] == [parent_id]
+
+    commands = store.frontier_materialization_commands(
+        [guided_hypothesis["hypothesis_id"]]
+    )
+    proposal_ref = commands[0].payload["proposal_refs"][0]
+    assert proposal_ref["route_family_id"] == "chemenzy:guided:route:1"
+    assert proposal_ref["canonical_route_family_ids"] == [parent_id]
+
+    materialized = store.apply(
+        CanonicalIngestionBatch(
+            worker_results=tuple(runtime.execute(command) for command in commands)
+        ),
+        worker_runtime=runtime,
+        idempotency_key="guided-parent-materialized",
+    )["graph"]
+    guided_edge = next(
+        row for row in materialized["edges"].values() if row["product_smiles"] == "CCO"
+    )
+    parent = materialized["route_families"][parent_id]
+    assert guided_edge["route_family_ids"] == [parent_id]
+    assert guided_edge["edge_id"] in parent["edge_ids"]
 
 
 def test_admission_rejected_director_step_is_retained_as_l0_without_work(
@@ -1277,6 +1441,101 @@ def test_different_procurement_boundaries_are_not_marked_dominated(
     }
 
 
+def test_same_boundary_edge_superset_remains_scientifically_actionable(
+    tmp_path: Path,
+) -> None:
+    """A projection preference must not erase a topology-valid route family."""
+
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    store.apply(
+        CanonicalIngestionBatch(
+            route_families=(
+                {
+                    "route_family_id": "route:short",
+                    "strategic_disconnection": "direct assembly",
+                },
+                {
+                    "route_family_id": "route:long",
+                    "strategic_disconnection": "condition-rich detour",
+                },
+            )
+        ),
+        idempotency_key="same-boundary-routes",
+    )
+    result = _apply_proposals(
+        kernel,
+        store,
+        runtime,
+        (
+            {
+                "product_smiles": "CCOC(C)=O",
+                "precursor_smiles": ["CCO", "CC(=O)Cl"],
+                "origin_kind": "template",
+                "route_family_id": "route:short",
+            },
+            {
+                "product_smiles": "CCOC(C)=O",
+                "precursor_smiles": ["CCO", "CC(=O)Cl"],
+                "origin_kind": "template",
+                "route_family_id": "route:long",
+            },
+            {
+                "product_smiles": "CCO",
+                "precursor_smiles": ["CC", "O"],
+                "origin_kind": "template",
+                "route_family_id": "route:short",
+            },
+            {
+                "product_smiles": "CCO",
+                "precursor_smiles": ["CC", "O"],
+                "origin_kind": "template",
+                "route_family_id": "route:long",
+            },
+            {
+                "product_smiles": "CC(=O)Cl",
+                "precursor_smiles": ["CC", "O"],
+                "origin_kind": "template",
+                "route_family_id": "route:short",
+            },
+            {
+                "product_smiles": "CC(=O)Cl",
+                "precursor_smiles": ["CC", "O"],
+                "origin_kind": "template",
+                "route_family_id": "route:long",
+            },
+            {
+                # An alternative detour reaches an intermediate already present
+                # in the same acyclic route.  It leaves the audited terminal
+                # boundary unchanged while making the edge set a strict superset.
+                "product_smiles": "CCO",
+                "precursor_smiles": ["CC(=O)Cl"],
+                "origin_kind": "template",
+                "route_family_id": "route:long",
+            },
+        ),
+        key="same-boundary-edges",
+    )
+    graph = result["graph"]
+    routes = graph["route_families"]
+    short = next(route for route in routes.values() if "route:short" in route["aliases"])
+    long = next(route for route in routes.values() if "route:long" in route["aliases"])
+
+    assert set(short["edge_ids"]) < set(long["edge_ids"])
+    assert set(short["leaf_molecule_ids"]) == set(long["leaf_molecule_ids"])
+    assert long["status"] != "dominated"
+    assert long.get("dominance_advisory", {}).get("non_authoritative") is True
+    assert long["route_family_id"] in {
+        route_id
+        for item in graph["deficit_frontier"]["items"]
+        for route_id in item.get("route_family_ids") or []
+    }
+    assert {short["route_family_id"], long["route_family_id"]} <= {
+        row["route_family_id"] for row in graph["portfolio_ranking"]
+    }
+
+
 def test_local_stock_update_recomputes_only_dirty_subgraph_and_matches_oracle(
     tmp_path: Path,
 ) -> None:
@@ -1357,3 +1616,108 @@ def test_local_stock_update_recomputes_only_dirty_subgraph_and_matches_oracle(
     assert canonical_scientific_projection(graph) == canonical_scientific_projection(
         oracle
     )
+
+
+def test_inventory_snapshot_change_updates_stock_facts_without_rewriting_topology(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    proposal_runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    _apply_proposals(
+        kernel,
+        store,
+        proposal_runtime,
+        (
+            {
+                "product_smiles": "CCOC(C)=O",
+                "precursor_smiles": ["CCO", "CC(=O)Cl"],
+                "origin_kind": "template",
+                "route_family_id": "route:stock-snapshot",
+            },
+        ),
+        key="stock-snapshot-topology",
+    )
+
+    def audit_snapshot(*, available: bool, day: int, suffix: str) -> dict:
+        timestamp = f"2026-07-{day:02d}T00:00:00Z"
+        inventory_ref = kernel.artifacts.put_json(
+            {
+                "schema_version": "versioned_inventory_snapshot.v1",
+                "adapter_version": "tests.inventory.v1",
+                "inventory_version": suffix,
+                "retrieved_at": timestamp,
+                "offers": [
+                    {
+                        "schema_version": "stock_offer_snapshot.v1",
+                        "supplier": "fixture",
+                        "catalog_number": f"ETHANOL-{suffix}",
+                        "smiles": "CCO",
+                        "checked_at": timestamp,
+                        "available": available,
+                    }
+                ],
+            },
+            logical_name=f"inventory-{suffix}.json",
+            producer="tests.inventory",
+        ).to_dict()
+        runtime = WorkerRuntime(
+            kernel,
+            build_retrosynthesis_worker_handlers(),
+            artifact_authorities={inventory_ref["sha256"]: "inventory_snapshot_set"},
+        )
+        result = runtime.execute(
+            _command(
+                kernel,
+                "audit_deep_leaf_stock",
+                {
+                    "target_smiles": kernel.spec.target_smiles,
+                    "selected_deep_leaves": [{"leaf_id": "leaf:ethanol", "smiles": "CCO"}],
+                    "inventory_artifact_sha256": inventory_ref["sha256"],
+                    "as_of": f"2026-07-{day:02d}T12:00:00Z",
+                    "max_age_days": 30,
+                },
+                task_kind="stock",
+                suffix=suffix,
+                artifact_refs=(inventory_ref,),
+            )
+        )
+        return store.apply(
+            CanonicalIngestionBatch(worker_results=(result,)),
+            worker_runtime=runtime,
+            idempotency_key=f"stock-snapshot-{suffix}",
+        )["graph"]
+
+    available_graph = audit_snapshot(available=True, day=13, suffix="available")
+    unavailable_graph = audit_snapshot(available=False, day=14, suffix="unavailable")
+
+    def topology(graph: dict) -> dict:
+        return {
+            "target_molecule_id": graph["target_molecule_id"],
+            "edges": {
+                edge_id: {
+                    "product_molecule_id": edge["product_molecule_id"],
+                    "precursor_molecule_ids": edge["precursor_molecule_ids"],
+                }
+                for edge_id, edge in graph["edges"].items()
+            },
+            "route_families": {
+                route_id: {
+                    "edge_ids": route["edge_ids"],
+                    "leaf_molecule_ids": route["leaf_molecule_ids"],
+                }
+                for route_id, route in graph["route_families"].items()
+            },
+        }
+
+    ethanol_id = molecule_identity("CCO")[0]
+    first_active = available_graph["molecules"][ethanol_id]["active_stock_observation_id"]
+    second_active = unavailable_graph["molecules"][ethanol_id]["active_stock_observation_id"]
+    assert topology(available_graph) == topology(unavailable_graph)
+    assert first_active != second_active
+    assert available_graph["stock_observations"][first_active]["accepted"] is True
+    assert unavailable_graph["stock_observations"][second_active]["accepted"] is False
+    assert available_graph["scientific_sha256"] != unavailable_graph["scientific_sha256"]
+    assert unavailable_graph["scientific_sha256"] == store.full_recompute_oracle()[
+        "scientific_sha256"
+    ]

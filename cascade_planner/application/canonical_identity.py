@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 from rdkit import Chem, RDLogger
 
 from cascade_planner.routes.admission import audit_retrosynthetic_candidate
+from cascade_planner.application.strategy_contract import normalize_strategy_card
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -62,6 +63,7 @@ def route_family_identity(
     target_molecule_id: str,
 ) -> str:
     row = dict(value)
+    strategy_card = normalize_strategy_card(row.get("strategy_card") or {})
     identity = {
         "target_molecule_id": target_molecule_id,
         "family_key": str(
@@ -76,6 +78,21 @@ def route_family_identity(
             or row.get("strategy")
             or row.get("rationale")
             or ""
+        ),
+        # Structured strategy identity is stronger than a prose family label,
+        # but legacy families without a card retain their historical ids.
+        **(
+            {"strategy_digest": strategy_card["strategy_digest"]}
+            if any(
+                str(strategy_card.get(field) or "")
+                for field in (
+                    "scaffold_motif",
+                    "key_forward_transformation",
+                    "key_bond_signature",
+                    "reaction_edit_digest",
+                )
+            )
+            else {}
         ),
     }
     return f"route-family:{_digest(identity)}"

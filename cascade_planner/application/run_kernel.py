@@ -41,7 +41,8 @@ LEGACY_RUN_SPEC_SCHEMA = "autoplanner_run_spec.v1"
 RUN_SPEC_SCHEMA = "autoplanner_run_spec.v2"
 RUN_LIMITS_SCHEMA = "autoplanner_run_limits.v1"
 RUN_EVENT_SCHEMA = "autoplanner_run_event.v1"
-RUN_STATE_SCHEMA = "autoplanner_run_state.v1"
+LEGACY_RUN_STATE_SCHEMA = "autoplanner_run_state.v1"
+RUN_STATE_SCHEMA = "autoplanner_run_state.v2"
 RUN_REVISION_SCHEMA = "autoplanner_run_revision.v1"
 DEFICIT_SCHEMA = "autoplanner_deficit.v1"
 STOP_DECISION_SCHEMA = "autoplanner_stop_decision.v1"
@@ -396,6 +397,7 @@ class RunState:
     attempt_count: int = 0
     settled_task_count: int = 0
     task_wall_time_s: float = 0.0
+    task_compute_time_s: float = 0.0
     task_counts: Mapping[str, int] = field(default_factory=dict)
     in_flight_tasks: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     task_checkpoints: Mapping[str, tuple[Mapping[str, Any], ...]] = field(
@@ -444,6 +446,8 @@ class RunState:
             "attempt_count_is_settled_proposal_tasks": True,
             "native_search_is_accounted_independently_from_proposal_tasks": True,
             "settled_task_count_includes_all_task_kinds": True,
+            "task_wall_time_is_union_of_settled_task_intervals": True,
+            "task_compute_time_is_sum_of_settled_task_elapsed_time": True,
             "task_checkpoints_do_not_consume_budget_or_grant_scientific_authority": True,
             "queue_empty_is_not_completion": True,
         }
@@ -1783,6 +1787,7 @@ class RunKernel:
                     "attempt_runs": state.attempt_count,
                     "accepted_expansions": state.accepted_expansion_count,
                     "task_wall_time_s": state.task_wall_time_s,
+                    "task_compute_time_s": state.task_compute_time_s,
                 },
                 "graph": {
                     "molecule_count": int(
@@ -1821,42 +1826,57 @@ class RunKernel:
             return []
         events: list[RunEvent] = []
         previous = ""
-        for line_number, line in enumerate(
-            self.events_path.read_text(encoding="utf-8").splitlines(),
-            start=1,
-        ):
-            if not line.strip():
-                continue
-            try:
-                raw = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise RunKernelCorruptionError(
-                    f"run_event_json_invalid:{line_number}"
-                ) from exc
-            event = RunEvent.from_dict(raw)
-            body = event.to_dict()
-            supplied = str(body.pop("event_sha256") or "")
-            if (
-                event.run_id != self.spec.run_id
-                or event.sequence != len(events) + 1
-                or event.previous_event_sha256 != previous
-                or supplied != _digest(body)
-            ):
-                raise RunKernelCorruptionError(
-                    f"run_event_chain_invalid:{line_number}"
-                )
-            previous = supplied
-            events.append(event)
+        with self.events_path.open("r", encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    raw = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise RunKernelCorruptionError(
+                        f"run_event_json_invalid:{line_number}"
+                    ) from exc
+                event = RunEvent.from_dict(raw)
+                body = event.to_dict()
+                supplied = str(body.pop("event_sha256") or "")
+                if (
+                    event.run_id != self.spec.run_id
+                    or event.sequence != len(events) + 1
+                    or event.previous_event_sha256 != previous
+                    or supplied != _digest(body)
+                ):
+                    raise RunKernelCorruptionError(
+                        f"run_event_chain_invalid:{line_number}"
+                    )
+                previous = supplied
+                events.append(event)
         return events
 
     def _repair_event_tail(self) -> int:
         if not self.events_path.is_file():
             return 0
-        payload = self.events_path.read_bytes()
-        if not payload or payload.endswith(b"\n"):
-            return 0
-        last_newline = payload.rfind(b"\n")
-        tail = payload[last_newline + 1 :]
+        with self.events_path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            if size == 0:
+                return 0
+            handle.seek(-1, os.SEEK_END)
+            if handle.read(1) == b"\n":
+                return 0
+            last_newline = -1
+            cursor = size
+            chunk_size = 64 * 1024
+            while cursor > 0 and last_newline < 0:
+                start = max(0, cursor - chunk_size)
+                handle.seek(start)
+                chunk = handle.read(cursor - start)
+                relative = chunk.rfind(b"\n")
+                if relative >= 0:
+                    last_newline = start + relative
+                    break
+                cursor = start
+            handle.seek(last_newline + 1)
+            tail = handle.read()
         try:
             value = json.loads(tail.decode("utf-8"))
             RunEvent.from_dict(value)
@@ -1938,6 +1958,9 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
         "attempt_count": 0,
         "settled_task_count": 0,
         "task_wall_time_s": 0.0,
+        "task_compute_time_s": 0.0,
+        "_task_wall_intervals": [],
+        "_task_reserved_at": {},
         "task_counts": {},
         "in_flight_tasks": {},
         "task_checkpoints": {},
@@ -1969,6 +1992,7 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
             if task_id in state["in_flight_tasks"]:
                 raise RunKernelCorruptionError(f"task_reserved_twice:{task_id}")
             state["in_flight_tasks"][task_id] = payload
+            state["_task_reserved_at"][task_id] = _event_timestamp(event.created_at)
         elif event.event_type == "task_checkpoint":
             task_id = str(payload.get("task_id") or "")
             if task_id not in state["in_flight_tasks"]:
@@ -1996,13 +2020,29 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
             reservation = state["in_flight_tasks"].pop(task_id, None)
             if reservation is None:
                 raise RunKernelCorruptionError(f"task_settled_without_reservation:{task_id}")
+            reserved_at = state["_task_reserved_at"].pop(task_id)
             kind = str(reservation.get("kind") or "other")
             if kind == "proposal":
                 state["attempt_count"] += 1
             state["settled_task_count"] += 1
+            elapsed_s = max(0.0, float(payload.get("elapsed_s") or 0.0))
+            state["task_compute_time_s"] = round(
+                float(state["task_compute_time_s"]) + elapsed_s,
+                6,
+            )
+            if elapsed_s > 0.0:
+                settled_at = _event_timestamp(event.created_at)
+                state["_task_wall_intervals"] = _merge_time_intervals(
+                    (
+                        *state["_task_wall_intervals"],
+                        (max(reserved_at, settled_at - elapsed_s), settled_at),
+                    )
+                )
             state["task_wall_time_s"] = round(
-                float(state["task_wall_time_s"])
-                + max(0.0, float(payload.get("elapsed_s") or 0.0)),
+                sum(
+                    max(0.0, end - start)
+                    for start, end in state["_task_wall_intervals"]
+                ),
                 6,
             )
             state["task_counts"][kind] = int(state["task_counts"].get(kind) or 0) + 1
@@ -2119,6 +2159,7 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
         attempt_count=state["attempt_count"],
         settled_task_count=state["settled_task_count"],
         task_wall_time_s=state["task_wall_time_s"],
+        task_compute_time_s=state["task_compute_time_s"],
         task_counts=dict(state["task_counts"]),
         in_flight_tasks={
             key: dict(value) for key, value in state["in_flight_tasks"].items()
@@ -2255,7 +2296,11 @@ def _spec_with_replayed_budget_extensions(
 def _state_from_dict(value: Mapping[str, Any]) -> RunState:
     row = dict(value)
     supplied = str(row.pop("content_sha256", ""))
-    if value.get("schema_version") != RUN_STATE_SCHEMA or supplied != _digest(row):
+    schema_version = str(value.get("schema_version") or "")
+    if (
+        schema_version not in {RUN_STATE_SCHEMA, LEGACY_RUN_STATE_SCHEMA}
+        or supplied != _digest(row)
+    ):
         raise RunKernelCorruptionError("run_state_snapshot_digest_invalid")
     return RunState(
         run_id=str(row.get("run_id") or ""),
@@ -2265,6 +2310,12 @@ def _state_from_dict(value: Mapping[str, Any]) -> RunState:
         attempt_count=int(row.get("attempt_count") or 0),
         settled_task_count=int(row.get("settled_task_count") or 0),
         task_wall_time_s=float(row.get("task_wall_time_s") or 0.0),
+        task_compute_time_s=float(
+            row.get("task_compute_time_s")
+            if row.get("task_compute_time_s") is not None
+            else row.get("task_wall_time_s")
+            or 0.0
+        ),
         task_counts=dict(row.get("task_counts") or {}),
         in_flight_tasks={
             str(key): dict(item)
@@ -2295,7 +2346,41 @@ def _state_from_dict(value: Mapping[str, Any]) -> RunState:
             str(item) for item in row.get("failure_reasons") or []
         ),
         updated_at=str(row.get("updated_at") or ""),
+        schema_version=schema_version,
     )
+
+
+def _event_timestamp(value: str) -> float:
+    """Return a replay-stable UTC timestamp for wall-clock interval accounting."""
+
+    normalized = str(value or "").strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise RunKernelCorruptionError("run_event_created_at_invalid") from exc
+    if parsed.tzinfo is None:
+        raise RunKernelCorruptionError("run_event_created_at_timezone_missing")
+    return parsed.timestamp()
+
+
+def _merge_time_intervals(
+    intervals: Iterable[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Merge task intervals so concurrent and nested work is charged once."""
+
+    merged: list[tuple[float, float]] = []
+    for raw_start, raw_end in sorted(intervals):
+        start = float(raw_start)
+        end = float(raw_end)
+        if not math.isfinite(start) or not math.isfinite(end) or end < start:
+            raise RunKernelCorruptionError("task_wall_interval_invalid")
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
 
 
 def _native_search_budget_projection(

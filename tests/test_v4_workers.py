@@ -20,6 +20,7 @@ from cascade_planner.application.worker_runtime import (
     WorkerHandlerSpec,
     WorkerRuntime,
 )
+from cascade_planner.application.strategy_contract import normalize_strategy_card
 from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 from cascade_planner.orchestration.global_campaign_director import (
     director_trigger_reasons,
@@ -292,6 +293,75 @@ def test_global_multistep_skeleton_compiles_to_unique_edge_workers(
     assert shared.payload["condition_predictions"][0]["not_reaction_proof"] is True
     assert kernel.state.attempt_count == 2
     assert kernel.state.accepted_expansion_count == 2
+
+
+def test_graph_edits_and_strategy_binding_survive_materialization_worker(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    operations = [{"op": "break_bond", "map_a": 1, "map_b": 2}]
+    card = normalize_strategy_card(
+        {
+            "scaffold_motif": "two-carbon bond",
+            "key_forward_transformation": "fragment union",
+            "key_bond_changes": ["map 1-map 2"],
+            "functional_group_conflicts": [],
+            "protection_policy": "none",
+            "stereochemical_plan": "not applicable",
+            "convergence_plan": "join two carbon fragments",
+            "strategic_step_count": 1,
+            "skeleton_change_class": "fragment union",
+            "expected_complexity_drop": "high",
+            "orthogonality_basis": "mapped C-C bond",
+            "strategy_signature": "C-C fragment union",
+        },
+        reaction_operations=operations,
+    )
+    plan = {
+        "route_families": [
+            {
+                "route_family_id": "family:edit",
+                "strategy_card": card,
+            }
+        ],
+        "multi_step_skeletons": [
+            {
+                "skeleton_id": "skeleton:edit",
+                "route_family_id": "family:edit",
+                "steps": [
+                    {
+                        "step_id": "step:edit",
+                        "product_smiles": "CC",
+                        "precursor_smiles": ["[CH3]", "[CH3]"],
+                        "transformation_hypothesis": "C-C bond construction",
+                        "strategy_card": card,
+                        "strategy_anchor": True,
+                        "reaction_operations": operations,
+                    }
+                ],
+            }
+        ],
+    }
+
+    command = materialization_commands_for_global_plan(
+        plan,
+        run_id=kernel.spec.run_id,
+        input_revision=kernel.state.graph_revision,
+    )[0]
+    assert command.payload["reaction_operations"] == operations
+    assert command.payload["strategy_cards"][0]["strategy_digest"] == card[
+        "strategy_digest"
+    ]
+    result = runtime.execute(command)
+
+    assert result.status == "completed"
+    assert result.payload["reaction_operations"] == operations
+    assert result.payload["reaction_edit_digest"] == card["reaction_edit_digest"]
+    assert result.payload["chemical_strategy_critic"]["accepted"] is True
+    assert result.payload["chemical_strategy_critic"]["reactionjson_audit"][
+        "accepted"
+    ] is True
 
 
 def test_cheap_gates_reject_invalid_balance_cycle_duplicate_without_expansion(

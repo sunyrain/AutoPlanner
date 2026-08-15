@@ -1,0 +1,445 @@
+{
+  "cases": [
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-001-ac25497d48",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 001",
+      "target_smiles": "COc1ccc(-c2cc3c(c(=O)o2)C[C@]2(O)[C@@]4(C)CCC(=O)C(C)(C)[C@]4(O)CC[C@@]2(C)O3)cc1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-002-2fa4dcf431",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 002",
+      "target_smiles": "COc1cc(O[C@@H]2O[C@H](CO[C@@H]3O[C@H](CO)[C@@H](O)[C@H](O)[C@H]3O)[C@@H](O)[C@H](O)[C@H]2O)c2c(c1)C(=O)c1cc(C)ccc1C2=O"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-003-d899ef5d14",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 003",
+      "target_smiles": "CC1=C[C@H]2[C@@H]3C(=O)[C@]4(C[C@H]2O)C[C@@](O)(Cc2ccc(cc2)OC2[C@H]3[C@@H]1[C@]1(C)C[C@H](C)C[C@H](C)[C@@H]21)NC4=O"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-004-07151a557c",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 004",
+      "target_smiles": "C/C=C(/C)C(=O)NCC1NC(=O)C(C(=O)O)NC(=O)C(O)CNC(=O)C(C(C)O)NC(=O)C(C(O)C(O)C(N)=O)NC(=O)C(C(C)C)NC(=O)C(CO)NC1=O"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-005-2bac6d0bee",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 005",
+      "target_smiles": "CO[C@H]1C[C@H](C)Cc2cc(O)cc(c2)NC(=O)/C=C/CC[C@H](OC)[C@@H](OC(N)=O)/C(C)=C/[C@H](C)[C@H]1O"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-006-f328fd7fc8",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 006",
+      "target_smiles": "CC(=O)OC[C@@]1(O)CC[C@]23C[C@H]1C[C@@H]2CC[C@H]1[C@]2(C)CO[C@H](c4ccc(O)cc4)O[C@@H]2CC[C@@]13C"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-007-0673f06a35",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 007",
+      "target_smiles": "CC(=O)N1CC[C@]23c4ccccc4N[C@H]4N(C)c5cccc6c5[C@]42CCN([C@H]6C=C(C)C)[C@H]13"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-008-002a08a116",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 008",
+      "target_smiles": "CC(=O)O[C@H]1[C@@H]2C(=O)c3c(C)cc(O)c4c3[C@@]1(COC4=O)c1c3c4c5c(c(O)cc(C)c5c12)C(=O)O[C@H]4C[C@]1(OC[C@H](C)[C@H]1C)O3"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-009-cbb096f18e",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 009",
+      "target_smiles": "Cc1c2c(cc3c1C[C@@H](O)CC3)[C@]13CC[C@H]([C@H](C)[C@]4(OC(C)(C)[C@@H](C)[C@H]4O)O1)[C@@]3(C)C=C2"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-010-389b965f30",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 010",
+      "target_smiles": "COc1cc(C(=O)Nc2c(O)c3ccc(OC4OC(C)(C)C(OC)C(OC(=O)c5ccc(C)[nH]5)C4O)c(Cl)c3oc2=O)ccc1O"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-011-9318aed007",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 011",
+      "target_smiles": "C=C1CC[C@H]2[C@](C)(CC/C=C(\\C)C(=O)O)[C@@H](OC(C)=O)CC[C@]2(C)[C@@H]1Cc1c(O)c(C)c(C)oc1=O"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-012-66c5132405",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 012",
+      "target_smiles": "C=C(C)c1cnc2ccccc2c1-c1cc(C(=O)NC(C(=O)N2CCC(C)(O)C2C(=O)N/C(C(=O)O)=C(\\C)CC)C(Cl)C(O)CN=C(N)N)ccc1OC"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-013-7bb6a853ac",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 013",
+      "target_smiles": "CCC(=C/C(C)C/C=C/C(C)=C/C(C)C(=O)C(C)C1OC(C)(CCO)CC1C)/C=C/C1OC(=O)C=CC1C"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-014-59ac7fa7bd",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 014",
+      "target_smiles": "COc1cc(C(=O)NCC2(C)OC3(OC(=O)C2O)C(=O)NC(=C(C=O)C(C)=O)OC3C(O)C2CN2C(C)=O)c2cccc(C)c2c1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-015-c62f5cb177",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 015",
+      "target_smiles": "CCCCCCCCCC(=O)O[C@@H]1[C@@H](O)[C@@]2(CCCC(OC(C)=O)C(C)C/C=C/c3ccccc3)O[C@H](C(=O)O)[C@@](O)(C(=O)O)[C@]1(C(=O)O)O2"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-016-9fa9f12b04",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 016",
+      "target_smiles": "CC[C@H](C)/C=C(C)\\C=C\\C1=CC2=C(Cl)C(=O)[C@@]3(C)OC4(O)C[C@H](C)OC(=O)[C@@H]4[C@H]3C2=CO1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-017-e2a3b6606c",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 017",
+      "target_smiles": "C[C@H]1C[C@@H](C)C(=O)[C@@H]([C@H](O)CC2CC(=O)NC(=O)C2)C1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-018-59a3ed6c25",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 018",
+      "target_smiles": "COC(=O)c1ccc(O)c(NC(=O)CC[C@]2(C)C(=O)C[C@@H](O)[C@]34CC5C[C@H](O[C@@]5(C)C3)C42)c1O"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-019-6c0d0f8c5a",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 019",
+      "target_smiles": "CC1=C(CC(O)CC(O)/C=C\\C=C\\C(C)=C\\C=C\\C(C)C(O)C(C)CCc2ccccc2)N(CCO)C(C)(O)C1=O"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 120000,
+        "max_total_output_tokens": 30000,
+        "max_total_wall_time_s": 1800
+      },
+      "case_id": "synthatlas20-020-b038c5e4a6",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 020",
+      "target_smiles": "O=C1N[C@H](Cc2ccc(O)cc2)C(=O)N2CCC[C@H]12"
+    }
+  ],
+  "schema_version": "blind_retrosynthesis_manifest.v1"
+}

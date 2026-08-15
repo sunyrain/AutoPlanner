@@ -15,7 +15,6 @@ from cascade_planner.application.blind_benchmark_contract import (
     load_blind_manifest,
 )
 
-
 TARGET = "CCOC(N)=O"
 
 
@@ -80,7 +79,9 @@ def test_blind_case_bounds_generic_minimum_planning_depth(value: object) -> None
         **dict(accepted["acceptance"]),
         "minimum_planning_route_steps": 20,
     }
-    assert BlindCase.from_dict(accepted).acceptance["minimum_planning_route_steps"] == 20
+    assert (
+        BlindCase.from_dict(accepted).acceptance["minimum_planning_route_steps"] == 20
+    )
 
 
 def test_manifest_loads_target_only_cases_and_rejects_duplicate_targets(
@@ -95,7 +96,9 @@ def test_manifest_loads_target_only_cases_and_rejects_duplicate_targets(
 
     duplicate = _case(case_id="blind-02")
     path.write_text(
-        json.dumps({"schema_version": BLIND_MANIFEST_SCHEMA, "cases": [_case(), duplicate]}),
+        json.dumps(
+            {"schema_version": BLIND_MANIFEST_SCHEMA, "cases": [_case(), duplicate]}
+        ),
         encoding="utf-8",
     )
     with pytest.raises(BlindBenchmarkError, match="target_duplicate"):
@@ -143,6 +146,24 @@ def test_preflight_does_not_treat_generic_blind_label_as_leaked_identity(
         "Every blind target starts from only a SMILES.", encoding="utf-8"
     )
     case = BlindCase.from_dict(_case(target_name="blind target"))
+
+    report = audit_blind_preflight(
+        case,
+        repository_root=repository,
+        run_dir=tmp_path / "fresh-run",
+    )
+
+    assert report["accepted"] is True
+    assert report["repository_matches"] == []
+
+
+def test_preflight_treats_numbered_opaque_labels_as_generic(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "other-manifest.json").write_text(
+        '"opaque benchmark target 001"', encoding="utf-8"
+    )
+    case = BlindCase.from_dict(_case(target_name="opaque benchmark target 001"))
 
     report = audit_blind_preflight(
         case,
@@ -218,9 +239,36 @@ def test_preflight_rejects_evaluator_only_intermediate_leakage(tmp_path: Path) -
     )
 
     assert report["accepted"] is False
-    assert report["reasons"] == ["evaluator_answer_material_already_present_in_repository"]
+    assert report["reasons"] == [
+        "evaluator_answer_material_already_present_in_repository"
+    ]
     assert (
-        report["repository_matches"][0]["needle_sha256"] == hashlib.sha256(b"c1ccccc1").hexdigest()
+        report["repository_matches"][0]["needle_sha256"]
+        == hashlib.sha256(b"c1ccccc1").hexdigest()
+    )
+
+
+def test_stock_membership_is_not_treated_as_route_answer_knowledge(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    stock = repository / "data" / "stock"
+    stock.mkdir(parents=True)
+    (stock / "catalog.csv").write_text("c1ccccc1\n", encoding="utf-8")
+    (repository / "route-notes.txt").write_text("unrelated", encoding="utf-8")
+
+    report = audit_blind_preflight(
+        BlindCase.from_dict(_case()),
+        repository_root=repository,
+        run_dir=tmp_path / "run",
+        additional_leakage_needles={"key_intermediate_smiles": ["c1ccccc1"]},
+    )
+
+    assert report["accepted"] is True
+    assert report["repository_matches"] == []
+    assert (
+        report["semantics"]["inventory_membership_is_not_route_answer_knowledge"]
+        is True
     )
 
 
@@ -249,12 +297,17 @@ def test_checked_in_benchmark_summary_is_compact_bound_and_keeps_failures() -> N
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
 
     assert summary["schema_version"] == "blind_retrosynthesis_benchmark_summary.v1"
-    assert summary["manifest_file_sha256"] == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    assert (
+        summary["manifest_file_sha256"]
+        == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    )
     assert {row["case_id"] for row in summary["results"]} == {
         row["case_id"] for row in manifest["cases"]
     }
     assert summary["aggregate"]["case_count"] == len(manifest["cases"])
-    assert any(row["qualified_policy_acceptance"] is False for row in summary["results"])
+    assert any(
+        row["qualified_policy_acceptance"] is False for row in summary["results"]
+    )
     forbidden = {
         "target_smiles",
         "routes",

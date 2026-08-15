@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -127,7 +129,9 @@ def main() -> None:
     output["chem_enzy_budget_resolution"] = budget_resolution.to_dict()
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+    temp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+    temp_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+    temp_path.replace(out_path)
 
 
 def _configure_pandarallel_worker_environment(payload: dict[str, Any]) -> None:
@@ -177,6 +181,13 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
         "condition_model": payload.get("condition_model", "rcr"),
         "chem_enzy_onmt_tokenizer": onmt_tokenizer,
         "keep_search": True,
+        "stop_on_first_host_admitted_route": bool(
+            payload.get("stop_on_first_host_admitted_route", False)
+        ),
+        # The parent process owns the hard timeout.  Stop native search early
+        # enough to extract, host-audit, and atomically persist any routes
+        # already found instead of losing the whole subprocess at the wall.
+        "search_wall_time_s": _soft_search_wall_time_s(payload.get("timeout_s")),
         "use_filter": payload.get("use_filter", False),
         "use_depth_value_fn": payload.get("use_depth_value_fn", False),
         "include_cascade_expansion_trace": True,
@@ -210,7 +221,7 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
         search_flags["max_output_routes"] = max_output_routes
         search_flags["max_materialized_routes"] = _as_int(
             payload.get("max_materialized_routes"),
-            max(16, max_output_routes * 8),
+            max(4, max_output_routes * 2),
             lo=max_output_routes,
             hi=500,
         )
@@ -250,6 +261,18 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
     if policy_payload:
         config = apply_chem_enzy_search_policy(config, dict(policy_payload))
     return config
+
+
+def _soft_search_wall_time_s(value: Any) -> float | None:
+    """Reserve part of the subprocess wall budget for result persistence."""
+
+    try:
+        hard_limit = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(hard_limit) or hard_limit <= 0:
+        return None
+    return round(max(0.5, hard_limit * 0.7), 3)
 
 
 def _chem_enzy_step_strengthening_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -652,6 +675,13 @@ def _cascade_verifier_gate_enabled(request_payload: dict[str, Any]) -> bool:
     return bool(request_payload.get("enable_rule_verifier_gate") or request_payload.get("cascade_verifier_gate"))
 
 
+_HARD_CASCADE_VERIFIER_REASONS = {
+    "invalid_smiles",
+    "product_mismatch",
+    "route_order_mismatch",
+}
+
+
 def _apply_cascade_verifier_gate(
     routes: list[dict[str, Any]],
     *,
@@ -663,22 +693,40 @@ def _apply_cascade_verifier_gate(
             "input_routes": len(routes),
             "kept_routes": len(routes),
             "dropped_routes": 0,
+            "hard_dropped_routes": 0,
+            "soft_warning_routes": 0,
             "default_stage_mode": "stepwise",
             "dropped": [],
         }
 
     kept: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
+    soft_warning_routes: list[dict[str, Any]] = []
     for route in routes:
         metrics = route.get("metrics") or {}
         report = metrics.get("cascade_verifier") or {}
-        if report.get("feasible") is False:
+        reasons = {
+            str(value)
+            for value in (report.get("reason_counts") or {})
+            if str(value)
+        }
+        if not reasons:
+            reasons = {
+                str(finding.get("reason") or "")
+                for finding in report.get("findings") or []
+                if isinstance(finding, dict) and str(finding.get("reason") or "")
+            }
+        hard_reasons = sorted(reasons & _HARD_CASCADE_VERIFIER_REASONS)
+        verifier_failed_without_reason = (
+            report.get("feasible") is False and not reasons
+        )
+        if hard_reasons or verifier_failed_without_reason:
             route["advisory_only"] = True
             route["confidence"] = 0.0
             route["warning_codes"] = sorted(
                 {
-                    "cascade_verifier_rejected",
-                    *(str(value) for value in (report.get("reason_counts") or {})),
+                    "cascade_verifier_hard_rejected",
+                    *reasons,
                 }
             )
             dropped.append(
@@ -687,9 +735,29 @@ def _apply_cascade_verifier_gate(
                     "n_steps": route.get("n_steps"),
                     "score": route.get("score"),
                     "reason_counts": report.get("reason_counts") or {},
+                    "hard_reasons": hard_reasons or [
+                        "verifier_failed_without_reason"
+                    ],
                 }
             )
             continue
+        if report.get("feasible") is False:
+            route["advisory_only"] = False
+            route["reaction_validation_required"] = True
+            route["warning_codes"] = sorted(
+                {
+                    *(str(value) for value in route.get("warning_codes") or []),
+                    *reasons,
+                }
+            )
+            soft_warning_routes.append(
+                {
+                    "route_rank": route.get("route_rank"),
+                    "n_steps": route.get("n_steps"),
+                    "score": route.get("score"),
+                    "reason_counts": report.get("reason_counts") or {},
+                }
+            )
         kept.append(route)
 
     for index, route in enumerate(kept):
@@ -704,8 +772,16 @@ def _apply_cascade_verifier_gate(
         "input_routes": len(routes),
         "kept_routes": len(kept),
         "dropped_routes": len(dropped),
+        "hard_dropped_routes": len(dropped),
+        "soft_warning_routes": len(soft_warning_routes),
         "default_stage_mode": "stepwise",
         "dropped": dropped[:50],
+        "soft_warnings": soft_warning_routes[:50],
+        "semantics": {
+            "route_generation_gate_blocks_only_structural_contract_failures": True,
+            "reaction_material_and_condition_findings_are_deferred_to_host_validation": True,
+            "soft_warning_routes_grant_no_reaction_proof": True,
+        },
     }
 
 
@@ -1322,6 +1398,14 @@ def _stock_paths(
 
 
 def _smiles_in_stock_file(canonical: str, path: Path) -> bool:
+    if path.suffix.lower() in {".sqlite", ".sqlite3", ".db"}:
+        uri = f"file:{path.expanduser().resolve().as_posix()}?mode=ro"
+        with sqlite3.connect(uri, uri=True) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM stock WHERE canonical_smiles = ? LIMIT 1",
+                (canonical,),
+            ).fetchone()
+        return row is not None
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             first = line.strip().split(",", 1)[0].strip()

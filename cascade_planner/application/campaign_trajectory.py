@@ -1,10 +1,15 @@
 """Content-bound anytime snapshots for one target-blind campaign trajectory."""
+
 from __future__ import annotations
 
 import hashlib
 import json
 import math
 from typing import Any, Iterable, Mapping
+
+from cascade_planner.application.route_workbench_edge_proof_vector import (
+    edge_proof_vector,
+)
 
 
 LEGACY_CAMPAIGN_SNAPSHOT_SCHEMA = "campaign_anytime_snapshot.v1"
@@ -84,6 +89,25 @@ def compile_route_snapshot(
     ]
     pareto = [value for value in candidates if value.get("pareto_optimal") is True]
     gate_counts = dict(gates.get("counts") or {})
+    proofs = dict(portfolio.get("edge_proofs") or {})
+    minimum_sources = max(
+        1,
+        int(
+            dict(portfolio.get("proof_policy") or {}).get(
+                "minimum_independent_source_groups"
+            )
+            or 1
+        ),
+    )
+    closure_axes = [
+        _route_closure_axes(
+            value,
+            graph=graph,
+            proofs=proofs,
+            minimum_sources=minimum_sources,
+        )
+        for value in candidates
+    ]
     counts = {
         "route_family_count": len(dict(graph.get("route_families") or {})),
         "candidate_route_count": len(candidates),
@@ -95,15 +119,20 @@ def compile_route_snapshot(
         "target_rooted_route_count": int(
             gate_counts.get("target_rooted_distinct_skeletons") or 0
         ),
+        "canonical_materialized_route_count": int(
+            gate_counts.get("materialized_skeletons") or 0
+        ),
         "host_validated_route_count": int(
             gate_counts.get("reaction_validated_skeletons") or 0
         ),
+        "strict_host_validated_route_count": sum(value["C2"] for value in closure_axes),
         "exact_evidence_route_count": int(
             gate_counts.get("evidence_closed_skeletons") or 0
         ),
-        "stock_closed_route_count": int(
-            gate_counts.get("stock_closed_skeletons") or 0
-        ),
+        "exact_procedure_route_count": sum(value["C3"] for value in closure_axes),
+        "condition_complete_route_count": sum(value["C4"] for value in closure_axes),
+        "stock_closed_route_count": int(gate_counts.get("stock_closed_skeletons") or 0),
+        "strict_stock_closed_route_count": sum(value["C5"] for value in closure_axes),
     }
     archive = [
         {
@@ -137,6 +166,64 @@ def compile_route_snapshot(
     }
     result["content_sha256"] = _digest(result)
     return result
+
+
+def _route_closure_axes(
+    route: Mapping[str, Any],
+    *,
+    graph: Mapping[str, Any],
+    proofs: Mapping[str, Mapping[str, Any]],
+    minimum_sources: int,
+) -> dict[str, bool]:
+    """Compile strict C1-C5 axes without allowing one axis to imply another."""
+
+    edges = dict(graph.get("edges") or {})
+    edge_ids = [str(value) for value in route.get("edge_ids") or [] if str(value)]
+    materialized = bool(edge_ids) and all(edge_id in edges for edge_id in edge_ids)
+    if not materialized:
+        return {key: False for key in ("C1", "C2", "C3", "C4", "C5")}
+    vectors = [
+        edge_proof_vector(
+            edge=dict(edges[edge_id]),
+            proof=dict(proofs.get(edge_id) or {}),
+            graph=graph,
+        )
+        for edge_id in edge_ids
+    ]
+    reaction_validated = all(
+        vector.get("reaction") in {"host_validated", "source_reaction_exact"}
+        for vector in vectors
+    )
+    source_groups = {
+        str(value)
+        for value in route.get("independent_source_groups") or []
+        if str(value)
+    }
+    exact_procedure = bool(
+        reaction_validated
+        and len(source_groups) >= minimum_sources
+        and all(
+            vector.get("identity") == "source_exact"
+            and int(vector.get("procedure_record_count") or 0) > 0
+            for vector in vectors
+        )
+    )
+    complete_conditions = bool(
+        exact_procedure
+        and all(
+            vector.get("conditions") == "source_exact"
+            and vector.get("condition_completeness") == "complete"
+            and vector.get("process") == "procedure_bound_candidate"
+            for vector in vectors
+        )
+    )
+    return {
+        "C1": True,
+        "C2": reaction_validated,
+        "C3": exact_procedure,
+        "C4": complete_conditions,
+        "C5": route.get("all_leaves_stock_closed") is True,
+    }
 
 
 def compile_action_counts(
@@ -198,8 +285,7 @@ def compile_campaign_snapshot(
     if not math.isfinite(elapsed) or elapsed < 0:
         raise ValueError("campaign snapshot wall time must be finite and non-negative")
     gate_values = {
-        str(key): value is True
-        for key, value in dict(gates.get("gates") or {}).items()
+        str(key): value is True for key, value in dict(gates.get("gates") or {}).items()
     }
     normalized_route_counts = _count_mapping(route_counts or {})
     milestones = {
@@ -228,9 +314,7 @@ def compile_campaign_snapshot(
         "graph_revision": int(graph_revision),
         "wall_time_s": round(elapsed, 6),
         "milestones": milestones,
-        "highest_contiguous_gate": str(
-            gates.get("highest_contiguous_gate") or "none"
-        ),
+        "highest_contiguous_gate": str(gates.get("highest_contiguous_gate") or "none"),
         "gate_counts": _count_mapping(dict(gates.get("counts") or {})),
         "resource_usage": _json_value(resource_usage),
         "action_counts": _json_value(action_counts or {}),
@@ -281,10 +365,9 @@ def compile_campaign_trajectory(
             raise ValueError("campaign snapshot digest is invalid")
         if row.get("schema_version") == CAMPAIGN_SNAPSHOT_SCHEMA:
             bindings = dict(row.get("bindings") or {})
-            if (
-                bindings.get("schema_version") != TRAJECTORY_BINDINGS_SCHEMA
-                or not _digest_valid(bindings)
-            ):
+            if bindings.get(
+                "schema_version"
+            ) != TRAJECTORY_BINDINGS_SCHEMA or not _digest_valid(bindings):
                 raise ValueError("campaign snapshot bindings are invalid")
         by_digest[str(row["content_sha256"])] = row
     rows = sorted(by_digest.values(), key=_snapshot_sort_key)
@@ -303,9 +386,7 @@ def compile_campaign_trajectory(
         "schema_version": CAMPAIGN_TRAJECTORY_SCHEMA,
         "snapshot_count": len(rows),
         "snapshots": rows,
-        "first_achieved": {
-            key: first_achieved[key] for key in sorted(first_achieved)
-        },
+        "first_achieved": {key: first_achieved[key] for key in sorted(first_achieved)},
         "time_to_first": _time_to_first(first_achieved),
         "binding_epochs": binding_epochs,
         "continuity": continuity,
@@ -361,8 +442,7 @@ def project_campaign_trajectory_at_cutoff(
         if not _digest_valid(row):
             raise ValueError("campaign trajectory contains an invalid snapshot digest")
     observations = [
-        (index, row, _snapshot_resource_observation(row))
-        for index, row in rows
+        (index, row, _snapshot_resource_observation(row)) for index, row in rows
     ]
     regressions = _resource_regressions(observations, limits)
     continuity = dict(source.get("continuity") or {})
@@ -393,9 +473,7 @@ def project_campaign_trajectory_at_cutoff(
         "resource_regressions": regressions,
         "selected_snapshot_index": selected[0] if selected is not None else None,
         "selected_snapshot_sha256": (
-            str(selected[1].get("content_sha256") or "")
-            if selected is not None
-            else ""
+            str(selected[1].get("content_sha256") or "") if selected is not None else ""
         ),
         "observed_resources": selected[2] if selected is not None else {},
         "milestones": (
@@ -403,9 +481,7 @@ def project_campaign_trajectory_at_cutoff(
             if selected is not None
             else {}
         ),
-        "first_achieved": {
-            key: first_achieved[key] for key in sorted(first_achieved)
-        },
+        "first_achieved": {key: first_achieved[key] for key in sorted(first_achieved)},
         "time_to_first": _time_to_first(first_achieved),
         "gate_summary": (
             _gate_aliases(selected[1].get("milestones") or {})
@@ -527,11 +603,15 @@ def _normalize_cutoff(value: Mapping[str, int | float]) -> dict[str, int | float
         number = float(item)
         if not math.isfinite(number) or number < 0:
             raise ValueError(f"trajectory cutoff {key} must be finite and non-negative")
-        normalized[key] = round(number, 6) if key in _FLOAT_CUTOFF_FIELDS else int(number)
+        normalized[key] = (
+            round(number, 6) if key in _FLOAT_CUTOFF_FIELDS else int(number)
+        )
     return normalized
 
 
-def _snapshot_resource_observation(row: Mapping[str, Any]) -> dict[str, int | float | None]:
+def _snapshot_resource_observation(
+    row: Mapping[str, Any],
+) -> dict[str, int | float | None]:
     usage = dict(row.get("resource_usage") or {})
     model = dict(usage.get("model") or {})
     native = dict(usage.get("native_search") or {})
@@ -543,7 +623,9 @@ def _snapshot_resource_observation(row: Mapping[str, Any]) -> dict[str, int | fl
         "attempt_count": _number(usage.get("attempt_count")),
         "accepted_expansion_count": _number(usage.get("accepted_expansion_count")),
         "settled_task_count": _number(
-            usage.get("settled_task_count", total_tasks.get("settled", tasks.get("settled")))
+            usage.get(
+                "settled_task_count", total_tasks.get("settled", tasks.get("settled"))
+            )
         ),
         "model_invocations": _number(model.get("model_invocations")),
         "visual_invocations": _number(model.get("visual_invocations")),
@@ -643,9 +725,7 @@ def _binding_epochs(rows: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
         sha256 = str(bindings.get("content_sha256") or "")
         if epochs and epochs[-1]["bindings_sha256"] == sha256:
             epochs[-1]["last_snapshot_index"] = index
-            epochs[-1]["last_event_sequence"] = int(
-                row.get("event_sequence") or 0
-            )
+            epochs[-1]["last_event_sequence"] = int(row.get("event_sequence") or 0)
             continue
         epochs.append(
             {
@@ -662,8 +742,7 @@ def _binding_epochs(rows: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 def _count_mapping(value: Mapping[str, Any]) -> dict[str, int]:
     return {
-        str(key): max(0, int(item or 0))
-        for key, item in sorted(dict(value).items())
+        str(key): max(0, int(item or 0)) for key, item in sorted(dict(value).items())
     }
 
 

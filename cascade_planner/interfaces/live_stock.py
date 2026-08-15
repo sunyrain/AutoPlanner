@@ -16,6 +16,7 @@ import sqlite3
 from typing import Any, Callable, Iterable, Mapping
 
 import requests
+from rdkit import Chem
 
 from cascade_planner.application.blind_benchmark_contract import canonical_smiles
 from cascade_planner.application.retrosynthesis_workers import (
@@ -86,6 +87,11 @@ class FrozenBenchmarkStockIndex:
         self.member_count = int(metadata.get("member_count") or 0)
         self.created_at = str(metadata.get("created_at") or "")
         self.rdkit_version = str(metadata.get("rdkit_version") or "")
+        self.identity_key = str(
+            metadata.get("identity_key") or "canonical_smiles"
+        )
+        if self.identity_key not in {"canonical_smiles", "full_inchikey"}:
+            raise LiveStockAdapterError("benchmark_stock_identity_key_invalid")
 
     def __call__(
         self,
@@ -169,11 +175,19 @@ class FrozenBenchmarkStockIndex:
                     "SELECT 1 FROM sqlite_master "
                     "WHERE type = 'table' AND name = 'stock'"
                 ).fetchone()
+                stock_columns = {
+                    str(row[1])
+                    for row in connection.execute("PRAGMA table_info(stock)").fetchall()
+                }
         except sqlite3.Error as exc:
             raise LiveStockAdapterError("benchmark_stock_index_unreadable") from exc
         if not stock_table:
             raise LiveStockAdapterError("benchmark_stock_index_table_missing")
-        return {str(key): str(value) for key, value in rows}
+        metadata = {str(key): str(value) for key, value in rows}
+        identity_key = str(metadata.get("identity_key") or "canonical_smiles")
+        if identity_key not in stock_columns:
+            raise LiveStockAdapterError("benchmark_stock_identity_column_missing")
+        return metadata
 
     @staticmethod
     def _connect(path: Path) -> sqlite3.Connection:
@@ -188,17 +202,45 @@ class FrozenBenchmarkStockIndex:
     def _lookup(self, values: list[str]) -> set[str]:
         if not values:
             return set()
-        placeholders = ",".join("?" for _ in values)
+        identities = {
+            value: self._identity(value)
+            for value in values
+        }
+        query_values = [value for value in identities.values() if value]
+        if not query_values:
+            return set()
+        placeholders = ",".join("?" for _ in query_values)
+        column = (
+            "full_inchikey"
+            if self.identity_key == "full_inchikey"
+            else "canonical_smiles"
+        )
         try:
             with self._connect(self.index_path) as connection:
                 rows = connection.execute(
-                    f"SELECT canonical_smiles FROM stock "
-                    f"WHERE canonical_smiles IN ({placeholders})",
-                    values,
+                    f"SELECT {column} FROM stock "
+                    f"WHERE {column} IN ({placeholders})",
+                    query_values,
                 ).fetchall()
         except sqlite3.Error as exc:
             raise LiveStockAdapterError("benchmark_stock_index_lookup_failed") from exc
-        return {str(row[0]) for row in rows}
+        found = {str(row[0]) for row in rows}
+        return {
+            smiles
+            for smiles, identity in identities.items()
+            if identity in found
+        }
+
+    def _identity(self, canonical: str) -> str:
+        if self.identity_key == "canonical_smiles":
+            return canonical
+        molecule = Chem.MolFromSmiles(canonical)
+        if molecule is None:
+            return ""
+        try:
+            return str(Chem.MolToInchiKey(molecule) or "")
+        except (RuntimeError, ValueError):
+            return ""
 
 
 def load_versioned_inventory_snapshot(

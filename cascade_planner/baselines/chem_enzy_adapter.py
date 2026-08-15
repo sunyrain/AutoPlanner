@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import yaml
+from rdkit import Chem
 
 from cascade_planner.baselines.route_contract import (
     BackendFailure,
@@ -161,6 +162,8 @@ class _SqliteStockMembership:
         self._connection: sqlite3.Connection | None = None
         self._added: set[str] = set()
         self._removed: set[str] = set()
+        self._identity_cache: dict[str, str] = {}
+        self.identity_key = self._read_identity_key()
 
     def _connect(self) -> sqlite3.Connection:
         if self._connection is None:
@@ -174,11 +177,38 @@ class _SqliteStockMembership:
             return False
         if key in self._added:
             return True
+        identity = self._identity(key)
+        column = (
+            "full_inchikey"
+            if self.identity_key == "full_inchikey"
+            else "canonical_smiles"
+        )
         row = self._connect().execute(
-            "SELECT 1 FROM stock WHERE canonical_smiles = ? LIMIT 1",
-            (key,),
+            f"SELECT 1 FROM stock WHERE {column} = ? LIMIT 1",
+            (identity,),
         ).fetchone()
         return row is not None
+
+    def _read_identity_key(self) -> str:
+        try:
+            row = self._connect().execute(
+                "SELECT value FROM metadata WHERE key = 'identity_key'"
+            ).fetchone()
+        except sqlite3.Error:
+            row = None
+        value = str(row[0] if row else "canonical_smiles")
+        return value if value in {"canonical_smiles", "full_inchikey"} else "canonical_smiles"
+
+    def _identity(self, smiles: str) -> str:
+        if self.identity_key == "canonical_smiles":
+            return smiles
+        cached = self._identity_cache.get(smiles)
+        if cached is not None:
+            return cached
+        molecule = Chem.MolFromSmiles(smiles)
+        identity = str(Chem.MolToInchiKey(molecule) or "") if molecule is not None else ""
+        self._identity_cache[smiles] = identity
+        return identity
 
     def add(self, value: str) -> None:
         key = str(value)
@@ -633,6 +663,10 @@ class ChemEnzyBackendAdapter:
             _install_sqlite_stock_runtime(api, vendor_config)
             _install_bounded_vendor_mcts(
                 max_success_routes=vendor_config.get("max_success_routes"),
+                max_search_wall_time_s=vendor_config.get("max_search_wall_time_s"),
+                stop_on_first_host_admitted_route=vendor_config.get(
+                    "stop_on_first_host_admitted_route"
+                ),
             )
             mol_tree_module = importlib.import_module("retro_planner.search_frame.mcts_star.mol_tree")
             install_canonical_ancestor_cycle_filter(mol_tree_module)
@@ -714,6 +748,19 @@ class ChemEnzyBackendAdapter:
             max(1, int(configured_success_limit))
             if configured_success_limit not in (None, "", 0, "0")
             else None
+        )
+        configured_search_wall_time = search_config.search_flags.get(
+            "search_wall_time_s"
+        )
+        config["max_search_wall_time_s"] = (
+            max(0.1, float(configured_search_wall_time))
+            if configured_search_wall_time not in (None, "", 0, "0")
+            else None
+        )
+        config["stop_on_first_host_admitted_route"] = bool(
+            search_config.search_flags.get(
+                "stop_on_first_host_admitted_route", False
+            )
         )
         config["use_filter"] = bool(search_config.search_flags.get("use_filter", config.get("use_filter", False)))
         config["stock_limit_dict"] = search_config.search_flags.get("stock_limit_dict")
@@ -1281,7 +1328,12 @@ def _format_onmt_source_for_tokenizer(target: str, tokenizer: str, smi_tokenizer
     return f"{prefix} {tokenized}".strip()
 
 
-def _install_bounded_vendor_mcts(*, max_success_routes: Any) -> None:
+def _install_bounded_vendor_mcts(
+    *,
+    max_success_routes: Any,
+    max_search_wall_time_s: Any = None,
+    stop_on_first_host_admitted_route: Any = False,
+) -> None:
     """Inject the tracked bounded loop into an otherwise untouched vendor tree."""
 
     from cascade_planner.baselines.chem_enzy_bounded_mcts import (
@@ -1296,12 +1348,23 @@ def _install_bounded_vendor_mcts(*, max_success_routes: Any) -> None:
         if max_success_routes not in (None, "", 0, "0")
         else None
     )
+    wall_limit = (
+        max(0.1, float(max_search_wall_time_s))
+        if max_search_wall_time_s not in (None, "", 0, "0")
+        else None
+    )
     # prepare_molstar_planner imports mol_planner inside the factory, so the
     # returned closure freezes this per-planner limit even when later planner
     # instances choose another reserve size.
     module.mol_planner = partial(
         bounded_mol_planner,
         max_success_routes=limit,
+        max_search_wall_time_s=wall_limit,
+        success_route_acceptor=(
+            _host_admits_syn_route
+            if bool(stop_on_first_host_admitted_route)
+            else None
+        ),
     )
 
 
@@ -1326,6 +1389,7 @@ def _ensure_search_stop_metadata(
     )
     executed = max(0, int(raw_result.get("iter") or 0))
     observed = len(raw_result.get("all_succ_routes") or [])
+    configured_wall_time = flags.get("search_wall_time_s")
     reserve_reached = bool(reserve and observed >= reserve)
     raw_result["search_stop"] = {
         "reason": (
@@ -1337,6 +1401,11 @@ def _ensure_search_stop_metadata(
         "executed_iterations": executed,
         "configured_success_route_limit": reserve,
         "observed_success_route_count": observed,
+        "configured_search_wall_time_s": (
+            float(configured_wall_time)
+            if configured_wall_time not in (None, "", 0, "0")
+            else None
+        ),
         "stopped_early": executed < int(config.max_iterations),
         "telemetry_backfilled_by_host": True,
     }
@@ -1573,6 +1642,21 @@ def audit_materialized_chem_enzy_route(
         "host_audit_authority": True,
         "raw_solved_is_not_host_solved_authority": True,
     }
+
+
+def _host_admits_syn_route(route: Any) -> bool:
+    """Apply the final host structural gate to a native successful route."""
+
+    dict_route = getattr(route, "dict_route", None)
+    if dict_route is None:
+        converter = getattr(route, "route_to_dict", None)
+        if not callable(converter):
+            return False
+        dict_route = converter()
+    if not isinstance(dict_route, dict):
+        return False
+    steps = _flatten_chem_enzy_dict_route(dict_route)
+    return audit_materialized_chem_enzy_route(steps).get("accepted") is True
 
 
 def _materialized_route_admission_summary(

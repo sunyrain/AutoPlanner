@@ -879,6 +879,41 @@ def test_recovery_repairs_partial_tail_and_corrupt_snapshot(
     assert "in-flight" in kernel.state.in_flight_tasks
 
 
+def test_recovery_streams_event_log_without_whole_file_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="streamed",
+        kind="evidence",
+        idempotency_key="reserve-streamed",
+        input_revision=0,
+    )
+
+    original_read_text = Path.read_text
+    original_read_bytes = Path.read_bytes
+
+    def reject_event_text_read(path: Path, *args, **kwargs):
+        if path == kernel.events_path:
+            raise AssertionError("event recovery must not load the whole log")
+        return original_read_text(path, *args, **kwargs)
+
+    def reject_event_bytes_read(path: Path, *args, **kwargs):
+        if path == kernel.events_path:
+            raise AssertionError("event recovery must not load the whole log")
+        return original_read_bytes(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", reject_event_text_read)
+    monkeypatch.setattr(Path, "read_bytes", reject_event_bytes_read)
+
+    recovery = kernel.recover()
+
+    assert recovery["event_count"] >= 2
+    assert "streamed" in kernel.state.in_flight_tasks
+
+
 def test_tampered_middle_event_fails_closed(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path)
     kernel.start()
@@ -918,7 +953,25 @@ def test_concurrent_reservations_cannot_exceed_total_budget(
     assert kernel.recover()["event_count"] == 7
 
 
-def test_pause_resume_and_wall_budget_are_kernel_owned(tmp_path: Path) -> None:
+def test_pause_resume_and_wall_budget_are_kernel_owned(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    event_times = iter(
+        [
+            "2026-07-13T00:00:00Z",  # run_created
+            "2026-07-13T00:00:00Z",  # running
+            "2026-07-13T00:00:00Z",  # paused
+            "2026-07-13T00:00:00Z",  # resumed
+            "2026-07-13T00:00:00Z",  # deficits
+            "2026-07-13T00:00:01Z",  # task reserved
+            "2026-07-13T00:00:02Z",  # task settled
+        ]
+    )
+    monkeypatch.setattr(
+        "cascade_planner.application.run_kernel._utc_now",
+        lambda: next(event_times),
+    )
     spec = _spec(run_id="paused-run")
     spec = RunSpec(
         run_id=spec.run_id,
@@ -973,7 +1026,84 @@ def test_pause_resume_and_wall_budget_are_kernel_owned(tmp_path: Path) -> None:
     )
 
     assert kernel.state.task_wall_time_s == 1.0
+    assert kernel.state.task_compute_time_s == 1.0
     assert kernel.decide_stop().decision == "budget_exhausted"
+
+
+def test_concurrent_and_nested_tasks_consume_one_wall_clock_envelope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    event_times = iter(
+        [
+            "2026-07-13T00:00:00Z",  # run_created
+            "2026-07-13T00:00:00Z",  # running
+            "2026-07-13T00:00:01Z",  # wrapper-a reserved
+            "2026-07-13T00:00:01Z",  # child-a reserved
+            "2026-07-13T00:00:01Z",  # wrapper-b reserved
+            "2026-07-13T00:00:05Z",  # child-a settled
+            "2026-07-13T00:00:06Z",  # wrapper-a settled
+            "2026-07-13T00:00:06Z",  # wrapper-b settled
+            "2026-07-13T00:00:07Z",  # serial-c reserved
+            "2026-07-13T00:00:10Z",  # serial-c settled
+        ]
+    )
+    monkeypatch.setattr(
+        "cascade_planner.application.run_kernel._utc_now",
+        lambda: next(event_times),
+    )
+    kernel = _kernel(tmp_path, attempts=10, total_tasks=10)
+    kernel.start()
+
+    # These reservations form one overlapping cohort.  A campaign action and
+    # its child work must not each charge their full duration to the run wall
+    # clock, nor may peer actions behind the same concurrency barrier.
+    for task_id in ("wrapper-a", "child-a", "wrapper-b"):
+        kernel.reserve_task(
+            task_id=task_id,
+            kind="other",
+            idempotency_key=f"reserve-{task_id}",
+            input_revision=0,
+        )
+    kernel.settle_task(
+        task_id="child-a",
+        idempotency_key="settle-child-a",
+        status="completed",
+        elapsed_s=4.0,
+    )
+    kernel.settle_task(
+        task_id="wrapper-a",
+        idempotency_key="settle-wrapper-a",
+        status="completed",
+        elapsed_s=5.0,
+    )
+    kernel.settle_task(
+        task_id="wrapper-b",
+        idempotency_key="settle-wrapper-b",
+        status="completed",
+        elapsed_s=5.0,
+    )
+
+    assert kernel.state.task_wall_time_s == 5.0
+    assert kernel.state.task_compute_time_s == 14.0
+
+    # A later, non-overlapping task is a new wall-clock interval and therefore
+    # adds to the prior cohort envelope.
+    kernel.reserve_task(
+        task_id="serial-c",
+        kind="other",
+        idempotency_key="reserve-serial-c",
+        input_revision=0,
+    )
+    kernel.settle_task(
+        task_id="serial-c",
+        idempotency_key="settle-serial-c",
+        status="completed",
+        elapsed_s=3.0,
+    )
+
+    assert kernel.state.task_wall_time_s == 8.0
+    assert kernel.state.task_compute_time_s == 17.0
 
 
 def test_revision_and_deficit_contracts_are_digest_bound(tmp_path: Path) -> None:

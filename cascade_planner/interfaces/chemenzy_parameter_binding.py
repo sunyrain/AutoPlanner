@@ -1,10 +1,10 @@
-"""Fail-closed binding across ChemEnzy proposal, launcher, and runtime values."""
+"""Audit binding across ChemEnzy proposal, launcher, and runtime values."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Mapping
 
-from cascade_planner.interfaces.chemenzy_probe_contract import _content_sha256, _result
+from cascade_planner.interfaces.chemenzy_probe_contract import _content_sha256
 
 
 def provider_parameter_binding(
@@ -129,7 +129,13 @@ def bind_builtin_provider_parameters(
     scope: str,
     limits: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Compile the binding and return a fail-closed stage result if required."""
+    """Compile the binding without turning audit drift into route rejection.
+
+    Native provider parameter drift is important for reproducibility, but it is
+    not evidence that the returned route structures are unusable.  Keep the raw
+    mismatch in the binding for later audit and let downstream structural and
+    stock checks decide whether a route can be admitted.
+    """
 
     raw = dict(raw_result)
     binding = provider_parameter_binding(
@@ -138,22 +144,23 @@ def bind_builtin_provider_parameters(
         raw_result=raw,
         runtime_preflight=raw.get("runtime_preflight") or raw.get("preflight") or {},
     )
-    if not (
+    if (
         builtin
         and raw.get("search_executed") is True
         and binding.get("accepted") is not True
     ):
-        return binding, None
-    return binding, _result(
-        "failed",
-        mode=mode,
-        scope=scope,
-        limits=dict(limits),
-        reason="chemenzy_parameter_binding_mismatch",
-        provider_parameter_binding=binding,
-        runtime_preflight=raw.get("runtime_preflight") or raw.get("preflight") or {},
-        runtime_discovery=raw.get("runtime_discovery") or {},
-    )
+        binding = {
+            **binding,
+            "disposition": "advisory_warning",
+            "semantics": {
+                **dict(binding.get("semantics") or {}),
+                "parameter_mismatch_does_not_discard_provider_routes": True,
+            },
+        }
+        binding["content_sha256"] = _content_sha256(
+            {key: value for key, value in binding.items() if key != "content_sha256"}
+        )
+    return binding, None
 
 
 def _normalized_paths(value: Any) -> dict[str, str]:

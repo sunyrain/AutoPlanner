@@ -204,6 +204,87 @@ def test_action_scheduler_is_invariant_to_legacy_view_metadata() -> None:
     assert first["selected_action"]["kind"] == "reaction_validate"
 
 
+def test_adaptive_defers_credibility_and_program_until_stock_closure() -> None:
+    before_stock = schedule_next_action(
+        _service_opportunities(),
+        milestones={
+            "B1_global_multi_route": True,
+            "B4_stock_boundary": False,
+        },
+    )
+    before_by_kind = {
+        row["kind"]: row for row in before_stock["candidates"]
+    }
+
+    assert before_stock["result_first_phase"] == "route_stock_closure"
+    assert before_stock["selected_action"]["kind"] in {
+        "host_materialize",
+        "codex_global_architecture",
+    }
+    assert before_by_kind["condition_enrich"]["eligible"] is False
+    assert before_by_kind["program_discover"]["eligible"] is False
+    assert "result_first_stock_boundary_not_reached" in before_by_kind[
+        "condition_enrich"
+    ]["blocked_reasons"]
+    assert "result_first_stock_boundary_not_reached" in before_by_kind[
+        "program_discover"
+    ]["blocked_reasons"]
+
+    after_stock = schedule_next_action(
+        _service_opportunities(),
+        milestones={
+            "B1_global_multi_route": True,
+            "B4_stock_boundary": True,
+        },
+    )
+    after_by_kind = {
+        row["kind"]: row for row in after_stock["candidates"]
+    }
+    assert after_stock["result_first_phase"] == "credibility_and_program"
+    assert after_by_kind["condition_enrich"]["eligible"] is True
+    assert after_by_kind["program_discover"]["eligible"] is True
+
+
+def test_strategy_native_program_can_compete_before_stock_or_evidence() -> None:
+    opportunities = deepcopy(_service_opportunities())
+    program = next(
+        row for row in opportunities["actions"] if row["kind"] == "program_discover"
+    )
+    program["metadata"] = {
+        "strategy_native_competitor": True,
+        "execution_domain": "enzymatic",
+    }
+
+    decision = schedule_next_action(
+        opportunities,
+        milestones={
+            "B1_global_multi_route": True,
+            "B3_exact_multi_source": False,
+            "B4_stock_boundary": False,
+        },
+    )
+    by_kind = {row["kind"]: row for row in decision["candidates"]}
+
+    assert by_kind["program_discover"]["eligible"] is True
+    assert by_kind["condition_enrich"]["eligible"] is False
+    assert decision["semantics"][
+        "strategy_native_program_discovery_may_compete_before_B4"
+    ] is True
+
+
+def test_round_robin_remains_a_non_result_first_ablation() -> None:
+    decision = schedule_next_action(
+        _service_opportunities(),
+        milestones={"B4_stock_boundary": False},
+        policy="round_robin",
+        round_robin_cursor=6,
+    )
+    by_kind = {row["kind"]: row for row in decision["candidates"]}
+
+    assert by_kind["condition_enrich"]["eligible"] is True
+    assert by_kind["program_discover"]["eligible"] is True
+
+
 def test_scheduler_is_a_read_only_projection_of_canonical_opportunities() -> None:
     opportunities = compile_action_opportunities(_frontier())
     frozen = deepcopy(opportunities)

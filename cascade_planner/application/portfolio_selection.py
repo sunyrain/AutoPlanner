@@ -10,6 +10,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 )
 from cascade_planner.application.pareto import dominates
 from cascade_planner.application.route_variants import with_content_digest
+from cascade_planner.application.route_pareto_vector import pareto_coordinates
 
 
 CLOSEOUT_SCHEMA = "retrosynthesis_closeout.v1"
@@ -260,11 +261,13 @@ def route_distance(left: Mapping[str, Any], right: Mapping[str, Any]) -> float:
 
 def _candidate_utility(value: Mapping[str, Any]) -> float:
     return (
-        150.0 * (value.get("complete") is True)
-        + 18.0 * int(value.get("minimum_edge_proof_level") or 0)
-        + 28.0 * float(value.get("stock_closure_rate") or 0.0)
-        + 7.0 * min(3, len(value.get("independent_source_groups") or []))
-        + 8.0 * float(value.get("convergence_score") or 0.0)
+        74.0 * float(value.get("strategic_value_score") or 0.0)
+        + 105.0 * (value.get("complete") is True)
+        + 9.0 * float(value.get("evidence_maturity_score") or 0.0)
+        + 11.0 * int(value.get("minimum_edge_proof_level") or 0)
+        + 14.0 * float(value.get("stock_closure_rate") or 0.0)
+        + 3.0 * min(3, len(value.get("independent_source_groups") or []))
+        + 6.0 * float(value.get("convergence_score") or 0.0)
         - 35.0 * float(value.get("risk_score") or 0.0)
         - 1.5 * int(value.get("length") or 0)
     )
@@ -281,14 +284,7 @@ def _candidate_sort_key(value: Mapping[str, Any]) -> tuple[Any, ...]:
 
 
 def _objective_vector(value: Mapping[str, Any]) -> tuple[float, ...]:
-    return (
-        float(value.get("complete") is True),
-        float(value.get("minimum_edge_proof_level") or 0) / 4.0,
-        float(value.get("stock_closure_rate") or 0.0),
-        min(1.0, len(value.get("independent_source_groups") or []) / 3.0),
-        1.0 - min(1.0, float(value.get("risk_score") or 0.0)),
-        1.0 / (1.0 + float(value.get("length") or 0.0)),
-    )
+    return pareto_coordinates(value)
 
 
 def _digest(value: Any) -> str:

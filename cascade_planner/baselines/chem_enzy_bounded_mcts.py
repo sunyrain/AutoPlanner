@@ -24,12 +24,14 @@ def bounded_mol_planner(
     cascade_cost_model: Any = None,
     cascade_search_context: Any = None,
     max_success_routes: int | None = None,
+    max_search_wall_time_s: float | None = None,
+    success_route_acceptor: Callable[[Any], bool] | None = None,
 ) -> tuple[bool, tuple[Any, ...]]:
-    """Run ChemEnzy MCTS with an iteration cap and a success-reserve stop."""
+    """Run ChemEnzy MCTS with bounded, result-aware stop conditions."""
 
     from retro_planner.search_frame.mcts_star.mol_tree import MolTree
 
-    started = time.time()
+    started = time.monotonic()
     exclude_flag = False
     starting_mols = deepcopy(starting_mols)
     if exclude_target and target_mol in starting_mols:
@@ -44,14 +46,25 @@ def bounded_mol_planner(
         cascade_search_context=cascade_search_context,
     )
 
-    iteration_index = -1
+    executed_iterations = 0
     first_success_time = float("inf")
     stop_reason = "iteration_limit"
     observed_success_route_count = 0
+    acceptor_scanned_route_count = 0
+    acceptor_error_count = 0
+    host_admitted_success_route_count = 0
+    scanned_success_route_ids: set[str] = set()
     if mol_tree.succ:
         stop_reason = "target_already_in_stock"
     else:
-        for iteration_index in range(int(iterations)):
+        for _iteration_index in range(int(iterations)):
+            if (
+                max_search_wall_time_s is not None
+                and time.monotonic() - started >= float(max_search_wall_time_s)
+            ):
+                stop_reason = "search_wall_time_limit"
+                break
+            executed_iterations += 1
             open_nodes = [node for node in mol_tree.mol_nodes if node.open]
             if not open_nodes:
                 logging.info("No open nodes!")
@@ -87,7 +100,7 @@ def bounded_mol_planner(
             )
             if success:
                 if first_success_time == float("inf"):
-                    first_success_time = time.time() - started
+                    first_success_time = time.monotonic() - started
                 if not keep_search:
                     stop_reason = "first_success"
                     break
@@ -122,7 +135,32 @@ def bounded_mol_planner(
                 break
             if mol_tree.succ:
                 if first_success_time == float("inf"):
-                    first_success_time = time.time() - started
+                    first_success_time = time.monotonic() - started
+                if keep_search and success_route_acceptor is not None:
+                    try:
+                        success_routes = list(
+                            mol_tree.extract_all_succ_routes() or []
+                        )
+                    except Exception:
+                        success_routes = []
+                        acceptor_error_count += 1
+                    for route in success_routes:
+                        route_id = _success_route_identity(route)
+                        if route_id in scanned_success_route_ids:
+                            continue
+                        scanned_success_route_ids.add(route_id)
+                        acceptor_scanned_route_count += 1
+                        try:
+                            admitted = success_route_acceptor(route) is True
+                        except Exception:
+                            acceptor_error_count += 1
+                            admitted = False
+                        if admitted:
+                            host_admitted_success_route_count += 1
+                            stop_reason = "host_admitted_success_route_found"
+                            break
+                    if host_admitted_success_route_count:
+                        break
                 if keep_search and max_success_routes:
                     observed_success_route_count = count_success_routes_capped(
                         mol_tree.root,
@@ -149,7 +187,6 @@ def bounded_mol_planner(
     if exclude_flag:
         starting_mols.add(target_mol)
 
-    executed_iterations = iteration_index + 1
     search_stop = {
         "reason": stop_reason,
         "configured_iteration_limit": int(iterations),
@@ -158,7 +195,19 @@ def bounded_mol_planner(
             int(max_success_routes) if max_success_routes else None
         ),
         "observed_success_route_count": int(observed_success_route_count),
+        "configured_search_wall_time_s": (
+            float(max_search_wall_time_s)
+            if max_search_wall_time_s is not None
+            else None
+        ),
+        "elapsed_search_wall_time_s": round(time.monotonic() - started, 3),
         "stopped_early": int(executed_iterations) < int(iterations),
+        "host_admitted_success_stop_enabled": success_route_acceptor is not None,
+        "host_admission_scanned_route_count": int(acceptor_scanned_route_count),
+        "host_admission_error_count": int(acceptor_error_count),
+        "host_admitted_success_route_count": int(
+            host_admitted_success_route_count
+        ),
     }
     return mol_tree.succ, (
         best_route,
@@ -168,6 +217,29 @@ def bounded_mol_planner(
         mol_tree.cascade_expansion_trace,
         search_stop,
     )
+
+
+def _success_route_identity(route: Any) -> str:
+    serializer = getattr(route, "serialize", None)
+    if callable(serializer):
+        try:
+            return str(serializer())
+        except Exception:
+            pass
+    dict_route = getattr(route, "dict_route", None)
+    if dict_route is not None:
+        try:
+            import json
+
+            return json.dumps(
+                dict_route,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+        except Exception:
+            pass
+    return repr(route)
 
 
 def _select_promising_grandchild(mol_node: Any) -> Any | None:

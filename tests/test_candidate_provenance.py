@@ -229,6 +229,38 @@ def test_candidate_provenance_reports_the_first_open_boundary(
     assert provenance["provider_route_records"][0]["first_loss_boundary"] == expected
 
 
+def test_partial_step_binding_is_not_reported_as_complete_route_conservation() -> None:
+    lifecycle = _lifecycle()
+    lineage = _lineage()
+    route = lineage["routes"][0]
+    route.update(
+        {
+            "provider_step_count": 3,
+            "normalized_step_count": 3,
+            "imported_proposal_count": 2,
+            "canonical_bound_step_count": 2,
+            "topology_conservation_applicable": True,
+            "topology_conservation_accepted": False,
+            "missing_imported_proposal_ids": ["chemenzy:seed:route:1:step:3"],
+            "missing_canonical_proposal_ids": [],
+        }
+    )
+    lineage = _with_digest(lineage)
+
+    provenance = compile_candidate_provenance(
+        lifecycle,
+        lineage_observations=[lineage],
+    )
+
+    assert provenance["bound_provider_route_count"] == 1
+    assert provenance["fully_conserved_provider_route_count"] == 0
+    assert provenance["partially_bound_provider_route_count"] == 1
+    record = provenance["provider_route_records"][0]
+    assert record["candidate_ids"]
+    assert record["canonical_bound_step_count"] == 2
+    assert record["first_loss_boundary"] == "canonical_topology_conservation"
+
+
 def test_candidate_provenance_ignores_tampered_provider_lineage() -> None:
     tampered = _lineage()
     tampered["routes"][0]["raw_route_sha256"] = "f" * 64

@@ -173,7 +173,6 @@ def compile_deficit_frontier(
         for route_id, route in route_families.items()
         if isinstance(route, Mapping)
         and route.get("selected") is not False
-        and route.get("status") != "dominated"
     }
     selected_leaf_ids = {
         str(molecule_id)
@@ -735,7 +734,7 @@ def compile_deficit_frontier(
         route_dirty = True
         route = dict(raw)
         recomputed_entities.add(str(route_id))
-        if route.get("status") == "dominated" or route.get("selected") is False:
+        if route.get("selected") is False:
             continue
         if route.get("closed") is not True:
             items.append(

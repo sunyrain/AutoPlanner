@@ -13,6 +13,7 @@ from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
 )
 from cascade_planner.interfaces.target_runtime_dependencies import (
+    SYNTHEX_MATCHED_PROFILE_DEFAULTS,
     TARGET_PROFILE_DEFAULTS,
     inventory_snapshot_builder,
 )
@@ -21,13 +22,10 @@ from cascade_planner.interfaces.target_runtime_dependencies import (
 def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any]:
     max_visual_invocations = _int(payload, "max_visual_invocations", 0)
     execution_profile = str(payload.get("execution_profile") or "standard")
-    profile_defaults = TARGET_PROFILE_DEFAULTS.get(
-        execution_profile, TARGET_PROFILE_DEFAULTS["standard"]
-    )
+    profile_defaults = TARGET_PROFILE_DEFAULTS.get(execution_profile, TARGET_PROFILE_DEFAULTS["standard"])
+    matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
     evidence_connector = _web_evidence_connector(gateway, payload)
-    visual_provider = _web_visual_provider(
-        gateway, payload, enabled=max_visual_invocations > 0
-    )
+    visual_provider = _web_visual_provider(gateway, payload, enabled=max_visual_invocations > 0)
     inventory_builder = inventory_snapshot_builder(payload)
     return gateway.solve_target(
         target_name=str(payload.get("target_name") or "blind target"),
@@ -50,33 +48,58 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_model_invocations=_int(
                 payload,
                 "max_model_invocations",
-                3 if max_visual_invocations else 2,
+                matched["max_model_invocations"],
             ),
             max_total_input_tokens=_int(
-                payload, "max_input_tokens", profile_defaults["max_input_tokens"]
+                payload, "max_input_tokens", matched["max_input_tokens"]
             ),
             max_total_output_tokens=_int(
-                payload, "max_output_tokens", profile_defaults["max_output_tokens"]
+                payload, "max_output_tokens", matched["max_output_tokens"]
             ),
             max_total_wall_time_s=float(
                 payload.get(
                     "max_model_wall_time_s",
-                    profile_defaults["max_model_wall_time_s"],
+                    matched["max_model_wall_time_s"],
                 )
             ),
             max_visual_invocations=max_visual_invocations,
-            max_accepted_expansions=_int(payload, "max_accepted_expansions", 64),
-            max_attempt_runs=_int(payload, "max_attempt_runs", 128),
+            max_accepted_expansions=_int(
+                payload, "max_accepted_expansions", matched["max_accepted_expansions"]
+            ),
+            max_attempt_runs=_int(payload, "max_attempt_runs", matched["max_attempt_runs"]),
             max_prompt_context_bytes=_int(
-                payload, "max_prompt_context_bytes", 160_000
+                payload, "max_prompt_context_bytes", matched["max_prompt_context_bytes"]
             ),
         ),
         config=TargetSolveConfig(
             model=str(payload.get("model") or DEFAULT_TARGET_DIRECTOR_MODEL),
-            reasoning_effort=str(payload.get("reasoning_effort") or "low"),
+            reasoning_effort=str(
+                payload.get("reasoning_effort") or matched["reasoning_effort"]
+            ),
             execution_profile=execution_profile,
-            objective_mode=str(
-                payload.get("objective_mode") or "scientific_proof"
+            strategy_search_profile=str(
+                payload.get("strategy_search_profile")
+                or matched["strategy_search_profile"]
+            ),
+            strategy_branch_count=_int(
+                payload, "strategy_branch_count", matched["strategy_branches"]
+            ),
+            max_node_expansions_per_branch=_int(
+                payload,
+                "max_node_expansions_per_branch",
+                matched["node_expansions_per_branch"],
+            ),
+            max_route_local_repair_rounds=_int(
+                payload,
+                "max_route_local_repair_rounds",
+                matched["route_local_repair_rounds"],
+            ),
+            max_node_prompt_bytes=_int(
+                payload, "max_node_prompt_bytes", matched["max_node_prompt_bytes"]
+            ),
+            objective_mode=str(payload.get("objective_mode") or "scientific_proof"),
+            delivery_boundary=str(
+                payload.get("delivery_boundary") or "stock_result"
             ),
             use_coordinator=_bool(payload, "use_coordinator", False),
             enable_web_search=_bool(payload, "enable_web_search", True),
@@ -103,7 +126,9 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             ),
             enable_chemenzy=_bool(payload, "enable_chemenzy", True),
             enable_target_chemenzy_baseline=_bool(
-                payload, "enable_target_chemenzy_baseline", True
+                payload,
+                "enable_target_chemenzy_baseline",
+                bool(matched["target_chemenzy_baseline"]),
             ),
             enable_guided_chemenzy=_bool(payload, "enable_guided_chemenzy", True),
             enable_chemenzy_condition_prediction=_bool(
@@ -117,13 +142,23 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             ),
             chemenzy_env_prefix=str(payload.get("chemenzy_env_prefix") or ""),
             self_evo_library_path=str(payload.get("self_evo_library_path") or ""),
-            max_atom_mapping_reactions=_int(payload, "max_atom_mapping_reactions", 48),
-            max_live_stock_molecules=_int(payload, "max_live_stock_molecules", 24),
+            max_atom_mapping_reactions=_int(
+                payload,
+                "max_atom_mapping_reactions",
+                matched["max_atom_mapping_reactions"],
+            ),
+            max_live_stock_molecules=_int(
+                payload,
+                "max_live_stock_molecules",
+                matched["max_stock_molecules"],
+            ),
             max_patent_sources=_int(payload, "max_patent_sources", 3),
             max_self_evo_template_candidates=_int(
                 payload, "max_self_evo_template_candidates", 12
             ),
-            max_total_tasks=_int(payload, "max_total_tasks", 256),
+            max_total_tasks=_int(
+                payload, "max_total_tasks", matched["max_total_tasks"]
+            ),
             max_evidence_tasks=_int(payload, "max_evidence_tasks", 64),
             max_stock_tasks=_int(payload, "max_stock_tasks", 128),
             max_validation_tasks=_int(payload, "max_validation_tasks", 128),
@@ -136,7 +171,7 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
                 payload, "provider_route_reserve", 16
             ),
             host_route_portfolio=_int(
-                payload, "host_route_portfolio", 8
+                payload, "host_route_portfolio", 16
             ),
             display_route_limit=_int(payload, "display_route_limit", 4),
             max_chemenzy_routes=(
@@ -145,16 +180,18 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
                 else None
             ),
             max_chemenzy_steps=_int(
-                payload, "max_chemenzy_steps", profile_defaults["steps"]
+                payload, "max_chemenzy_steps", matched["short_tail_steps"]
             ),
             max_chemenzy_iterations=_int(
-                payload, "max_chemenzy_iterations", profile_defaults["iterations"]
+                payload,
+                "max_chemenzy_iterations",
+                matched["short_tail_iterations"],
             ),
             chemenzy_expansion_topk=_int(
                 payload, "chemenzy_expansion_topk", profile_defaults["topk"]
             ),
             chemenzy_timeout_s=float(
-                payload.get("chemenzy_timeout_s", profile_defaults["timeout"])
+                payload.get("chemenzy_timeout_s", matched["short_tail_timeout_s"])
             ),
             chemenzy_search_preset=str(
                 payload.get("chemenzy_search_preset")
@@ -166,14 +203,20 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
                 "chemenzy_pandarallel_workers",
                 profile_defaults["workers"],
             ),
-            max_guided_chemenzy_frontiers=_int(
-                payload, "max_guided_chemenzy_frontiers", 3
+            max_guided_chemenzy_frontiers=(
+                _int(payload, "max_guided_chemenzy_frontiers", 0)
+                if payload.get("max_guided_chemenzy_frontiers") not in {None, ""}
+                else None
             ),
             max_guided_chemenzy_iterations=_int(
-                payload, "max_guided_chemenzy_iterations", 6
+                payload,
+                "max_guided_chemenzy_iterations",
+                matched["short_tail_iterations"],
             ),
             guided_chemenzy_timeout_s=float(
-                payload.get("guided_chemenzy_timeout_s", 60.0)
+                payload.get(
+                    "guided_chemenzy_timeout_s", matched["short_tail_timeout_s"]
+                )
             ),
             max_visual_evidence_pages=_int(payload, "max_visual_evidence_pages", 6),
             minimum_planning_route_steps=_int(
@@ -187,7 +230,7 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_director_wall_time_s=float(
                 payload.get(
                     "max_director_wall_time_s",
-                    profile_defaults["max_director_wall_time_s"],
+                    matched["max_model_wall_time_s"],
                 )
             ),
         ),
@@ -214,7 +257,11 @@ def _web_evidence_connector(gateway: Any, payload: Mapping[str, Any]) -> Any:
                     ),
                     max_patents=_int(dict(payload), "max_patent_sources", 3),
                     max_validated_edges=_int(
-                        dict(payload), "max_atom_mapping_reactions", 48
+                        dict(payload),
+                        "max_atom_mapping_reactions",
+                        SYNTHEX_MATCHED_PROFILE_DEFAULTS[
+                            "max_atom_mapping_reactions"
+                        ],
                     ),
                 )
             )

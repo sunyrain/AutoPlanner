@@ -35,7 +35,7 @@ from cascade_planner.runtime.run_metrics import (  # noqa: E402
     record_run_metrics,
     run_metric_stage,
 )
-from scripts.compile_source_route_portfolio import (  # noqa: E402
+from scripts.legacy.compile_source_route_portfolio import (  # noqa: E402
     compile_source_route_portfolio,
 )
 from scripts.replay_deterministic_literature_registry import (  # noqa: E402

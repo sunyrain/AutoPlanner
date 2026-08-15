@@ -39,6 +39,9 @@ from cascade_planner.application.route_variants import (
     enumerate_family_variants,
     with_content_digest,
 )
+from cascade_planner.application.route_pareto_vector import (
+    compile_route_pareto_objective_vector,
+)
 from cascade_planner.application.run_kernel import RunKernel
 
 
@@ -66,7 +69,6 @@ def compile_proof_portfolio(
         if (
             not isinstance(raw, Mapping)
             or raw.get("selected") is False
-            or raw.get("status") == "dominated"
         ):
             continue
         family = dict(raw)
@@ -100,6 +102,18 @@ def compile_proof_portfolio(
         candidates=candidates,
         edge_proofs=edge_proofs,
     )
+    candidates = [
+        with_content_digest(
+            {
+                **value,
+                "pareto_objective_vector": compile_route_pareto_objective_vector(
+                    value,
+                    peers=candidates,
+                ),
+            }
+        )
+        for value in candidates
+    ]
     pareto_ids = {str(value["route_id"]) for value in pareto_front(candidates)}
     candidates = [
         with_content_digest(

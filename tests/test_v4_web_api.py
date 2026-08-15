@@ -351,7 +351,11 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert "inputTokens:1200000" in index.get_data(as_text=True)
     assert "outputTokens:200000" in index.get_data(as_text=True)
     assert "modelWallMinutes:30" in index.get_data(as_text=True)
-    assert "chemTimeoutMinutes:60" in index.get_data(as_text=True)
+    assert "chemTimeoutMinutes:30" in index.get_data(as_text=True)
+    assert 'id="deliveryBoundary"' in index.get_data(as_text=True)
+    assert "delivery_boundary:$('deliveryBoundary').value" in index.get_data(
+        as_text=True
+    )
     assert "'/api/v4/jobs'" in index.get_data(as_text=True)
     assert 'id="downloadRoutePdf"' in index.get_data(as_text=True)
     assert "删除队列记录" in index.get_data(as_text=True)
@@ -1091,8 +1095,10 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
     assert config.chemenzy_expansion_topk == 9
     assert config.chemenzy_timeout_s == 45.0
     assert config.chemenzy_seed == 37
-    assert config.max_guided_chemenzy_frontiers == 3
-    assert config.max_guided_chemenzy_iterations == 6
+    assert config.max_guided_chemenzy_frontiers is None
+    assert config.max_guided_chemenzy_iterations == 500
+    assert config.guided_chemenzy_timeout_s == 1200.0
+    assert config.delivery_boundary == "stock_result"
     assert config.execution_profile == "standard"
     assert config.enable_initial_director_web_search is True
     assert config.max_visual_evidence_pages == 6
@@ -1112,7 +1118,34 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
     assert constraints.stock_source_ids == ("test-stock",)
 
 
-def test_v4_proof_profile_keeps_depth_but_uses_a_returnable_search_width() -> None:
+def test_v4_milestone_subscription_route_is_explicit_product_policy() -> None:
+    captured: dict = {}
+
+    class RecordingGateway:
+        def observe_milestone(self, run_id, **kwargs):
+            captured.update({"run_id": run_id, **kwargs})
+            return {
+                "schema_version": "campaign_milestone_subscription_result.v1",
+                "run_id": run_id,
+                "observed": True,
+            }
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    response = app.test_client().post(
+        "/api/v4/runs/run-1/milestone-subscriptions/observe",
+        json={"policy": "notify-and-cancel"},
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "run_id": "run-1",
+        "policy": "notify-and-cancel",
+        "milestone": "B4_stock_boundary",
+    }
+
+
+def test_v4_proof_profile_uses_the_declared_result_first_search_budget() -> None:
     captured: dict = {}
 
     class RecordingGateway:
@@ -1134,11 +1167,16 @@ def test_v4_proof_profile_keeps_depth_but_uses_a_returnable_search_width() -> No
 
     assert response.status_code == 201
     config = captured["config"]
-    assert config.max_chemenzy_steps == 20
-    assert config.max_chemenzy_iterations == 60
+    assert config.strategy_search_profile == "synthex_matched"
+    assert config.strategy_branch_count == 3
+    assert config.max_node_expansions_per_branch == 25
+    assert config.max_chemenzy_steps == 6
+    assert config.max_chemenzy_iterations == 500
+    assert config.delivery_boundary == "stock_result"
     assert config.chemenzy_expansion_topk == 120
-    assert config.chemenzy_timeout_s == 3600.0
-    assert config.chemenzy_pandarallel_workers == 8
+    assert config.chemenzy_timeout_s == 1200.0
+    assert config.enable_target_chemenzy_baseline is False
+    assert config.chemenzy_pandarallel_workers == 2
     assert config.max_director_wall_time_s == 1800.0
     budget = captured["budget"]
     assert budget.max_total_input_tokens == 1_200_000

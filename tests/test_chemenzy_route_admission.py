@@ -28,15 +28,85 @@ from cascade_planner.baselines.chem_enzy_bounded_mcts import bounded_mol_planner
 from cascade_planner.baselines.route_contract import RouteStepCandidate
 from cascade_planner.baselines.route_contract import BaselineRunResult, RouteSearchConfig
 from scripts.run_chem_enzy_plan_for_web import (
+    _apply_cascade_verifier_gate,
     _bootstrap_pandarallel_worker_from_environment,
     _configure_pandarallel_worker_environment,
     _route_config_from_payload,
+    _smiles_in_stock_file,
     _web_payload_from_result,
 )
 
 
 BAD_PRODUCT = "O=C(O)C(O)(CCO)C(=O)OCc1ccccc1"
 BAD_REACTANTS = ["O=C(Cl)OCc1ccccc1", "O=C([O-])[O-]"]
+
+
+def _verifier_route(*reasons: str) -> dict:
+    return {
+        "route_rank": 7,
+        "n_steps": 2,
+        "score": 0.8,
+        "confidence": 1.0,
+        "metrics": {
+            "cascade_verifier": {
+                "feasible": not reasons,
+                "reason_counts": {reason: 1 for reason in reasons},
+                "findings": [{"reason": reason} for reason in reasons],
+            }
+        },
+    }
+
+
+def test_cascade_gate_retains_material_balance_warning_for_host_validation() -> None:
+    route = _verifier_route("atom_balance_violation")
+
+    kept, quarantined, report = _apply_cascade_verifier_gate([route], enabled=True)
+
+    assert kept == [route]
+    assert quarantined == []
+    assert route["route_rank"] == 0
+    assert route["advisory_only"] is False
+    assert route["reaction_validation_required"] is True
+    assert route["warning_codes"] == ["atom_balance_violation"]
+    assert report["hard_dropped_routes"] == 0
+    assert report["soft_warning_routes"] == 1
+
+
+def test_cascade_gate_drops_structurally_invalid_route() -> None:
+    route = _verifier_route("product_mismatch")
+
+    kept, quarantined, report = _apply_cascade_verifier_gate([route], enabled=True)
+
+    assert kept == []
+    assert quarantined == [route]
+    assert route["advisory_only"] is True
+    assert "cascade_verifier_hard_rejected" in route["warning_codes"]
+    assert report["hard_dropped_routes"] == 1
+    assert report["soft_warning_routes"] == 0
+
+
+def test_cascade_gate_hard_reason_wins_over_soft_warning() -> None:
+    route = _verifier_route("atom_balance_violation", "route_order_mismatch")
+
+    kept, quarantined, report = _apply_cascade_verifier_gate([route], enabled=True)
+
+    assert kept == []
+    assert quarantined == [route]
+    assert report["hard_dropped_routes"] == 1
+
+
+def test_stock_membership_uses_indexed_sqlite_lookup(tmp_path: Path) -> None:
+    stock = tmp_path / "benchmark.sqlite3"
+    with sqlite3.connect(stock) as connection:
+        connection.execute(
+            "CREATE TABLE stock (canonical_smiles TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.execute(
+            "INSERT INTO stock (canonical_smiles) VALUES (?)", ("CCO",)
+        )
+
+    assert _smiles_in_stock_file("CCO", stock) is True
+    assert _smiles_in_stock_file("CCN", stock) is False
 
 
 def test_runtime_seed_binding_seeds_python_numpy_and_torch() -> None:
@@ -414,6 +484,7 @@ def test_launcher_derives_bounded_annotation_pool_from_host_route_limit() -> Non
                 "max_steps": 20,
                 "chem_enzy_iterations": 200,
                 "chem_enzy_expansion_topk": 120,
+                "timeout_s": 300,
                 "chemenzy_seed": 41,
                 "one_step_models": ["fixture"],
                 "stock_names": ["RetroStar-stock"],
@@ -428,8 +499,10 @@ def test_launcher_derives_bounded_annotation_pool_from_host_route_limit() -> Non
     assert config.max_depth == 20
     assert config.expansion_topk == 120
     assert config.search_flags["max_output_routes"] == 4
-    assert config.search_flags["max_materialized_routes"] == 32
+    assert config.search_flags["max_materialized_routes"] == 8
     assert config.search_flags["max_advisory_materialized_routes"] == 4
+    assert config.search_flags["search_wall_time_s"] == 210.0
+    assert config.search_flags["stop_on_first_host_admitted_route"] is False
     assert config.stock_names == ["RetroStar-stock"]
     assert config.random_seed == 41
     assert config.search_flags["stock_paths"]["RetroStar-stock"].endswith(
@@ -544,6 +617,260 @@ def test_vendor_mcts_stops_before_iteration_cap_when_reserve_is_ready() -> None:
     assert stop["configured_iteration_limit"] == 200
     assert stop["executed_iterations"] == 1
     assert stop["stopped_early"] is True
+
+
+def test_vendor_mcts_stops_on_first_host_admitted_success_route() -> None:
+    vendor_root = Path(__file__).resolve().parents[1] / "vendor" / "ChemEnzyRetroPlanner"
+    sys.path.insert(0, str(vendor_root))
+    try:
+        mol_tree_module = importlib.import_module(
+            "retro_planner.search_frame.mcts_star.mol_tree"
+        )
+    finally:
+        sys.path.remove(str(vendor_root))
+
+    class Node:
+        def __init__(self, *, molecule: bool, succ: bool = False) -> None:
+            if molecule:
+                self.mol = "molecule"
+            self.succ = succ
+            self.open = True
+            self.children = []
+            self.depth = 0
+            self.go_back = False
+            self.succ_value = 1.0
+
+        def v_target(self) -> float:
+            return 0.0
+
+        def is_terminal(self) -> bool:
+            return True
+
+    class FakeRoute:
+        optimal = False
+
+        def serialize(self) -> str:
+            return "route-1"
+
+    class FakeMolTree:
+        def __init__(self, **_kwargs: object) -> None:
+            self.root = Node(molecule=True)
+            self.mol_nodes = [self.root]
+            self.succ = False
+            self.search_status = 0.0
+            self.cascade_expansion_trace = []
+
+        def call_expand_fn(self, _expand_fn: object, _node: Node) -> dict:
+            return {"scores": [1.0]}
+
+        def cascade_context_for_mol(self, _node: Node) -> dict:
+            return {}
+
+        def prepare_expansion(self, *_args: object, **_kwargs: object) -> tuple:
+            return [], [], [], []
+
+        def expand(self, node: Node, *_args: object, **_kwargs: object) -> tuple:
+            node.succ = True
+            node.succ_value = 0.0
+            self.succ = True
+            return True, None
+
+        def get_best_route(self) -> FakeRoute:
+            return FakeRoute()
+
+        def extract_all_succ_routes(self) -> list[FakeRoute]:
+            return [FakeRoute()]
+
+    acceptor = Mock(return_value=True)
+    with patch.object(mol_tree_module, "MolTree", FakeMolTree):
+        solved, result = bounded_mol_planner(
+            "target",
+            0,
+            set(),
+            lambda _target: {},
+            iterations=200,
+            keep_search=True,
+            max_success_routes=32,
+            success_route_acceptor=acceptor,
+        )
+
+    stop = result[5]
+    assert solved is True
+    assert result[1] == 1
+    acceptor.assert_called_once()
+    assert stop["reason"] == "host_admitted_success_route_found"
+    assert stop["host_admission_scanned_route_count"] == 1
+    assert stop["host_admitted_success_route_count"] == 1
+
+
+def test_vendor_mcts_keeps_searching_when_success_route_is_not_host_admitted() -> None:
+    vendor_root = Path(__file__).resolve().parents[1] / "vendor" / "ChemEnzyRetroPlanner"
+    sys.path.insert(0, str(vendor_root))
+    try:
+        mol_tree_module = importlib.import_module(
+            "retro_planner.search_frame.mcts_star.mol_tree"
+        )
+    finally:
+        sys.path.remove(str(vendor_root))
+
+    class Node:
+        def __init__(self, *, molecule: bool, succ: bool = False) -> None:
+            if molecule:
+                self.mol = "molecule"
+            self.succ = succ
+            self.open = True
+            self.children = []
+            self.depth = 0
+            self.go_back = False
+            self.succ_value = 1.0
+
+        def v_target(self) -> float:
+            return 0.0
+
+        def is_terminal(self) -> bool:
+            return True
+
+    class FakeRoute:
+        optimal = False
+
+        def serialize(self) -> str:
+            return "route-1"
+
+    class FakeMolTree:
+        def __init__(self, **_kwargs: object) -> None:
+            self.root = Node(molecule=True)
+            self.mol_nodes = [self.root]
+            self.succ = False
+            self.search_status = 0.0
+            self.cascade_expansion_trace = []
+
+        def call_expand_fn(self, _expand_fn: object, _node: Node) -> dict:
+            return {"scores": [1.0]}
+
+        def cascade_context_for_mol(self, _node: Node) -> dict:
+            return {}
+
+        def prepare_expansion(self, *_args: object, **_kwargs: object) -> tuple:
+            return [], [], [], []
+
+        def expand(self, node: Node, *_args: object, **_kwargs: object) -> tuple:
+            node.succ = True
+            node.succ_value = 0.0
+            self.succ = True
+            return True, None
+
+        def get_best_route(self) -> FakeRoute:
+            return FakeRoute()
+
+        def extract_all_succ_routes(self) -> list[FakeRoute]:
+            return [FakeRoute()]
+
+    acceptor = Mock(return_value=False)
+    with patch.object(mol_tree_module, "MolTree", FakeMolTree):
+        solved, result = bounded_mol_planner(
+            "target",
+            0,
+            set(),
+            lambda _target: {},
+            iterations=3,
+            keep_search=True,
+            max_success_routes=32,
+            success_route_acceptor=acceptor,
+        )
+
+    stop = result[5]
+    assert solved is True
+    assert result[1] == 3
+    acceptor.assert_called_once()
+    assert stop["reason"] == "iteration_limit"
+    assert stop["host_admission_scanned_route_count"] == 1
+    assert stop["host_admitted_success_route_count"] == 0
+
+
+def test_vendor_mcts_soft_wall_stop_returns_routes_found_before_hard_timeout() -> None:
+    vendor_root = Path(__file__).resolve().parents[1] / "vendor" / "ChemEnzyRetroPlanner"
+    sys.path.insert(0, str(vendor_root))
+    try:
+        mol_tree_module = importlib.import_module(
+            "retro_planner.search_frame.mcts_star.mol_tree"
+        )
+    finally:
+        sys.path.remove(str(vendor_root))
+
+    class Node:
+        def __init__(self, *, molecule: bool, succ: bool = False) -> None:
+            if molecule:
+                self.mol = "molecule"
+            self.succ = succ
+            self.open = True
+            self.children = []
+            self.depth = 0
+            self.go_back = False
+            self.succ_value = 1.0
+
+        def v_target(self) -> float:
+            return 0.0
+
+        def is_terminal(self) -> bool:
+            return True
+
+    class FakeRoute:
+        optimal = False
+
+    class FakeMolTree:
+        def __init__(self, **_kwargs: object) -> None:
+            self.root = Node(molecule=True)
+            self.mol_nodes = [self.root]
+            self.succ = False
+            self.search_status = 0.0
+            self.cascade_expansion_trace = []
+
+        def call_expand_fn(self, _expand_fn: object, _node: Node) -> dict:
+            return {"scores": [1.0]}
+
+        def cascade_context_for_mol(self, _node: Node) -> dict:
+            return {}
+
+        def prepare_expansion(self, *_args: object, **_kwargs: object) -> tuple:
+            return [], [], [], []
+
+        def expand(self, node: Node, *_args: object, **_kwargs: object) -> tuple:
+            node.succ = True
+            node.succ_value = 0.0
+            self.succ = True
+            return True, None
+
+        def get_best_route(self) -> FakeRoute:
+            return FakeRoute()
+
+        def extract_all_succ_routes(self) -> list[FakeRoute]:
+            return [FakeRoute()]
+
+    with (
+        patch.object(mol_tree_module, "MolTree", FakeMolTree),
+        patch(
+            "cascade_planner.baselines.chem_enzy_bounded_mcts.time.monotonic",
+            side_effect=[0.0, 0.0, 0.1, 2.0, 2.1],
+        ),
+    ):
+        solved, result = bounded_mol_planner(
+            "target",
+            0,
+            set(),
+            lambda _target: {},
+            iterations=200,
+            keep_search=True,
+            max_success_routes=100,
+            max_search_wall_time_s=1.0,
+        )
+
+    stop = result[5]
+    assert solved is True
+    assert result[1] == 1
+    assert len(result[2]) == 1
+    assert stop["reason"] == "search_wall_time_limit"
+    assert stop["configured_search_wall_time_s"] == 1.0
+    assert stop["elapsed_search_wall_time_s"] == 2.1
 
 
 def test_vendor_mcts_records_raw_expansions_without_cascade_cost_model() -> None:

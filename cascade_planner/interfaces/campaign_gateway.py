@@ -41,6 +41,9 @@ from cascade_planner.interfaces.campaign_gateway_stock_oracle import (
 from cascade_planner.interfaces.campaign_program_gateway import (
     CampaignProgramGatewayMixin,
 )
+from cascade_planner.interfaces.campaign_milestone_gateway import (
+    CampaignMilestoneGatewayMixin,
+)
 from cascade_planner.interfaces.campaign_recovery import (
     replay_campaign,
     validate_campaign,
@@ -60,7 +63,7 @@ from cascade_planner.providers.registry import ProviderRegistry
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
-class CampaignGateway(CampaignProgramGatewayMixin):
+class CampaignGateway(CampaignMilestoneGatewayMixin, CampaignProgramGatewayMixin):
     """Expose one bounded interface shared by CLI and HTTP adapters."""
 
     def __init__(
@@ -141,7 +144,9 @@ class CampaignGateway(CampaignProgramGatewayMixin):
             )
         ):
             raise CampaignGatewayError("campaign_spec_budget_conflict")
-        identity = self._normalize_run_id(run_id or self._new_run_id(target_name, target_smiles))
+        identity = self._normalize_run_id(
+            run_id or new_run_id(target_name, target_smiles)
+        )
         directory = self._run_dir(identity, explicit=run_dir, require=False)
         spec_path = directory / ".autoplanner" / "kernel" / "run_spec.json"
         if spec_path.is_file():
@@ -386,13 +391,8 @@ class CampaignGateway(CampaignProgramGatewayMixin):
             raise CampaignGatewayError("run_id_invalid")
         return identity
 
-    @staticmethod
-    def _new_run_id(target_name: str, target_smiles: str) -> str:
-        return new_run_id(target_name, target_smiles)
-
     def _default_stock_oracle_reference(self, *, boundary: str) -> StockOracleReference:
         return default_stock_oracle_reference(self.providers, boundary=boundary)
-
 __all__ = [
     "CAMPAIGN_GATEWAY_RESULT_SCHEMA",
     "CampaignGateway",

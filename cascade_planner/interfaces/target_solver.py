@@ -1,4 +1,5 @@
 """Target-only, bounded V4 retrosynthesis campaign orchestration."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
@@ -57,6 +58,10 @@ from cascade_planner.application.experimental_work_scheduling import (
     experimental_work_item_rank_key,
     experimental_work_item_scheduling,
 )
+from cascade_planner.application.experimental_claim_contracts import (
+    EXPERIMENTAL_CLAIM_SET_ORACLE_SCHEMA,
+    validate_experimental_claim_set,
+)
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
@@ -76,6 +81,13 @@ from cascade_planner.application.reaction_mapping import ReactionMapper
 from cascade_planner.application.proof_portfolio import (
     PortfolioConfig,
     compile_proof_portfolio,
+)
+from cascade_planner.application.paper_equivalent_metric import (
+    compile_paper_equivalent_metric,
+)
+from cascade_planner.application.guided_search_progress import (
+    compile_parent_route_stock_progress,
+    evaluate_guided_stock_progress,
 )
 from cascade_planner.application.program_opportunity_pressure import (
     compile_program_opportunity_pressure,
@@ -98,6 +110,9 @@ from cascade_planner.interfaces.live_evidence import (
     compile_evidence_acquisition_request,
 )
 from cascade_planner.interfaces.live_stock import build_pubchem_vendor_catalog
+from cascade_planner.interfaces.target_runtime_dependencies import (
+    SYNTHEX_MATCHED_PROFILE_DEFAULTS,
+)
 from cascade_planner.interfaces.patent_self_evolution import (
     PatentSelfEvolutionSession,
 )
@@ -138,11 +153,16 @@ from cascade_planner.interfaces.visual_evidence import (
     rebind_visual_evidence_observation,
 )
 from cascade_planner.orchestration.global_campaign_director import (
+    ACTIONABLE_REPLAN_EVENTS,
     DirectorConfig,
     DirectorOutcome,
     DirectorRunner,
     GlobalCampaignDirectorError,
     director_prompt,
+    run_codex_cli_director_child,
+)
+from cascade_planner.orchestration.sequential_strategy_director import (
+    SequentialStrategyDirectorRunner,
 )
 from cascade_planner.orchestration.unified_campaign_runtime import (
     CampaignActionDeferredHandler,
@@ -155,7 +175,7 @@ if TYPE_CHECKING:
 
 
 TARGET_SOLVE_REPORT_SCHEMA = "target_only_retrosynthesis_solve_report.v1"
-DEFAULT_TARGET_DIRECTOR_MODEL = "gpt-5.5"
+DEFAULT_TARGET_DIRECTOR_MODEL = str(SYNTHEX_MATCHED_PROFILE_DEFAULTS["model"])
 _DIRECTOR_TOPOLOGY_REASONS = frozenset(
     {
         "skeleton_ancestor_cycle",
@@ -164,32 +184,29 @@ _DIRECTOR_TOPOLOGY_REASONS = frozenset(
         "skeleton_requires_exactly_one_target_root",
     }
 )
-_REPLAN_ACTIONABLE_EVENTS = frozenset(
-    {
-        "critical_edge_rejected",
-        "director_contract_rejected",
-        "director_depth_deficit",
-        "director_topology_rejected",
-        "exact_rows_added",
-        "host_validated_edges_added_after_initial_plan",
-        "host_validated_source_route_added",
-        "material_evidence_added",
-        "new_route_family",
-        "source_material_discovered",
-        "source_procedure_records_added",
-        "shared_bottleneck_changed",
-        "source_conflict_added",
-        "stock_boundary_changed",
-        "stock_records_added",
-        "visual_source_candidates_added",
-    }
-)
 _MAX_DIRECTOR_OUTCOMES = 10
+
+
 @dataclass(frozen=True, slots=True)
 class TargetSolveConfig:
     model: str = DEFAULT_TARGET_DIRECTOR_MODEL
-    reasoning_effort: str = "low"
+    reasoning_effort: str = str(SYNTHEX_MATCHED_PROFILE_DEFAULTS["reasoning_effort"])
     execution_profile: str = "standard"
+    strategy_search_profile: str = str(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_search_profile"]
+    )
+    strategy_branch_count: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_branches"]
+    )
+    max_node_expansions_per_branch: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["node_expansions_per_branch"]
+    )
+    max_route_local_repair_rounds: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["route_local_repair_rounds"]
+    )
+    max_node_prompt_bytes: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_node_prompt_bytes"]
+    )
     objective_mode: TargetObjectiveMode = "scientific_proof"
     use_coordinator: bool = False
     enable_web_search: bool = True
@@ -197,11 +214,14 @@ class TargetSolveConfig:
     enable_codex: bool = True
     enable_replan: bool = True
     action_scheduler_policy: str = "adaptive"
+    delivery_boundary: str = "full"
     enable_live_benchmark_stock: bool = True
     enable_builtin_patent_evidence: bool = False
     enable_patent_self_evolution: bool = True
     enable_chemenzy: bool = True
-    enable_target_chemenzy_baseline: bool = True
+    enable_target_chemenzy_baseline: bool = bool(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["target_chemenzy_baseline"]
+    )
     enable_guided_chemenzy: bool = True
     enable_chemenzy_condition_prediction: bool = True
     enable_condition_enrichment: bool = True
@@ -220,14 +240,18 @@ class TargetSolveConfig:
     chemenzy_stock_paths: tuple[tuple[str, str], ...] = ()
     self_evo_library_path: str = ""
     program_capability_catalog_path: str = ""
-    max_atom_mapping_reactions: int = 48
+    max_atom_mapping_reactions: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_atom_mapping_reactions"]
+    )
     max_condition_prediction_reactions: int = 48
     condition_prediction_topk: int = 2
-    max_live_stock_molecules: int = 24
+    max_live_stock_molecules: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_stock_molecules"]
+    )
     max_patent_sources: int = 3
     max_self_evo_template_candidates: int = 12
     max_program_routes: int = 4
-    max_total_tasks: int = 256
+    max_total_tasks: int = int(SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_total_tasks"])
     max_evidence_tasks: int = 64
     max_stock_tasks: int = 128
     max_validation_tasks: int = 128
@@ -235,23 +259,33 @@ class TargetSolveConfig:
     max_experiment_tasks: int = 32
     max_run_wall_time_s: float = 7_200.0
     provider_route_reserve: int = 16
-    host_route_portfolio: int = 8
+    host_route_portfolio: int = 16
     display_route_limit: int = 4
     max_chemenzy_routes: int | None = None
     max_chemenzy_steps: int = 6
-    max_chemenzy_iterations: int = 10
+    max_chemenzy_iterations: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_iterations"]
+    )
     chemenzy_expansion_topk: int = 20
-    chemenzy_timeout_s: float = 90.0
+    chemenzy_timeout_s: float = float(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_timeout_s"]
+    )
     chemenzy_search_preset: str = "standard"
     chemenzy_seed: int = 0
     chemenzy_pandarallel_workers: int = 2
-    max_guided_chemenzy_frontiers: int = 3
-    max_guided_chemenzy_iterations: int = 6
-    guided_chemenzy_timeout_s: float = 60.0
+    max_guided_chemenzy_frontiers: int | None = None
+    max_guided_chemenzy_iterations: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_iterations"]
+    )
+    guided_chemenzy_timeout_s: float = float(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_timeout_s"]
+    )
     max_visual_evidence_pages: int = 6
     minimum_planning_route_steps: int = 0
     max_director_output_tokens: int = 18_000
-    max_director_wall_time_s: float = 360.0
+    max_director_wall_time_s: float = float(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_model_wall_time_s"]
+    )
     publish_intermediate_workbenches: bool = True
     schema_version: str = "target_solve_config.v1"
 
@@ -260,8 +294,20 @@ class TargetSolveConfig:
             raise ValueError("target solver reasoning effort is invalid")
         if self.execution_profile not in {"fast", "standard", "proof"}:
             raise ValueError("target solver execution profile is invalid")
+        if self.strategy_search_profile not in {"legacy_global", "synthex_matched"}:
+            raise ValueError("target solver strategy search profile is invalid")
+        if not 1 <= self.strategy_branch_count <= 8:
+            raise ValueError("target solver strategy branch count is invalid")
+        if not 1 <= self.max_node_expansions_per_branch <= 64:
+            raise ValueError("target solver node expansion limit is invalid")
+        if not 1 <= self.max_route_local_repair_rounds <= 12:
+            raise ValueError("target solver route-local repair limit is invalid")
+        if not 4_000 <= self.max_node_prompt_bytes <= 96_000:
+            raise ValueError("target solver compact node prompt limit is invalid")
         if self.action_scheduler_policy not in ACTION_SCHEDULER_POLICIES:
             raise ValueError("target solver action scheduler policy is invalid")
+        if self.delivery_boundary not in {"full", "stock_result"}:
+            raise ValueError("target solver delivery boundary is invalid")
         validate_target_objective_mode(self.objective_mode)
         if self.max_atom_mapping_reactions < 1 or self.max_live_stock_molecules < 1:
             raise ValueError("target solver deterministic limits must be positive")
@@ -287,9 +333,7 @@ class TargetSolveConfig:
         )
         if any(isinstance(value, bool) or int(value) < 0 for value in task_limits):
             raise ValueError("target solver task limits are invalid")
-        if not math.isfinite(float(self.max_run_wall_time_s)) or (
-            self.max_run_wall_time_s < 0
-        ):
+        if not math.isfinite(float(self.max_run_wall_time_s)) or (self.max_run_wall_time_s < 0):
             raise ValueError("target solver run wall-time limit is invalid")
         if not 1 <= self.provider_route_reserve <= 32:
             raise ValueError("target solver ChemEnzy provider reserve is invalid")
@@ -297,15 +341,17 @@ class TargetSolveConfig:
             raise ValueError("target solver ChemEnzy host portfolio is invalid")
         if not 1 <= self.display_route_limit <= 12:
             raise ValueError("target solver route display limit is invalid")
-        if self.max_chemenzy_routes is not None and not (
-            1 <= self.max_chemenzy_routes <= 32
-        ):
+        if self.max_chemenzy_routes is not None and not (1 <= self.max_chemenzy_routes <= 32):
             raise ValueError("target solver legacy ChemEnzy route limit is invalid")
-        if min(
-            self.max_chemenzy_steps,
-            self.max_chemenzy_iterations,
-            self.chemenzy_expansion_topk,
-        ) < 1 or self.chemenzy_timeout_s <= 0:
+        if (
+            min(
+                self.max_chemenzy_steps,
+                self.max_chemenzy_iterations,
+                self.chemenzy_expansion_topk,
+            )
+            < 1
+            or self.chemenzy_timeout_s <= 0
+        ):
             raise ValueError("target solver ChemEnzy budget is invalid")
         if (
             isinstance(self.chemenzy_seed, bool)
@@ -322,12 +368,12 @@ class TargetSolveConfig:
             raise ValueError("target solver ChemEnzy search preset is invalid")
         if not 1 <= self.chemenzy_pandarallel_workers <= 8:
             raise ValueError("target solver ChemEnzy worker count is invalid")
-        if not 1 <= self.max_guided_chemenzy_frontiers <= 6:
-            raise ValueError("target solver guided ChemEnzy frontier limit is invalid")
-        if (
-            self.max_guided_chemenzy_iterations < 1
-            or self.guided_chemenzy_timeout_s <= 0
+        if self.max_guided_chemenzy_frontiers is not None and (
+            isinstance(self.max_guided_chemenzy_frontiers, bool)
+            or self.max_guided_chemenzy_frontiers < 1
         ):
+            raise ValueError("target solver guided ChemEnzy frontier limit is invalid")
+        if self.max_guided_chemenzy_iterations < 1 or self.guided_chemenzy_timeout_s <= 0:
             raise ValueError("target solver guided ChemEnzy budget is invalid")
         if self.max_director_output_tokens < 1 or self.max_director_wall_time_s <= 0:
             raise ValueError("target solver director limits must be positive")
@@ -392,19 +438,23 @@ def solve_target(
         minimum_independent_source_groups=2,
         require_distinct_edge_sets=True,
     )
+    matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
     requested_budget = budget or RetrosynthesisRunBudget(
-        max_model_invocations=2,
-        max_total_input_tokens=50_000,
-        max_total_output_tokens=14_000,
-        max_total_wall_time_s=720.0,
+        max_model_invocations=matched["max_model_invocations"],
+        max_total_input_tokens=matched["max_input_tokens"],
+        max_total_output_tokens=matched["max_output_tokens"],
+        max_total_wall_time_s=matched["max_model_wall_time_s"],
         max_visual_invocations=0,
-        max_accepted_expansions=32,
-        max_attempt_runs=72,
-        max_prompt_context_bytes=96_000,
+        max_accepted_expansions=matched["max_accepted_expansions"],
+        max_attempt_runs=matched["max_attempt_runs"],
+        max_prompt_context_bytes=matched["max_prompt_context_bytes"],
     )
     resolved_budget = _bind_native_search_budget(
         requested_budget,
         config=active,
+    )
+    guided_frontier_limit = int(
+        resolved_budget.max_frontier_native_search_invocations or 0
     )
     oracle_builder: Any | None = None
     if resolved_acceptance.stock_boundary == "benchmark_search":
@@ -452,9 +502,7 @@ def solve_target(
         not in {"", "blind target", "blind molecule", "opaque target", "target", "unknown target"}
         else opaque_name
     )
-    identity = gateway._normalize_run_id(
-        run_id or gateway._new_run_id(campaign_name, canonical)
-    )
+    identity = gateway._normalize_run_id(run_id or gateway._new_run_id(campaign_name, canonical))
     directory = gateway._run_dir(identity, explicit=run_dir, require=False)
     case = BlindCase.from_dict(
         {
@@ -546,21 +594,38 @@ def solve_target(
         resolved_acceptance.minimum_complete_routes,
     )
     if active.minimum_planning_route_steps > director_profile["max_steps_per_skeleton"]:
-        raise ValueError(
-            "minimum planning route depth exceeds execution profile capacity"
+        raise ValueError("minimum planning route depth exceeds execution profile capacity")
+    result_delivery_cancel_event = Event()
+    # A caller-supplied runner is an explicit implementation override.  Only
+    # grant the matched profile's six host-validated local-repair rounds when
+    # the actual runner implements the compact sequential policy; legacy or
+    # test global planners retain the one-event replan contract.
+    sequential_strategy = bool(
+        active.strategy_search_profile == "synthex_matched"
+        and (
+            director_runner is None
+            or isinstance(director_runner, SequentialStrategyDirectorRunner)
         )
+    )
     director_config = DirectorConfig(
         minimum_route_families=minimum_director_families,
         minimum_planning_route_steps=active.minimum_planning_route_steps,
         max_route_families=max(
             director_profile["max_route_families"],
             minimum_director_families,
+            active.strategy_branch_count if sequential_strategy else 0,
+            active.max_route_local_repair_rounds if sequential_strategy else 0,
         ),
         max_skeletons=max(
             director_profile["max_skeletons"],
             minimum_director_families,
+            active.strategy_branch_count if sequential_strategy else 0,
+            active.max_route_local_repair_rounds if sequential_strategy else 0,
         ),
-        max_steps_per_skeleton=director_profile["max_steps_per_skeleton"],
+        max_steps_per_skeleton=max(
+            director_profile["max_steps_per_skeleton"],
+            active.max_node_expansions_per_branch if sequential_strategy else 0,
+        ),
         max_output_tokens=min(
             active.max_director_output_tokens,
             director_profile["max_output_tokens"],
@@ -572,18 +637,52 @@ def solve_target(
         ),
         max_tool_calls=director_profile["max_tool_calls"],
         max_initial_architecture_calls=1,
-        max_event_replan_calls=_MAX_DIRECTOR_OUTCOMES - 1,
+        max_event_replan_calls=(
+            active.max_route_local_repair_rounds
+            if sequential_strategy
+            else _MAX_DIRECTOR_OUTCOMES - 1
+        ),
         max_final_portfolio_synthesis_calls=1,
+        planning_mode=("sequential_branches" if sequential_strategy else "global_skeleton"),
+        strategy_branch_count=active.strategy_branch_count,
+        max_node_expansions_per_branch=active.max_node_expansions_per_branch,
+        max_route_local_repair_rounds=active.max_route_local_repair_rounds,
+        max_node_prompt_bytes=active.max_node_prompt_bytes,
+        max_provider_requests=max(3, guided_frontier_limit),
         model=active.model,
         reasoning_effort=active.reasoning_effort,
         enable_web_search=active.enable_web_search,
         enable_initial_web_search=active.enable_initial_director_web_search,
         use_coordinator=active.use_coordinator,
     )
+    resolved_director_runner = director_runner
+    if resolved_director_runner is None:
+        if sequential_strategy:
+            resolved_director_runner = SequentialStrategyDirectorRunner(
+                stock_membership=_frozen_stock_membership_checker(
+                    stock_catalog_builder
+                ),
+                cancel_event=result_delivery_cancel_event,
+            )
+        else:
+            def resolved_director_runner(
+                spec: Any,
+                context: Any,
+                mode: str,
+                config: DirectorConfig,
+            ) -> Any:
+                return run_codex_cli_director_child(
+                    spec,
+                    context,
+                    mode,
+                    config,
+                    cancel_event=result_delivery_cancel_event,
+                )
+
     service = gateway._open(
         identity,
         run_dir=directory,
-        director_runner=director_runner,
+        director_runner=resolved_director_runner,
         director_config=director_config,
     )
     budget_extension_event = None
@@ -597,19 +696,12 @@ def solve_target(
         service.kernel.resume(
             idempotency_key=f"solve-target:resume:{service.kernel.state.revision}"
         )
-    if (
-        service.kernel.state.status == "running"
-        and not (
-            active.enable_chemenzy
-            and active.enable_target_chemenzy_baseline
-        )
+    if service.kernel.state.status == "running" and not (
+        active.enable_chemenzy and active.enable_target_chemenzy_baseline
     ):
         native_projection = service.kernel.native_search_budget()
         protected_units = int(
-            dict(native_projection.get("target") or {}).get(
-                "protected_remaining"
-            )
-            or 0
+            dict(native_projection.get("target") or {}).get("protected_remaining") or 0
         )
         if protected_units:
             service.kernel.release_native_target_reserve(
@@ -631,10 +723,7 @@ def solve_target(
         max_candidates=active.max_self_evo_template_candidates,
     )
     resolved_evidence_connector = evidence_connector
-    if (
-        resolved_evidence_connector is None
-        and active.enable_builtin_patent_evidence
-    ):
+    if resolved_evidence_connector is None and active.enable_builtin_patent_evidence:
         from cascade_planner.interfaces.patent_evidence import (
             BuiltinPatentEvidenceConfig,
             build_builtin_patent_evidence_connector,
@@ -649,6 +738,7 @@ def solve_target(
         )
     stages = list(checkpoint.get("stages") or [])
     outcomes = list(checkpoint.get("director_outcomes") or [])
+    attempted_guided_frontier_smiles = _attempted_chemenzy_frontiers(stages)
     if resume:
         stages.append(
             _stage(
@@ -663,10 +753,7 @@ def solve_target(
         )
     resolved_condition_predictor = condition_predictor
     condition_predictor_error = ""
-    if (
-        resolved_condition_predictor is None
-        and active.enable_condition_enrichment
-    ):
+    if resolved_condition_predictor is None and active.enable_condition_enrichment:
         try:
             resolved_condition_predictor = local_condition_predictor(
                 _chemenzy_vendor_root(gateway.paths.vendor_root), "rcr"
@@ -686,18 +773,32 @@ def solve_target(
         dict(value) for value in mechanism_proposals if isinstance(value, Mapping)
     )
     resolved_program_validation_feedback = tuple(
-        dict(value)
-        for value in program_validation_feedback
-        if isinstance(value, Mapping)
+        dict(value) for value in program_validation_feedback if isinstance(value, Mapping)
     )
     resolved_feedback_signals = compile_program_validation_feedback_signals(
         resolved_program_validation_feedback
     )
     initial_director_context: Any | None = None
     latest_campaign_portfolio: dict[str, Any] = {}
+    guided_progress_pending: dict[str, Any] = {}
+    guided_continuation_allowed = True
 
     def append_condition_stage(stage_name: str) -> dict[str, Any]:
-        if not active.enable_condition_enrichment:
+        result_first_deferred = bool(
+            active.action_scheduler_policy == "adaptive"
+            and _campaign_milestones(current_campaign_gates()).get(
+                "B4_stock_boundary"
+            )
+            is not True
+        )
+        if result_first_deferred:
+            detail = {
+                "stage": "condition_enrichment",
+                "status": "deferred",
+                "reason": "result_first_stock_boundary_not_reached",
+                "semantics": {"scheduler_owned_execution": True},
+            }
+        elif not active.enable_condition_enrichment:
             detail = {
                 "stage": "condition_enrichment",
                 "status": "skipped",
@@ -724,22 +825,17 @@ def solve_target(
         frontier_native = dict(native_search.get("frontier") or {})
         return {
             "deterministic": True,
-            "validation": dict(task_budget.get("validation") or {}).get(
-                "available"
-            ) is True,
+            "validation": dict(task_budget.get("validation") or {}).get("available") is True,
             "stock": dict(task_budget.get("stock") or {}).get("available") is True,
             "evidence": bool(
                 resolved_evidence_connector is not None
                 and dict(task_budget.get("evidence") or {}).get("available") is True
             ),
             "condition": bool(
-                active.enable_condition_enrichment
-                and resolved_condition_predictor is not None
+                active.enable_condition_enrichment and resolved_condition_predictor is not None
             ),
             "program": dict(task_budget.get("program") or {}).get("available") is True,
-            "experiment": dict(task_budget.get("experiment") or {}).get(
-                "available"
-            ) is True,
+            "experiment": dict(task_budget.get("experiment") or {}).get("available") is True,
             "model": int(model_totals.get("model_invocations") or 0)
             < resolved_budget.max_model_invocations,
             "native_search_target": bool(
@@ -750,6 +846,8 @@ def solve_target(
             "native_search_frontier": bool(
                 active.enable_chemenzy
                 and active.enable_guided_chemenzy
+                and guided_continuation_allowed
+                and not guided_progress_pending
                 and frontier_native.get("available") is True
             ),
             "native_search": bool(
@@ -823,6 +921,27 @@ def solve_target(
             inventory_builder=inventory_snapshot_builder,
         )
 
+    def handle_route_recompute(action: CampaignAction) -> dict[str, Any]:
+        result = service.apply_batch(
+            CanonicalIngestionBatch(recompute_derived=True),
+            idempotency_key=f"{action.idempotency_key}:handler",
+        )
+        return {
+            "status": "completed",
+            "changed": result.get("changed") is True,
+            "route_family_ids": sorted(action.route_family_ids),
+            "dirty_entity_ids": list(result.get("dirty_entity_ids") or []),
+            "material_events": (
+                ["canonical_route_closure_recomputed"]
+                if result.get("changed") is True
+                else []
+            ),
+            "semantics": {
+                "canonical_hypergraph_remains_route_closure_authority": True,
+                "unchanged_recompute_is_a_bounded_no_gain_action": True,
+            },
+        }
+
     def handle_condition(action: CampaignAction) -> dict[str, Any]:
         return enrich_materialized_edge_conditions(
             service,
@@ -848,41 +967,64 @@ def solve_target(
                 "status": "failed",
                 "reasons": ["chemenzy_target_action_scope_invalid"],
             }
-        return run_initial_chemenzy_and_signal(lambda: run_chemenzy_proposal_stage(
-            service,
-            target_name=case.target_name,
-            target_smiles=canonical,
-            enabled=(
-                active.enable_chemenzy and active.enable_target_chemenzy_baseline
-            ),
-            provider=chemenzy_provider,
-            env_prefix=active.chemenzy_env_prefix or None,
-            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
-            max_routes=active.effective_provider_route_reserve,
-            max_host_routes=active.effective_host_route_portfolio,
-            max_steps=active.max_chemenzy_steps,
-            max_iterations=active.max_chemenzy_iterations,
-            expansion_topk=active.chemenzy_expansion_topk,
-            timeout_s=active.chemenzy_timeout_s,
-            search_preset=active.chemenzy_search_preset,
-            random_seed=active.chemenzy_seed,
-            stock_names=active.chemenzy_stock_names,
-            stock_paths=dict(active.chemenzy_stock_paths),
-            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
-            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
-            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
-            pandarallel_workers=active.chemenzy_pandarallel_workers,
-        ))
+        return run_initial_chemenzy_and_signal(
+            lambda: run_chemenzy_proposal_stage(
+                service,
+                target_name=case.target_name,
+                target_smiles=canonical,
+                enabled=(active.enable_chemenzy and active.enable_target_chemenzy_baseline),
+                provider=chemenzy_provider,
+                env_prefix=active.chemenzy_env_prefix or None,
+                vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
+                max_routes=active.effective_provider_route_reserve,
+                max_host_routes=active.effective_host_route_portfolio,
+                max_steps=active.max_chemenzy_steps,
+                max_iterations=active.max_chemenzy_iterations,
+                expansion_topk=active.chemenzy_expansion_topk,
+                timeout_s=active.chemenzy_timeout_s,
+                search_preset=active.chemenzy_search_preset,
+                random_seed=active.chemenzy_seed,
+                stock_names=active.chemenzy_stock_names,
+                stock_paths=dict(active.chemenzy_stock_paths),
+                enable_condition_prediction=(
+                    active.enable_chemenzy_condition_prediction
+                    and active.action_scheduler_policy != "adaptive"
+                ),
+                enable_enzyme_assignment=(
+                    active.enable_chemenzy_enzyme_assignment
+                    and active.action_scheduler_policy != "adaptive"
+                ),
+                enable_enzyme_coverage_sidecar=(
+                    active.enable_enzyme_coverage_sidecar
+                    and active.action_scheduler_policy != "adaptive"
+                ),
+                pandarallel_workers=active.chemenzy_pandarallel_workers,
+                stop_on_first_host_admitted_route=(
+                    active.delivery_boundary == "stock_result"
+                ),
+            )
+        )
 
     def handle_guided_chemenzy(action: CampaignAction) -> dict[str, Any]:
         frontier_smiles = str(action.metadata.get("frontier_smiles") or "")
-        if (
-            action.metadata.get("target_level_native_search") is True
-            or not frontier_smiles
-        ):
+        if action.metadata.get("target_level_native_search") is True or not frontier_smiles:
             return {
                 "status": "failed",
                 "reasons": ["chemenzy_frontier_action_scope_invalid"],
+            }
+        _frontier_id, frontier_key = molecule_identity(frontier_smiles)
+        frontier_key = frontier_key or frontier_smiles
+        if frontier_key in attempted_guided_frontier_smiles:
+            return {
+                "status": "skipped",
+                "frontier_smiles": [frontier_key],
+                "proposal_count": 0,
+                "provider_invocation_count": 0,
+                "reasons": ["guided_frontier_already_attempted"],
+                "semantics": {
+                    "duplicate_guided_provider_call_suppressed": True,
+                    "deduplication_is_frontier_identity_based": True,
+                },
             }
         current_graph = service.graph_store.load()
         if any(
@@ -906,7 +1048,15 @@ def solve_target(
                     "duplicate_guided_provider_call_suppressed": True,
                 },
             }
-        return run_chemenzy_guided_frontier_stage(
+        before_progress = compile_parent_route_stock_progress(
+            compile_proof_portfolio(
+                current_graph,
+                acceptance_spec=resolved_acceptance,
+                config=_portfolio_config(active, resolved_acceptance),
+            ),
+            parent_route_family_ids=action.route_family_ids,
+        )
+        result = run_chemenzy_guided_frontier_stage(
             service,
             target_name=case.target_name,
             root_target_smiles=canonical,
@@ -916,8 +1066,8 @@ def solve_target(
             vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
             max_frontiers=1,
             max_routes=1,
-            max_steps=active.max_chemenzy_steps,
-            max_iterations=min(24, active.max_guided_chemenzy_iterations),
+            max_steps=min(6, active.max_chemenzy_steps),
+            max_iterations=active.max_guided_chemenzy_iterations,
             expansion_topk=min(80, active.chemenzy_expansion_topk),
             timeout_s=active.guided_chemenzy_timeout_s,
             include_frontier_smiles=(frontier_smiles,),
@@ -925,11 +1075,40 @@ def solve_target(
             random_seed=active.chemenzy_seed,
             stock_names=active.chemenzy_stock_names,
             stock_paths=dict(active.chemenzy_stock_paths),
-            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
-            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
-            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
+            enable_condition_prediction=(
+                active.enable_chemenzy_condition_prediction
+                and active.action_scheduler_policy != "adaptive"
+            ),
+            enable_enzyme_assignment=(
+                active.enable_chemenzy_enzyme_assignment
+                and active.action_scheduler_policy != "adaptive"
+            ),
+            enable_enzyme_coverage_sidecar=(
+                active.enable_enzyme_coverage_sidecar
+                and active.action_scheduler_policy != "adaptive"
+            ),
             pandarallel_workers=active.chemenzy_pandarallel_workers,
+            stop_on_first_host_admitted_route=(
+                active.delivery_boundary == "stock_result"
+            ),
         )
+        attempted_guided_frontier_smiles.add(frontier_key)
+        result = {
+            **dict(result),
+            "guided_progress_checkpoint": {
+                "before": before_progress,
+                "parent_route_family_ids": sorted(action.route_family_ids),
+                "frontier_smiles": frontier_key,
+                "provider_proposal_count": int(
+                    result.get("proposal_count") or 0
+                ),
+            },
+        }
+        guided_progress_pending.clear()
+        guided_progress_pending.update(
+            dict(result["guided_progress_checkpoint"])
+        )
+        return result
 
     def handle_global_architecture(action: CampaignAction) -> dict[str, Any]:
         if action.metadata.get("global_architecture") is not True:
@@ -947,9 +1126,7 @@ def solve_target(
             },
             context=initial_director_context,
             before_plan_admission=(
-                initial_chemenzy_admission_complete.wait
-                if ordered_initial_admission
-                else None
+                initial_chemenzy_admission_complete.wait if ordered_initial_admission else None
             ),
             idempotency_key="solve-target:director:initial",
         )
@@ -971,8 +1148,7 @@ def solve_target(
     ) -> dict[str, Any]:
         requested_route_id = str(action.metadata.get("route_id") or "")
         route_family_id = str(
-            action.metadata.get("route_family_id")
-            or next(iter(action.route_family_ids), "")
+            action.metadata.get("route_family_id") or next(iter(action.route_family_ids), "")
         )
         portfolio = compile_proof_portfolio(
             service.graph_store.load(),
@@ -996,16 +1172,13 @@ def solve_target(
                 "status": "exact",
                 "requested_route_id": requested_route_id,
                 "route_id": requested_route_id,
-                "route_family_id": str(
-                    exact.get("route_family_id") or route_family_id
-                ),
+                "route_family_id": str(exact.get("route_family_id") or route_family_id),
             }
         family_candidates = sorted(
             (
                 value
                 for value in candidates
-                if route_family_id
-                and str(value.get("route_family_id") or "") == route_family_id
+                if route_family_id and str(value.get("route_family_id") or "") == route_family_id
             ),
             key=lambda value: (
                 value.get("selected") is not True,
@@ -1063,16 +1236,12 @@ def solve_target(
         )
         return {
             "status": (
-                "completed"
-                if int(discovery.get("candidate_count") or 0)
-                else "reused_or_empty"
+                "completed" if int(discovery.get("candidate_count") or 0) else "reused_or_empty"
             ),
             "route_id": route_id,
             "route_binding": route_binding,
             "candidate_count": int(discovery.get("candidate_count") or 0),
-            "program_draft_candidate_ids": list(
-                discovery.get("program_draft_candidate_ids") or []
-            ),
+            "program_draft_candidate_ids": list(discovery.get("program_draft_candidate_ids") or []),
             "execution_program_draft_candidate_ids": list(
                 discovery.get("execution_program_draft_candidate_ids") or []
             ),
@@ -1138,18 +1307,13 @@ def solve_target(
                 "reasons": ["experiment_feedback_claim_projection_rejected"],
                 "claim_oracle": claim_oracle,
             }
-        experimental_claims = dict(
-            program_review.get("experimental_claims") or {}
-        )
+        experimental_claims = dict(program_review.get("experimental_claims") or {})
         validation_id = str(validation.get("validation_id") or "")
         matching_claims = [
             dict(value)
             for value in dict(experimental_claims.get("claims") or {}).values()
             if isinstance(value, Mapping)
-            and str(
-                dict(value.get("source_validation") or {}).get("validation_id")
-                or ""
-            )
+            and str(dict(value.get("source_validation") or {}).get("validation_id") or "")
             == validation_id
         ]
         if not matching_claims:
@@ -1248,8 +1412,7 @@ def solve_target(
         preexecuted = [
             execution
             for execution in preexecuted_action_backlog
-            if str(dict(execution.get("action") or {}).get("kind") or "")
-            in projected_kinds
+            if str(dict(execution.get("action") or {}).get("kind") or "") in projected_kinds
         ][: max(1, int(max_actions))]
         if preexecuted:
             consumed_ids = {id(execution) for execution in preexecuted}
@@ -1262,58 +1425,44 @@ def solve_target(
         return []
 
     program_action_handlers = {
-            **(
-                {CampaignActionKind.PROGRAM_DISCOVER: handle_program_discovery}
-                if active.enable_program_discovery
-                and (
-                    bool(resolved_program_capabilities)
-                    or bool(resolved_mechanism_proposals)
-                )
-                else {}
-            ),
-            **(
-                {CampaignActionKind.PROGRAM_REVIEW: handle_program_review}
-                if active.enable_program_review
-                else {}
-            ),
-            **(
-                {CampaignActionKind.PROGRAM_ADMIT: handle_program_admission}
-                if active.enable_program_admission
-                else {}
-            ),
-            **(
-                {CampaignActionKind.PROGRAM_VALIDATE: handle_program_validation}
-                if active.enable_program_validation
-                else {}
-            ),
-            **(
-                {
-                    CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST: (
-                        handle_experiment_feedback
-                    )
-                }
-                if active.enable_program_validation
-                else {}
-            ),
-        }
+        **(
+            {CampaignActionKind.PROGRAM_DISCOVER: handle_program_discovery}
+            if active.enable_program_discovery
+            and (bool(resolved_program_capabilities) or bool(resolved_mechanism_proposals))
+            else {}
+        ),
+        **(
+            {CampaignActionKind.PROGRAM_REVIEW: handle_program_review}
+            if active.enable_program_review
+            else {}
+        ),
+        **(
+            {CampaignActionKind.PROGRAM_ADMIT: handle_program_admission}
+            if active.enable_program_admission
+            else {}
+        ),
+        **(
+            {CampaignActionKind.PROGRAM_VALIDATE: handle_program_validation}
+            if active.enable_program_validation
+            else {}
+        ),
+        **(
+            {CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST: (handle_experiment_feedback)}
+            if active.enable_program_validation
+            else {}
+        ),
+    }
 
     resume_signal_kinds = {
         **({"replan": True} if active.enable_replan else {}),
         **(
             {"program_discovery": True}
             if active.enable_program_discovery
-            and (
-                bool(resolved_program_capabilities)
-                or bool(resolved_mechanism_proposals)
-            )
+            and (bool(resolved_program_capabilities) or bool(resolved_mechanism_proposals))
             else {}
         ),
         **({"program_review": True} if active.enable_program_review else {}),
-        **(
-            {"program_admission": True}
-            if active.enable_program_admission
-            else {}
-        ),
+        **({"program_admission": True} if active.enable_program_admission else {}),
         **(
             {"program_validation": True, "experiment_feedback": True}
             if active.enable_program_validation
@@ -1362,8 +1511,7 @@ def solve_target(
             work_fingerprint=str(resume_work["work_fingerprint"]),
             reasons=tuple(resume_work.get("reasons") or ()),
             idempotency_key=(
-                "solve-target:terminal-reopen:"
-                + str(resume_work["work_fingerprint"])[:24]
+                "solve-target:terminal-reopen:" + str(resume_work["work_fingerprint"])[:24]
             ),
         )
         stages.append(
@@ -1391,21 +1539,16 @@ def solve_target(
         resolve_named=active.resolve_named_target_identity,
         lookup_now=False,
     )
-    identity_stage = _stage(
-        "target_identity", target_identity["status"], target_identity
-    )
+    identity_stage = _stage("target_identity", target_identity["status"], target_identity)
     identity_indices = [
-        index
-        for index, row in enumerate(stages)
-        if row.get("stage") == "target_identity"
+        index for index, row in enumerate(stages) if row.get("stage") == "target_identity"
     ]
     if identity_indices:
         stages[identity_indices[-1]] = identity_stage
     else:
         stages.append(identity_stage)
     resolved_target_name = str(
-        dict(target_identity.get("identity") or {}).get("preferred_name")
-        or case.target_name
+        dict(target_identity.get("identity") or {}).get("preferred_name") or case.target_name
     )
     evidence_prefetch_result: dict[str, Any] = {
         "status": "not_started",
@@ -1416,6 +1559,7 @@ def solve_target(
     evidence_prefetch_signal_id = ""
     if (
         not outcomes
+        and active.action_scheduler_policy != "adaptive"
         and resolved_evidence_connector is not None
         and getattr(
             resolved_evidence_connector,
@@ -1433,23 +1577,15 @@ def solve_target(
             target_identity=dict(target_identity.get("identity") or {}),
             prefetch_mode=True,
         )
-        prefetch_sha256 = str(
-            evidence_prefetch_request.get("content_sha256") or ""
-        )
-        evidence_prefetch_signal_id = (
-            f"event-deficit:evidence-prefetch:{prefetch_sha256}"
-        )
+        prefetch_sha256 = str(evidence_prefetch_request.get("content_sha256") or "")
+        evidence_prefetch_signal_id = f"event-deficit:evidence-prefetch:{prefetch_sha256}"
         prefetch_graph = service.graph_store.load()
         existing_prefetch_signal = dict(
-            dict(prefetch_graph.get("action_signals") or {}).get(
-                evidence_prefetch_signal_id
-            )
-            or {}
+            dict(prefetch_graph.get("action_signals") or {}).get(evidence_prefetch_signal_id) or {}
         )
         if str(existing_prefetch_signal.get("status") or "open") != "resolved":
             target_object = str(
-                prefetch_graph.get("target_molecule_id")
-                or service.kernel.spec.run_id
+                prefetch_graph.get("target_molecule_id") or service.kernel.spec.run_id
             )
             service.publish_action_signals(
                 (
@@ -1477,9 +1613,7 @@ def solve_target(
                         },
                     },
                 ),
-                idempotency_key=(
-                    f"unified-evidence-prefetch-signal:{prefetch_sha256[:24]}"
-                ),
+                idempotency_key=(f"unified-evidence-prefetch-signal:{prefetch_sha256[:24]}"),
             )
     initial_template_retrieval = self_evo.start(service.graph_store.load())
     stages.append(
@@ -1491,9 +1625,7 @@ def solve_target(
     )
     initial_template_observation = self_evo.observation()
     chemenzy_observation: dict[str, Any] = {}
-    trajectory_code_binding = _target_control_plane_code_binding(
-        gateway.paths.repository_root
-    )
+    trajectory_code_binding = _target_control_plane_code_binding(gateway.paths.repository_root)
 
     def current_trajectory_bindings() -> dict[str, Any]:
         return _compile_target_trajectory_bindings(
@@ -1518,9 +1650,7 @@ def solve_target(
     ) -> dict[str, Any]:
         graph = service.graph_store.load()
         resolved_portfolio = dict(portfolio or latest_campaign_portfolio)
-        if int(resolved_portfolio.get("graph_revision") or -1) != int(
-            graph.get("revision") or 0
-        ):
+        if int(resolved_portfolio.get("graph_revision") or -1) != int(graph.get("revision") or 0):
             resolved_portfolio = compile_proof_portfolio(
                 graph,
                 acceptance_spec=resolved_acceptance,
@@ -1543,20 +1673,15 @@ def solve_target(
                 "native_search": service.kernel.native_search_budget(),
                 "tasks": service.kernel.task_budget(),
                 "attempt_count": service.kernel.state.attempt_count,
-                "accepted_expansion_count": (
-                    service.kernel.state.accepted_expansion_count
-                ),
+                "accepted_expansion_count": (service.kernel.state.accepted_expansion_count),
                 "settled_task_count": service.kernel.state.settled_task_count,
-                "in_flight_task_count": len(
-                    service.kernel.state.in_flight_tasks
-                ),
-                "cumulative_task_wall_time_s": (
-                    service.kernel.state.task_wall_time_s
+                "in_flight_task_count": len(service.kernel.state.in_flight_tasks),
+                "cumulative_task_wall_time_s": (service.kernel.state.task_wall_time_s),
+                "cumulative_task_compute_time_s": (
+                    service.kernel.state.task_compute_time_s
                 ),
             },
-            action_counts=compile_action_counts(
-                _campaign_action_executions_from_stages(stages)
-            ),
+            action_counts=compile_action_counts(_campaign_action_executions_from_stages(stages)),
             route_counts=dict(route_state["counts"]),
             pareto_archive=route_state["pareto_archive"],
             bindings=current_trajectory_bindings(),
@@ -1574,6 +1699,7 @@ def solve_target(
     latest_evidence_action_result: dict[str, Any] = {}
     evidence_action_completed = False
     unified_material_events: set[str] = set()
+    provider_search_failures: list[dict[str, Any]] = []
     unified_replan_audit_contexts: dict[str, dict[str, Any]] = {}
     program_pressure_cache: dict[str, dict[str, Any]] = {}
 
@@ -1581,9 +1707,7 @@ def solve_target(
         graph: Mapping[str, Any],
         route: Mapping[str, Any],
     ) -> dict[str, Any]:
-        edge_ids = {
-            str(value) for value in route.get("edge_ids") or [] if str(value)
-        }
+        edge_ids = {str(value) for value in route.get("edge_ids") or [] if str(value)}
         edges = {
             edge_id: dict(dict(graph.get("edges") or {}).get(edge_id) or {})
             for edge_id in sorted(edge_ids)
@@ -1608,24 +1732,14 @@ def solve_target(
                 "route": dict(route),
                 "edges": edges,
                 "molecules": {
-                    molecule_id: dict(
-                        dict(graph.get("molecules") or {}).get(molecule_id)
-                        or {}
-                    )
+                    molecule_id: dict(dict(graph.get("molecules") or {}).get(molecule_id) or {})
                     for molecule_id in sorted(molecule_ids)
                 },
                 "procedure_records": {
-                    record_id: dict(
-                        dict(graph.get("procedure_records") or {}).get(
-                            record_id
-                        )
-                        or {}
-                    )
+                    record_id: dict(dict(graph.get("procedure_records") or {}).get(record_id) or {})
                     for record_id in sorted(procedure_ids)
                 },
-                "fact_lifecycle_events": dict(
-                    graph.get("fact_lifecycle_events") or {}
-                ),
+                "fact_lifecycle_events": dict(graph.get("fact_lifecycle_events") or {}),
                 "capabilities": resolved_program_capabilities,
                 "mechanism_proposals": resolved_mechanism_proposals,
             }
@@ -1658,23 +1772,18 @@ def solve_target(
         and active.enable_codex
         and initial_resources.get("native_search_target") is True
         and initial_resources.get("model") is True
-        and CampaignActionKind.CHEMENZY_TARGET_EXPAND.value
-        in initial_action_kinds
-        and CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE.value
-        in initial_action_kinds
+        and CampaignActionKind.CHEMENZY_TARGET_EXPAND.value in initial_action_kinds
+        and CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE.value in initial_action_kinds
     )
     if not ordered_initial_admission:
         initial_chemenzy_admission_complete.set()
 
     def prepare_unified_evidence(_action: CampaignAction) -> dict[str, Any]:
         if _action.metadata.get("target_level_evidence_prefetch") is True:
-            expected_sha256 = str(
-                _action.metadata.get("evidence_prefetch_request_sha256") or ""
-            )
+            expected_sha256 = str(_action.metadata.get("evidence_prefetch_request_sha256") or "")
             if (
                 not evidence_prefetch_request
-                or expected_sha256
-                != str(evidence_prefetch_request.get("content_sha256") or "")
+                or expected_sha256 != str(evidence_prefetch_request.get("content_sha256") or "")
                 or resolved_evidence_connector is None
             ):
                 return {
@@ -1699,9 +1808,7 @@ def solve_target(
                 "result": {
                     **reused,
                     "status": "reused",
-                    "reused_evidence_status": str(
-                        reused.get("status") or "completed"
-                    ),
+                    "reused_evidence_status": str(reused.get("status") or "completed"),
                     "changed": False,
                     "reason": "unified_evidence_action_already_executed",
                 },
@@ -1716,9 +1823,7 @@ def solve_target(
             lookup_now=True,
         )
         prepared_target_name = str(
-            dict(prepared_target_identity.get("identity") or {}).get(
-                "preferred_name"
-            )
+            dict(prepared_target_identity.get("identity") or {}).get("preferred_name")
             or opaque_name
         )
         source_frontier = discover_director_source_hints(service, outcomes)
@@ -1731,9 +1836,7 @@ def solve_target(
                 source_stage=source_frontier,
                 connector=resolved_evidence_connector,
                 target_name=prepared_target_name,
-                target_identity=dict(
-                    prepared_target_identity.get("identity") or {}
-                ),
+                target_identity=dict(prepared_target_identity.get("identity") or {}),
                 allow_target_identity_lookup=active.enable_target_identity,
             ),
         }
@@ -1766,9 +1869,7 @@ def solve_target(
             target_identity,
         )
         identity_rows = [
-            index
-            for index, row in enumerate(stages)
-            if row.get("stage") == "target_identity"
+            index for index, row in enumerate(stages) if row.get("stage") == "target_identity"
         ]
         if identity_rows:
             stages[identity_rows[-1]] = refreshed_identity_stage
@@ -1786,9 +1887,7 @@ def solve_target(
             allow_target_identity_lookup=active.enable_target_identity,
             prior_visual_observation=_latest_visual_observation(stages),
             defer_validation=True,
-            prepared_acquisition=dict(
-                prepared_row.get("prepared_acquisition") or {}
-            ),
+            prepared_acquisition=dict(prepared_row.get("prepared_acquisition") or {}),
         )
         evidence_action_completed = True
         latest_evidence_action_result = dict(result)
@@ -1813,27 +1912,50 @@ def solve_target(
         evidence_observations = {
             **_evidence_observations(latest_evidence_action_result),
             **self_evo.observation(),
+            **(
+                {"provider_search_failures": list(provider_search_failures)}
+                if provider_search_failures
+                else {}
+            ),
         }
-        return _run_director_safely(
+        result = _run_director_safely(
             service,
             mode="event_replan",
             material_events=tuple(
-                str(value)
-                for value in action.metadata.get("material_events") or []
-                if str(value)
-            ),
+                str(value) for value in action.metadata.get("material_events") or [] if str(value)
+            )
+            or ("stock_boundary_changed",),
             evidence_observations=evidence_observations,
             idempotency_key=f"solve-target:director:{action.execution_id}",
         )
+        if sequential_strategy:
+            result = {
+                **result,
+                "operation_kind": "route_local_repair",
+                "repair_scope": "one_failed_reaction_neighborhood",
+                "maximum_repair_rounds": active.max_route_local_repair_rounds,
+                "preserves_target_rooted_prefix": True,
+                "legacy_scheduler_action_kind": "codex_global_replan",
+                "semantics": {
+                    **dict(result.get("semantics") or {}),
+                    "matched_profile_does_not_run_a_second_global_plan": True,
+                    "legacy_action_name_is_scheduler_compatibility_only": True,
+                },
+            }
+        return result
 
     def publish_unified_replan_signal() -> None:
+        event_replan_count = sum(
+            str(outcome.get("mode") or "") == "event_replan"
+            for outcome in outcomes
+        )
+        event_replan_limit = (
+            active.max_route_local_repair_rounds if sequential_strategy else 1
+        )
         if (
             not active.enable_replan
             or not outcomes
-            or any(
-                str(outcome.get("mode") or "") == "event_replan"
-                for outcome in outcomes
-            )
+            or event_replan_count >= event_replan_limit
             or len(outcomes) >= _MAX_DIRECTOR_OUTCOMES
         ):
             return
@@ -1877,9 +1999,7 @@ def solve_target(
         )
         if signal_gate.get("accepted") is not True:
             return
-        stages.append(
-            _stage("global_replan_signal_gate", "accepted", signal_gate)
-        )
+        stages.append(_stage("global_replan_signal_gate", "accepted", signal_gate))
         prompt_context_bytes = 0
         context_error = ""
         try:
@@ -1888,6 +2008,15 @@ def solve_target(
                 evidence_observations={
                     **_evidence_observations(latest_evidence_action_result),
                     **self_evo.observation(),
+                    **(
+                        {
+                            "provider_search_failures": list(
+                                provider_search_failures
+                            )
+                        }
+                        if provider_search_failures
+                        else {}
+                    ),
                 },
             )
             prompt_context_bytes = len(
@@ -1925,6 +2054,12 @@ def solve_target(
         )
         if budget_guard.get("accepted") is not True:
             return
+        # A signal mutates the canonical graph and therefore rebuilds the
+        # frontier.  Mark the target entity dirty as well as the signal itself
+        # so the freshly published replan becomes visible immediately.
+        target_object_id = str(
+            graph.get("target_molecule_id") or service.kernel.spec.run_id
+        )
         signal_payload = {
             "graph_revision": service.kernel.state.graph_revision,
             "material_events": list(effective_material_events),
@@ -1939,11 +2074,11 @@ def solve_target(
                 {
                     "signal_id": f"event-deficit:replan:{signal_sha256}",
                     "kind": "replan",
-                    "object_id": str(
-                        graph.get("target_molecule_id")
-                        or service.kernel.spec.run_id
-                    ),
-                    "entity_ids": [str(graph.get("target_molecule_id") or "")],
+                    "object_id": target_object_id,
+                    "entity_ids": [
+                        target_object_id,
+                        f"event-deficit:replan:{signal_sha256}",
+                    ],
                     "route_family_ids": [],
                     "dependency_ids": [],
                     "deterministic": False,
@@ -1960,6 +2095,77 @@ def solve_target(
             idempotency_key=f"unified-replan-signal:{signal_sha256[:24]}",
         )
 
+    def execute_pending_unified_replan() -> list[dict[str, Any]]:
+        """Run the single replan that may be published after the core loop."""
+
+        graph_before = service.graph_store.load()
+        if any(
+            str(signal.get("kind") or "") == "replan"
+            for signal in dict(graph_before.get("action_signals") or {}).values()
+            if isinstance(signal, Mapping)
+        ):
+            pass
+        else:
+            gate_values = current_campaign_gates()
+            material_events = tuple(sorted(unified_material_events))
+            replan_reasons = _replan_reasons(
+                gate_values,
+                material_events=material_events,
+                convergence_ledger=unified_core_runtime.action_convergence_ledger(
+                    current_graph_revision=service.kernel.state.graph_revision
+                ),
+            )
+            if not replan_reasons or not _director_outcome_allows_replan(outcomes):
+                return []
+            signal_payload = {
+                "graph_revision": service.kernel.state.graph_revision,
+                "material_events": list(material_events),
+                "trigger_reasons": list(replan_reasons),
+                "global_replan": True,
+            }
+            signal_sha256 = _digest(signal_payload)
+            target_object_id = str(
+                graph_before.get("target_molecule_id")
+                or service.kernel.spec.run_id
+            )
+            service.publish_action_signals(
+                (
+                    {
+                        "signal_id": f"event-deficit:replan:{signal_sha256}",
+                        "kind": "replan",
+                        "object_id": target_object_id,
+                        "entity_ids": [target_object_id],
+                        "route_family_ids": [],
+                        "dependency_ids": [],
+                        "deterministic": False,
+                        "model_allowed": True,
+                        "reason": "material_state_requires_global_replan",
+                        "metadata": signal_payload,
+                    },
+                ),
+                idempotency_key=(
+                    f"result-first-replan-signal:{signal_sha256[:24]}"
+                ),
+            )
+        opportunities = compile_action_opportunities(
+            dict(service.graph_store.load().get("deficit_frontier") or {})
+        )
+        execution_row = unified_core_runtime.schedule_and_execute(
+            opportunities,
+            milestones=_campaign_milestones(current_campaign_gates()),
+            resource_availability=scheduler_resources(),
+        )
+        if (
+            str(dict(execution_row.get("action") or {}).get("kind") or "")
+            != CampaignActionKind.CODEX_REPLAN.value
+        ):
+            return []
+        observe_unified_core_execution(
+            len(unified_core_runtime.action_execution_history()),
+            execution_row,
+        )
+        return [execution_row]
+
     def publish_unified_program_signals() -> None:
         if not (
             active.enable_program_discovery
@@ -1969,6 +2175,13 @@ def solve_target(
         ):
             return
         graph = service.graph_store.load()
+        before_stock_boundary = bool(
+            active.action_scheduler_policy == "adaptive"
+            and _campaign_milestones(current_campaign_gates()).get(
+                "B4_stock_boundary"
+            )
+            is not True
+        )
         existing_signals = [
             dict(value)
             for value in dict(graph.get("action_signals") or {}).values()
@@ -1977,21 +2190,14 @@ def solve_target(
         discovered_pressure_bindings = {
             (
                 str(
-                    dict(signal.get("metadata") or {}).get(
-                        "route_family_id"
-                    )
+                    dict(signal.get("metadata") or {}).get("route_family_id")
                     or dict(signal.get("metadata") or {}).get("route_id")
                     or ""
                 ),
                 str(
-                    dict(signal.get("metadata") or {}).get(
-                        "program_pressure_sha256"
-                    )
+                    dict(signal.get("metadata") or {}).get("program_pressure_sha256")
                     or dict(
-                        dict(signal.get("metadata") or {}).get(
-                            "program_opportunity_pressure"
-                        )
-                        or {}
+                        dict(signal.get("metadata") or {}).get("program_opportunity_pressure") or {}
                     ).get("content_sha256")
                     or ""
                 ),
@@ -1999,86 +2205,87 @@ def solve_target(
             for signal in existing_signals
             if str(signal.get("kind") or "") == "program_discovery"
             and str(
-                dict(signal.get("metadata") or {}).get(
-                    "program_pressure_sha256"
-                )
+                dict(signal.get("metadata") or {}).get("program_pressure_sha256")
                 or dict(
-                    dict(signal.get("metadata") or {}).get(
-                        "program_opportunity_pressure"
-                    )
-                    or {}
+                    dict(signal.get("metadata") or {}).get("program_opportunity_pressure") or {}
                 ).get("content_sha256")
                 or ""
             )
         }
         review_pressure_bindings = {
             str(
-                dict(signal.get("metadata") or {}).get(
-                    "program_review_pressure_sha256"
-                )
+                dict(signal.get("metadata") or {}).get("program_review_pressure_sha256")
                 or dict(
-                    dict(signal.get("metadata") or {}).get(
-                        "program_review_pressure"
-                    )
-                    or {}
+                    dict(signal.get("metadata") or {}).get("program_review_pressure") or {}
                 ).get("content_sha256")
                 or ""
             )
             for signal in existing_signals
             if str(signal.get("kind") or "") == "program_review"
             and str(
-                dict(signal.get("metadata") or {}).get(
-                    "program_review_pressure_sha256"
-                )
+                dict(signal.get("metadata") or {}).get("program_review_pressure_sha256")
                 or dict(
-                    dict(signal.get("metadata") or {}).get(
-                        "program_review_pressure"
-                    )
-                    or {}
+                    dict(signal.get("metadata") or {}).get("program_review_pressure") or {}
                 ).get("content_sha256")
                 or ""
             )
         }
-        existing_kinds = {
-            str(signal.get("kind") or "") for signal in existing_signals
-        }
+        existing_kinds = {str(signal.get("kind") or "") for signal in existing_signals}
         portfolio = compile_proof_portfolio(
             graph,
             acceptance_spec=resolved_acceptance,
             config=_portfolio_config(active, resolved_acceptance),
         )
-        route_rows = [
+        selected_route_rows = [
             dict(route)
             for route in portfolio.get("selected_routes") or []
             if isinstance(route, Mapping) and str(route.get("route_id") or "")
-        ][: active.max_program_routes]
+        ]
+        strategy_native_rows = [
+            dict(route)
+            for route in portfolio.get("route_candidates") or []
+            if isinstance(route, Mapping)
+            and str(route.get("route_id") or "")
+            and str(route.get("execution_domain") or "chemical")
+            in {"enzymatic", "whole_cell", "hybrid", "mechanistic"}
+        ]
+        route_rows = list(
+            {
+                str(route.get("route_id")): route
+                for route in [*strategy_native_rows, *selected_route_rows]
+            }.values()
+        )
+        if before_stock_boundary:
+            route_rows = [
+                route
+                for route in route_rows
+                if str(route.get("execution_domain") or "chemical")
+                in {"enzymatic", "whole_cell", "hybrid", "mechanistic"}
+            ]
+        route_rows = route_rows[: active.max_program_routes]
+        if before_stock_boundary and not route_rows:
+            return
         signals: list[dict[str, Any]] = []
         discovery_enabled = bool(
             active.enable_program_discovery
             and (resolved_program_capabilities or resolved_mechanism_proposals)
         )
         route_pressures = {
-            str(route.get("route_id") or ""): current_program_opportunity_pressure(
-                graph, route
-            )
+            str(route.get("route_id") or ""): current_program_opportunity_pressure(graph, route)
             for route in route_rows
             if discovery_enabled or active.enable_program_review
         }
-        review_pressure = compile_program_review_pressure(
-            route_pressures.values()
-        )
+        review_pressure = compile_program_review_pressure(route_pressures.values())
         review_needed = bool(
             route_rows
             and active.enable_program_review
-            and review_pressure["content_sha256"]
-            not in review_pressure_bindings
+            and not before_stock_boundary
+            and review_pressure["content_sha256"] not in review_pressure_bindings
         )
         if discovery_enabled:
             for route in route_rows:
                 route_id = str(route.get("route_id") or "")
-                route_family_id = str(
-                    route.get("route_family_id") or route_id
-                )
+                route_family_id = str(route.get("route_family_id") or route_id)
                 program_pressure = route_pressures[route_id]
                 if (
                     route_family_id,
@@ -2086,21 +2293,19 @@ def solve_target(
                 ) in discovered_pressure_bindings:
                     continue
                 signal_payload = {
-                    "graph_scientific_sha256": str(
-                        graph.get("scientific_sha256") or ""
-                    ),
+                    "graph_scientific_sha256": str(graph.get("scientific_sha256") or ""),
                     "route_id": route_id,
                     "route_family_id": route_family_id,
-                    "program_pressure_sha256": program_pressure[
-                        "content_sha256"
-                    ],
+                    "program_pressure_sha256": program_pressure["content_sha256"],
+                    "strategy_native_competitor": bool(
+                        str(route.get("execution_domain") or "chemical")
+                        in {"enzymatic", "whole_cell", "hybrid", "mechanistic"}
+                    ),
                 }
                 signal_sha256 = _digest(signal_payload)
                 signals.append(
                     {
-                        "signal_id": (
-                            f"event-deficit:program-discovery:{signal_sha256}"
-                        ),
+                        "signal_id": (f"event-deficit:program-discovery:{signal_sha256}"),
                         "kind": "program_discovery",
                         "object_id": route_id,
                         "entity_ids": [route_id],
@@ -2109,7 +2314,9 @@ def solve_target(
                         "deterministic": True,
                         "model_allowed": False,
                         "reason": (
-                            "selected_route_requires_program_opportunity_review"
+                            "strategy_native_program_competes_before_evidence"
+                            if before_stock_boundary
+                            else "selected_route_requires_program_opportunity_review"
                         ),
                         "score": dict(program_pressure["score"]),
                         "metadata": {
@@ -2119,19 +2326,13 @@ def solve_target(
                         },
                     }
                 )
-        target_object = str(
-            graph.get("target_molecule_id") or service.kernel.spec.run_id
-        )
+        target_object = str(graph.get("target_molecule_id") or service.kernel.spec.run_id)
         if review_needed:
             signal_sha256 = _digest(
                 {
-                    "graph_scientific_sha256": str(
-                        graph.get("scientific_sha256") or ""
-                    ),
+                    "graph_scientific_sha256": str(graph.get("scientific_sha256") or ""),
                     "operation": "review",
-                    "program_review_pressure_sha256": review_pressure[
-                        "content_sha256"
-                    ],
+                    "program_review_pressure_sha256": review_pressure["content_sha256"],
                 }
             )
             signals.append(
@@ -2148,24 +2349,20 @@ def solve_target(
                     "score": dict(review_pressure["score"]),
                     "metadata": {
                         "program_review": True,
-                        "program_review_pressure_sha256": review_pressure[
-                            "content_sha256"
-                        ],
+                        "program_review_pressure_sha256": review_pressure["content_sha256"],
                         "program_review_pressure": review_pressure,
                     },
                 }
             )
         if (
             route_rows
-            and
-            active.enable_program_admission
+            and not before_stock_boundary
+            and active.enable_program_admission
             and "program_admission" not in existing_kinds
         ):
             signal_sha256 = _digest(
                 {
-                    "graph_scientific_sha256": str(
-                        graph.get("scientific_sha256") or ""
-                    ),
+                    "graph_scientific_sha256": str(graph.get("scientific_sha256") or ""),
                     "operation": "admit",
                 }
             )
@@ -2195,9 +2392,7 @@ def solve_target(
             signals_sha256 = _digest(signals)
             service.publish_action_signals(
                 signals,
-                idempotency_key=(
-                    f"unified-program-signals:{signals_sha256[:24]}"
-                ),
+                idempotency_key=(f"unified-program-signals:{signals_sha256[:24]}"),
             )
 
     def publish_program_validation_signals(
@@ -2227,9 +2422,7 @@ def solve_target(
                     "object_id": str(work_item_id),
                     "entity_ids": [program_id],
                     "route_family_ids": [route_id] if route_id else [],
-                    "dependency_ids": list(
-                        work_item.get("linked_canonical_deficit_ids") or []
-                    ),
+                    "dependency_ids": list(work_item.get("linked_canonical_deficit_ids") or []),
                     "priority": float(scheduling["action_priority"]),
                     "deterministic": True,
                     "model_allowed": False,
@@ -2246,9 +2439,7 @@ def solve_target(
             signals_sha256 = _digest(signals)
             service.publish_action_signals(
                 signals,
-                idempotency_key=(
-                    f"unified-program-validation-signals:{signals_sha256[:24]}"
-                ),
+                idempotency_key=(f"unified-program-validation-signals:{signals_sha256[:24]}"),
             )
 
     def publish_unified_experiment_feedback_signals() -> None:
@@ -2256,15 +2447,14 @@ def solve_target(
             signals_sha256 = _digest(resolved_feedback_signals)
             service.publish_action_signals(
                 resolved_feedback_signals,
-                idempotency_key=(
-                    f"unified-experiment-feedback-signals:{signals_sha256[:24]}"
-                ),
+                idempotency_key=(f"unified-experiment-feedback-signals:{signals_sha256[:24]}"),
             )
 
     unified_core_handlers = {
         CampaignActionKind.MATERIALIZE: handle_materialize,
         CampaignActionKind.REACTION_VALIDATE: deferred_validation_handler,
         CampaignActionKind.STOCK_AUDIT: handle_stock,
+        CampaignActionKind.RECOMPUTE_ROUTE: handle_route_recompute,
         **(
             {CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_global_architecture}
             if active.enable_codex
@@ -2292,12 +2482,8 @@ def solve_target(
         ),
         **(
             {
-                CampaignActionKind.ACQUIRE_EVIDENCE: (
-                    deferred_unified_evidence_handler
-                ),
-                CampaignActionKind.BIND_EVIDENCE: (
-                    deferred_unified_evidence_handler
-                ),
+                CampaignActionKind.ACQUIRE_EVIDENCE: (deferred_unified_evidence_handler),
+                CampaignActionKind.BIND_EVIDENCE: (deferred_unified_evidence_handler),
             }
             if resolved_evidence_connector is not None
             else {}
@@ -2309,13 +2495,36 @@ def solve_target(
         unified_core_handlers,
         scheduler_policy=active.action_scheduler_policy,
     )
+    projected_execution_ids = {
+        str(dict(detail.get("action") or {}).get("execution_id") or "")
+        for row in stages
+        for detail in (dict(row.get("detail") or {}),)
+        if str(row.get("stage") or "").startswith(
+            "campaign_action_unified_core_"
+        )
+    }
+    preloop_recovered_action_executions = (
+        unified_core_runtime.recover_checkpointed_native_actions(
+            projected_execution_ids=projected_execution_ids,
+        )
+    )
+    durable_action_history = unified_core_runtime.action_execution_history()
+    attempted_guided_frontier_smiles.update(
+        _attempted_chemenzy_frontiers_from_action_history(
+            durable_action_history
+        )
+    )
+    resumed_guided_progress = _pending_guided_progress_from_action_history(
+        durable_action_history,
+        stages=stages,
+    )
+    if resumed_guided_progress:
+        guided_progress_pending.update(resumed_guided_progress)
     unified_action_stage_offset = max(
         (
             int(str(row.get("stage") or "").rsplit("_", 1)[-1])
             for row in stages
-            if str(row.get("stage") or "").startswith(
-                "campaign_action_unified_core_"
-            )
+            if str(row.get("stage") or "").startswith("campaign_action_unified_core_")
             and str(row.get("stage") or "").rsplit("_", 1)[-1].isdigit()
         ),
         default=0,
@@ -2326,23 +2535,151 @@ def solve_target(
         execution: Mapping[str, Any],
     ) -> None:
         nonlocal chemenzy_observation, evidence_prefetch_result
+        nonlocal guided_continuation_allowed
         stage_sequence = unified_action_stage_offset + index
         execution_row = dict(execution)
         preexecuted_action_backlog.append(execution_row)
-        action_kind = str(
-            dict(execution_row.get("action") or {}).get("kind") or ""
+        action_kind = str(dict(execution_row.get("action") or {}).get("kind") or "")
+        handler_result = dict(dict(execution_row.get("outcome") or {}).get("handler_result") or {})
+        action_metadata = dict(
+            dict(execution_row.get("action") or {}).get("metadata") or {}
         )
-        handler_result = dict(
-            dict(execution_row.get("outcome") or {}).get("handler_result") or {}
-        )
+        if action_kind == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value:
+            frontier_candidates = [
+                action_metadata.get("frontier_smiles"),
+                *(handler_result.get("frontier_smiles") or []),
+            ]
+            for frontier in frontier_candidates:
+                if not str(frontier):
+                    continue
+                _frontier_id, frontier_key = molecule_identity(str(frontier))
+                attempted_guided_frontier_smiles.add(
+                    frontier_key or str(frontier)
+                )
+            recovered_progress = dict(
+                handler_result.get("guided_progress_checkpoint") or {}
+            )
+            if recovered_progress and not guided_progress_pending:
+                guided_progress_pending.update(recovered_progress)
         unified_material_events.update(
             str(value)
             for value in handler_result.get("material_events") or []
             if isinstance(value, str) and str(value)
         )
-        action_metadata = dict(
-            dict(execution_row.get("action") or {}).get("metadata") or {}
+        if (
+            action_kind
+            in {
+                CampaignActionKind.CHEMENZY_TARGET_EXPAND.value,
+                CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value,
+            }
+            and int(handler_result.get("provider_invocation_count") or 0) > 0
+            and int(handler_result.get("proposal_count") or 0) == 0
+        ):
+            provider_search_failures.append(
+                {
+                    "action_kind": action_kind,
+                    "frontier_smiles": str(
+                        action_metadata.get("frontier_smiles")
+                        or dict(handler_result.get("request") or {}).get(
+                            "target_smiles"
+                        )
+                        or ""
+                    ),
+                    "target_level_native_search": (
+                        action_metadata.get("target_level_native_search") is True
+                    ),
+                    "status": str(handler_result.get("status") or "unresolved"),
+                    "provider_invocation_count": int(
+                        handler_result.get("provider_invocation_count") or 0
+                    ),
+                    "failure_reasons": sorted(
+                        str(value)
+                        for value in handler_result.get("failure_reasons")
+                        or handler_result.get("reasons")
+                        or []
+                        if str(value)
+                    ),
+                }
+            )
+            unified_material_events.add(
+                "provider_search_exhausted_without_proposal"
+            )
+        should_measure_guided_progress = bool(
+            guided_progress_pending
+            and (
+                (
+                    action_kind
+                    == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
+                    and int(handler_result.get("proposal_count") or 0) == 0
+                )
+                or action_kind == CampaignActionKind.MATERIALIZE.value
+                or action_kind == CampaignActionKind.STOCK_AUDIT.value
+            )
         )
+        if should_measure_guided_progress:
+            pending_materialization = any(
+                str(action.get("kind") or "")
+                == CampaignActionKind.MATERIALIZE.value
+                for action in compile_action_opportunities(
+                    dict(service.graph_store.load().get("deficit_frontier") or {})
+                ).get("actions")
+                or []
+                if isinstance(action, Mapping)
+            )
+            pending_stock = any(
+                str(action.get("kind") or "")
+                == CampaignActionKind.STOCK_AUDIT.value
+                for action in compile_action_opportunities(
+                    dict(service.graph_store.load().get("deficit_frontier") or {})
+                ).get("actions")
+                or []
+                if isinstance(action, Mapping)
+            )
+            if not pending_materialization and not pending_stock:
+                progress_gates = current_campaign_gates()
+                after_progress = compile_parent_route_stock_progress(
+                    latest_campaign_portfolio,
+                    parent_route_family_ids=tuple(
+                        str(value)
+                        for value in guided_progress_pending.get(
+                            "parent_route_family_ids"
+                        )
+                        or []
+                        if str(value)
+                    ),
+                )
+                progress_audit = evaluate_guided_stock_progress(
+                    dict(guided_progress_pending.get("before") or {}),
+                    after_progress,
+                    root_b4_reached=(
+                        _campaign_milestones(progress_gates).get(
+                            "B4_stock_boundary"
+                        )
+                        is True
+                    ),
+                )
+                guided_continuation_allowed = bool(
+                    progress_audit["continue_guided_search"]
+                )
+                stages.append(
+                    _stage(
+                        f"guided_root_stock_progress_{stage_sequence:02d}",
+                        "continue" if guided_continuation_allowed else "stopped",
+                        {
+                            **progress_audit,
+                            "frontier_smiles": str(
+                                guided_progress_pending.get("frontier_smiles") or ""
+                            ),
+                            "provider_proposal_count": int(
+                                guided_progress_pending.get(
+                                    "provider_proposal_count"
+                                )
+                                or 0
+                            ),
+                        },
+                    )
+                )
+                guided_progress_pending.clear()
         action_signal_id = str(action_metadata.get("action_signal_id") or "")
         execution_status = str(execution_row.get("status") or "unresolved")
         keep_signal_pending = bool(
@@ -2355,34 +2692,26 @@ def solve_target(
                 resolution={
                     "status": execution_status,
                     "action_execution_id": str(
-                        dict(execution_row.get("action") or {}).get(
-                            "execution_id"
-                        )
-                        or ""
+                        dict(execution_row.get("action") or {}).get("execution_id") or ""
                     ),
                 },
                 idempotency_key=(
                     "unified-action-signal-resolve:"
                     + str(
-                        dict(execution_row.get("action") or {}).get(
-                            "execution_id"
-                        )
+                        dict(execution_row.get("action") or {}).get("execution_id")
                         or action_signal_id
                     )
                 ),
             )
         if action_kind == CampaignActionKind.CHEMENZY_TARGET_EXPAND.value:
             chemenzy_result = dict(
-                dict(execution_row.get("outcome") or {}).get("handler_result")
-                or {}
+                dict(execution_row.get("outcome") or {}).get("handler_result") or {}
             )
             chemenzy_observation = _chemenzy_director_observation(
                 (
                     {
                         "stage": "chemenzy_baseline",
-                        "status": str(
-                            chemenzy_result.get("status") or "unresolved"
-                        ),
+                        "status": str(chemenzy_result.get("status") or "unresolved"),
                         "detail": chemenzy_result,
                     },
                 )
@@ -2392,10 +2721,7 @@ def solve_target(
         elif action_kind == CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST.value:
             resolved_signal_ids = tuple(
                 str(value)
-                for value in handler_result.get(
-                    "resolved_program_validation_signal_ids"
-                )
-                or []
+                for value in handler_result.get("resolved_program_validation_signal_ids") or []
                 if str(value)
             )
             if resolved_signal_ids:
@@ -2404,18 +2730,13 @@ def solve_target(
                     resolution={
                         "status": "feedback_ingested",
                         "feedback_action_execution_id": str(
-                            dict(execution_row.get("action") or {}).get(
-                                "execution_id"
-                            )
-                            or ""
+                            dict(execution_row.get("action") or {}).get("execution_id") or ""
                         ),
                     },
                     idempotency_key=(
                         "unified-program-validation-resolve:"
                         + str(
-                            dict(execution_row.get("action") or {}).get(
-                                "execution_id"
-                            )
+                            dict(execution_row.get("action") or {}).get("execution_id")
                             or _digest(resolved_signal_ids)
                         )
                     ),
@@ -2424,9 +2745,7 @@ def solve_target(
             director_result = handler_result
             if director_result and not outcomes:
                 outcomes.append(director_result)
-                unified_material_events.update(
-                    _director_topology_replan_events(outcomes)
-                )
+                unified_material_events.update(_director_topology_replan_events(outcomes))
                 unified_material_events.update(
                     _director_depth_replan_events(
                         _planning_depth_requirement(
@@ -2482,9 +2801,7 @@ def solve_target(
                 replan_gain = _replan_gain_audit(
                     dict(audit_context.get("gates_before") or {}),
                     current_campaign_gates(),
-                    model_cost_before=dict(
-                        audit_context.get("model_cost_before") or {}
-                    ),
+                    model_cost_before=dict(audit_context.get("model_cost_before") or {}),
                     model_cost_after=service.kernel.state.model_totals,
                 )
                 stages.append(
@@ -2551,22 +2868,32 @@ def solve_target(
             )
         )
 
+    for recovered_index, recovered_execution in enumerate(
+        preloop_recovered_action_executions,
+        start=1,
+    ):
+        observe_unified_core_execution(
+            recovered_index,
+            recovered_execution,
+        )
+    unified_action_stage_offset += len(
+        preloop_recovered_action_executions
+    )
+
     publish_unified_experiment_feedback_signals()
     unified_core_action_limit = max(
         32,
         active.effective_provider_route_reserve
         + active.max_atom_mapping_reactions
         + active.max_condition_prediction_reactions
-        + active.max_guided_chemenzy_frontiers
+        + guided_frontier_limit
         + 8,
     )
     unified_core_loop = unified_core_runtime.run_anytime(
         opportunity_provider=lambda: compile_action_opportunities(
             dict(service.graph_store.load().get("deficit_frontier") or {})
         ),
-        milestones_provider=lambda: _campaign_milestones(
-            current_campaign_gates()
-        ),
+        milestones_provider=lambda: _campaign_milestones(current_campaign_gates()),
         resource_availability_provider=scheduler_resources,
         max_actions=unified_core_action_limit,
         max_consecutive_no_gain=unified_core_action_limit + 1,
@@ -2576,8 +2903,7 @@ def solve_target(
                 for kind, enabled in (
                     (
                         CampaignActionKind.CHEMENZY_TARGET_EXPAND,
-                        active.enable_chemenzy
-                        and active.enable_target_chemenzy_baseline,
+                        active.enable_chemenzy and active.enable_target_chemenzy_baseline,
                     ),
                     (
                         CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
@@ -2585,7 +2911,7 @@ def solve_target(
                     ),
                     (
                         CampaignActionKind.ACQUIRE_EVIDENCE,
-                        bool(evidence_prefetch_signal_id),
+                        False,
                     ),
                 )
                 if enabled
@@ -2593,16 +2919,31 @@ def solve_target(
             if active.action_scheduler_policy == "adaptive"
             else ()
         ),
-        concurrent_action_kinds=(
+        concurrent_action_kinds=(),
+        max_concurrent_actions=2,
+        stop_milestone=(
+            "B4_stock_boundary"
+            if active.delivery_boundary == "stock_result"
+            else ""
+        ),
+        progressive_start_kind=(
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND
+            if active.delivery_boundary == "stock_result"
+            else None
+        ),
+        progressive_delivery_action_kinds=(
             (
-                CampaignActionKind.ACQUIRE_EVIDENCE,
-                CampaignActionKind.BIND_EVIDENCE,
-                CampaignActionKind.REACTION_VALIDATE,
+                CampaignActionKind.MATERIALIZE,
+                CampaignActionKind.STOCK_AUDIT,
             )
-            if active.action_scheduler_policy == "adaptive"
+            if active.delivery_boundary == "stock_result"
             else ()
         ),
-        max_concurrent_actions=4,
+        on_delivery_milestone=(
+            result_delivery_cancel_event.set
+            if active.delivery_boundary == "stock_result"
+            else None
+        ),
         on_execution=observe_unified_core_execution,
     )
     anytime_budget_exhausted = bool(
@@ -2619,20 +2960,15 @@ def solve_target(
             or state.settled_task_count >= limits.max_total_tasks
             or state.task_wall_time_s >= limits.max_run_wall_time_s
         )
+
     stages.append(
         _stage(
             "campaign_anytime_core",
             str(unified_core_loop.get("termination") or "unresolved"),
-            {
-                key: value
-                for key, value in unified_core_loop.items()
-                if key != "executions"
-            },
+            {key: value for key, value in unified_core_loop.items() if key != "executions"},
         )
     )
-    prior_chemenzy_stages = [
-        row for row in stages if row.get("stage") == "chemenzy_baseline"
-    ]
+    prior_chemenzy_stages = [row for row in stages if row.get("stage") == "chemenzy_baseline"]
     retry_chemenzy = _should_retry_chemenzy_timeout(
         prior_chemenzy_stages,
         resume=resume,
@@ -2682,18 +3018,12 @@ def solve_target(
         seed_materialization_results = [
             dict(dict(value.get("outcome") or {}).get("handler_result") or {})
             for value in seed_executions
-            if dict(value.get("action") or {}).get("kind")
-            == CampaignActionKind.MATERIALIZE.value
+            if dict(value.get("action") or {}).get("kind") == CampaignActionKind.MATERIALIZE.value
         ]
         seed_materialization = {
             "schema_version": "campaign_action_slice_summary.v1",
-            "status": (
-                "completed" if seed_materialization_results else "reused_or_empty"
-            ),
-            "changed": any(
-                value.get("changed") is True
-                for value in seed_materialization_results
-            ),
+            "status": ("completed" if seed_materialization_results else "reused_or_empty"),
+            "changed": any(value.get("changed") is True for value in seed_materialization_results),
             "executed_command_count": sum(
                 int(value.get("executed_command_count") or 0)
                 for value in seed_materialization_results
@@ -2704,19 +3034,14 @@ def solve_target(
         stages.append(
             _stage(
                 "chemenzy_seed_materialization",
-                (
-                    "completed"
-                    if seed_materialization.get("changed")
-                    else "reused_or_empty"
-                ),
+                ("completed" if seed_materialization.get("changed") else "reused_or_empty"),
                 seed_materialization,
             )
         )
         seed_stock_results = [
             dict(dict(value.get("outcome") or {}).get("handler_result") or {})
             for value in seed_executions
-            if dict(value.get("action") or {}).get("kind")
-            == CampaignActionKind.STOCK_AUDIT.value
+            if dict(value.get("action") or {}).get("kind") == CampaignActionKind.STOCK_AUDIT.value
         ]
         seed_stock = (
             seed_stock_results[-1]
@@ -2836,6 +3161,7 @@ def solve_target(
     )
     template_reuse = self_evo.materialize(service)
     stages.append(_stage("patent_template_reuse", template_reuse["status"], template_reuse))
+
     def run_validation_action_stage(phase: str) -> dict[str, Any]:
         return _aggregate_validation_action_results(
             project_action_results(
@@ -2846,6 +3172,22 @@ def solve_target(
         )
 
     def run_evidence_action_stage(phase: str) -> dict[str, Any]:
+        if (
+            active.action_scheduler_policy == "adaptive"
+            and _campaign_milestones(current_campaign_gates()).get(
+                "B4_stock_boundary"
+            )
+            is not True
+        ):
+            return {
+                "stage": "evidence_acquisition",
+                "status": "deferred",
+                "reason": "result_first_stock_boundary_not_reached",
+                "model_invocations": 0,
+                "visual_invocations": 0,
+                "action_execution_count": 0,
+                "semantics": {"scheduler_owned_execution": True},
+            }
         if phase == "evidence_acquisition" and latest_evidence_action_result:
             prior_result = dict(latest_evidence_action_result)
             return {
@@ -2875,9 +3217,7 @@ def solve_target(
         (CampaignActionKind.REACTION_VALIDATE,),
         max_actions=active.max_atom_mapping_reactions + 2,
     )
-    validation = _aggregate_validation_action_results(
-        post_director_validation_executions
-    )
+    validation = _aggregate_validation_action_results(post_director_validation_executions)
     stages.append(_stage("reaction_validation", validation["status"], validation))
     repair_stage = repair_rejected_precursor_typos(service, validation)
     stages.append(_stage("precursor_repair", repair_stage["status"], repair_stage))
@@ -2888,9 +3228,7 @@ def solve_target(
             (CampaignActionKind.REACTION_VALIDATE,),
             max_actions=active.max_atom_mapping_reactions + 2,
         )
-        repair_validation = _aggregate_validation_action_results(
-            repair_validation_executions
-        )
+        repair_validation = _aggregate_validation_action_results(repair_validation_executions)
         stages.append(
             _stage(
                 "precursor_repair_validation",
@@ -2951,17 +3289,20 @@ def solve_target(
     prior_attempted_frontiers = _attempted_chemenzy_frontiers(stages)
     prior_guided = _latest_stage(stages, "chemenzy_guided_frontier")
     prior_guided_status = str(prior_guided.get("status") or "")
-    reuse_guided = prior_guided_status in {
-        "completed",
-        "unresolved",
-        "not_needed",
-        "reused",
-    } or len(prior_attempted_frontiers) >= active.max_guided_chemenzy_frontiers
+    reuse_guided = (
+        prior_guided_status
+        in {
+            "completed",
+            "unresolved",
+            "not_needed",
+            "reused",
+        }
+        or len(prior_attempted_frontiers) >= guided_frontier_limit
+    )
     if (
         prior_guided_status == "not_needed"
         and int(delegation_audit.get("queued_count") or 0) > 0
-        and len(prior_attempted_frontiers)
-        < active.max_guided_chemenzy_frontiers
+        and len(prior_attempted_frontiers) < guided_frontier_limit
     ):
         reuse_guided = False
     if reuse_guided:
@@ -2989,8 +3330,8 @@ def solve_target(
         # first validation/stock pass.  Spending the whole allowance on the
         # director's initial frontier made every new upstream leaf terminal.
         initial_guided_limit = (
-            active.max_guided_chemenzy_frontiers - 1
-            if active.max_guided_chemenzy_frontiers > 1
+            guided_frontier_limit - 1
+            if guided_frontier_limit > 1
             else 1
         )
         guided_opportunities = compile_action_opportunities(
@@ -2998,18 +3339,16 @@ def solve_target(
         )
         stock_recovery_only = any(
             row.get("kind") == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
-            and str(
-                dict(row.get("metadata") or {}).get("stock_observation_id") or ""
-            )
+            and str(dict(row.get("metadata") or {}).get("stock_observation_id") or "")
             for row in guided_opportunities.get("actions") or []
             if isinstance(row, Mapping)
         ) or any(
             str(dict(execution.get("action") or {}).get("kind") or "")
             == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
             and str(
-                dict(
-                    dict(execution.get("action") or {}).get("metadata") or {}
-                ).get("stock_observation_id")
+                dict(dict(execution.get("action") or {}).get("metadata") or {}).get(
+                    "stock_observation_id"
+                )
                 or ""
             )
             for execution in preexecuted_action_backlog
@@ -3024,27 +3363,18 @@ def solve_target(
                 max_actions=initial_guided_limit,
             )
         )
-        guided_stage = _aggregate_guided_chemenzy_action_results(
-            guided_action_executions
-        )
+        guided_stage = _aggregate_guided_chemenzy_action_results(guided_action_executions)
         if stock_recovery_only:
             guided_stage["semantics"] = {
                 **dict(guided_stage.get("semantics") or {}),
                 "stock_recovery_frontiers_deferred_until_stock_stage": True,
             }
-        guided_stage["new_proposal_count"] = int(
-            guided_stage.get("proposal_count") or 0
-        )
-    stages.append(
-        _stage("chemenzy_guided_frontier", guided_stage["status"], guided_stage)
-    )
+        guided_stage["new_proposal_count"] = int(guided_stage.get("proposal_count") or 0)
+    stages.append(_stage("chemenzy_guided_frontier", guided_stage["status"], guided_stage))
     guided_materialization: dict[str, Any] = {}
     guided_validation: dict[str, Any] = {}
     guided_stock: dict[str, Any] = {}
-    if int(
-        guided_stage.get("new_proposal_count", guided_stage.get("proposal_count"))
-        or 0
-    ) > 0:
+    if int(guided_stage.get("new_proposal_count", guided_stage.get("proposal_count")) or 0) > 0:
         guided_materialization_executions = project_action_results(
             "guided_materialize",
             (CampaignActionKind.MATERIALIZE,),
@@ -3065,9 +3395,7 @@ def solve_target(
             (CampaignActionKind.REACTION_VALIDATE,),
             max_actions=active.max_atom_mapping_reactions + 2,
         )
-        guided_validation = _aggregate_validation_action_results(
-            guided_validation_executions
-        )
+        guided_validation = _aggregate_validation_action_results(guided_validation_executions)
         stages.append(
             _stage("guided_reaction_validation", guided_validation["status"], guided_validation)
         )
@@ -3158,15 +3486,11 @@ def solve_target(
     recovery_stock: dict[str, Any] = {}
     attempted_guided_frontiers = {
         *_attempted_chemenzy_frontiers(stages),
-        *(
-            str(value)
-            for value in guided_stage.get("frontier_smiles") or []
-            if str(value)
-        ),
+        *(str(value) for value in guided_stage.get("frontier_smiles") or [] if str(value)),
     }
     remaining_guided = max(
         0,
-        active.max_guided_chemenzy_frontiers - len(attempted_guided_frontiers),
+        guided_frontier_limit - len(attempted_guided_frontiers),
     )
     if remaining_guided:
         recovery_action_executions = project_action_results(
@@ -3174,12 +3498,8 @@ def solve_target(
             (CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,),
             max_actions=remaining_guided,
         )
-        recovery_stage = _aggregate_guided_chemenzy_action_results(
-            recovery_action_executions
-        )
-        stages.append(
-            _stage("chemenzy_stock_recovery", recovery_stage["status"], recovery_stage)
-        )
+        recovery_stage = _aggregate_guided_chemenzy_action_results(recovery_action_executions)
+        stages.append(_stage("chemenzy_stock_recovery", recovery_stage["status"], recovery_stage))
     if int(recovery_stage.get("proposal_count") or 0) > 0:
         recovery_materialization_executions = project_action_results(
             "recovery_materialize",
@@ -3192,9 +3512,7 @@ def solve_target(
         stages.append(
             _stage(
                 "recovery_materialization",
-                "completed"
-                if recovery_materialization.get("changed")
-                else "reused_or_empty",
+                "completed" if recovery_materialization.get("changed") else "reused_or_empty",
                 recovery_materialization,
             )
         )
@@ -3203,9 +3521,7 @@ def solve_target(
             (CampaignActionKind.REACTION_VALIDATE,),
             max_actions=active.max_atom_mapping_reactions + 2,
         )
-        recovery_validation = _aggregate_validation_action_results(
-            recovery_validation_executions
-        )
+        recovery_validation = _aggregate_validation_action_results(recovery_validation_executions)
         stages.append(
             _stage(
                 "recovery_reaction_validation",
@@ -3267,9 +3583,7 @@ def solve_target(
             }
         )
     )
-    convergence_ledger = dict(
-        unified_core_loop.get("convergence_ledger") or {}
-    )
+    convergence_ledger = dict(unified_core_loop.get("convergence_ledger") or {})
     replan_pressure = compile_replan_pressure(
         provisional_gates,
         material_events=material_events,
@@ -3288,15 +3602,19 @@ def solve_target(
         material_events=material_events,
         convergence_ledger=convergence_ledger,
     )
+    event_replan_count = sum(
+        str(outcome.get("mode") or "") == "event_replan"
+        for outcome in outcomes
+    )
+    event_replan_limit = (
+        active.max_route_local_repair_rounds if sequential_strategy else 1
+    )
     replan_candidate = bool(
         active.enable_codex
         and active.enable_replan
         and replan_reasons
         and _director_outcome_allows_replan(outcomes)
-        and not any(
-            str(outcome.get("mode") or "") == "event_replan"
-            for outcome in outcomes
-        )
+        and event_replan_count < event_replan_limit
         and len(outcomes) < _MAX_DIRECTOR_OUTCOMES
     )
     replan_signal_gate = _replan_signal_gate(
@@ -3317,6 +3635,11 @@ def solve_target(
     evidence_observations = {
         **_evidence_observations(evidence_stage),
         **self_evo.observation(dict(learned_template_reuse.get("retrieval") or {})),
+        **(
+            {"provider_search_failures": list(provider_search_failures)}
+            if provider_search_failures
+            else {}
+        ),
     }
     replan_prompt_context_bytes = 0
     replan_guard = _replan_budget_guard(
@@ -3381,11 +3704,7 @@ def solve_target(
             model=active.model,
             mode="event_replan",
         )
-        replan_executions = project_action_results(
-            "codex_event_replan",
-            (CampaignActionKind.CODEX_REPLAN,),
-            max_actions=1,
-        )
+        replan_executions = execute_pending_unified_replan()
         replan_results = _campaign_action_handler_results(
             replan_executions,
             kind=CampaignActionKind.CODEX_REPLAN,
@@ -3401,8 +3720,20 @@ def solve_target(
                 "semantics": {"scheduler_owned_execution": True},
             }
         )
-        outcomes.append(replan)
-        stages.append(_stage("global_replan", replan["status"], replan))
+        if not any(
+            str(outcome.get("mode") or "") == "event_replan"
+            and str(outcome.get("context_sha256") or "")
+            == str(replan.get("context_sha256") or "")
+            for outcome in outcomes
+        ):
+            outcomes.append(replan)
+        if not any(
+            row.get("stage") == "global_replan"
+            and str(dict(row.get("detail") or {}).get("context_sha256") or "")
+            == str(replan.get("context_sha256") or "")
+            for row in stages
+        ):
+            stages.append(_stage("global_replan", replan["status"], replan))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
         if replan.get("status") == "accepted" and replan.get("plan"):
             rematerialization_executions = project_action_results(
@@ -3416,11 +3747,7 @@ def solve_target(
             stages.append(
                 _stage(
                     "replan_materialization",
-                    (
-                        "completed"
-                        if rematerialization.get("changed")
-                        else "reused_or_empty"
-                    ),
+                    ("completed" if rematerialization.get("changed") else "reused_or_empty"),
                     rematerialization,
                 )
             )
@@ -3437,16 +3764,10 @@ def solve_target(
                 (CampaignActionKind.REACTION_VALIDATE,),
                 max_actions=active.max_atom_mapping_reactions + 2,
             )
-            revalidation = _aggregate_validation_action_results(
-                revalidation_executions
-            )
-            stages.append(
-                _stage("replan_validation", revalidation["status"], revalidation)
-            )
+            revalidation = _aggregate_validation_action_results(revalidation_executions)
+            stages.append(_stage("replan_validation", revalidation["status"], revalidation))
             replan_repair = repair_rejected_precursor_typos(service, revalidation)
-            stages.append(
-                _stage("replan_precursor_repair", replan_repair["status"], replan_repair)
-            )
+            stages.append(_stage("replan_precursor_repair", replan_repair["status"], replan_repair))
             if int(replan_repair.get("accepted_repair_count") or 0) > 0:
                 repaired_revalidation_executions = project_action_results(
                     "replan_repair_validate",
@@ -3464,9 +3785,7 @@ def solve_target(
                     )
                 )
             source_stage = discover_director_source_hints(service, outcomes)
-            stages.append(
-                _stage("replan_source_frontier", source_stage["status"], source_stage)
-            )
+            stages.append(_stage("replan_source_frontier", source_stage["status"], source_stage))
             _mark_stage_running(
                 checkpoint_path,
                 identity,
@@ -3475,9 +3794,7 @@ def solve_target(
                 "replan_evidence_acquisition",
                 visual_enabled=visual_evidence_provider is not None,
             )
-            evidence_stage = run_evidence_action_stage(
-                "replan_evidence_acquisition"
-            )
+            evidence_stage = run_evidence_action_stage("replan_evidence_acquisition")
             stages.append(
                 _stage(
                     "replan_evidence_acquisition",
@@ -3517,8 +3834,15 @@ def solve_target(
             )
         )
 
+    result_first_credibility_enabled = bool(
+        active.action_scheduler_policy != "adaptive"
+        or _campaign_milestones(current_campaign_gates()).get(
+            "B4_stock_boundary"
+        )
+        is True
+    )
     program_discovery_changed = False
-    if active.enable_program_discovery:
+    if active.enable_program_discovery and result_first_credibility_enabled:
         program_graph = service.graph_store.load()
         program_portfolio = compile_proof_portfolio(
             program_graph,
@@ -3530,37 +3854,23 @@ def solve_target(
             for route in program_portfolio.get("selected_routes") or []
             if str(route.get("route_id") or "")
         ][: active.max_program_routes]
-        program_route_ids = [
-            str(route.get("route_id") or "") for route in program_route_rows
-        ]
+        program_route_ids = [str(route.get("route_id") or "") for route in program_route_rows]
         program_discovery_deficits = []
         for route in program_route_rows:
             route_id = str(route.get("route_id") or "")
-            program_pressure = current_program_opportunity_pressure(
-                program_graph, route
-            )
+            program_pressure = current_program_opportunity_pressure(program_graph, route)
             signal = {
                 "graph_revision": service.kernel.state.graph_revision,
-                "graph_scientific_sha256": str(
-                    program_graph.get("scientific_sha256") or ""
-                ),
+                "graph_scientific_sha256": str(program_graph.get("scientific_sha256") or ""),
                 "route_id": route_id,
-                "capability_catalog_available": bool(
-                    resolved_program_capabilities
-                ),
-                "mechanism_proposal_count": len(
-                    resolved_mechanism_proposals
-                ),
-                "program_pressure_sha256": program_pressure[
-                    "content_sha256"
-                ],
+                "capability_catalog_available": bool(resolved_program_capabilities),
+                "mechanism_proposal_count": len(resolved_mechanism_proposals),
+                "program_pressure_sha256": program_pressure["content_sha256"],
             }
             signal_sha256 = _digest(signal)
             program_discovery_deficits.append(
                 {
-                    "deficit_id": (
-                        f"event-deficit:program-discovery:{signal_sha256}"
-                    ),
+                    "deficit_id": (f"event-deficit:program-discovery:{signal_sha256}"),
                     "kind": "program_discovery",
                     "object_id": route_id,
                     "entity_ids": [route_id],
@@ -3569,12 +3879,8 @@ def solve_target(
                             next(
                                 (
                                     route.get("route_family_id")
-                                    for route in program_portfolio.get(
-                                        "selected_routes"
-                                    )
-                                    or []
-                                    if str(route.get("route_id") or "")
-                                    == route_id
+                                    for route in program_portfolio.get("selected_routes") or []
+                                    if str(route.get("route_id") or "") == route_id
                                 ),
                                 "",
                             )
@@ -3623,8 +3929,7 @@ def solve_target(
             "route_count": len(program_route_ids),
             "action_execution_count": len(program_discovery_results),
             "candidate_count": sum(
-                int(result.get("candidate_count") or 0)
-                for result in program_discovery_results
+                int(result.get("candidate_count") or 0) for result in program_discovery_results
             ),
             "program_draft_candidate_ids": sorted(
                 {
@@ -3638,10 +3943,7 @@ def solve_target(
                 {
                     str(value)
                     for result in program_discovery_results
-                    for value in result.get(
-                        "execution_program_draft_candidate_ids"
-                    )
-                    or []
+                    for value in result.get("execution_program_draft_candidate_ids") or []
                     if str(value)
                 }
             ),
@@ -3676,11 +3978,7 @@ def solve_target(
         stages.append(
             _stage(
                 "program_materialization",
-                (
-                    "completed"
-                    if program_materialization.get("changed")
-                    else "reused_or_empty"
-                ),
+                ("completed" if program_materialization.get("changed") else "reused_or_empty"),
                 program_materialization,
             )
         )
@@ -3702,11 +4000,10 @@ def solve_target(
             required_boundary=resolved_acceptance.stock_boundary,
             max_molecules=active.max_live_stock_molecules,
         )
-        stages.append(
-            _stage("program_stock", program_stock["status"], program_stock)
-        )
-    append_condition_stage("final_condition_enrichment")
-    if active.enable_program_review:
+        stages.append(_stage("program_stock", program_stock["status"], program_stock))
+    if result_first_credibility_enabled:
+        append_condition_stage("final_condition_enrichment")
+    if active.enable_program_review and result_first_credibility_enabled:
         program_review_executions = project_action_results(
             "program_review",
             (CampaignActionKind.PROGRAM_REVIEW,),
@@ -3725,9 +4022,11 @@ def solve_target(
             }
         )
         stages.append(
-            _stage("program_review", str(program_review.get("status") or "unresolved"), program_review)
+            _stage(
+                "program_review", str(program_review.get("status") or "unresolved"), program_review
+            )
         )
-    if active.enable_program_admission:
+    if active.enable_program_admission and result_first_credibility_enabled:
         program_admission_executions = project_action_results(
             "program_admission",
             (CampaignActionKind.PROGRAM_ADMIT,),
@@ -3770,9 +4069,7 @@ def solve_target(
             "completed",
             {
                 "portfolio_accepted": closeout["portfolio"].get("accepted") is True,
-                "selected_route_count": len(
-                    closeout["portfolio"].get("selected_routes") or []
-                ),
+                "selected_route_count": len(closeout["portfolio"].get("selected_routes") or []),
             },
         )
     )
@@ -3781,6 +4078,21 @@ def solve_target(
         director_outcomes=outcomes,
         graph=service.graph_store.load(),
         portfolio=closeout["portfolio"],
+    )
+    paper_equivalent = compile_paper_equivalent_metric(
+        gates,
+        stock_oracle=resolved_stock_oracle.to_dict(),
+    )
+    stages.append(
+        _stage(
+            "paper_equivalent_metric",
+            (
+                "solved"
+                if paper_equivalent["paper_equivalent_solved"]
+                else "unsolved"
+            ),
+            paper_equivalent,
+        )
     )
     chemenzy_lineage = _compile_chemenzy_route_lineage(
         stages,
@@ -3840,9 +4152,7 @@ def solve_target(
         service,
         gates=gates,
         resource_envelope=resource_envelope,
-        idempotency_key=(
-            f"solve-target:campaign-acceptance:{service.kernel.state.graph_revision}"
-        ),
+        idempotency_key=(f"solve-target:campaign-acceptance:{service.kernel.state.graph_revision}"),
     )
     if replan_executed:
         replan_gain = _replan_gain_audit(
@@ -3860,8 +4170,7 @@ def solve_target(
         )
     service.terminalize_global_budget_if_reached(
         idempotency_key=(
-            "solve-target:pre-disposition-global-budget:"
-            f"{service.kernel.state.revision}"
+            f"solve-target:pre-disposition-global-budget:{service.kernel.state.revision}"
         )
     )
     stop_preview = service.kernel.decide_stop().to_dict()
@@ -3872,8 +4181,7 @@ def solve_target(
         portfolio_accepted=campaign_accepted,
     )
     director_outcome_limit_exhausted = bool(
-        not campaign_accepted
-        and len(outcomes) >= _MAX_DIRECTOR_OUTCOMES
+        not campaign_accepted and len(outcomes) >= _MAX_DIRECTOR_OUTCOMES
     )
     if director_outcome_limit_exhausted:
         stages.append(
@@ -3893,8 +4201,7 @@ def solve_target(
         _transition_unresolved_if_active(
             service.kernel,
             idempotency_key=(
-                "solve-target:director-outcome-limit:"
-                f"{service.kernel.state.revision}"
+                f"solve-target:director-outcome-limit:{service.kernel.state.revision}"
             ),
             reasons=(
                 "director_outcome_limit_exhausted",
@@ -3920,8 +4227,7 @@ def solve_target(
         _transition_unresolved_if_active(
             service.kernel,
             idempotency_key=(
-                "solve-target:automatic-continuation-exhausted:"
-                f"{service.kernel.state.revision}"
+                f"solve-target:automatic-continuation-exhausted:{service.kernel.state.revision}"
             ),
             reasons=(
                 "automatic_continuation_exhausted_no_scientific_progress",
@@ -4001,12 +4307,11 @@ def solve_target(
             "selected_action_id": final_action_decision["selected_action_id"],
             "selected_action": final_action_decision["selected_action"],
             "candidate_count": final_action_decision["candidate_count"],
-            "eligible_candidate_count": final_action_decision[
-                "eligible_candidate_count"
-            ],
+            "eligible_candidate_count": final_action_decision["eligible_candidate_count"],
             "decision_sha256": final_action_decision["content_sha256"],
         },
         "gates": gates,
+        "paper_equivalent": paper_equivalent,
         "quality_state": quality_state,
         "planning_depth": planning_depth,
         "model_cost": dict(service.kernel.state.model_totals),
@@ -4084,7 +4389,7 @@ def _portfolio_config(
 
 def _campaign_milestones(gates: Mapping[str, Any]) -> dict[str, bool]:
     values = dict(gates.get("gates") or {})
-    return {
+    milestones = {
         str(name): values.get(name) is True
         for name in (
             "B0_blind_input",
@@ -4095,6 +4400,11 @@ def _campaign_milestones(gates: Mapping[str, Any]) -> dict[str, bool]:
             "B5_configured_portfolio_acceptance",
         )
     }
+    milestones["target_rooted_route_exists"] = int(
+        dict(gates.get("counts") or {}).get("target_rooted_distinct_skeletons")
+        or 0
+    ) > 0
+    return milestones
 
 
 def _campaign_action_handler_results(
@@ -4113,16 +4423,10 @@ def _campaign_action_handler_results(
         result = dict(raw_result)
         result.setdefault(
             "status",
-            str(
-                outcome.get("status")
-                or execution.get("status")
-                or "unresolved"
-            ),
+            str(outcome.get("status") or execution.get("status") or "unresolved"),
         )
         failure_reasons = [
-            str(value)
-            for value in outcome.get("failure_reasons") or []
-            if str(value)
+            str(value) for value in outcome.get("failure_reasons") or [] if str(value)
         ]
         if failure_reasons and not result.get("reasons"):
             result["reasons"] = failure_reasons
@@ -4202,9 +4506,7 @@ def _aggregate_validation_action_results(
         mapping = dict(result.get("mapping") or {})
         mapped_reactions.update(dict(mapping.get("mapped_reactions") or {}))
         mapping_failures.extend(
-            dict(row)
-            for row in mapping.get("failures") or []
-            if isinstance(row, Mapping)
+            dict(row) for row in mapping.get("failures") or [] if isinstance(row, Mapping)
         )
         if str(mapping.get("backend") or ""):
             mapping_backends.add(str(mapping.get("backend")))
@@ -4226,12 +4528,9 @@ def _aggregate_validation_action_results(
         "stage": "reaction_validation",
         "schema_version": "campaign_action_validation_summary.v1",
         "status": status,
-        "pending_edge_count": sum(
-            int(result.get("pending_edge_count") or 0) for result in results
-        ),
+        "pending_edge_count": sum(int(result.get("pending_edge_count") or 0) for result in results),
         "forced_revalidation_edge_count": sum(
-            int(result.get("forced_revalidation_edge_count") or 0)
-            for result in results
+            int(result.get("forced_revalidation_edge_count") or 0) for result in results
         ),
         "validation_command_count": sum(
             int(result.get("validation_command_count") or 0) for result in results
@@ -4240,9 +4539,7 @@ def _aggregate_validation_action_results(
         "rejected_validation_count": len(rejected_ids),
         "accepted_edge_ids": accepted_ids,
         "rejected_edge_ids": rejected_ids,
-        "rejection_diagnostics": [
-            diagnostics_by_edge[key] for key in sorted(diagnostics_by_edge)
-        ],
+        "rejection_diagnostics": [diagnostics_by_edge[key] for key in sorted(diagnostics_by_edge)],
         "rejection_reason_counts": dict(
             sorted(
                 rejection_reason_counts.items(),
@@ -4259,20 +4556,14 @@ def _aggregate_validation_action_results(
             "mapped_count": len(mapped_reactions),
             "failure_count": len(mapping_failures),
             "truncated": any(
-                dict(result.get("mapping") or {}).get("truncated") is True
-                for result in results
+                dict(result.get("mapping") or {}).get("truncated") is True for result in results
             ),
             "mapped_reactions": mapped_reactions,
             "failures": mapping_failures,
         },
         "execution": {
             "executed_command_count": sum(
-                int(
-                    dict(result.get("execution") or {}).get(
-                        "executed_command_count"
-                    )
-                    or 0
-                )
+                int(dict(result.get("execution") or {}).get("executed_command_count") or 0)
                 for result in results
             ),
             "material_events": material_events,
@@ -4293,20 +4584,15 @@ def _scope_validation_summary(
     if not selected or not validation:
         return {}
     accepted_ids = sorted(
-        selected.intersection(
-            str(value) for value in validation.get("accepted_edge_ids") or []
-        )
+        selected.intersection(str(value) for value in validation.get("accepted_edge_ids") or [])
     )
     rejected_ids = sorted(
-        selected.intersection(
-            str(value) for value in validation.get("rejected_edge_ids") or []
-        )
+        selected.intersection(str(value) for value in validation.get("rejected_edge_ids") or [])
     )
     diagnostics = [
         dict(row)
         for row in validation.get("rejection_diagnostics") or []
-        if isinstance(row, Mapping)
-        and str(row.get("edge_id") or "") in selected
+        if isinstance(row, Mapping) and str(row.get("edge_id") or "") in selected
     ]
     reason_counts: dict[str, int] = {}
     for row in diagnostics:
@@ -4459,9 +4745,7 @@ def _aggregate_condition_action_results(
             if failed_ids or statuses.intersection({"partial", "failed", "error"})
             else "completed"
         ),
-        "pending_edge_count": sum(
-            int(result.get("pending_edge_count") or 0) for result in results
-        ),
+        "pending_edge_count": sum(int(result.get("pending_edge_count") or 0) for result in results),
         "selected_edge_count": sum(
             int(result.get("selected_edge_count") or 0) for result in results
         ),
@@ -4475,12 +4759,7 @@ def _aggregate_condition_action_results(
         "prediction_errors": prediction_errors,
         "execution": {
             "executed_command_count": sum(
-                int(
-                    dict(result.get("execution") or {}).get(
-                        "executed_command_count"
-                    )
-                    or 0
-                )
+                int(dict(result.get("execution") or {}).get("executed_command_count") or 0)
                 for result in results
             ),
             "material_events": material_events,
@@ -4555,15 +4834,9 @@ def _aggregate_guided_chemenzy_action_results(
             "provider_mode": str(result.get("mode") or "guided_frontier"),
             "provider_scope": str(result.get("scope") or ""),
             "provider_request_sha256": str(result.get("request_sha256") or ""),
-            "provider_raw_proposal_sha256": str(
-                result.get("raw_proposal_sha256") or ""
-            ),
-            "provider_raw_result_sha256": str(
-                result.get("raw_result_sha256") or ""
-            ),
-            "provider_replay_key_sha256": str(
-                result.get("replay_key_sha256") or ""
-            ),
+            "provider_raw_proposal_sha256": str(result.get("raw_proposal_sha256") or ""),
+            "provider_raw_result_sha256": str(result.get("raw_result_sha256") or ""),
+            "provider_replay_key_sha256": str(result.get("replay_key_sha256") or ""),
             "provider_random_seed": int(result.get("random_seed") or 0),
         }
         for result in provider_results
@@ -4573,21 +4846,14 @@ def _aggregate_guided_chemenzy_action_results(
     return {
         "schema_version": "v4_chemenzy_guided_frontier_stage.v1",
         "stage": "chemenzy_guided_frontier",
-        "status": (
-            "completed"
-            if proposal_count
-            else "unresolved"
-            if results
-            else "not_needed"
-        ),
+        "status": ("completed" if proposal_count else "unresolved" if results else "not_needed"),
         "frontier_count": len(frontier_smiles),
         "executed_frontier_count": len(results),
         "provider_invocation_count": sum(
             int(result.get("provider_invocation_count") or 0) for result in results
         ),
         "codex_delegated_frontier_count": sum(
-            int(result.get("codex_delegated_frontier_count") or 0)
-            for result in results
+            int(result.get("codex_delegated_frontier_count") or 0) for result in results
         ),
         "frontier_smiles": frontier_smiles,
         "proposal_count": proposal_count,
@@ -4595,7 +4861,11 @@ def _aggregate_guided_chemenzy_action_results(
         "route_lineage": route_lineage,
         "action_execution_count": len(results),
         "material_events": (
-            ["guided_provider_proposals_added"] if proposal_count else []
+            ["guided_provider_proposals_added"]
+            if proposal_count
+            else ["provider_search_exhausted_without_proposal"]
+            if results
+            else []
         ),
         "semantics": {
             "canonical_frontier_queue": True,
@@ -4615,9 +4885,7 @@ def _record_campaign_acceptance(
 ) -> bool:
     milestones = _campaign_milestones(gates)
     gate_achieved = milestones["B5_configured_portfolio_acceptance"]
-    accepted = bool(
-        gate_achieved and resource_envelope.get("within_budget") is True
-    )
+    accepted = bool(gate_achieved and resource_envelope.get("within_budget") is True)
     service.kernel.record_acceptance(
         {
             "schema_version": "unified_campaign_acceptance_report.v1",
@@ -4625,9 +4893,7 @@ def _record_campaign_acceptance(
             "accepted": accepted,
             "configured_acceptance_achieved": gate_achieved,
             "milestones": milestones,
-            "within_resource_budget": (
-                resource_envelope.get("within_budget") is True
-            ),
+            "within_resource_budget": (resource_envelope.get("within_budget") is True),
             "semantics": {
                 "one_acceptance_rule_for_all_targets": True,
                 "milestones_do_not_select_solver_control_flow": True,
@@ -4702,9 +4968,7 @@ def _automatic_continuation_exhausted(
     """End a no-op resume instead of leaving an infinite paused queue entry."""
 
     return bool(
-        resumed_completed_checkpoint
-        and not portfolio_accepted
-        and dict(baseline) == dict(current)
+        resumed_completed_checkpoint and not portfolio_accepted and dict(baseline) == dict(current)
     )
 
 
@@ -4835,8 +5099,7 @@ def _refresh_terminal_report(
             "model_invocations": 0,
             "terminal_state_unchanged": True,
             "terminal_state_scientifically_stale": (
-                current_disposition["state"]
-                == "terminal_snapshot_requires_revalidation"
+                current_disposition["state"] == "terminal_snapshot_requires_revalidation"
             ),
             "canonical_graph_sha256": str(graph.get("scientific_sha256") or ""),
             "portfolio_sha256": str(portfolio.get("content_sha256") or ""),
@@ -4888,17 +5151,27 @@ def _bind_native_search_budget(
     """Bind broad attempt budgets to the configured target/guided call caps."""
 
     requested_total = max(0, int(value.max_native_search_invocations or 0))
-    target_limit = int(
-        config.enable_chemenzy and config.enable_target_chemenzy_baseline
-    )
+    target_limit = int(config.enable_chemenzy and config.enable_target_chemenzy_baseline)
     target_limit = min(target_limit, requested_total)
     configured_frontier_limit = (
-        config.max_guided_chemenzy_frontiers
+        (
+            max(0, requested_total - target_limit)
+            if config.max_guided_chemenzy_frontiers is None
+            else config.max_guided_chemenzy_frontiers
+        )
         if config.enable_chemenzy and config.enable_guided_chemenzy
         else 0
     )
+    frontier_budget_cap = max(
+        0, int(value.max_frontier_native_search_invocations or 0)
+    )
+    if value.allow_frontier_native_search_borrowing:
+        frontier_budget_cap += max(
+            0,
+            int(value.min_target_native_search_invocations or 0) - target_limit,
+        )
     frontier_limit = min(
-        max(0, int(value.max_frontier_native_search_invocations or 0)),
+        frontier_budget_cap,
         max(0, int(configured_frontier_limit)),
         max(0, requested_total - target_limit),
     )
@@ -4911,6 +5184,49 @@ def _bind_native_search_budget(
     )
 
 
+def _frozen_stock_membership_checker(
+    builder: StockCatalogBuilder | None,
+) -> Callable[[Iterable[str]], Mapping[str, bool]] | None:
+    """Expose only a frozen local stock index to compact node search.
+
+    A live catalog lookup per Codex node would add network latency and could
+    change during one experiment.  The sequential policy may terminate a leaf
+    early only when the configured builder is immutable and content-addressed;
+    all other leaves continue to the normal host stock stage.
+    """
+
+    if builder is None or not (
+        str(getattr(builder, "index_sha256", ""))
+        and int(getattr(builder, "member_count", 0) or 0) > 0
+    ):
+        return None
+
+    def lookup(values: Iterable[str]) -> Mapping[str, bool]:
+        canonical_values = tuple(
+            sorted(
+                {
+                    canonical
+                    for value in values
+                    if (canonical := canonical_smiles(value))
+                }
+            )
+        )
+        if not canonical_values:
+            return {}
+        observation = builder(
+            canonical_values,
+            max_molecules=len(canonical_values),
+        )
+        members = {
+            canonical_smiles(row.get("canonical_smiles"))
+            for row in dict(observation or {}).get("members") or []
+            if isinstance(row, Mapping)
+        }
+        return {value: value in members for value in canonical_values}
+
+    return lookup
+
+
 def _audit_stock_stage(
     service: Any,
     *,
@@ -4919,9 +5235,7 @@ def _audit_stock_stage(
     catalog_builder: StockCatalogBuilder | None,
     inventory_builder: InventorySnapshotBuilder | None,
 ) -> dict[str, Any]:
-    if config.enable_live_benchmark_stock and acceptance.stock_boundary == (
-        "benchmark_search"
-    ):
+    if config.enable_live_benchmark_stock and acceptance.stock_boundary == ("benchmark_search"):
         return audit_live_benchmark_stock(
             service,
             catalog_builder=catalog_builder,
@@ -4951,10 +5265,7 @@ def _target_identity_stage(
     resolve_named: bool = False,
     lookup_now: bool = False,
 ) -> dict[str, Any]:
-    opaque_name = (
-        "target-"
-        + hashlib.sha256(str(target_smiles).encode("utf-8")).hexdigest()[:8]
-    )
+    opaque_name = "target-" + hashlib.sha256(str(target_smiles).encode("utf-8")).hexdigest()[:8]
     prior = next(
         (
             dict(row.get("detail") or {})
@@ -4974,8 +5285,7 @@ def _target_identity_stage(
     )
     stale_display_name = bool(
         prior.get("status") == "not_needed"
-        and str(dict(prior.get("identity") or {}).get("preferred_name") or "")
-        != opaque_name
+        and str(dict(prior.get("identity") or {}).get("preferred_name") or "") != opaque_name
     )
     if (
         prior
@@ -5032,12 +5342,16 @@ def _target_identity_stage(
 
 def _target_name_requires_identity_resolution(value: str) -> bool:
     normalized = " ".join(str(value or "").lower().split())
-    return normalized in {
-        "blind target",
-        "target",
-        "unknown target",
-        "smiles-only target",
-    } or re.fullmatch(r"target-[0-9a-f]{8}", normalized) is not None
+    return (
+        normalized
+        in {
+            "blind target",
+            "target",
+            "unknown target",
+            "smiles-only target",
+        }
+        or re.fullmatch(r"target-[0-9a-f]{8}", normalized) is not None
+    )
 
 
 def _latest_stage(
@@ -5045,11 +5359,7 @@ def _latest_stage(
     stage_name: str,
 ) -> dict[str, Any]:
     return next(
-        (
-            dict(row)
-            for row in reversed(list(stages))
-            if row.get("stage") == stage_name
-        ),
+        (dict(row) for row in reversed(list(stages)) if row.get("stage") == stage_name),
         {},
     )
 
@@ -5066,9 +5376,7 @@ def _latest_visual_observation(
         }:
             continue
         detail = dict(stage.get("detail") or {})
-        observation = dict(
-            dict(detail.get("visual_evidence") or {}).get("observation") or {}
-        )
+        observation = dict(dict(detail.get("visual_evidence") or {}).get("observation") or {})
         if observation.get("candidate_steps"):
             return observation
     return {}
@@ -5077,14 +5385,87 @@ def _latest_visual_observation(
 def _attempted_chemenzy_frontiers(
     stages: Iterable[Mapping[str, Any]],
 ) -> set[str]:
-    return {
-        str(value)
+    values: set[str] = set()
+    for row in stages:
+        detail = dict(row.get("detail") or {})
+        candidates: list[Any] = []
+        if row.get("stage") in {
+            "chemenzy_guided_frontier",
+            "chemenzy_stock_recovery",
+        }:
+            candidates.extend(detail.get("frontier_smiles") or [])
+        action = dict(detail.get("action") or {})
+        if action.get("kind") == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value:
+            candidates.append(dict(action.get("metadata") or {}).get("frontier_smiles"))
+            handler_result = dict(
+                dict(detail.get("outcome") or {}).get("handler_result") or {}
+            )
+            candidates.extend(handler_result.get("frontier_smiles") or [])
+        for value in candidates:
+            if not str(value):
+                continue
+            _molecule_id, canonical = molecule_identity(str(value))
+            values.add(canonical or str(value))
+    return values
+
+
+def _attempted_chemenzy_frontiers_from_action_history(
+    executions: Iterable[Mapping[str, Any]],
+) -> set[str]:
+    values: set[str] = set()
+    for raw in executions:
+        row = dict(raw)
+        if (
+            row.get("settled") is not True
+            or row.get("action_kind")
+            != CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
+        ):
+            continue
+        result = dict(row.get("handler_result") or {})
+        candidates = [
+            *(result.get("frontier_smiles") or []),
+            dict(result.get("guided_progress_checkpoint") or {}).get(
+                "frontier_smiles"
+            ),
+        ]
+        for value in candidates:
+            if not str(value):
+                continue
+            _molecule_id, canonical = molecule_identity(str(value))
+            values.add(canonical or str(value))
+    return values
+
+
+def _pending_guided_progress_from_action_history(
+    executions: Iterable[Mapping[str, Any]],
+    *,
+    stages: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    completed_frontiers = {
+        str(dict(row.get("detail") or {}).get("frontier_smiles") or "")
         for row in stages
-        if row.get("stage")
-        in {"chemenzy_guided_frontier", "chemenzy_stock_recovery"}
-        for value in dict(row.get("detail") or {}).get("frontier_smiles") or []
-        if str(value)
+        if str(row.get("stage") or "").startswith(
+            "guided_root_stock_progress_"
+        )
     }
+    for raw in reversed(list(executions)):
+        row = dict(raw)
+        if (
+            row.get("settled") is not True
+            or row.get("action_kind")
+            != CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
+        ):
+            continue
+        progress = dict(
+            dict(row.get("handler_result") or {}).get(
+                "guided_progress_checkpoint"
+            )
+            or {}
+        )
+        frontier = str(progress.get("frontier_smiles") or "")
+        if progress and frontier not in completed_frontiers:
+            return progress
+    return {}
 
 
 def _chemenzy_delegation_audit(
@@ -5139,9 +5520,7 @@ def _chemenzy_delegation_audit(
                     "disposition": disposition,
                 }
             )
-    queued = sum(
-        row["disposition"] == "queued_on_canonical_frontier" for row in requests
-    )
+    queued = sum(row["disposition"] == "queued_on_canonical_frontier" for row in requests)
     rejected = sum(
         row["disposition"]
         in {
@@ -5208,14 +5587,12 @@ def _prepare_evidence_acquisition(
         },
     }
     if connector is not None:
-        effective_target_identity, target_identity_resolution = (
-            _ensure_evidence_target_identity(
-                service,
-                target_name=target_name or service.kernel.spec.target_name,
-                target_smiles=service.kernel.spec.target_smiles,
-                target_identity=target_identity,
-                allow_remote_lookup=allow_target_identity_lookup,
-            )
+        effective_target_identity, target_identity_resolution = _ensure_evidence_target_identity(
+            service,
+            target_name=target_name or service.kernel.spec.target_name,
+            target_smiles=service.kernel.spec.target_smiles,
+            target_identity=target_identity,
+            allow_remote_lookup=allow_target_identity_lookup,
         )
         request = compile_evidence_acquisition_request(
             run_id=service.kernel.spec.run_id,
@@ -5240,9 +5617,7 @@ def _prepare_evidence_acquisition(
             )
             prepared["status"] = "prepared"
         except (LiveEvidenceConnectorError, ValueError) as exc:
-            prepared["reason"] = (
-                f"evidence_connector_failed:{type(exc).__name__}:{exc}"
-            )
+            prepared["reason"] = f"evidence_connector_failed:{type(exc).__name__}:{exc}"
     prepared["content_sha256"] = _digest(prepared)
     return prepared
 
@@ -5289,25 +5664,16 @@ def _acquire_evidence_stage(
         )
     )
     request = dict(prepared.get("request") or {})
-    target_identity_resolution = dict(
-        prepared.get("target_identity_resolution") or {}
-    )
+    target_identity_resolution = dict(prepared.get("target_identity_resolution") or {})
     prepared_binding = {
-        "prepared_input_graph_revision": int(
-            prepared.get("input_graph_revision") or 0
-        ),
-        "prepared_acquisition_sha256": str(
-            prepared.get("content_sha256") or ""
-        ),
+        "prepared_input_graph_revision": int(prepared.get("input_graph_revision") or 0),
+        "prepared_acquisition_sha256": str(prepared.get("content_sha256") or ""),
     }
     if prepared.get("status") != "prepared":
         return {
             "stage": "evidence_acquisition",
             "status": "unresolved",
-            "reason": str(
-                prepared.get("reason")
-                or "structured_evidence_connector_not_configured"
-            ),
+            "reason": str(prepared.get("reason") or "structured_evidence_connector_not_configured"),
             "request_sha256": str(request.get("content_sha256") or ""),
             "target_identity_resolution": target_identity_resolution,
             "model_invocations": 0,
@@ -5356,9 +5722,7 @@ def _acquire_evidence_stage(
                     "deferred_edge_ids": sorted(source_edge_ids),
                 }
             elif validation_runner is not None:
-                source_route_validation = dict(
-                    validation_runner("evidence_source_route_validate")
-                )
+                source_route_validation = dict(validation_runner("evidence_source_route_validate"))
             else:
                 source_route_validation = validate_materialized_edges(
                     service,
@@ -5379,10 +5743,7 @@ def _acquire_evidence_stage(
             provider=visual_provider,
             max_pages=max_visual_pages,
         )
-        if (
-            visual_stage.get("status") == "budget_blocked"
-            and prior_visual_observation
-        ):
+        if visual_stage.get("status") == "budget_blocked" and prior_visual_observation:
             rebound = rebind_visual_evidence_observation(
                 service,
                 request=dict(visual_stage.get("request") or {}),
@@ -5401,9 +5762,7 @@ def _acquire_evidence_stage(
                     "status": "deferred_to_campaign_action_frontier",
                 }
             elif validation_runner is not None:
-                visual_validation = dict(
-                    validation_runner("evidence_visual_validate")
-                )
+                visual_validation = dict(validation_runner("evidence_visual_validate"))
             else:
                 visual_validation = validate_materialized_edges(
                     service,
@@ -5445,15 +5804,12 @@ def _acquire_evidence_stage(
                 source_route_stage.get("materialized_edge_ids") or []
             )
             structure_binding_count = (
-                visual_structure_binding_count
-                + source_route_structure_binding_count
+                visual_structure_binding_count + source_route_structure_binding_count
             )
             return {
                 "stage": "evidence_acquisition",
                 "status": (
-                    "structure_bound_unproven"
-                    if structure_binding_count
-                    else "discovered_unbound"
+                    "structure_bound_unproven" if structure_binding_count else "discovered_unbound"
                 ),
                 "request_sha256": request["content_sha256"],
                 "receipt_ref": receipt_ref,
@@ -5467,15 +5823,9 @@ def _acquire_evidence_stage(
                 "exact_record_count": 0,
                 "exact_structure_binding_count": structure_binding_count,
                 "visual_structure_binding_count": visual_structure_binding_count,
-                "source_route_structure_binding_count": (
-                    source_route_structure_binding_count
-                ),
-                "model_invocations": int(
-                    visual_stage.get("model_invocations") or 0
-                ),
-                "visual_invocations": int(
-                    visual_stage.get("visual_invocations") or 0
-                ),
+                "source_route_structure_binding_count": (source_route_structure_binding_count),
+                "model_invocations": int(visual_stage.get("model_invocations") or 0),
+                "visual_invocations": int(visual_stage.get("visual_invocations") or 0),
                 "false_evidence_claim": False,
                 **prepared_binding,
                 "material_events": sorted(
@@ -5527,14 +5877,12 @@ def _acquire_evidence_stage(
         }
         accepted_source_ids = sorted(
             source_edge_ids.intersection(
-                str(value)
-                for value in shared_validation.get("accepted_edge_ids") or []
+                str(value) for value in shared_validation.get("accepted_edge_ids") or []
             )
         )
         rejected_source_ids = sorted(
             source_edge_ids.intersection(
-                str(value)
-                for value in shared_validation.get("rejected_edge_ids") or []
+                str(value) for value in shared_validation.get("rejected_edge_ids") or []
             )
         )
         source_route_stage = {
@@ -5547,8 +5895,7 @@ def _acquire_evidence_stage(
                 "rejected_edge_ids": rejected_source_ids,
                 "rejection_diagnostics": [
                     dict(value)
-                    for value in shared_validation.get("rejection_diagnostics")
-                    or []
+                    for value in shared_validation.get("rejection_diagnostics") or []
                     if isinstance(value, Mapping)
                     and str(value.get("edge_id") or "") in source_edge_ids
                 ],
@@ -5569,9 +5916,7 @@ def _acquire_evidence_stage(
         }
     return {
         "stage": "evidence_acquisition",
-        "status": (
-            "completed" if int(imported.get("exact_record_count") or 0) else "partial"
-        ),
+        "status": ("completed" if int(imported.get("exact_record_count") or 0) else "partial"),
         "request_sha256": request["content_sha256"],
         "document_sha256": acquired["document_sha256"],
         "receipt_ref": receipt_ref,
@@ -5591,26 +5936,14 @@ def _acquire_evidence_stage(
         **prepared_binding,
         "material_events": sorted(
             {
-                *(
-                    ["source_material_discovered"]
-                    if discovery
-                    else []
-                ),
-                *(
-                    str(value)
-                    for value in visual_stage.get("material_events") or []
-                    if str(value)
-                ),
+                *(["source_material_discovered"] if discovery else []),
+                *(str(value) for value in visual_stage.get("material_events") or [] if str(value)),
                 *(
                     str(value)
                     for value in source_route_stage.get("material_events") or []
                     if str(value)
                 ),
-                *(
-                    ["exact_rows_added"]
-                    if int(imported.get("exact_record_count") or 0)
-                    else []
-                ),
+                *(["exact_rows_added"] if int(imported.get("exact_record_count") or 0) else []),
             }
         ),
         "semantics": {
@@ -5748,9 +6081,7 @@ def _merge_prefetched_source_hints(
     row["traceable_source_hint_count"] = len(row["sources"])
     row["status"] = "completed" if row["sources"] else str(row.get("status") or "unresolved")
     row["prefetch"] = {
-        key: value
-        for key, value in prefetch.items()
-        if key not in {"discovery", "receipt"}
+        key: value for key, value in prefetch.items() if key not in {"discovery", "receipt"}
     }
     return row
 
@@ -5798,10 +6129,7 @@ def _replan_budget_guard(
         "output_tokens": budget.max_total_output_tokens,
         "model_wall_time_s": budget.max_total_wall_time_s,
     }
-    remaining = {
-        key: max(0.0, float(limits[key]) - float(observed[key]))
-        for key in limits
-    }
+    remaining = {key: max(0.0, float(limits[key]) - float(observed[key])) for key in limits}
     reasons = sorted(
         f"insufficient_{key}_for_bounded_replan"
         for key, value in required.items()
@@ -5827,15 +6155,11 @@ def _material_replan_events(*stages: Mapping[str, Any]) -> tuple[str, ...]:
     events: set[str] = set()
     for stage in stages:
         events.update(
-            str(value)
-            for value in stage.get("material_events") or []
-            if str(value).strip()
+            str(value) for value in stage.get("material_events") or [] if str(value).strip()
         )
         execution = dict(stage.get("execution") or {})
         events.update(
-            str(value)
-            for value in execution.get("material_events") or []
-            if str(value).strip()
+            str(value) for value in execution.get("material_events") or [] if str(value).strip()
         )
         if int(stage.get("rejected_validation_count") or 0) > 0:
             events.add("critical_edge_rejected")
@@ -5861,17 +6185,13 @@ def _replan_signal_gate(
     architecture prompt.
     """
 
-    observed = {
-        str(value)
-        for value in material_events
-        if str(value).strip()
-    }
+    observed = {str(value) for value in material_events if str(value).strip()}
     pressure = compile_replan_pressure(
         gates,
         material_events=observed,
         convergence_ledger=convergence_ledger,
     )
-    actionable = observed & _REPLAN_ACTIONABLE_EVENTS
+    actionable = observed & ACTIONABLE_REPLAN_EVENTS
     actionable.update(pressure["derived_material_events"])
     gate_values = dict(gates.get("gates") or {})
     if gate_values.get("B4_stock_boundary") is True:
@@ -5880,9 +6200,7 @@ def _replan_signal_gate(
     return {
         "schema_version": "target_solve_replan_signal_gate.v1",
         "accepted": not reasons,
-        "trigger_reasons": sorted(
-            {str(value) for value in trigger_reasons if str(value).strip()}
-        ),
+        "trigger_reasons": sorted({str(value) for value in trigger_reasons if str(value).strip()}),
         "observed_material_events": sorted(observed),
         "actionable_material_events": sorted(actionable),
         "ignored_material_events": sorted(observed - actionable),
@@ -5972,8 +6290,7 @@ def _replan_gain_audit(
     )
     model_cost_delta = {
         key: round(
-            float(model_cost_after.get(key) or 0.0)
-            - float(model_cost_before.get(key) or 0.0),
+            float(model_cost_after.get(key) or 0.0) - float(model_cost_before.get(key) or 0.0),
             6,
         )
         for key in cost_keys
@@ -5981,11 +6298,7 @@ def _replan_gain_audit(
     observed_gain = bool(gained_gates or positive_counts)
     observed_regression = bool(regressed_gates or negative_counts)
     disposition = (
-        "regressed"
-        if observed_regression
-        else "positive_gain"
-        if observed_gain
-        else "no_gain"
+        "regressed" if observed_regression else "positive_gain" if observed_gain else "no_gain"
     )
     return {
         "schema_version": "target_solve_replan_gain_audit.v1",
@@ -6014,9 +6327,7 @@ def _director_topology_replan_events(
 
     for outcome in outcomes:
         outcome_reasons = {
-            str(value)
-            for value in outcome.get("reasons") or []
-            if str(value).strip()
+            str(value) for value in outcome.get("reasons") or [] if str(value).strip()
         }
         if (
             str(outcome.get("status") or "") == "failed"
@@ -6028,11 +6339,7 @@ def _director_topology_replan_events(
         for audit in outcome.get("proposal_audits") or []:
             if not isinstance(audit, Mapping) or audit.get("accepted") is True:
                 continue
-            reasons = {
-                str(value)
-                for value in audit.get("reasons") or []
-                if str(value).strip()
-            }
+            reasons = {str(value) for value in audit.get("reasons") or [] if str(value).strip()}
             if reasons & _DIRECTOR_TOPOLOGY_REASONS:
                 return ("director_topology_rejected",)
     return ()
@@ -6056,18 +6363,12 @@ def _planning_depth_requirement(
         for audit in outcome.get("proposal_audits") or []:
             if not isinstance(audit, Mapping):
                 continue
-            audits_by_skeleton.setdefault(str(audit.get("skeleton_id") or ""), []).append(
-                audit
-            )
+            audits_by_skeleton.setdefault(str(audit.get("skeleton_id") or ""), []).append(audit)
         for skeleton in plan.get("multi_step_skeletons") or []:
             if not isinstance(skeleton, Mapping):
                 continue
             skeleton_id = str(skeleton.get("skeleton_id") or "")
-            steps = [
-                step
-                for step in skeleton.get("steps") or []
-                if isinstance(step, Mapping)
-            ]
+            steps = [step for step in skeleton.get("steps") or [] if isinstance(step, Mapping)]
             expected_ids = [str(step.get("step_id") or "") for step in steps]
             audits = audits_by_skeleton.get(skeleton_id, [])
             audited_ids = [str(audit.get("proposal_id") or "") for audit in audits]
@@ -6124,15 +6425,8 @@ def _director_outcome_allows_replan(
     for outcome in outcomes:
         if outcome.get("status") == "accepted" and outcome.get("plan"):
             return True
-        reasons = {
-            str(value)
-            for value in outcome.get("reasons") or []
-            if str(value).strip()
-        }
-        if (
-            outcome.get("status") == "failed"
-            and "GlobalCampaignPlanValidationError" in reasons
-        ):
+        reasons = {str(value) for value in outcome.get("reasons") or [] if str(value).strip()}
+        if outcome.get("status") == "failed" and "GlobalCampaignPlanValidationError" in reasons:
             return True
     return False
 
@@ -6161,6 +6455,8 @@ def _replan_reasons(
         reasons.append("critical_edge_failure_pressure")
     if "new_route_family" in events:
         reasons.append("new_route_family_pressure")
+    if "provider_search_exhausted_without_proposal" in events:
+        reasons.append("provider_search_failure_requires_new_frontier")
     if "shared_bottleneck_changed" in events:
         reasons.append("shared_bottleneck_pressure")
     if "source_conflict_added" in events:
@@ -6169,16 +6465,12 @@ def _replan_reasons(
         reasons.append("search_stagnation_with_route_diversity_deficit")
     if values.get("B2_host_validated_routes") is not True:
         reasons.append("host_validated_route_deficit")
-    if (
-        values.get("B3_exact_multi_source") is not True
-        and events
-        & {
+    if values.get("B3_exact_multi_source") is not True and events & {
         "exact_rows_added",
         "material_evidence_added",
         "source_material_discovered",
         "visual_source_candidates_added",
-        }
-    ):
+    }:
         reasons.append("evidence_deficit_with_new_source_material")
     if values.get("B4_stock_boundary") is not True and events & {
         "stock_boundary_changed",
@@ -6194,9 +6486,7 @@ def _evidence_observations(stage: Mapping[str, Any]) -> dict[str, Any]:
         return {}
     visual = dict(dict(stage.get("visual_evidence") or {}).get("observation") or {})
     raw_sources = [
-        dict(value)
-        for value in discovery.get("sources") or []
-        if isinstance(value, Mapping)
+        dict(value) for value in discovery.get("sources") or [] if isinstance(value, Mapping)
     ]
     ranked_sources = sorted(
         raw_sources,
@@ -6218,9 +6508,7 @@ def _evidence_observations(stage: Mapping[str, Any]) -> dict[str, Any]:
             "source_count": len(raw_sources),
             "selected_source_count": len(selected_sources),
             "omitted_source_count": max(0, len(raw_sources) - len(selected_sources)),
-            "sources": [
-                _source_replan_observation(value) for value in selected_sources
-            ],
+            "sources": [_source_replan_observation(value) for value in selected_sources],
             "semantics": {
                 "bounded_chemistry_event_projection": True,
                 "raw_source_documents_omitted": True,
@@ -6243,9 +6531,7 @@ def _source_replan_observation(source: Mapping[str, Any]) -> dict[str, Any]:
         for value in row.get("procedure_inventory") or []
         if isinstance(value, Mapping)
     ][:2]
-    route = _source_route_replan_observation(
-        dict(row.get("source_route_observation") or {})
-    )
+    route = _source_route_replan_observation(dict(row.get("source_route_observation") or {}))
     return {
         **{
             key: row[key]
@@ -6281,12 +6567,7 @@ def _source_replan_observation(source: Mapping[str, Any]) -> dict[str, Any]:
 
 def _procedure_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]:
     row = dict(value)
-    excerpt = str(
-        row.get("procedure_excerpt")
-        or row.get("procedure")
-        or row.get("text")
-        or ""
-    )
+    excerpt = str(row.get("procedure_excerpt") or row.get("procedure") or row.get("text") or "")
     return {
         **{
             key: row[key]
@@ -6316,11 +6597,7 @@ def _visual_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]:
     if not value:
         return {}
     row = dict(value)
-    steps = [
-        dict(item)
-        for item in row.get("candidate_steps") or []
-        if isinstance(item, Mapping)
-    ]
+    steps = [dict(item) for item in row.get("candidate_steps") or [] if isinstance(item, Mapping)]
     projected_steps = []
     for step in steps[:8]:
         condition = dict(step.get("condition_candidate") or {})
@@ -6387,27 +6664,15 @@ def _visual_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]:
 def _source_route_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]:
     if not value:
         return {}
-    proposals = [
-        dict(row)
-        for row in value.get("proposals") or []
-        if isinstance(row, Mapping)
-    ]
-    diagnostics = [
-        dict(row)
-        for row in value.get("diagnostics") or []
-        if isinstance(row, Mapping)
-    ]
+    proposals = [dict(row) for row in value.get("proposals") or [] if isinstance(row, Mapping)]
+    diagnostics = [dict(row) for row in value.get("diagnostics") or [] if isinstance(row, Mapping)]
     return {
         "schema_version": str(value.get("schema_version") or ""),
         "source_ref": str(value.get("source_ref") or ""),
         "route_family": dict(value.get("route_family") or {}),
         "proposal_count": int(value.get("proposal_count") or len(proposals)),
-        "resolved_procedure_count": int(
-            value.get("resolved_procedure_count") or 0
-        ),
-        "unconnected_proposal_count": int(
-            value.get("unconnected_proposal_count") or 0
-        ),
+        "resolved_procedure_count": int(value.get("resolved_procedure_count") or 0),
+        "unconnected_proposal_count": int(value.get("unconnected_proposal_count") or 0),
         "proposals": [
             {
                 **{
@@ -6466,9 +6731,7 @@ def _workbench_campaign_summary(
 ) -> dict[str, Any]:
     return {
         "gates": dict(gates.get("gates") or {}),
-        "highest_contiguous_gate": str(
-            gates.get("highest_contiguous_gate") or "none"
-        ),
+        "highest_contiguous_gate": str(gates.get("highest_contiguous_gate") or "none"),
         "counts": dict(gates.get("counts") or {}),
         "resource_envelope": dict(resource_envelope),
         "model_cost": dict(model_cost),
@@ -6489,13 +6752,10 @@ def _current_disposition(
     gates: Mapping[str, Any],
 ) -> dict[str, Any]:
     objective_achieved = claim.get("objective_achieved") is True
-    scientifically_accepted = (
-        claim.get("accepted_under_configured_policy") is True
-    )
+    scientifically_accepted = claim.get("accepted_under_configured_policy") is True
     stock_closed = claim.get("configured_stock_boundary_closed") is True
     historical_completion = bool(
-        str(kernel_status) == "completed"
-        or stop_decision.get("decision") == "completed"
+        str(kernel_status) == "completed" or stop_decision.get("decision") == "completed"
     )
     proof_audit = dict(gates.get("reaction_proof_version_audit") or {})
     stale_terminal = historical_completion and not objective_achieved
@@ -6577,9 +6837,7 @@ def _resource_envelope(
         "visual_invocations": int(model_cost.get("visual_invocations") or 0),
         "attempt_runs": int(attempt_count),
         "accepted_expansions": int(accepted_expansion_count),
-        "native_search_committed": int(
-            native_search.get("committed_total") or 0
-        ),
+        "native_search_committed": int(native_search.get("committed_total") or 0),
         "run_wall_time_s": float(run_wall_time_s),
     }
     limits = {
@@ -6594,9 +6852,7 @@ def _resource_envelope(
         "run_wall_time_s": float(max_run_wall_time_s),
     }
     violations = sorted(
-        f"{key}_budget_violated"
-        for key, value in observed.items()
-        if value > limits[key]
+        f"{key}_budget_violated" for key, value in observed.items() if value > limits[key]
     )
     return {
         "schema_version": "target_solve_resource_envelope.v1",
@@ -6651,13 +6907,9 @@ def _compile_target_trajectory_bindings(
                 str(config.chemenzy_env_prefix or "auto-discovery").encode("utf-8")
             ).hexdigest(),
             "observation_sha256": (
-                _digest(dict(chemenzy_observation))
-                if chemenzy_observation
-                else ""
+                _digest(dict(chemenzy_observation)) if chemenzy_observation else ""
             ),
-            "provider_capability": dict(
-                chemenzy_observation.get("provider_capability") or {}
-            ),
+            "provider_capability": dict(chemenzy_observation.get("provider_capability") or {}),
             "runtime": dict(chemenzy_runtime_binding),
         },
         "evidence": _callable_runtime_binding(
@@ -6670,9 +6922,7 @@ def _compile_target_trajectory_bindings(
         ),
         "program_capability_catalog": {
             "available": bool(program_capabilities),
-            "content_sha256": (
-                _digest(program_capabilities) if program_capabilities else ""
-            ),
+            "content_sha256": (_digest(program_capabilities) if program_capabilities else ""),
         },
     }
     return compile_trajectory_bindings(
@@ -6727,11 +6977,7 @@ def _target_control_plane_code_binding(repository_root: Path) -> dict[str, Any]:
         components[relative] = {
             "sha256": hashlib.sha256(content).hexdigest(),
             "size_bytes": len(content),
-            "source": (
-                "configured_repository"
-                if path == configured_path
-                else "loaded_package"
-            ),
+            "source": ("configured_repository" if path == configured_path else "loaded_package"),
         }
     return {
         "producer": "autoplanner",
@@ -6749,9 +6995,7 @@ def _callable_runtime_binding(value: Any, *, fallback: str) -> dict[str, Any]:
     row = {
         "registered": True,
         "module": str(getattr(subject, "__module__", "")),
-        "qualname": str(
-            getattr(subject, "__qualname__", type(value).__qualname__)
-        ),
+        "qualname": str(getattr(subject, "__qualname__", type(value).__qualname__)),
     }
     descriptor = getattr(value, "descriptor", None)
     if descriptor is not None:
@@ -6789,26 +7033,16 @@ def _latest_chemenzy_runtime_binding(
         capability = dict(preflight.get("capability_probe") or {})
         return {
             "provider_envelope": dict(handler.get("provider_envelope") or {}),
-            "provider_registration": dict(
-                handler.get("provider_registration") or {}
-            ),
+            "provider_registration": dict(handler.get("provider_registration") or {}),
             "request_sha256": str(handler.get("request_sha256") or ""),
-            "raw_proposal_sha256": str(
-                handler.get("raw_proposal_sha256") or ""
-            ),
+            "raw_proposal_sha256": str(handler.get("raw_proposal_sha256") or ""),
             "raw_result_sha256": str(handler.get("raw_result_sha256") or ""),
             "replay_key_sha256": str(handler.get("replay_key_sha256") or ""),
             "random_seed": int(handler.get("random_seed") or 0),
-            "provider_invocation_binding": dict(
-                handler.get("provider_invocation_binding") or {}
-            ),
+            "provider_invocation_binding": dict(handler.get("provider_invocation_binding") or {}),
             "runtime_preflight_sha256": _digest(preflight) if preflight else "",
-            "requested_one_step_models": list(
-                preflight.get("requested_one_step_models") or []
-            ),
-            "model_override_digest": str(
-                preflight.get("model_override_digest") or ""
-            ),
+            "requested_one_step_models": list(preflight.get("requested_one_step_models") or []),
+            "model_override_digest": str(preflight.get("model_override_digest") or ""),
             "model_content_binding_sha256": str(
                 capability.get("model_content_binding_sha256")
                 or preflight.get("model_content_binding_sha256")
@@ -6842,8 +7076,7 @@ def _program_milestones_from_stages(
             milestones[f"program:action:{kind}"] = True
         handler = dict(outcome.get("handler_result") or {})
         if kind == CampaignActionKind.PROGRAM_VALIDATE.value and (
-            handler.get("accepted") is True
-            or int(handler.get("validated_count") or 0) > 0
+            handler.get("accepted") is True or int(handler.get("validated_count") or 0) > 0
         ):
             milestones["program:validation_accepted"] = True
         if kind == CampaignActionKind.PROGRAM_ADMIT.value and (
@@ -6851,7 +7084,38 @@ def _program_milestones_from_stages(
             or dict(handler.get("admission") or {}).get("accepted") is True
         ):
             milestones["program:admission_accepted"] = True
+        if (
+            kind == CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST.value
+            and _positive_exact_boundary_claim(handler)
+        ):
+            milestones["experiment:positive_exact_boundary_claim"] = True
     return milestones
+
+
+def _positive_exact_boundary_claim(handler: Mapping[str, Any]) -> bool:
+    claim_set = dict(handler.get("experimental_claims") or {})
+    oracle = dict(handler.get("experimental_claims_oracle") or {})
+    if validate_experimental_claim_set(claim_set):
+        return False
+    oracle_material = dict(oracle)
+    observed_oracle_digest = str(oracle_material.pop("content_sha256", ""))
+    claim_set_digest = str(claim_set.get("content_sha256") or "")
+    if not (
+        oracle.get("schema_version") == EXPERIMENTAL_CLAIM_SET_ORACLE_SCHEMA
+        and oracle.get("accepted") is True
+        and observed_oracle_digest
+        and observed_oracle_digest == _digest(oracle_material)
+        and oracle.get("expected_claim_set_sha256") == claim_set_digest
+        and oracle.get("observed_claim_set_sha256") == claim_set_digest
+    ):
+        return False
+    return any(
+        isinstance(value, Mapping)
+        and value.get("polarity") == "positive"
+        and value.get("grants_domain_validation") is True
+        and value.get("generalization_scope") == "exact_boundary_only"
+        for value in dict(claim_set.get("claims") or {}).values()
+    )
 
 
 def _stage(name: str, status: str, detail: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -6866,13 +7130,7 @@ def _stage(name: str, status: str, detail: Mapping[str, Any] | None = None) -> d
     ) and bool(
         str(detail_row.get("content_sha256") or "")
         and str(detail_row.get("content_sha256") or "")
-        == _digest(
-            {
-                key: value
-                for key, value in detail_row.items()
-                if key != "content_sha256"
-            }
-        )
+        == _digest({key: value for key, value in detail_row.items() if key != "content_sha256"})
     )
     row = {
         "stage": name,
@@ -6880,11 +7138,7 @@ def _stage(name: str, status: str, detail: Mapping[str, Any] | None = None) -> d
         # A trajectory snapshot is itself the content-addressed authority.
         # Truncating it for a display-oriented stage projection would corrupt
         # the digest and make resume/replay unverifiable.
-        "detail": (
-            detail_row
-            if content_bound_detail
-            else _bounded_detail(detail_row)
-        ),
+        "detail": (detail_row if content_bound_detail else _bounded_detail(detail_row)),
     }
     if status == "running":
         row["started_at"] = now
@@ -6911,12 +7165,8 @@ def _chemenzy_director_observation(
         "status": str(stage.get("status") or "not_run"),
         "provider_capability": dict(detail.get("provider_capability") or {}),
         "route_count": int(detail.get("route_count") or 0),
-        "host_admitted_route_count": int(
-            detail.get("host_admitted_route_count") or 0
-        ),
-        "selected_proposal_route_count": int(
-            detail.get("selected_proposal_route_count") or 0
-        ),
+        "host_admitted_route_count": int(detail.get("host_admitted_route_count") or 0),
+        "selected_proposal_route_count": int(detail.get("selected_proposal_route_count") or 0),
         "proposal_count": int(detail.get("proposal_count") or 0),
         "route_admission": list(detail.get("route_admission") or []),
         "semantics": {
@@ -6938,9 +7188,7 @@ def _compile_chemenzy_route_lineage(
     hypotheses = dict(graph.get("hypotheses") or {})
     edges = dict(graph.get("edges") or {})
     measured_routes = [
-        dict(value)
-        for value in gates.get("routes") or []
-        if isinstance(value, Mapping)
+        dict(value) for value in gates.get("routes") or [] if isinstance(value, Mapping)
     ]
     alias_to_id = {
         str(alias): str(route_id)
@@ -6955,16 +7203,12 @@ def _compile_chemenzy_route_lineage(
                 continue
             proposal_id = str(origin.get("proposal_id") or "")
             if proposal_id:
-                proposal_hypothesis_ids.setdefault(proposal_id, set()).add(
-                    str(hypothesis_id)
-                )
+                proposal_hypothesis_ids.setdefault(proposal_id, set()).add(str(hypothesis_id))
     rows: list[dict[str, Any]] = []
     disposition_counts: dict[str, int] = {}
     for source in source_rows:
         alias = str(source.get("canonical_route_family_alias") or "")
-        proposal_ids = {
-            str(value) for value in source.get("step_proposal_ids") or [] if str(value)
-        }
+        proposal_ids = {str(value) for value in source.get("step_proposal_ids") or [] if str(value)}
         direct_hypothesis_ids = {
             hypothesis_id
             for proposal_id in proposal_ids
@@ -6976,9 +7220,7 @@ def _compile_chemenzy_route_lineage(
             *(
                 str(route_id)
                 for hypothesis_id in direct_hypothesis_ids
-                for route_id in dict(hypotheses.get(hypothesis_id) or {}).get(
-                    "route_family_ids"
-                )
+                for route_id in dict(hypotheses.get(hypothesis_id) or {}).get("route_family_ids")
                 or []
                 if str(route_id)
             ),
@@ -7003,8 +7245,7 @@ def _compile_chemenzy_route_lineage(
             {
                 f"edge:{dict(hypotheses.get(value) or {}).get('edge_digest')}"
                 for value in hypothesis_ids
-                if f"edge:{dict(hypotheses.get(value) or {}).get('edge_digest')}"
-                in edges
+                if f"edge:{dict(hypotheses.get(value) or {}).get('edge_digest')}" in edges
             }
             or {
                 str(value)
@@ -7013,7 +7254,12 @@ def _compile_chemenzy_route_lineage(
                 if str(value)
             }
         )
-        if any(value.get("stock_closed") is True for value in route_measurements):
+        if (
+            source.get("topology_conservation_applicable") is True
+            and source.get("topology_conservation_accepted") is not True
+        ):
+            disposition = "canonical_topology_not_conserved"
+        elif any(value.get("stock_closed") is True for value in route_measurements):
             disposition = "stock_closed"
         elif any(value.get("materialized") is True for value in route_measurements):
             disposition = "materialized_or_partially_materialized"
@@ -7044,21 +7290,14 @@ def _compile_chemenzy_route_lineage(
                 "canonical_edge_ids": edge_ids,
                 "canonical_route_closed": bool(route_measurements),
                 "canonical_stock_closure_rate": (
-                    sum(
-                        1
-                        for value in route_measurements
-                        if value.get("stock_closed") is True
-                    )
+                    sum(1 for value in route_measurements if value.get("stock_closed") is True)
                     / len(route_measurements)
                     if route_measurements
                     else 0.0
                 ),
                 "canonical_minimum_proof_level": int(
                     max(
-                        (
-                            int(family.get("minimum_proof_level") or 0)
-                            for family in family_rows
-                        ),
+                        (int(family.get("minimum_proof_level") or 0) for family in family_rows),
                         default=0,
                     )
                 ),
@@ -7076,9 +7315,7 @@ def _compile_chemenzy_route_lineage(
     payload = {
         "schema_version": "chemenzy_route_lineage.v1",
         "route_count": len(rows),
-        "disposition_counts": {
-            key: disposition_counts[key] for key in sorted(disposition_counts)
-        },
+        "disposition_counts": {key: disposition_counts[key] for key in sorted(disposition_counts)},
         "campaign_B4_stock_boundary": bool(
             dict(gates.get("gates") or {}).get("B4_stock_boundary") is True
         ),
@@ -7087,6 +7324,7 @@ def _compile_chemenzy_route_lineage(
             "raw_normalized_canonical_bound_by_digest": True,
             "campaign_B4_does_not_imply_each_provider_route_is_closed": True,
             "missing_proof_never_erases_provider_lineage": True,
+            "partial_step_binding_never_counts_as_complete_route_conservation": True,
         },
     }
     payload["content_sha256"] = _digest(payload)
@@ -7109,15 +7347,9 @@ def _chemenzy_provider_lineage_rows(
             "provider_mode": str(result.get("mode") or "seed"),
             "provider_scope": str(result.get("scope") or "seed"),
             "provider_request_sha256": str(result.get("request_sha256") or ""),
-            "provider_raw_proposal_sha256": str(
-                result.get("raw_proposal_sha256") or ""
-            ),
-            "provider_raw_result_sha256": str(
-                result.get("raw_result_sha256") or ""
-            ),
-            "provider_replay_key_sha256": str(
-                result.get("replay_key_sha256") or ""
-            ),
+            "provider_raw_proposal_sha256": str(result.get("raw_proposal_sha256") or ""),
+            "provider_raw_result_sha256": str(result.get("raw_result_sha256") or ""),
+            "provider_replay_key_sha256": str(result.get("replay_key_sha256") or ""),
             "provider_random_seed": int(result.get("random_seed") or 0),
         }
         for value in result.get("route_lineage") or []:
@@ -7127,9 +7359,7 @@ def _chemenzy_provider_lineage_rows(
             identity = {
                 **invocation,
                 "route_trace_id": str(source.get("route_trace_id") or ""),
-                "normalized_route_sha256": str(
-                    source.get("normalized_route_sha256") or ""
-                ),
+                "normalized_route_sha256": str(source.get("normalized_route_sha256") or ""),
             }
             source_rows[_digest(identity)] = source
     return [source_rows[key] for key in sorted(source_rows)]
@@ -7233,9 +7463,7 @@ def _run_director_safely(
     *,
     mode: str,
     material_events: tuple[str, ...] = (),
-    evidence_observations: Mapping[str, Any]
-    | tuple[Mapping[str, Any], ...]
-    | None = None,
+    evidence_observations: Mapping[str, Any] | tuple[Mapping[str, Any], ...] | None = None,
     context: Any | None = None,
     before_plan_admission: Callable[[], None] | None = None,
     idempotency_key: str,

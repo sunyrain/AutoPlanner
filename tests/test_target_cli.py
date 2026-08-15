@@ -7,6 +7,7 @@ import pytest
 from cascade_planner.interfaces.target_cli import (
     _compact_target_result,
     _parse_safety_limits,
+    _resolve_chemenzy_stock_binding,
     _resolve_objective_compatibility_view,
     add_target_commands,
 )
@@ -100,6 +101,7 @@ def test_target_cli_objective_mode_is_deprecated_compatibility_only() -> None:
         ]
     )
 
+    assert default.delivery_boundary == "stock_result"
     assert default.objective_mode is None
     assert _resolve_objective_compatibility_view(default.objective_mode) == (
         "scientific_proof"
@@ -213,6 +215,40 @@ def test_target_cli_exposes_frozen_benchmark_stock_index() -> None:
     assert args.benchmark_stock_name == "retrostar-emolecules-23m"
 
 
+def test_benchmark_stock_defaults_to_the_same_chemenzy_search_boundary(
+    tmp_path,
+) -> None:
+    stock = tmp_path / "benchmark.sqlite3"
+    stock.write_bytes(b"fixture")
+
+    names, paths = _resolve_chemenzy_stock_binding(
+        stock_names=(),
+        stock_paths=(),
+        benchmark_stock_index=str(stock),
+        benchmark_stock_name="FrozenBenchmarkStock",
+        chemenzy_enabled=True,
+    )
+
+    assert names == ("FrozenBenchmarkStock",)
+    assert paths == (("FrozenBenchmarkStock", str(stock.resolve())),)
+
+
+def test_benchmark_stock_rejects_a_different_chemenzy_boundary(tmp_path) -> None:
+    benchmark = tmp_path / "benchmark.sqlite3"
+    provider = tmp_path / "provider.csv"
+    benchmark.write_bytes(b"benchmark")
+    provider.write_text("smiles\nCCO\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="benchmark_and_chemenzy_stock_paths_differ"):
+        _resolve_chemenzy_stock_binding(
+            stock_names=("provider",),
+            stock_paths=(("provider", str(provider)),),
+            benchmark_stock_index=str(benchmark),
+            benchmark_stock_name="benchmark",
+            chemenzy_enabled=True,
+        )
+
+
 def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command")
@@ -252,9 +288,12 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
     )
 
     assert default.no_chemenzy is False
-    assert default.target_chemenzy_baseline is True
+    assert default.target_chemenzy_baseline is False
     assert disabled.target_chemenzy_baseline is False
-    assert default.chemenzy_iterations == 10
+    assert default.chemenzy_iterations == 500
+    assert default.chemenzy_timeout_s == 1_200.0
+    assert default.guided_chemenzy_iterations == 500
+    assert default.guided_chemenzy_timeout_s == 1_200.0
     assert configured.chemenzy_env_prefix == "D:/isolated/chemenzy"
     assert configured.chemenzy_stock_name == ["RetroStar-stock"]
     assert configured.chemenzy_stock_path == [

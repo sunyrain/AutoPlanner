@@ -1,7 +1,27 @@
 # V4 Schema 索引
 
+Strategy-first 主链新增以下 canonical contract：
+
 | Schema | 权威范围 | 主要生产者 |
 | --- | --- | --- |
+| `strategy_card.v1` | 冻结路线战略、结构正交签名、执行域与 evidence-independent digest；不授予 reaction/source proof | sequential strategy director / canonical graph |
+| `reaction_edit_signature.v1` | 有序 atom-map graph edit 的结构身份；digest 只证明编辑一致性 | strategy contract / materializer |
+| `chemical_strategy_critique.v1` / artifact | 独立 Codex 前向化学批评；`viable/uncertain/reject`，明确无 reaction/source authority | route chemistry critic worker |
+
+
+| Schema | 权威范围 | 主要生产者 |
+| --- | --- | --- |
+| `external_strategy_route_bundle.v1` | 提供方无关的战略路线输入；支持 reaction SMILES 或显式产物/前体，要求目标一致、全路线连通、无环并保留 multiplicity/stereo；外部 solved/feasible/conditions 只作 advisory metadata | external strategy adapter / Gateway |
+| `external_strategy_route_import.v1` | 外部 payload 摘要、稳定 route/step identity、canonical proposal 引用和明确的零权威继承收据 | external strategy compiler |
+| `strategy_to_experiment_closure.v1` | 仅对本次导入路线计算战略、物化、宿主反应验证、精确来源、完整精确条件、库存与实验门；无关路线不能替代开放轴 | strategy closure auditor |
+| `reactionjson_replay_audit.v1` | 在显式 provisional public profile 下顺序重放十类公开 ReactionJSON primitive，绑定映射产物、操作计数、映射/非映射前体及可选 expected-precursor conformance；未知字段和结构冲突失败关闭，重放不授予 reaction/source/condition proof | external strategy graph-edit adapter |
+| `strategy_closure_evaluator_pack.v1` | evaluator-only 的公开路线、同义词、关键中间体、C0 预检和选择审计；不得挂载给 live planner | strategy closure evaluator |
+| `strategy_closure_pilot_protocol.v1` | 四臂 clean-20 的数据/库存/预算/选择/停止/论断边界绑定；外部公开快照不冒充 live provider 成本 | strategy closure benchmark |
+| `strategy_closure_external_arm_case_result.v1` / `strategy_closure_external_arm_summary.v1` | 每变体隔离 RunKernel 的 C0–C6、materialization blocker、宿主 task/expansion 与零模型调用账本 | external snapshot evaluator |
+| `strategy_closure_live_execution.v1` | 将 clean-20 protocol、manifest、evaluator/leakage pack、stock、case 顺序、模型档位、worker 与固定 cutoff 绑定到三条 live arm；正式汇总必须逐项复核绑定 | live benchmark runner |
+| `strategy_closure_paired_summary.v1` | 按 target 配对汇总 external snapshot 与三条完成的 live arm；失败/部分结果保留在分母，C6 未测不改写为失败，外部 aggregate 与逐 case 摘要必须一致 | strategy closure evaluator |
+| `procedure_repair_draft.v1` / `procedure_repair_draft_artifact.v1` | 盲态模型对条件缺口的非权威修复草案；固定完整条件字段，强制 `model_predicted_condition`、无 exact-source authority、无实验验证声明 | Codex worker / independent critic ablation |
+| `blind_procedure_case.v1` / `independent_critic_ablation.v1` | 隐藏来源、publication、target 名称与参考条件的真实 procedure 消融；将同 backbone 自评与摘要绑定、结构一致的新增 host evidence 分开计分 | independent critic evaluator |
 | `campaign_action_preflight.v1` | 从同一个 Action opportunity set 只读投影当前可处理的 canonical materialization cheap gate；复用 identity/admission/materialization 权威，只收窄下游 eligibility，不创建队列、预算或科学事实 | action scheduler |
 | `autoplanner_run_spec.v2` | 嵌入统一 Campaign 输入的运行身份与兼容验收面；新运行唯一写入版本 | `RunKernel` |
 | `autoplanner_run_spec.v1` | 旧目标、验收、硬预算；仅保摘要验证后的迁移读取 | `RunKernel` compatibility reader |

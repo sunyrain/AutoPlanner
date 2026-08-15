@@ -39,6 +39,7 @@ ALLOWED_WORKER_TASK_TYPES = {
     "target_research",
     "stuck_node_research",
     "strategic_disconnection_mining",
+    "route_chemistry_critique",
     "route_audit_research",
     "condition_research",
     "evolution_candidate_research",
@@ -48,6 +49,7 @@ ALLOWED_WORKER_ARTIFACT_TYPES = {
     "AgentActionBatch",
     "ResearchReport",
     "RetrosynthesisProposalReport",
+    "ChemicalStrategyCritique",
     "GlobalCampaignPlan",
     "EvidenceCard",
     "LiteratureScoutReport",
@@ -59,6 +61,7 @@ ALLOWED_WORKER_ARTIFACT_TYPES = {
     "StrategicOperator",
     "ConditionCandidate",
     "AuditReport",
+    "ProcedureRepairDraft",
     "EvolutionCandidate",
 }
 FORBIDDEN_PRODUCTION_KEYS = {
@@ -158,6 +161,13 @@ class WorkerTimeoutError(TimeoutError):
         self.command = list(command or [])
 
 
+class WorkerCancelledError(RuntimeError):
+    def __init__(self, message: str, *, backend: str, command: list[str] | None = None):
+        super().__init__(message)
+        self.backend = backend
+        self.command = list(command or [])
+
+
 def run_codex_worker(
     task: WorkerTask,
     *,
@@ -166,6 +176,7 @@ def run_codex_worker(
     command: list[str] | None = None,
     use_codex_cli: bool | None = None,
     use_api_json: bool | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> WorkerRunRecord:
     """Run a controlled worker task and validate the resulting draft artifact."""
     task_validation = validate_worker_task(task)
@@ -176,6 +187,18 @@ def run_codex_worker(
             case_id=task.case_id,
             status="rejected_task",
             output_validation=task_validation,
+        )
+    if cancel_event is not None and cancel_event.is_set():
+        return WorkerRunRecord(
+            run_id=f"{task.task_id}:run",
+            task_id=task.task_id,
+            case_id=task.case_id,
+            status="cancelled",
+            output_validation={
+                "accepted": False,
+                "reasons": ["delivery_milestone_reached"],
+                "schema_version": WORKER_OUTPUT_VALIDATION_SCHEMA,
+            },
         )
 
     started = time.monotonic()
@@ -190,13 +213,17 @@ def run_codex_worker(
             process = runner(task)
         elif command is not None:
             backend = "subprocess_command"
-            process = _run_subprocess_worker(task, command)
+            process = _run_subprocess_worker(
+                task,
+                command,
+                cancel_event=cancel_event,
+            )
         elif _use_api_json(use_api_json):
             backend = "api_json"
             process = _run_api_json_worker(task)
         elif _use_codex_cli(use_codex_cli):
             backend = "codex_cli"
-            process = _run_codex_cli_worker(task)
+            process = _run_codex_cli_worker(task, cancel_event=cancel_event)
         else:
             raise RuntimeError(
                 "no worker backend selected; use dry_run/mock_output explicitly or configure codex/api_json"
@@ -215,6 +242,22 @@ def run_codex_worker(
             output_validation={"accepted": False, "reasons": ["timeout"], "schema_version": WORKER_OUTPUT_VALIDATION_SCHEMA},
             elapsed_s=round(time.monotonic() - started, 3),
             timed_out=True,
+        )
+    except WorkerCancelledError as exc:
+        return WorkerRunRecord(
+            run_id=f"{task.task_id}:run",
+            task_id=task.task_id,
+            case_id=task.case_id,
+            status="cancelled",
+            backend=str(exc.backend or backend),
+            command=list(exc.command),
+            stderr=str(exc),
+            output_validation={
+                "accepted": False,
+                "reasons": ["delivery_milestone_reached"],
+                "schema_version": WORKER_OUTPUT_VALIDATION_SCHEMA,
+            },
+            elapsed_s=round(time.monotonic() - started, 3),
         )
     except Exception as exc:
         return WorkerRunRecord(
@@ -378,12 +421,18 @@ def worker_task_from_dict(data: dict[str, Any]) -> WorkerTask:
     )
 
 
-def _run_subprocess_worker(task: WorkerTask, command: list[str]) -> WorkerProcessResult:
+def _run_subprocess_worker(
+    task: WorkerTask,
+    command: list[str],
+    *,
+    cancel_event: threading.Event | None = None,
+) -> WorkerProcessResult:
     try:
         returncode, stdout, stderr = _run_worker_command(
             command,
             cwd=Path(task.allowed_workdir).resolve(),
             timeout_s=float(task.budget.timeout_s),
+            cancel_event=cancel_event,
         )
     except subprocess.TimeoutExpired as exc:
         raise WorkerTimeoutError(
@@ -400,7 +449,11 @@ def _run_subprocess_worker(task: WorkerTask, command: list[str]) -> WorkerProces
     )
 
 
-def _run_codex_cli_worker(task: WorkerTask) -> WorkerProcessResult:
+def _run_codex_cli_worker(
+    task: WorkerTask,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> WorkerProcessResult:
     executable = _codex_executable()
     if not _codex_executable_available(executable):
         raise FileNotFoundError(f"Codex CLI executable not found: {executable}")
@@ -430,6 +483,8 @@ def _run_codex_cli_worker(task: WorkerTask) -> WorkerProcessResult:
                 input_text=prompt,
                 env=env,
                 timeout_s=float(task.budget.timeout_s),
+                cancel_event=cancel_event,
+                cancel_backend="codex_cli",
             )
         except subprocess.TimeoutExpired as exc:
             raise WorkerTimeoutError(
@@ -488,6 +543,8 @@ def _run_worker_command(
     timeout_s: float,
     input_text: str | None = None,
     env: dict[str, str] | None = None,
+    cancel_event: threading.Event | None = None,
+    cancel_backend: str = "subprocess_command",
 ) -> tuple[int, str, str]:
     proc = subprocess.Popen(
         command,
@@ -506,7 +563,33 @@ def _run_worker_command(
     stdout_reader, stdout_chunks = _start_worker_pipe_reader(proc.stdout)
     stderr_reader, stderr_chunks = _start_worker_pipe_reader(proc.stderr)
     try:
-        proc.wait(timeout=float(timeout_s))
+        deadline = time.monotonic() + float(timeout_s)
+        while proc.poll() is None:
+            if cancel_event is not None and cancel_event.is_set():
+                if windows_job is not None:
+                    _close_windows_job(windows_job)
+                    windows_job = None
+                    try:
+                        proc.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        _terminate_worker_process_group(proc)
+                else:
+                    _terminate_worker_process_group(proc)
+                _close_worker_pipe(proc.stdin)
+                _join_worker_thread(stdout_reader, timeout_s=1.0)
+                _join_worker_thread(stderr_reader, timeout_s=1.0)
+                raise WorkerCancelledError(
+                    "worker cancelled after delivery milestone",
+                    backend=cancel_backend,
+                    command=command,
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout_s)
+            try:
+                proc.wait(timeout=min(0.1, remaining))
+            except subprocess.TimeoutExpired:
+                continue
         _close_windows_job(windows_job)
         windows_job = None
         _join_worker_thread(stdin_writer, timeout_s=1.0)
@@ -1196,6 +1279,11 @@ def _codex_worker_prompt(task: WorkerTask) -> str:
         if task.required_artifact_type == "GlobalCampaignPlan"
         else "- Do not inject raw reaction candidates or reaction SMILES. Avoid strings containing '>>' unless the task explicitly asks for audit of an existing input reference."
     )
+    source_rule = (
+        "- This is blind strategy design. Do not search for literature, infer target identity/name, or optimize for source availability. Source/evidence fields are optional and carry no strategic weight."
+        if task.task_type in {"strategic_disconnection_mining", "route_chemistry_critique"}
+        else "- Prefer traceable sources. For literature evidence, include DOI, URL, or local_ref in payload/source metadata."
+    )
     return "\n".join([
         "You are a bounded Codex Research Worker inside AutoPlanner.",
         "Your job is to produce one structured draft artifact for the supplied WorkerTask.",
@@ -1207,7 +1295,7 @@ def _codex_worker_prompt(task: WorkerTask) -> str:
         "- Do not mark any route or case solved.",
         "- Do not mutate route trees, write production knowledge-base entries, or claim production promotion.",
         reaction_rule,
-        "- Prefer traceable sources. For literature evidence, include DOI, URL, or local_ref in payload/source metadata.",
+        source_rule,
         "- Use only the task context, repository files, and allowed tools implied by the task.",
         *coordinator_rules,
         "",
@@ -1225,14 +1313,18 @@ def _codex_worker_prompt(task: WorkerTask) -> str:
             "payload": {},
         }, ensure_ascii=False, indent=2),
         "",
-        _artifact_payload_instruction(task.required_artifact_type),
+        _artifact_payload_instruction(task.required_artifact_type, task=task),
         "",
         "WorkerTask:",
         task_json,
     ])
 
 
-def _artifact_payload_instruction(artifact_type: str) -> str:
+def _artifact_payload_instruction(
+    artifact_type: str,
+    *,
+    task: WorkerTask | None = None,
+) -> str:
     if artifact_type == "AgentActionBatch":
         return (
             "For payload, return schema_version=agent_action_batch.v1, case_id, round_index, mode, semantics, and actions. "
@@ -1281,19 +1373,41 @@ def _artifact_payload_instruction(artifact_type: str) -> str:
             "strategic_subgoal, anchor_candidate, limitations, and fake-terminal guardrails."
         )
     if artifact_type == "RetrosynthesisProposalReport":
+        strategy_first = bool(
+            task is not None
+            and task.task_type == "strategic_disconnection_mining"
+        )
+    if artifact_type == "ChemicalStrategyCritique":
+        return (
+            "For payload, return schema_version=chemical_strategy_critique.v1 and independently forward-audit the supplied frozen route. "
+            "Assess every step for atom provenance, plausible mechanism, functional-group compatibility, site/chemoselectivity, stereochemical outcome, sequence ordering, competing pathways, and enzyme identity/capability where applicable. "
+            "Use overall_assessment=viable|uncertain|reject; reject only a concrete chemical contradiction, not merely missing literature. "
+            "Include strategy_adherence, step_assessments, route_level_risks, repair_actions, experimental_variables, no_reaction_proof=true, no_source_authority=true, and no_solved_claim=true. "
+            "Do not search the web, cite sources, infer the target name, or defer chemical judgment to literature availability."
+        )
         return (
             "For payload, return schema_version=retrosynthesis_proposal_report.v1, case_id, agent_role, "
             "target_smiles, candidates, evidence_refs, limitations, and no_solved_claim=true. Each candidate "
             "must contain product_smiles plus precursor_smiles as a list of individual components, a concise "
-            "reaction_family, product_retron_type, and transformation_rationale, source_channel, source/evidence refs, evidence_level, "
-            "confidence, optional conditions/catalyst/enzyme, limitations, required_validation, "
+            "reaction_family, product_retron_type, and transformation_rationale, optional conditions/catalyst/enzyme, limitations, required_validation, "
             "no_solved_claim=true, and not_parent_route_proof=true. Product and precursor SMILES are advisory "
             "typed hypotheses, and product_retron_type is an advisory product-side classification only; never emit "
-            "a reaction SMILES string, reaction SMARTS, or a key named reaction_smiles/rxn/raw_reaction."
+            "a reaction SMILES string, reaction SMARTS, or a key named reaction_smiles/rxn/raw_reaction. "
+            "When the WorkerTask phase is root_strategy, also populate candidate.strategy_card with scaffold_motif, "
+            "key_forward_transformation, key_bond_changes, functional_group_conflicts, protection_policy, "
+            "stereochemical_plan, convergence_plan, strategic_step_count (1 or 2), skeleton_change_class, "
+            "expected_complexity_drop, orthogonality_basis, strategy_signature, and optionally execution_domain=chemical|enzymatic|whole_cell|hybrid|mechanistic. When mapped product atoms are "
+            "supplied and the edit is expressible, include candidate.reaction_operations as ordered atom-map graph edits."
+            + (
+                " For this strategy-first task, do not search for or fabricate sources. source_channel, source_refs, evidence_refs, evidence_level, and confidence are optional post-strategy metadata."
+                if strategy_first
+                else " Source/evidence metadata may be supplied only when grounded in the task inputs or allowed tools."
+            )
         )
     if artifact_type == "GlobalCampaignPlan":
         return (
             "For payload, return schema_version=global_campaign_plan.v1 and a whole-campaign plan bound to the run_id, mode, context_sha256, and graph_revision in the objective. "
+            "context_sha256 must exactly equal the first WorkerTask.input_refs value; never substitute prompt_context_sha256 or recompute a digest. "
             "Include route_families, multi_step_skeletons, strategic_disconnections, shared_intermediates, critical_unknowns, source_plan, fallback_strategies, frontier_priorities, pivot_conditions, stop_conditions, portfolio_rationale, and limitations. "
             "Every skeleton step must contain parseable product_smiles and precursor_smiles, transformation_hypothesis, required_validation, hypothesis_only=true, and one or two advisory condition_predictions. "
             "Each condition prediction must use authority_scope=model_predicted_condition and not_reaction_proof=true; use empty strings or arrays only for inapplicable condition fields, and do not attach source authority to a model prediction. "
@@ -1319,6 +1433,15 @@ def _artifact_payload_instruction(artifact_type: str) -> str:
             "For payload, include step_id, source_type or condition_source_type, condition_status, "
             "reagent/catalyst/enzyme/solvent/temperature/ph/buffer/atmosphere where evidence-backed, "
             "evidence_refs, hazard_flags or risk_flags, and confidence."
+        )
+    if artifact_type == "ProcedureRepairDraft":
+        return (
+            "For payload, return schema_version=procedure_repair_draft.v1, step_id, reaction_class, "
+            "diagnosis, conditions, missing_information, risk_flags, repair_actions, "
+            "authority_scope=model_predicted_condition, no_exact_source_authority=true, and "
+            "no_experimental_validation_claim=true. Conditions must include reagents, catalyst, "
+            "base, solvent, temperature, time, atmosphere, addition_order, workup, purification, "
+            "and yield_percent; use empty values when the blind input does not support a field."
         )
     if artifact_type == "FailureDiagnosis":
         return "For payload, include failure_mode or reason, evidence_refs/input_refs, affected frontier, and bounded next actions."
@@ -1376,6 +1499,8 @@ def _worker_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
         return _analogical_template_report_payload_json_schema(task)
     if artifact_type == "RetrosynthesisProposalReport":
         return _retrosynthesis_proposal_report_payload_json_schema(task)
+    if artifact_type == "ChemicalStrategyCritique":
+        return _chemical_strategy_critique_payload_json_schema(task)
     if artifact_type == "GlobalCampaignPlan":
         return _global_campaign_plan_payload_json_schema(task)
     if artifact_type == "LiteratureRouteSegmentCard":
@@ -1384,6 +1509,8 @@ def _worker_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
         return _segment_step_json_schema()
     if artifact_type == "ConditionCandidate":
         return _condition_candidate_json_schema()
+    if artifact_type == "ProcedureRepairDraft":
+        return _procedure_repair_draft_json_schema()
     return _generic_payload_json_schema()
 
 
@@ -1417,7 +1544,70 @@ def _generic_payload_json_schema() -> dict[str, Any]:
 
 
 def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
-    candidate = _strict_object_schema({
+    strategy_card_properties = {
+        "scaffold_motif": {"type": "string"},
+        "key_forward_transformation": {"type": "string"},
+        "key_bond_changes": _string_array_schema(),
+        "functional_group_conflicts": _string_array_schema(),
+        "protection_policy": {"type": "string"},
+        "stereochemical_plan": {"type": "string"},
+        "convergence_plan": {"type": "string"},
+        "strategic_step_count": {"type": "integer", "minimum": 1, "maximum": 2},
+        "skeleton_change_class": {"type": "string"},
+        "expected_complexity_drop": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+        },
+        "orthogonality_basis": {"type": "string"},
+        "strategy_signature": {"type": "string"},
+        "execution_domain": {
+            "type": "string",
+            "enum": ["chemical", "enzymatic", "whole_cell", "hybrid", "mechanistic"],
+        },
+    }
+    strategy_card = _strict_object_schema(
+        strategy_card_properties,
+        required=[key for key in strategy_card_properties if key != "execution_domain"],
+    )
+    reaction_operation = _strict_object_schema(
+        {
+            "op": {
+                "type": "string",
+                "enum": [
+                    "break_bond",
+                    "add_bond",
+                    "change_bond_order",
+                    "change_atom",
+                    "set_explicit_h",
+                    "add_group",
+                    "remove_group",
+                    "invert_stereocenter",
+                    "clear_stereocenter",
+                    "set_bond_stereo",
+                ],
+            },
+            "map_a": {"type": "integer"},
+            "map_b": {"type": "integer"},
+            "map_idx": {"type": "integer"},
+            "order": {"type": "number"},
+            "delta": {"type": "number"},
+            "atomic_num": {"type": "integer"},
+            "element": {"type": "string"},
+            "formal_charge": {"type": "integer"},
+            "isotope": {"type": "integer"},
+            "count": {"type": "integer"},
+            "no_implicit": {"type": "boolean"},
+            "fragment_smiles": {"type": "string"},
+            "map_indices": {"type": "array", "items": {"type": "integer"}},
+            "stereo": {"type": "string"},
+            "stereo_atom_maps": {
+                "type": "array",
+                "items": {"type": "integer"},
+            },
+        },
+        required=["op"],
+    )
+    candidate_properties = {
         "schema_version": {"type": "string", "enum": ["retrosynthesis_candidate.v1"]},
         "candidate_id": {"type": "string"},
         "product_smiles": {"type": "string"},
@@ -1457,7 +1647,39 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
         "required_validation": _string_array_schema(),
         "no_solved_claim": {"type": "boolean", "enum": [True]},
         "not_parent_route_proof": {"type": "boolean", "enum": [True]},
-    })
+        "strategy_card": strategy_card,
+        "reaction_operations": {"type": "array", "items": reaction_operation},
+    }
+    required_candidate_fields = [
+        "schema_version",
+        "candidate_id",
+        "product_smiles",
+        "precursor_smiles",
+        "reaction_family",
+        "product_retron_type",
+        "transformation_rationale",
+        "conditions",
+        "catalyst",
+        "enzyme",
+        "limitations",
+        "required_validation",
+        "no_solved_claim",
+        "not_parent_route_proof",
+    ]
+    if task.task_type != "strategic_disconnection_mining":
+        required_candidate_fields.extend(
+            [
+                "source_channel",
+                "source_refs",
+                "evidence_refs",
+                "evidence_level",
+                "confidence",
+            ]
+        )
+    candidate = _strict_object_schema(
+        candidate_properties,
+        required=required_candidate_fields,
+    )
     return _strict_object_schema({
         "schema_version": {"type": "string", "enum": ["retrosynthesis_proposal_report.v1"]},
         "case_id": {"type": "string", "enum": [task.case_id]},
@@ -1470,7 +1692,58 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
     })
 
 
+def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    step_assessment = _strict_object_schema(
+        {
+            "step_id": {"type": "string"},
+            "mechanistic_analysis": {"type": "string"},
+            "atom_provenance": {"type": "string"},
+            "functional_group_compatibility": {"type": "string"},
+            "chemoselectivity": {"type": "string"},
+            "stereochemistry": {"type": "string"},
+            "sequence_ordering": {"type": "string"},
+            "competing_pathways": _string_array_schema(),
+            "enzyme_assessment": {"type": "string"},
+            "verdict": {
+                "type": "string",
+                "enum": ["pass", "uncertain", "reject"],
+            },
+            "reasons": _string_array_schema(),
+        }
+    )
+    return _strict_object_schema(
+        {
+            "schema_version": {
+                "type": "string",
+                "enum": ["chemical_strategy_critique.v1"],
+            },
+            "case_id": {"type": "string", "enum": [task.case_id]},
+            "strategy_id": {"type": "string"},
+            "strategy_digest": {"type": "string"},
+            "route_family_id": {"type": "string"},
+            "overall_assessment": {
+                "type": "string",
+                "enum": ["viable", "uncertain", "reject"],
+            },
+            "strategy_adherence": {"type": "boolean"},
+            "step_assessments": {
+                "type": "array",
+                "items": step_assessment,
+                "maxItems": 32,
+            },
+            "route_level_risks": _string_array_schema(),
+            "repair_actions": _string_array_schema(),
+            "experimental_variables": _string_array_schema(),
+            "limitations": _string_array_schema(),
+            "no_reaction_proof": {"type": "boolean", "enum": [True]},
+            "no_source_authority": {"type": "boolean", "enum": [True]},
+            "no_solved_claim": {"type": "boolean", "enum": [True]},
+        }
+    )
+
+
 def _global_campaign_plan_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    context_refs = [str(value) for value in task.input_refs if str(value).strip()]
     route_family = _strict_object_schema({
         "route_family_id": {"type": "string"},
         "title": {"type": "string"},
@@ -1579,7 +1852,10 @@ def _global_campaign_plan_payload_json_schema(task: WorkerTask) -> dict[str, Any
         "plan_id": {"type": "string"},
         "run_id": {"type": "string", "enum": [task.case_id]},
         "mode": {"type": "string", "enum": ["initial_architecture", "event_replan", "final_portfolio_synthesis"]},
-        "context_sha256": {"type": "string"},
+        "context_sha256": {
+            "type": "string",
+            **({"enum": [context_refs[0]]} if context_refs else {}),
+        },
         "graph_revision": {"type": "integer"},
         "route_families": {"type": "array", "items": route_family, "maxItems": 6},
         "multi_step_skeletons": {"type": "array", "items": skeleton, "maxItems": 8},
@@ -1906,11 +2182,44 @@ def _condition_candidate_json_schema() -> dict[str, Any]:
     })
 
 
+def _procedure_repair_draft_json_schema() -> dict[str, Any]:
+    conditions = _strict_object_schema({
+        "reagents": _string_array_schema(),
+        "catalyst": {"type": "string"},
+        "base": _string_array_schema(),
+        "solvent": _string_array_schema(),
+        "temperature": {"type": "string"},
+        "time": {"type": "string"},
+        "atmosphere": {"type": "string"},
+        "addition_order": {"type": "string"},
+        "workup": {"type": "string"},
+        "purification": {"type": "string"},
+        "yield_percent": {"type": "number"},
+    })
+    return _strict_object_schema({
+        "schema_version": {"type": "string", "enum": ["procedure_repair_draft.v1"]},
+        "step_id": {"type": "string"},
+        "reaction_class": {"type": "string"},
+        "diagnosis": _string_array_schema(),
+        "conditions": conditions,
+        "missing_information": _string_array_schema(),
+        "risk_flags": _string_array_schema(),
+        "repair_actions": _string_array_schema(),
+        "authority_scope": {
+            "type": "string",
+            "enum": ["model_predicted_condition"],
+        },
+        "no_exact_source_authority": {"type": "boolean", "enum": [True]},
+        "no_experimental_validation_claim": {"type": "boolean", "enum": [True]},
+    })
+
+
 def _typed_artifact_schema_version(artifact_type: str) -> str:
     return {
         "AgentActionBatch": "agent_action_batch_artifact.v1",
         "ResearchReport": "research_report.v1",
         "RetrosynthesisProposalReport": "retrosynthesis_proposal_report_artifact.v1",
+        "ChemicalStrategyCritique": "chemical_strategy_critique_artifact.v1",
         "GlobalCampaignPlan": "global_campaign_plan_artifact.v1",
         "EvidenceCard": "evidence_card_artifact.v1",
         "LiteratureScoutReport": "literature_scout_report_artifact.v1",
@@ -1921,6 +2230,7 @@ def _typed_artifact_schema_version(artifact_type: str) -> str:
         "StrategicOperator": "strategic_operator_artifact.v1",
         "ConditionCandidate": "condition_candidate.v1",
         "AuditReport": "route_audit_report.v1",
+        "ProcedureRepairDraft": "procedure_repair_draft_artifact.v1",
         "EvolutionCandidate": "evolution_candidate_artifact.v1",
     }.get(artifact_type, f"{artifact_type.lower()}.draft.v1")
 

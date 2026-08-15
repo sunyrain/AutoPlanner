@@ -963,6 +963,30 @@ def test_director_downgrades_campaign_target_provider_request_to_host_priority(
     assert validate_global_campaign_plan(repaired, context)
 
 
+def test_director_downgrades_unbound_provider_target_to_host_priority(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    priority = raw["frontier_priorities"][0]
+    priority["proposal_id"] = "proposal:not-in-any-skeleton"
+    priority["target_smiles"] = ""
+    priority["provider_preferences"] = ["chemenzy"]
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    repaired_priority = repaired.frontier_priorities[0]
+    assert repaired_priority["provider_preferences"] == []
+    assert any(
+        row["reason"] == "unbound_provider_target_downgraded_to_host_priority"
+        for row in repairs
+    )
+    assert validate_global_campaign_plan(repaired, context)
+
+
 def test_director_resolves_chemenzy_request_to_shared_intermediate(
     tmp_path: Path,
 ) -> None:
@@ -1134,6 +1158,12 @@ def test_director_defers_web_tools_until_evidence_informed_replan(
         mode="event_replan",
         config=config,
     )
+    replan_prompt = director_prompt(context, mode="event_replan", config=config)
+    assert "source-consistent alternative skeleton" in replan_prompt
+    assert "add a distinct target-rooted source-consistent family" in replan_prompt
+    assert "never force the source onto the old edge" in replan_prompt
+    assert "source_plan.source_refs" in replan_prompt
+    assert "Never invent an identifier" in replan_prompt
 
     opted_in = DirectorConfig(
         enable_web_search=True,
@@ -1142,6 +1172,26 @@ def test_director_defers_web_tools_until_evidence_informed_replan(
     assert (
         director_web_search_enabled(opted_in, mode="initial_architecture") is True
     )
+
+
+def test_director_contract_scans_contiguous_spans_for_program_replacements(
+    tmp_path: Path,
+) -> None:
+    prompt = director_prompt(
+        _context(_kernel(tmp_path)),
+        mode="initial_architecture",
+        config=DirectorConfig(max_steps_per_skeleton=24),
+    )
+
+    assert "scan contiguous multi-step intervals" in prompt
+    assert "biocatalytic_step" in prompt
+    assert "biocatalytic_superstep" in prompt
+    assert "whole_cell" in prompt
+    assert "hybrid" in prompt
+    assert "mechanism_extrapolation" in prompt
+    assert "replaced_step_ids" in prompt
+    assert "conventional fallback" in prompt
+    assert "specialized host validation" in prompt
 
 
 def test_director_prompt_does_not_expose_display_target_name(

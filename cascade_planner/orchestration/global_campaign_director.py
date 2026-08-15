@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import threading
 import time
 from typing import Any, Callable, Iterable, Iterator, Mapping
 
@@ -48,23 +49,28 @@ DIRECTOR_MODES = frozenset(
 DIRECTOR_DISPOSITIONS = frozenset(
     {"accepted", "rejected", "superseded", "ignored"}
 )
-MATERIAL_REPLAN_EVENTS = frozenset(
+ACTIONABLE_REPLAN_EVENTS = frozenset(
     {
         "critical_edge_rejected",
         "director_contract_rejected",
         "director_depth_deficit",
         "director_topology_rejected",
         "exact_rows_added",
+        "host_validated_edges_added_after_initial_plan",
+        "host_validated_source_route_added",
         "material_evidence_added",
         "new_route_family",
-        "portfolio_stagnation",
+        "provider_search_exhausted_without_proposal",
         "shared_bottleneck_changed",
         "source_material_discovered",
+        "source_procedure_records_added",
         "source_conflict_added",
         "stock_records_added",
         "stock_boundary_changed",
+        "visual_source_candidates_added",
     }
 )
+MATERIAL_REPLAN_EVENTS = ACTIONABLE_REPLAN_EVENTS | {"portfolio_stagnation"}
 _REQUIRED_PLAN_SECTIONS = (
     "route_families",
     "multi_step_skeletons",
@@ -210,6 +216,12 @@ class DirectorConfig:
     max_initial_architecture_calls: int = 1
     max_event_replan_calls: int = 2
     max_final_portfolio_synthesis_calls: int = 1
+    planning_mode: str = "global_skeleton"
+    strategy_branch_count: int = 3
+    max_node_expansions_per_branch: int = 25
+    max_route_local_repair_rounds: int = 6
+    max_node_prompt_bytes: int = 24_000
+    max_provider_requests: int = 3
     model: str = ""
     reasoning_effort: str = "low"
     enable_web_search: bool = False
@@ -234,6 +246,11 @@ class DirectorConfig:
             self.max_initial_architecture_calls,
             self.max_event_replan_calls,
             self.max_final_portfolio_synthesis_calls,
+            self.strategy_branch_count,
+            self.max_node_expansions_per_branch,
+            self.max_route_local_repair_rounds,
+            self.max_node_prompt_bytes,
+            self.max_provider_requests,
         ):
             if int(value) <= 0:
                 raise ValueError("director integer limits must be positive")
@@ -241,6 +258,8 @@ class DirectorConfig:
             raise ValueError("director max_wall_time_s must be finite and positive")
         if self.minimum_route_families > self.max_route_families:
             raise ValueError("director minimum route families exceeds maximum")
+        if self.planning_mode not in {"global_skeleton", "sequential_branches"}:
+            raise ValueError("director planning mode is invalid")
         if (
             isinstance(self.minimum_planning_route_steps, bool)
             or not isinstance(self.minimum_planning_route_steps, int)
@@ -473,7 +492,12 @@ class GlobalCampaignDirector:
                 reasons=("director_mode_call_budget_exhausted",),
                 task_id=task_id,
             )
-        prompt = director_prompt(context, mode=mode, config=self.config)
+        prompt_builder = getattr(self.runner, "prompt_for", None)
+        prompt = (
+            str(prompt_builder(context, mode, self.config))
+            if callable(prompt_builder)
+            else director_prompt(context, mode=mode, config=self.config)
+        )
         prompt_bytes = len(prompt.encode("utf-8"))
         uses_model = not bool(getattr(self.runner, "model_free", False))
         self.kernel.reserve_task(
@@ -515,6 +539,7 @@ class GlobalCampaignDirector:
                 "mode": mode,
                 "model": self.config.model,
                 "reasoning_effort": self.config.reasoning_effort,
+                "remaining_model_budget": _remaining_model_budget(self.kernel),
                 "no_scientific_authority": True,
                 "allowed_workdir": str(
                     self.kernel.run_dir / ".autoplanner" / "director-workspace"
@@ -528,6 +553,28 @@ class GlobalCampaignDirector:
             if not isinstance(result, AgentResult):
                 raise GlobalCampaignDirectorError("director_runner_result_invalid")
             usage = normalize_director_usage(result.usage)
+            if result.state is AgentState.CANCELLED:
+                usage = normalize_director_usage(result.usage)
+                elapsed_s = max(0.0, time.monotonic() - started)
+                self.kernel.settle_task(
+                    task_id=task_id,
+                    idempotency_key=f"settle:{task_id}",
+                    status="cancelled",
+                    failure_reasons=(
+                        "delivery_milestone_reached_before_director_completion",
+                    ),
+                    model_usage=usage,
+                    elapsed_s=elapsed_s,
+                )
+                return DirectorOutcome(
+                    status="cancelled_after_delivery",
+                    invoked=True,
+                    cache_hit=False,
+                    mode=mode,
+                    context_sha256=context.content_sha256,
+                    reasons=("delivery_milestone_reached",),
+                    task_id=task_id,
+                )
             if result.state is not AgentState.SUCCEEDED:
                 raise GlobalCampaignDirectorError(
                     "director_child_failed:" + (result.error or result.state.value)
@@ -1071,6 +1118,7 @@ def repair_global_campaign_plan_contract(
         frontier_priorities=retained_priorities,
         campaign_target=target,
         canonicalize=_canonical_smiles,
+        max_requests=(config or DirectorConfig()).max_provider_requests,
     )
     repairs.extend(provider_repairs)
     if not repairs:
@@ -1478,6 +1526,7 @@ def director_prompt(
             ),
             "Each skeleton step requires step_id, product_smiles, precursor_smiles, transformation_hypothesis, required_validation, and hypothesis_only=true.",
             "For every step whose exact source procedure is not already present in CampaignContext, include condition_predictions with one or two concise, chemically plausible experimental-design candidates (reagents/catalyst/base/solvent/temperature/time as applicable). Every candidate must set authority_scope=model_predicted_condition and not_reaction_proof=true, must not include source_ref, and must never be described as literature fact. These candidates prevent an operationally empty step while the host continues autonomous primary-source retrieval; they grant no proof.",
+            "For every connected skeleton, scan contiguous multi-step intervals as well as individual steps for executable Program replacements. Consider biocatalytic_step, biocatalytic_superstep, whole_cell, hybrid, and one-hop mechanism_extrapolation hypotheses when structurally justified. A replacement must name replaced_step_ids in route order, connect the exact interval boundary states, retain the conventional fallback, and request specialized host validation; it remains proposal-only until those gates pass.",
             "A step may optionally carry route_innovation. For a genuine enzyme replacement use kind=biocatalytic_step or biocatalytic_superstep plus chemical_step_equivalent_count, replaced_step_ids, enzyme_classes or ec_numbers, selectivity_objective, substrate_scope_basis, precedent_refs, and validation_status=proposed. For a literature-anchored inference use kind=mechanism_extrapolation, hypothesis_depth=1, anchor_edge_ids or anchor_source_refs, mechanistic_rationale, and falsifiable_checks. These are low-confidence execution proposals only; never compress ordinary chemistry or claim that an enzyme/program is validated.",
             "Use frontier_priorities for both host step ordering and local-provider delegation. Select 1-3 nontrivial intermediates or leaves from a fully connected target-rooted skeleton for ChemEnzy by adding its exact step_id as proposal_id, target_smiles, provider_preferences=['chemenzy'], retron_hints, priority, and rationale. Never invent a provider-only proposal_id, never delegate a disconnected sketch or the campaign target itself; Codex owns target-level global strategy.",
             "CampaignContext:",
@@ -1747,6 +1796,8 @@ def run_codex_cli_director_child(
     context: CampaignContext,
     mode: str,
     config: DirectorConfig,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> AgentResult:
     """Default direct-child adapter over the existing controlled Codex CLI."""
 
@@ -1783,7 +1834,11 @@ def run_codex_cli_director_child(
         codex_auth_mode="ambient_codex_cli",
         model=config.model,
     )
-    record = run_codex_worker(task, use_codex_cli=True)
+    record = run_codex_worker(
+        task,
+        use_codex_cli=True,
+        cancel_event=cancel_event,
+    )
     return _director_agent_result(spec, mode=mode, record=record)
 
 
@@ -1883,7 +1938,13 @@ def _director_agent_result(spec: AgentSpec, *, mode: str, record: Any) -> AgentR
         capabilities=spec.capabilities,
         write_scope=spec.write_scope,
         budget=spec.budget,
-        state=AgentState.SUCCEEDED if succeeded else AgentState.FAILED,
+        state=(
+            AgentState.SUCCEEDED
+            if succeeded
+            else AgentState.CANCELLED
+            if record.status == "cancelled"
+            else AgentState.FAILED
+        ),
         output=output,
         error="" if succeeded else _director_worker_error(record),
         usage=usage,
@@ -1903,6 +1964,41 @@ def _director_worker_error(record: Any) -> str:
     if fatal:
         return fatal[:4_000]
     return str(record.stderr or record.status)[:4_000]
+
+
+def _remaining_model_budget(kernel: RunKernel) -> dict[str, int | float]:
+    """Expose the canonical run ledger remainder to aggregate model runners.
+
+    The sequential policy runner performs many small Codex calls behind one
+    kernel reservation.  Giving it the remaining ledger envelope lets it stop
+    between calls instead of discovering an overrun only when the aggregate
+    task is settled.
+    """
+
+    budget = kernel.spec.limits.model
+    totals = dict(kernel.state.model_totals)
+    return {
+        "model_invocations": max(
+            0,
+            int(budget.max_model_invocations)
+            - int(totals.get("model_invocations") or 0),
+        ),
+        "input_tokens": max(
+            0,
+            int(budget.max_total_input_tokens)
+            - int(totals.get("input_tokens") or 0),
+        ),
+        "output_tokens": max(
+            0,
+            int(budget.max_total_output_tokens)
+            - int(totals.get("output_tokens") or 0),
+        ),
+        "wall_time_s": max(
+            0.0,
+            float(budget.max_total_wall_time_s)
+            - float(totals.get("wall_time_s") or 0.0),
+        ),
+    }
 
 
 def normalize_director_usage(value: Mapping[str, Any] | None) -> dict[str, int | float]:

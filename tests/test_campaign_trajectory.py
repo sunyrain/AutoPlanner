@@ -151,12 +151,16 @@ def test_trajectory_reconstructs_first_times_and_binding_epochs() -> None:
     assert trajectory["time_to_first"]["first_route"]["elapsed_wall_time_s"] == 8.25
     assert trajectory["time_to_first"]["B1"]["elapsed_wall_time_s"] == 14.5
     assert trajectory["time_to_first"]["B4"]["elapsed_wall_time_s"] == 14.5
-    assert trajectory["time_to_first"]["first_host_valid_route"][
-        "elapsed_wall_time_s"
-    ] == 14.5
-    assert trajectory["time_to_first"]["program"][
-        "program:validation_accepted"
-    ]["elapsed_wall_time_s"] == 14.5
+    assert (
+        trajectory["time_to_first"]["first_host_valid_route"]["elapsed_wall_time_s"]
+        == 14.5
+    )
+    assert (
+        trajectory["time_to_first"]["program"]["program:validation_accepted"][
+            "elapsed_wall_time_s"
+        ]
+        == 14.5
+    )
     assert len(trajectory["binding_epochs"]) == 2
     assert trajectory["continuity"]["resume_baseline_preserved"] is True
 
@@ -203,7 +207,9 @@ def test_trajectory_rejects_nested_binding_tampering() -> None:
     )
     tampered = deepcopy(snapshot)
     tampered["bindings"]["code"]["value"]["extra"] = "tampered"
-    unsigned = {key: value for key, value in tampered.items() if key != "content_sha256"}
+    unsigned = {
+        key: value for key, value in tampered.items() if key != "content_sha256"
+    }
     tampered["content_sha256"] = _digest(unsigned)
 
     with pytest.raises(ValueError, match="bindings are invalid"):
@@ -293,9 +299,70 @@ def test_route_snapshot_keeps_compact_pareto_history() -> None:
     )
 
     assert result["counts"]["route_family_count"] == 2
+    assert result["counts"]["canonical_materialized_route_count"] == 0
+    assert result["counts"]["strict_host_validated_route_count"] == 0
+    assert result["counts"]["exact_procedure_route_count"] == 0
+    assert result["counts"]["condition_complete_route_count"] == 0
+    assert result["counts"]["strict_stock_closed_route_count"] == 0
     assert result["counts"]["configured_complete_route_count"] == 1
     assert result["counts"]["pareto_route_count"] == 1
     assert [row["route_id"] for row in result["pareto_archive"]] == ["route:1"]
+
+
+def test_route_snapshot_requires_exact_complete_procedure_for_c4() -> None:
+    procedure = {
+        "procedure_record_id": "procedure:1",
+        "conditions": {
+            "reagents": ["base"],
+            "solvent": "THF",
+            "temperature_c": 20,
+            "time": "2 h",
+        },
+        "condition_completeness": {"complete": True, "missing_required_groups": []},
+    }
+    graph = {
+        "edges": {
+            "edge:1": {
+                "product_molecule_id": "mol:target",
+                "precursor_molecule_ids": ["mol:leaf"],
+            }
+        },
+        "exact_records": {"record:1": {"record_id": "record:1"}},
+        "procedure_records": {"procedure:1": procedure},
+    }
+    route = {
+        "route_id": "route:1",
+        "route_family_id": "family:1",
+        "edge_ids": ["edge:1"],
+        "all_leaves_stock_closed": True,
+        "independent_source_groups": ["publication:1"],
+    }
+    portfolio = {
+        "proof_policy": {"minimum_independent_source_groups": 1},
+        "route_candidates": [route],
+        "selected_routes": [route],
+        "edge_proofs": {
+            "edge:1": {
+                "reaction_validated": True,
+                "exact_record_ids": ["record:1"],
+                "procedure_record_ids": ["procedure:1"],
+            }
+        },
+    }
+
+    result = compile_route_snapshot(graph=graph, portfolio=portfolio, gates={})
+
+    assert result["counts"]["strict_host_validated_route_count"] == 1
+    assert result["counts"]["exact_procedure_route_count"] == 1
+    assert result["counts"]["condition_complete_route_count"] == 1
+    assert result["counts"]["strict_stock_closed_route_count"] == 1
+
+    graph["procedure_records"]["procedure:1"]["condition_completeness"]["complete"] = (
+        False
+    )
+    incomplete = compile_route_snapshot(graph=graph, portfolio=portfolio, gates={})
+    assert incomplete["counts"]["exact_procedure_route_count"] == 1
+    assert incomplete["counts"]["condition_complete_route_count"] == 0
 
 
 def test_fixed_cutoff_projection_censors_later_milestones_and_resources() -> None:
