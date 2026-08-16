@@ -8,6 +8,7 @@ from cascade_planner.agent.codex_worker import WorkerRunRecord
 from cascade_planner.application.campaign_context import CampaignContext, CampaignContextDelta
 from cascade_planner.application.run_kernel import RunRevision
 from cascade_planner.application.strategy_contract import normalize_strategy_card
+from cascade_planner.application.strategy_contract import normalize_reaction_operations
 from cascade_planner.orchestration.global_campaign_director import (
     DirectorConfig,
     GlobalCampaignPlan,
@@ -204,6 +205,10 @@ def _critic_record(task, *, assessment: str = "viable") -> WorkerRunRecord:
     )
 
 
+def _fake_critic_executor(task):
+    return _critic_record(task)
+
+
 def test_independent_codex_critic_runs_before_plan_delivery() -> None:
     context = _context()
     config = DirectorConfig(
@@ -257,6 +262,7 @@ def test_three_independent_branches_expand_one_node_per_call() -> None:
         max_node_expansions_per_branch=2,
         max_route_local_repair_rounds=6,
         max_provider_requests=64,
+        critic_call_timeout_s=1.0,
     )
     observed_tasks = []
 
@@ -264,11 +270,14 @@ def test_three_independent_branches_expand_one_node_per_call() -> None:
         observed_tasks.append(task)
         return _fake_executor(task)
 
-    runner = SequentialStrategyDirectorRunner(node_executor=recording_executor)
+    runner = SequentialStrategyDirectorRunner(
+        node_executor=recording_executor,
+        critic_executor=_fake_critic_executor,
+    )
     result = runner(_spec(context), context, "initial_architecture", config)
 
     assert result.state is AgentState.SUCCEEDED
-    assert result.usage["model_invocations"] == 6
+    assert result.usage["model_invocations"] == 9
     assert result.usage["accepted_expansions"] == 6
     plan = GlobalCampaignPlan.from_dict(result.output)
     assert len(plan.route_families) == 3
@@ -305,7 +314,10 @@ def test_every_distinct_open_leaf_is_delegated() -> None:
         max_node_expansions_per_branch=1,
         max_provider_requests=64,
     )
-    result = SequentialStrategyDirectorRunner(node_executor=_fake_executor)(
+    result = SequentialStrategyDirectorRunner(
+        node_executor=_fake_executor,
+        critic_executor=_fake_critic_executor,
+    )(
         _spec(context), context, "initial_architecture", config
     )
     plan = GlobalCampaignPlan.from_dict(result.output)
@@ -349,8 +361,20 @@ def test_internal_ledger_budget_is_checked_between_round_robin_calls() -> None:
     )
 
     assert result.usage["model_invocations"] == 4
-    branch_ids = [int(re.search(r'"branch_id":(\d+)', task.objective).group(1)) for task in tasks]
-    assert branch_ids == [1, 2, 3, 1]
+    expansion_tasks = [
+        task
+        for task in tasks
+        if task.required_artifact_type == "RetrosynthesisProposalReport"
+    ]
+    critic_tasks = [
+        task for task in tasks if task.required_artifact_type == "ChemicalStrategyCritique"
+    ]
+    branch_ids = [
+        int(re.search(r'"branch_id":(\d+)', task.objective).group(1))
+        for task in expansion_tasks
+    ]
+    assert branch_ids == [1, 2, 3]
+    assert len(critic_tasks) == 1
 
 
 def test_stock_closed_branch_waits_until_all_root_strategies_exist() -> None:
@@ -366,11 +390,12 @@ def test_stock_closed_branch_waits_until_all_root_strategies_exist() -> None:
     )
     runner = SequentialStrategyDirectorRunner(
         node_executor=_fake_executor,
+        critic_executor=_fake_critic_executor,
         stock_membership=lambda values: {value: True for value in values},
     )
     result = runner(_spec(context), context, "initial_architecture", config)
 
-    assert result.usage["model_invocations"] == 3
+    assert result.usage["model_invocations"] == 6
     plan = GlobalCampaignPlan.from_dict(result.output)
     assert len(plan.route_families) == 3
     assert plan.shared_intermediates == ()
@@ -446,6 +471,7 @@ def test_duplicate_root_strategy_is_retried_before_route_expansion() -> None:
         planning_mode="sequential_branches",
         strategy_branch_count=3,
         max_node_expansions_per_branch=2,
+        critic_call_timeout_s=1.0,
     )
     branch_two_calls = 0
     observed = []
@@ -476,12 +502,15 @@ def test_duplicate_root_strategy_is_retried_before_route_expansion() -> None:
         artifact["payload"] = payload
         return replace(record, output_artifact=artifact)
 
-    result = SequentialStrategyDirectorRunner(node_executor=duplicate_once_executor)(
+    result = SequentialStrategyDirectorRunner(
+        node_executor=duplicate_once_executor,
+        critic_executor=_fake_critic_executor,
+    )(
         _spec(context), context, "initial_architecture", config
     )
 
     assert result.state is AgentState.SUCCEEDED
-    assert result.usage["model_invocations"] == 6
+    assert result.usage["model_invocations"] == 9
     branch_ids = [
         int(re.search(r'"branch_id":(\d+)', task.objective).group(1)) for task in observed
     ]
@@ -552,6 +581,31 @@ def test_structural_edit_signature_overrides_renamed_strategy_labels() -> None:
     assert _strategy_conflicts(renamed, [first]) is True
 
 
+def test_nullable_reaction_operation_schema_filler_is_pruned_before_replay() -> None:
+    normalized = normalize_reaction_operations(
+        [
+            {
+                "op": "break_bond",
+                "map_a": 4,
+                "map_b": 20,
+                "order": 1,
+                "atomic_num": None,
+            },
+            {
+                "op": "set_explicit_h",
+                "map_idx": 4,
+                "map_a": 4,
+                "count": 2,
+            },
+        ]
+    )
+
+    assert normalized == (
+        {"op": "break_bond", "map_a": 4, "map_b": 20},
+        {"op": "set_explicit_h", "map_idx": 4, "count": 2},
+    )
+
+
 def test_each_event_repairs_one_local_neighborhood_before_host_validation() -> None:
     base = _context()
     context = replace(
@@ -586,12 +640,15 @@ def test_each_event_repairs_one_local_neighborhood_before_host_validation() -> N
         )
         return _fake_executor(aliased)
 
-    result = SequentialStrategyDirectorRunner(node_executor=repair_executor)(
+    result = SequentialStrategyDirectorRunner(
+        node_executor=repair_executor,
+        critic_executor=_fake_critic_executor,
+    )(
         _spec(context), context, "event_replan", config
     )
 
     assert result.state is AgentState.SUCCEEDED
-    assert result.usage["model_invocations"] == 1
+    assert result.usage["model_invocations"] == 2
     assert all("route-local repair" in task.objective for task in observed)
     plan = GlobalCampaignPlan.from_dict(result.output)
     assert plan.mode == "event_replan"

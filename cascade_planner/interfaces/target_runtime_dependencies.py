@@ -53,6 +53,8 @@ SYNTHEX_MATCHED_PROFILE_DEFAULTS = {
     "node_expansions_per_branch": 25,
     "route_local_repair_rounds": 6,
     "max_node_prompt_bytes": 24_000,
+    "node_call_timeout_s": 600.0,
+    "critic_call_timeout_s": 600.0,
     "max_model_invocations": 81,
     "max_input_tokens": 1_200_000,
     "max_output_tokens": 200_000,

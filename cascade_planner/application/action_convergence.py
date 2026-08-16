@@ -35,6 +35,7 @@ def compile_action_convergence_ledger(
     classified_count = 0
     unclassified_boundary_count = 0
     revision_discontinuity_count = 0
+    failed_or_rejected_count = 0
     last_output_revision: int | None = None
     previous_input_revision: int | None = None
     previous_same_revision_cohort = False
@@ -64,6 +65,12 @@ def compile_action_convergence_ledger(
         if not action_id or not opportunity_sha256 or not isinstance(gained, bool):
             consecutive_no_gain = 0
             unclassified_boundary_count += 1
+            continue
+        if row.get("failed_or_rejected") is True:
+            # A rejected/contract-blocked action is an attempted failure, not
+            # evidence that this opportunity has no marginal value.
+            consecutive_no_gain = 0
+            failed_or_rejected_count += 1
             continue
         classified_count += 1
         if gained:
@@ -95,6 +102,7 @@ def compile_action_convergence_ledger(
         "classified_execution_count": classified_count,
         "unclassified_boundary_count": unclassified_boundary_count,
         "revision_discontinuity_count": revision_discontinuity_count,
+        "failed_or_rejected_count": failed_or_rejected_count,
         "attempted_action_ids_at_current_revision": sorted(attempted_current),
         "no_gain_bindings": binding_rows,
         "consecutive_no_gain": consecutive_no_gain,
@@ -110,6 +118,7 @@ def compile_action_convergence_ledger(
             "graph_revision_discontinuity_breaks_the_consecutive_chain": True,
             "external_graph_progress_resets_only_the_consecutive_count": True,
             "no_gain_binding_requires_exact_opportunity_digest": True,
+            "failed_or_rejected_actions_do_not_count_as_no_gain": True,
             "ledger_creates_no_queue_budget_or_scientific_authority": True,
         },
     }

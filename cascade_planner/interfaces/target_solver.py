@@ -207,6 +207,12 @@ class TargetSolveConfig:
     max_node_prompt_bytes: int = int(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_node_prompt_bytes"]
     )
+    max_node_call_timeout_s: float = float(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["node_call_timeout_s"]
+    )
+    critic_call_timeout_s: float = float(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["critic_call_timeout_s"]
+    )
     objective_mode: TargetObjectiveMode = "scientific_proof"
     use_coordinator: bool = False
     enable_web_search: bool = True
@@ -235,6 +241,7 @@ class TargetSolveConfig:
     enable_target_identity: bool = True
     resolve_named_target_identity: bool = False
     blind_audit_root: str = ""
+    blind_audit_allowed_paths: tuple[str, ...] = ()
     chemenzy_env_prefix: str = ""
     chemenzy_stock_names: tuple[str, ...] = ()
     chemenzy_stock_paths: tuple[tuple[str, str], ...] = ()
@@ -304,6 +311,9 @@ class TargetSolveConfig:
             raise ValueError("target solver route-local repair limit is invalid")
         if not 4_000 <= self.max_node_prompt_bytes <= 96_000:
             raise ValueError("target solver compact node prompt limit is invalid")
+        for value in (self.max_node_call_timeout_s, self.critic_call_timeout_s):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError("target solver call timeout is invalid")
         if self.action_scheduler_policy not in ACTION_SCHEDULER_POLICIES:
             raise ValueError("target solver action scheduler policy is invalid")
         if self.delivery_boundary not in {"full", "stock_result"}:
@@ -548,6 +558,7 @@ def solve_target(
             ),
             run_dir=directory,
             manifest_path=manifest_path,
+            additional_allowed_paths=active.blind_audit_allowed_paths,
         )
         if preflight.get("accepted") is not True:
             raise BlindBenchmarkError(";".join(preflight.get("reasons") or []))
@@ -648,12 +659,15 @@ def solve_target(
         max_node_expansions_per_branch=active.max_node_expansions_per_branch,
         max_route_local_repair_rounds=active.max_route_local_repair_rounds,
         max_node_prompt_bytes=active.max_node_prompt_bytes,
+        max_node_call_timeout_s=active.max_node_call_timeout_s,
+        critic_call_timeout_s=active.critic_call_timeout_s,
         max_provider_requests=max(3, guided_frontier_limit),
         model=active.model,
         reasoning_effort=active.reasoning_effort,
         enable_web_search=active.enable_web_search,
         enable_initial_web_search=active.enable_initial_director_web_search,
         use_coordinator=active.use_coordinator,
+        require_strategy_graph_edits=sequential_strategy,
     )
     resolved_director_runner = director_runner
     if resolved_director_runner is None:
@@ -1213,6 +1227,35 @@ def solve_target(
                 "status": "failed",
                 "reasons": ["program_discovery_route_binding_missing"],
                 "route_binding": route_binding,
+            }
+        # Program review is defined over a canonical source route, not a
+        # hypothesis-only family.  Resolve the bound row again at the handler
+        # boundary so stale/empty signals cannot reach the strict innovation
+        # contract and surface as an opaque ``source_route_invalid`` error.
+        bound_portfolio = compile_proof_portfolio(
+            service.graph_store.load(),
+            acceptance_spec=resolved_acceptance,
+            config=_portfolio_config(active, resolved_acceptance),
+        )
+        bound_route = next(
+            (
+                dict(value)
+                for value in bound_portfolio.get("route_candidates") or []
+                if isinstance(value, Mapping)
+                and str(value.get("route_id") or "") == route_id
+            ),
+            None,
+        )
+        if not bound_route or not _route_has_canonical_edges(bound_route):
+            return {
+                "status": "blocked",
+                "reasons": ["program_discovery_source_route_empty"],
+                "route_id": route_id,
+                "route_binding": route_binding,
+                "semantics": {
+                    "empty_or_hypothesis_only_routes_are_not_program_sources": True,
+                    "no_source_route_invalid_exception_is_emitted": True,
+                },
             }
         program_review = service.review_route_program_innovations(
             route_id,
@@ -2240,12 +2283,14 @@ def solve_target(
             dict(route)
             for route in portfolio.get("selected_routes") or []
             if isinstance(route, Mapping) and str(route.get("route_id") or "")
+            and _route_has_canonical_edges(route)
         ]
         strategy_native_rows = [
             dict(route)
             for route in portfolio.get("route_candidates") or []
             if isinstance(route, Mapping)
             and str(route.get("route_id") or "")
+            and _route_has_canonical_edges(route)
             and str(route.get("execution_domain") or "chemical")
             in {"enzymatic", "whole_cell", "hybrid", "mechanistic"}
         ]
@@ -3853,6 +3898,7 @@ def solve_target(
             dict(route)
             for route in program_portfolio.get("selected_routes") or []
             if str(route.get("route_id") or "")
+            and _route_has_canonical_edges(route)
         ][: active.max_program_routes]
         program_route_ids = [str(route.get("route_id") or "") for route in program_route_rows]
         program_discovery_deficits = []
@@ -7566,6 +7612,19 @@ def _write_json_atomic(path: Path, value: Mapping[str, Any]) -> None:
         encoding="utf-8",
     )
     temporary.replace(path)
+
+
+def _route_has_canonical_edges(route: Mapping[str, Any]) -> bool:
+    """Return whether a portfolio row is a materialized source route."""
+
+    return bool(
+        str(route.get("route_id") or "")
+        and {
+            str(value)
+            for value in route.get("edge_ids") or []
+            if str(value)
+        }
+    )
 
 
 def _digest(value: Any) -> str:

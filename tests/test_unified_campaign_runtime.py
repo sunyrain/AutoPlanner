@@ -753,6 +753,36 @@ def test_anytime_loop_converges_after_bounded_no_gain_actions(
     ]
 
 
+def test_failed_or_rejected_action_is_not_recorded_as_no_gain(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    opportunity_set = _no_gain_opportunity_set(count=1)
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.MATERIALIZE: lambda _action: {
+                "status": "rejected",
+                "reasons": ["contract_blocked"],
+                "changed": False,
+            }
+        },
+    )
+
+    result = runtime.run_anytime(
+        opportunity_provider=lambda: opportunity_set,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+        max_consecutive_no_gain=1,
+    )
+
+    assert result["consecutive_no_gain"] == 0
+    assert result["convergence_ledger"]["no_gain_bindings"] == []
+    reasons = result["unexecuted_actions"]["actions"]
+    assert reasons == []
+
+
 def test_anytime_convergence_replays_across_slices_and_runtime_reopen(
     tmp_path: Path,
 ) -> None:

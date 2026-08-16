@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from cascade_planner.application.blind_benchmark_contract import BlindCase
+from cascade_planner.application.blind_benchmark_contract import (
+    BlindBenchmarkError,
+    BlindCase,
+)
 from cascade_planner.application.campaign_trajectory import (
     compile_campaign_snapshot,
     compile_campaign_trajectory,
@@ -14,6 +17,7 @@ from scripts.run_v4_blind_panel import (
     _ablation_cli_args,
     _acceptance_cli_args,
     _guided_chemenzy_cli_args,
+    _prior_target_manifest_files,
     _prepare_panel_snapshot,
     _resolve_panel_chemenzy_stock_binding,
     _resume_completed_targets,
@@ -176,6 +180,41 @@ def test_blind_panel_rejects_a_nonpositive_target_pilot_limit() -> None:
         assert str(exc) == "max_targets must be a positive integer"
     else:
         raise AssertionError("expected max_targets validation")
+
+
+def test_known_target_reproduction_binds_only_valid_prior_target_manifests(
+    tmp_path: Path,
+) -> None:
+    prior = tmp_path / "prior-targets.json"
+    prior.write_text(
+        json.dumps(
+            {
+                "schema_version": "blind_retrosynthesis_manifest.v1",
+                "cases": [
+                    BlindCase(
+                        case_id="prior-001",
+                        target_name="opaque prior target 001",
+                        target_smiles="CCO",
+                    ).to_dict()
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    paths = _prior_target_manifest_files([str(prior)])
+
+    assert paths == (prior.resolve(),)
+
+
+def test_known_target_reproduction_rejects_non_manifest_prior_artifact(
+    tmp_path: Path,
+) -> None:
+    route_answer = tmp_path / "route-answer.json"
+    route_answer.write_text('{"route": "CCO>>CC"}', encoding="utf-8")
+
+    with pytest.raises(BlindBenchmarkError):
+        _prior_target_manifest_files([str(route_answer)])
 
 
 def test_completed_panel_immediately_publishes_result_first_summary(
@@ -442,6 +481,55 @@ def test_panel_summary_scores_only_the_fixed_cutoff_trajectory_projection(
     assert summary["final_state"]["claim"]["objective_mode"] == "benchmark_search"
     assert summary["chemenzy"]["status"] == "completed"
     assert summary["chemenzy"]["proposal_count"] == 17
+
+
+def test_panel_does_not_mark_nonaccepted_terminal_report_as_completed(
+    tmp_path: Path,
+) -> None:
+    snapshot = compile_campaign_snapshot(
+        phase="budget-exhausted",
+        observed_at="2026-08-10T00:00:00Z",
+        event_sequence=1,
+        graph_revision=0,
+        wall_time_s=1.0,
+        gates={"gates": {}, "counts": {}},
+        resource_usage={"tasks": {"dimensions": {"total": {"settled": 1}}}},
+        route_counts={},
+    )
+    report_path = tmp_path / "target-only-solve-report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "run_id": "case-budget",
+                "preflight": {"case": {"case_id": "case-budget"}},
+                "claim": {
+                    "accepted_under_configured_policy": False,
+                    "achieved_profile": "unresolved",
+                },
+                "stop_decision": {
+                    "decision": "budget_exhausted",
+                    "terminal": True,
+                },
+                "current_disposition": {
+                    "state": "budget_exhausted",
+                    "scientifically_accepted": False,
+                },
+                "gates": {},
+                "trajectory": compile_campaign_trajectory([snapshot]),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = _summarize_report(
+        report_path,
+        elapsed_s=1.0,
+        reused=False,
+        cutoff={"wall_time_s": 2.0, "settled_task_count": 2},
+    )
+
+    assert summary["fixed_cutoff_projection"]["available"] is True
+    assert summary["status"] == "incomplete"
 
 
 def test_panel_summary_retains_stage_failure_reasons(tmp_path: Path) -> None:

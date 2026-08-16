@@ -54,7 +54,7 @@ from cascade_planner.agent.evolution_manager import (
 
 
 class CodexWorkerControllerEvolutionTest(unittest.TestCase):
-    def test_strategy_worker_schema_does_not_require_evidence_metadata(self):
+    def test_strategy_worker_schema_excludes_evidence_metadata(self):
         task = WorkerTask(
             task_id="strategy",
             case_id="opaque-case",
@@ -71,18 +71,61 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         ]
         prompt = _codex_worker_prompt(task)
 
-        self.assertFalse(
-            {
-                "source_channel",
-                "source_refs",
-                "evidence_refs",
-                "evidence_level",
-                "confidence",
-            }
-            & set(candidate["required"])
-        )
+        evidence_fields = {
+            "source_channel",
+            "source_refs",
+            "evidence_refs",
+            "evidence_level",
+            "confidence",
+        }
+        self.assertFalse(evidence_fields & set(candidate["properties"]))
+        self.assertEqual(set(candidate["required"]), set(candidate["properties"]))
         self.assertIn("blind strategy design", prompt)
         self.assertNotIn("Prefer traceable sources", prompt)
+        self.assertIn("schema_version=retrosynthesis_proposal_report.v1", prompt)
+        self.assertIn("candidate.strategy_card", prompt)
+        self.assertIn("candidate.reaction_operations", prompt)
+
+    def test_strategy_and_critic_schemas_are_structured_outputs_strict(self):
+        tasks = [
+            WorkerTask(
+                task_id="strategy",
+                case_id="opaque-case",
+                task_type="strategic_disconnection_mining",
+                required_artifact_type="RetrosynthesisProposalReport",
+                input_refs=[],
+                allowed_tools=[],
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
+            WorkerTask(
+                task_id="critic",
+                case_id="opaque-critic",
+                task_type="route_chemistry_critique",
+                required_artifact_type="ChemicalStrategyCritique",
+                input_refs=[],
+                allowed_tools=[],
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
+        ]
+
+        def assert_strict_object_contract(value):
+            if isinstance(value, dict):
+                if value.get("type") == "object" and value.get(
+                    "additionalProperties"
+                ) is False:
+                    self.assertEqual(
+                        set(value.get("required") or []),
+                        set(dict(value.get("properties") or {})),
+                    )
+                for child in value.values():
+                    assert_strict_object_contract(child)
+            elif isinstance(value, list):
+                for child in value:
+                    assert_strict_object_contract(child)
+
+        for task in tasks:
+            with self.subTest(artifact_type=task.required_artifact_type):
+                assert_strict_object_contract(_worker_output_json_schema(task))
 
     def test_chemical_strategy_critic_has_closed_no_authority_schema(self):
         task = WorkerTask(

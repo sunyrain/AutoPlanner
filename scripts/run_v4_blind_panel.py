@@ -148,6 +148,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--allowed-prior-target-manifest",
+        action="append",
+        default=[],
+        help=(
+            "Previously frozen target-only blind manifest allowed during a known-target "
+            "reproduction. The file is schema-validated, content-bound in the panel "
+            "snapshot, and never passed to the planner as route knowledge."
+        ),
+    )
+    parser.add_argument(
         "--chemenzy-env-prefix",
         default=None,
         help=(
@@ -207,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     if matched_baseline is not None:
         _validate_matched_baseline(matched_baseline, cases=cases)
+    allowed_prior_target_manifests = _prior_target_manifest_files(
+        args.allowed_prior_target_manifest
+    )
 
     try:
         chemenzy_stock_names, chemenzy_stock_paths = _resolve_panel_chemenzy_stock_binding(
@@ -239,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         benchmark_stock_index=args.benchmark_stock_index,
         benchmark_stock_name=args.benchmark_stock_name,
         leakage_audit_pack=args.leakage_audit_pack,
+        allowed_prior_target_manifests=allowed_prior_target_manifests,
         resume=args.resume,
     )
     status_path = output_root / "panel-status.json"
@@ -303,6 +317,12 @@ def main(argv: list[str] | None = None) -> int:
                 dict(snapshot.get("knowledge") or {}).get("leakage_audit_pack_sha256")
                 or ""
             ),
+            "allowed_prior_target_manifests": list(
+                dict(snapshot.get("knowledge") or {}).get(
+                    "allowed_prior_target_manifests"
+                )
+                or []
+            ),
         },
         "target_count": len(cases),
         "selection": {
@@ -328,6 +348,9 @@ def main(argv: list[str] | None = None) -> int:
             "target_subset_is_explicit_and_frozen": True,
             "scores_are_fixed_cutoff_trajectory_projections": True,
             "legacy_objective_mode_does_not_reach_the_solver": True,
+            "known_target_manifests_are_allowed_without_route_answer_authority": bool(
+                allowed_prior_target_manifests
+            ),
         },
     }
     completed_on_resume = _resume_completed_targets(
@@ -355,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
                     snapshot=snapshot,
                     self_evo_library_seed=args.self_evo_library_seed,
                     leakage_audit_pack=args.leakage_audit_pack,
+                    allowed_prior_target_manifests=allowed_prior_target_manifests,
                     manifest=manifest,
                     run_dir=output_root / "runs" / case.target_name,
                     resume=False,
@@ -421,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
             benchmark_stock_index=args.benchmark_stock_index,
             benchmark_stock_name=args.benchmark_stock_name,
             leakage_audit_pack=args.leakage_audit_pack,
+            allowed_prior_target_manifests=allowed_prior_target_manifests,
         )
 
     cases_to_run = [case for case in cases if case.target_name not in completed_on_resume]
@@ -620,6 +645,7 @@ def _run_case(
     benchmark_stock_index: str | None,
     benchmark_stock_name: str,
     leakage_audit_pack: str | None,
+    allowed_prior_target_manifests: tuple[Path, ...] = (),
     fixed_cutoff_wall_time_s: float = 7_200.0,
     fixed_cutoff_total_tasks: int = int(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_total_tasks"]
@@ -634,6 +660,7 @@ def _run_case(
         snapshot=snapshot,
         self_evo_library_seed=self_evo_library_seed,
         leakage_audit_pack=leakage_audit_pack,
+        allowed_prior_target_manifests=allowed_prior_target_manifests,
         manifest=manifest,
         run_dir=run_dir,
         resume=resume,
@@ -722,6 +749,10 @@ def _run_case(
         str(matched["route_local_repair_rounds"]),
         "--max-node-prompt-bytes",
         str(matched["max_node_prompt_bytes"]),
+        "--node-call-timeout-s",
+        str(matched["node_call_timeout_s"]),
+        "--critic-call-timeout-s",
+        str(matched["critic_call_timeout_s"]),
         "--delivery-boundary",
         "stock_result",
         "--no-target-chemenzy-baseline",
@@ -779,6 +810,8 @@ def _run_case(
         "10" if visual and proof_profile else "6",
     ]
     command.extend(_ablation_cli_args(ablation))
+    for path in allowed_prior_target_manifests:
+        command.extend(["--blind-audit-allowed-path", str(path)])
     self_evo_path = str(case_snapshot.get("self_evo_library_path") or "")
     if self_evo_path:
         command.extend(["--self-evo-library", self_evo_path])
@@ -933,6 +966,7 @@ def _prepare_panel_snapshot(
     benchmark_stock_index: str | None = None,
     benchmark_stock_name: str = "",
     leakage_audit_pack: str | None,
+    allowed_prior_target_manifests: tuple[Path, ...] = (),
     resume: bool,
     projection_policy: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -967,6 +1001,13 @@ def _prepare_panel_snapshot(
         "benchmark_stock_name": str(benchmark_stock_name or ""),
         "leakage_audit_pack_path": str(leakage_pack or ""),
         "leakage_audit_pack_sha256": _file_sha256(leakage_pack) if leakage_pack else "",
+        "allowed_prior_target_manifests": [
+            {
+                "path": str(path),
+                "file_sha256": _file_sha256(path),
+            }
+            for path in allowed_prior_target_manifests
+        ],
         "benchmark_stock_is_a_search_boundary_not_procurement": any(
             str(case.acceptance.get("stock_boundary") or "") == "benchmark_search"
             for case in cases
@@ -1019,6 +1060,7 @@ def _prepare_case_snapshot(
     snapshot: Mapping[str, Any],
     self_evo_library_seed: str | None,
     leakage_audit_pack: str | None,
+    allowed_prior_target_manifests: tuple[Path, ...] = (),
     manifest: Path,
     run_dir: Path,
     resume: bool,
@@ -1061,7 +1103,10 @@ def _prepare_case_snapshot(
         repository_root=ROOT,
         run_dir=run_dir,
         manifest_path=manifest,
-        additional_allowed_paths=([leakage_pack] if leakage_pack else []),
+        additional_allowed_paths=[
+            *allowed_prior_target_manifests,
+            *([leakage_pack] if leakage_pack else []),
+        ],
         additional_leakage_needles=leakage_needles,
         target_synonym_not_applicable_reason=synonym_not_applicable,
     )
@@ -1103,6 +1148,19 @@ def _prepare_case_snapshot(
     receipt["content_sha256"] = _json_sha256(receipt)
     _write_json(receipt_path, receipt)
     return receipt
+
+
+def _prior_target_manifest_files(values: list[str]) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    for value in values:
+        path = Path(value).expanduser().resolve()
+        if not path.is_file():
+            raise SystemExit(f"allowed_prior_target_manifest_missing:{path}")
+        load_blind_manifest(path)
+        paths.append(path)
+    if len(paths) != len(set(paths)):
+        raise SystemExit("allowed_prior_target_manifest_duplicate")
+    return tuple(paths)
 
 
 def _summarize_report(
@@ -1189,8 +1247,27 @@ def _summarize_report(
     ]
     failure_events = _panel_failure_events(stages)
     preflight_case = dict(dict(report.get("preflight") or {}).get("case") or {})
+    stop_decision = dict(report.get("stop_decision") or {})
+    current_disposition = dict(report.get("current_disposition") or {})
+    claim_accepted = claim.get("accepted_under_configured_policy") is True
+    terminal_completed = bool(
+        stop_decision.get("terminal") is True
+        and str(stop_decision.get("decision") or "") in {"completed", "accepted"}
+    )
+    scientifically_terminal = bool(
+        claim_accepted
+        or current_disposition.get("state") == "accepted"
+        or terminal_completed
+    )
+    target_status = (
+        "projection_unavailable"
+        if not projection_available
+        else "completed"
+        if scientifically_terminal
+        else "incomplete"
+    )
     return {
-        "status": "completed" if projection_available else "projection_unavailable",
+        "status": target_status,
         "case_id": str(preflight_case.get("case_id") or report.get("run_id") or ""),
         "claim": (
             "fixed_cutoff_stock_closed"
@@ -1235,6 +1312,8 @@ def _summarize_report(
             "accepted_expansion_count": int(
                 report.get("accepted_expansion_count") or 0
             ),
+            "stop_decision": stop_decision,
+            "current_disposition": current_disposition,
         },
         "planning_depth": dict(report.get("planning_depth") or {}),
         "chemenzy": {

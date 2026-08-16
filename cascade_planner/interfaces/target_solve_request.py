@@ -39,9 +39,7 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
         acceptance=RetrosynthesisAcceptanceSpec(
             minimum_complete_routes=_int(payload, "minimum_complete_routes", 2),
             minimum_edge_proof_level=_int(payload, "minimum_edge_proof_level", 2),
-            minimum_independent_source_groups=_int(
-                payload, "minimum_source_groups", 2
-            ),
+            minimum_independent_source_groups=_int(payload, "minimum_source_groups", 2),
             stock_boundary=str(payload.get("stock_boundary") or "benchmark_search"),
         ),
         budget=RetrosynthesisRunBudget(
@@ -56,46 +54,32 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_total_output_tokens=_int(
                 payload, "max_output_tokens", matched["max_output_tokens"]
             ),
-            max_total_wall_time_s=float(
-                payload.get(
-                    "max_model_wall_time_s",
-                    matched["max_model_wall_time_s"],
-                )
-            ),
+            max_total_wall_time_s=float(payload.get("max_model_wall_time_s", matched["max_model_wall_time_s"])),
             max_visual_invocations=max_visual_invocations,
             max_accepted_expansions=_int(
                 payload, "max_accepted_expansions", matched["max_accepted_expansions"]
             ),
             max_attempt_runs=_int(payload, "max_attempt_runs", matched["max_attempt_runs"]),
-            max_prompt_context_bytes=_int(
-                payload, "max_prompt_context_bytes", matched["max_prompt_context_bytes"]
-            ),
+            max_prompt_context_bytes=_int(payload, "max_prompt_context_bytes", matched["max_prompt_context_bytes"]),
         ),
         config=TargetSolveConfig(
             model=str(payload.get("model") or DEFAULT_TARGET_DIRECTOR_MODEL),
-            reasoning_effort=str(
-                payload.get("reasoning_effort") or matched["reasoning_effort"]
-            ),
+            reasoning_effort=str(payload.get("reasoning_effort") or matched["reasoning_effort"]),
             execution_profile=execution_profile,
-            strategy_search_profile=str(
-                payload.get("strategy_search_profile")
-                or matched["strategy_search_profile"]
-            ),
+            strategy_search_profile=str(payload.get("strategy_search_profile") or matched["strategy_search_profile"]),
             strategy_branch_count=_int(
                 payload, "strategy_branch_count", matched["strategy_branches"]
             ),
-            max_node_expansions_per_branch=_int(
-                payload,
-                "max_node_expansions_per_branch",
-                matched["node_expansions_per_branch"],
-            ),
-            max_route_local_repair_rounds=_int(
-                payload,
-                "max_route_local_repair_rounds",
-                matched["route_local_repair_rounds"],
-            ),
+            max_node_expansions_per_branch=_int(payload, "max_node_expansions_per_branch", matched["node_expansions_per_branch"]),
+            max_route_local_repair_rounds=_int(payload, "max_route_local_repair_rounds", matched["route_local_repair_rounds"]),
             max_node_prompt_bytes=_int(
                 payload, "max_node_prompt_bytes", matched["max_node_prompt_bytes"]
+            ),
+            max_node_call_timeout_s=float(
+                payload.get("max_node_call_timeout_s", matched["node_call_timeout_s"])
+            ),
+            critic_call_timeout_s=float(
+                payload.get("critic_call_timeout_s", matched["critic_call_timeout_s"])
             ),
             objective_mode=str(payload.get("objective_mode") or "scientific_proof"),
             delivery_boundary=str(
@@ -113,6 +97,9 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
                 payload, "resolve_named_target_identity", True
             ),
             blind_audit_root=str(payload.get("blind_audit_root") or ""),
+            blind_audit_allowed_paths=tuple(
+                _string_list(payload.get("blind_audit_allowed_paths"))
+            ),
             enable_replan=_bool(payload, "enable_replan", True),
             enable_live_benchmark_stock=_bool(
                 payload, "enable_live_benchmark_stock", True

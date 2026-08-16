@@ -1377,14 +1377,6 @@ def _artifact_payload_instruction(
             task is not None
             and task.task_type == "strategic_disconnection_mining"
         )
-    if artifact_type == "ChemicalStrategyCritique":
-        return (
-            "For payload, return schema_version=chemical_strategy_critique.v1 and independently forward-audit the supplied frozen route. "
-            "Assess every step for atom provenance, plausible mechanism, functional-group compatibility, site/chemoselectivity, stereochemical outcome, sequence ordering, competing pathways, and enzyme identity/capability where applicable. "
-            "Use overall_assessment=viable|uncertain|reject; reject only a concrete chemical contradiction, not merely missing literature. "
-            "Include strategy_adherence, step_assessments, route_level_risks, repair_actions, experimental_variables, no_reaction_proof=true, no_source_authority=true, and no_solved_claim=true. "
-            "Do not search the web, cite sources, infer the target name, or defer chemical judgment to literature availability."
-        )
         return (
             "For payload, return schema_version=retrosynthesis_proposal_report.v1, case_id, agent_role, "
             "target_smiles, candidates, evidence_refs, limitations, and no_solved_claim=true. Each candidate "
@@ -1396,13 +1388,21 @@ def _artifact_payload_instruction(
             "When the WorkerTask phase is root_strategy, also populate candidate.strategy_card with scaffold_motif, "
             "key_forward_transformation, key_bond_changes, functional_group_conflicts, protection_policy, "
             "stereochemical_plan, convergence_plan, strategic_step_count (1 or 2), skeleton_change_class, "
-            "expected_complexity_drop, orthogonality_basis, strategy_signature, and optionally execution_domain=chemical|enzymatic|whole_cell|hybrid|mechanistic. When mapped product atoms are "
+            "expected_complexity_drop, orthogonality_basis, strategy_signature, and execution_domain=chemical|enzymatic|whole_cell|hybrid|mechanistic. When mapped product atoms are "
             "supplied and the edit is expressible, include candidate.reaction_operations as ordered atom-map graph edits."
             + (
-                " For this strategy-first task, do not search for or fabricate sources. source_channel, source_refs, evidence_refs, evidence_level, and confidence are optional post-strategy metadata."
+                " For this strategy-first task, do not search for or fabricate sources, and do not add source_channel, source_refs, evidence_refs, evidence_level, or confidence to candidates."
                 if strategy_first
                 else " Source/evidence metadata may be supplied only when grounded in the task inputs or allowed tools."
             )
+        )
+    if artifact_type == "ChemicalStrategyCritique":
+        return (
+            "For payload, return schema_version=chemical_strategy_critique.v1 and independently forward-audit the supplied frozen route. "
+            "Assess every step for atom provenance, plausible mechanism, functional-group compatibility, site/chemoselectivity, stereochemical outcome, sequence ordering, competing pathways, and enzyme identity/capability where applicable. "
+            "Use overall_assessment=viable|uncertain|reject; reject only a concrete chemical contradiction, not merely missing literature. "
+            "Include strategy_adherence, step_assessments, route_level_risks, repair_actions, experimental_variables, no_reaction_proof=true, no_source_authority=true, and no_solved_claim=true. "
+            "Do not search the web, cite sources, infer the target name, or defer chemical judgment to literature availability."
         )
     if artifact_type == "GlobalCampaignPlan":
         return (
@@ -1531,6 +1531,25 @@ def _string_array_schema() -> dict[str, Any]:
     return {"type": "array", "items": {"type": "string"}}
 
 
+def _nullable_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Make a strict-schema property nullable while keeping it required.
+
+    OpenAI Structured Outputs requires every property of a strict object to be
+    listed in ``required``.  Null is the explicit representation for fields
+    that are inapplicable to one reaction operation or strategy variant.
+    """
+
+    result = dict(schema)
+    schema_type = result.get("type")
+    if isinstance(schema_type, str):
+        result["type"] = [schema_type, "null"]
+    elif isinstance(schema_type, list) and "null" not in schema_type:
+        result["type"] = [*schema_type, "null"]
+    if isinstance(result.get("enum"), list) and None not in result["enum"]:
+        result["enum"] = [*result["enum"], None]
+    return result
+
+
 def _generic_payload_json_schema() -> dict[str, Any]:
     return _strict_object_schema({
         "schema_version": {"type": "string"},
@@ -1560,15 +1579,12 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
         },
         "orthogonality_basis": {"type": "string"},
         "strategy_signature": {"type": "string"},
-        "execution_domain": {
+        "execution_domain": _nullable_schema({
             "type": "string",
             "enum": ["chemical", "enzymatic", "whole_cell", "hybrid", "mechanistic"],
-        },
+        }),
     }
-    strategy_card = _strict_object_schema(
-        strategy_card_properties,
-        required=[key for key in strategy_card_properties if key != "execution_domain"],
-    )
+    strategy_card = _strict_object_schema(strategy_card_properties)
     reaction_operation = _strict_object_schema(
         {
             "op": {
@@ -1586,26 +1602,27 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
                     "set_bond_stereo",
                 ],
             },
-            "map_a": {"type": "integer"},
-            "map_b": {"type": "integer"},
-            "map_idx": {"type": "integer"},
-            "order": {"type": "number"},
-            "delta": {"type": "number"},
-            "atomic_num": {"type": "integer"},
-            "element": {"type": "string"},
-            "formal_charge": {"type": "integer"},
-            "isotope": {"type": "integer"},
-            "count": {"type": "integer"},
-            "no_implicit": {"type": "boolean"},
-            "fragment_smiles": {"type": "string"},
-            "map_indices": {"type": "array", "items": {"type": "integer"}},
-            "stereo": {"type": "string"},
-            "stereo_atom_maps": {
+            "map_a": _nullable_schema({"type": "integer"}),
+            "map_b": _nullable_schema({"type": "integer"}),
+            "map_idx": _nullable_schema({"type": "integer"}),
+            "order": _nullable_schema({"type": "number"}),
+            "delta": _nullable_schema({"type": "number"}),
+            "atomic_num": _nullable_schema({"type": "integer"}),
+            "element": _nullable_schema({"type": "string"}),
+            "formal_charge": _nullable_schema({"type": "integer"}),
+            "isotope": _nullable_schema({"type": "integer"}),
+            "count": _nullable_schema({"type": "integer"}),
+            "no_implicit": _nullable_schema({"type": "boolean"}),
+            "fragment_smiles": _nullable_schema({"type": "string"}),
+            "map_indices": _nullable_schema(
+                {"type": "array", "items": {"type": "integer"}}
+            ),
+            "stereo": _nullable_schema({"type": "string"}),
+            "stereo_atom_maps": _nullable_schema({
                 "type": "array",
                 "items": {"type": "integer"},
-            },
+            }),
         },
-        required=["op"],
     )
     candidate_properties = {
         "schema_version": {"type": "string", "enum": ["retrosynthesis_candidate.v1"]},
@@ -1615,7 +1632,18 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
         "reaction_family": {"type": "string"},
         "product_retron_type": {"type": "string"},
         "transformation_rationale": {"type": "string"},
-        "source_channel": {
+        "conditions": _string_array_schema(),
+        "catalyst": {"type": "string"},
+        "enzyme": {"type": "string"},
+        "limitations": _string_array_schema(),
+        "required_validation": _string_array_schema(),
+        "no_solved_claim": {"type": "boolean", "enum": [True]},
+        "not_parent_route_proof": {"type": "boolean", "enum": [True]},
+        "strategy_card": strategy_card,
+        "reaction_operations": {"type": "array", "items": reaction_operation},
+    }
+    if task.task_type != "strategic_disconnection_mining":
+        candidate_properties["source_channel"] = {
             "type": "string",
             "enum": [
                 "codex_strategy",
@@ -1630,55 +1658,19 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
                 "human",
                 "other",
             ],
-        },
-        "source_refs": _string_array_schema(),
-        "evidence_refs": _string_array_schema(),
-        "evidence_level": {
+        }
+        candidate_properties["source_refs"] = _string_array_schema()
+        candidate_properties["evidence_refs"] = _string_array_schema()
+        candidate_properties["evidence_level"] = {
             "type": "string",
-            # Codex may report evidence, but it cannot grant its own output a
-            # deterministic validation status.
             "enum": ["model_only", "analogy", "computational", "literature_exact"],
-        },
-        "confidence": {"type": "string", "enum": ["low", "medium", "medium_high", "high"]},
-        "conditions": _string_array_schema(),
-        "catalyst": {"type": "string"},
-        "enzyme": {"type": "string"},
-        "limitations": _string_array_schema(),
-        "required_validation": _string_array_schema(),
-        "no_solved_claim": {"type": "boolean", "enum": [True]},
-        "not_parent_route_proof": {"type": "boolean", "enum": [True]},
-        "strategy_card": strategy_card,
-        "reaction_operations": {"type": "array", "items": reaction_operation},
-    }
-    required_candidate_fields = [
-        "schema_version",
-        "candidate_id",
-        "product_smiles",
-        "precursor_smiles",
-        "reaction_family",
-        "product_retron_type",
-        "transformation_rationale",
-        "conditions",
-        "catalyst",
-        "enzyme",
-        "limitations",
-        "required_validation",
-        "no_solved_claim",
-        "not_parent_route_proof",
-    ]
-    if task.task_type != "strategic_disconnection_mining":
-        required_candidate_fields.extend(
-            [
-                "source_channel",
-                "source_refs",
-                "evidence_refs",
-                "evidence_level",
-                "confidence",
-            ]
-        )
+        }
+        candidate_properties["confidence"] = {
+            "type": "string",
+            "enum": ["low", "medium", "medium_high", "high"],
+        }
     candidate = _strict_object_schema(
         candidate_properties,
-        required=required_candidate_fields,
     )
     return _strict_object_schema({
         "schema_version": {"type": "string", "enum": ["retrosynthesis_proposal_report.v1"]},

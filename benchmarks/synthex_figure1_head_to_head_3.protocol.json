@@ -1,0 +1,60 @@
+{
+  "benchmark": {
+    "kind": "representative_case_head_to_head",
+    "population_claim_allowed": false,
+    "target_count": 3,
+    "target_selection": "SynthEx Figure 1 representative strategic routes",
+    "target_names_are_hidden_from_live_planner": true
+  },
+  "comparison": {
+    "autoplanner_arm": "strategy_first_codex_only_then_unified_adaptive_on_failure",
+    "external_arm": "frozen SynthAtlas public route snapshot",
+    "generation_compute_is_not_claimed_matched": true,
+    "host_stock_index_is_more_restrictive_than_reported_synthex_stock": true,
+    "paper_equivalent_endpoint": "all route leaves are members of the frozen benchmark stock"
+  },
+  "planner_budget": {
+    "critic_call_timeout_s": 600,
+    "max_model_invocations": 81,
+    "max_model_wall_time_s": 7200,
+    "node_call_timeout_s": 600,
+    "paper_call_timeout_s": 600
+  },
+  "source_snapshot": {
+    "data_base_url": "https://data.synthatlas.xyz",
+    "data_version": "20260809-00e8823-5a1cf6",
+    "index_sha256": "2d23854cf76cdf6bea2e14f2ed5ab3e98cb07582b98cb666bc24d4025d0f76d9",
+    "manifest_sha256": "15ebf813335d5f95b216b63b9d9728ab3bc62a4332039728a2857838cdfe7731",
+    "official_repository_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f",
+    "paper_version": "arXiv:2608.07454v1",
+    "route_ids": [
+      "npa000656_s1",
+      "npa000656_s2",
+      "npa000656_s3",
+      "npa006547_s1",
+      "npa006547_s2",
+      "npa006547_s3",
+      "npa030041_s1",
+      "npa030041_s2",
+      "npa030041_s3"
+    ],
+    "self_reported_solved_route_count": 0
+  },
+  "stock_binding": {
+    "catalog_name": "SynthAtlasFigure1Stock",
+    "index_path": "data_external/retrostar190/retrostar_emolecules_stock.sqlite3",
+    "index_sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c",
+    "member_count": 23081629
+  },
+  "superiority_criterion": {
+    "all_conditions_required": true,
+    "independent_codex_critic_covered_target_count": 3,
+    "minimum_non_fgi_strategy_target_count": 3,
+    "minimum_pairwise_orthogonal_strategy_count_per_target": 2,
+    "paper_equivalent_solved_target_count": 3,
+    "reaction_edit_replay_accepted_target_count": 3,
+    "reference_self_reported_solved_target_count": 0,
+    "target_rooted_materialized_route_target_count": 3
+  },
+  "schema_version": "synthex_figure1_head_to_head_protocol.v1"
+}

@@ -843,6 +843,12 @@ def _ingest_hypothesis(
         route_ids=route_ids,
         strategy_card=strategy_card,
     )
+    if row.get("strategy_anchor") is True and not operations:
+        # A strategy-defining edge is not allowed to silently degrade into an
+        # ordinary FGI when its deterministic graph edit is absent.  Keep the
+        # proposal as an explicit L0 hypothesis, but block admission and
+        # materialization until the edit is supplied and replayable.
+        strategy_reasons.append("strategy_graph_edit_missing")
     critic = critique_strategy_candidate(
         product_smiles=canonical_product,
         precursor_smiles=canonical_precursors,

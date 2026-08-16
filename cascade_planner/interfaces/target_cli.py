@@ -58,6 +58,15 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
             "to the source repository"
         ),
     )
+    solve.add_argument(
+        "--blind-audit-allowed-path",
+        action="append",
+        default=[],
+        help=(
+            "exact target-only prior artifact allowed by a known-target reproduction; "
+            "the path remains subject to the caller's frozen binding"
+        ),
+    )
     solve.add_argument("--resume", action="store_true")
     solve.add_argument(
         "--full-output",
@@ -115,6 +124,16 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         "--max-node-prompt-bytes",
         type=int,
         default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_node_prompt_bytes"],
+    )
+    solve.add_argument(
+        "--node-call-timeout-s",
+        type=float,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["node_call_timeout_s"],
+    )
+    solve.add_argument(
+        "--critic-call-timeout-s",
+        type=float,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["critic_call_timeout_s"],
     )
     solve.add_argument(
         "--objective-mode",
@@ -760,6 +779,8 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_node_expansions_per_branch=args.node_expansions_per_branch,
             max_route_local_repair_rounds=args.route_local_repair_rounds,
             max_node_prompt_bytes=args.max_node_prompt_bytes,
+            max_node_call_timeout_s=args.node_call_timeout_s,
+            critic_call_timeout_s=args.critic_call_timeout_s,
             objective_mode=objective_compatibility_view,
             use_coordinator=args.coordinator and not args.single_agent,
             enable_web_search=not args.no_web_search,
@@ -770,6 +791,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             enable_target_identity=not args.no_target_identity,
             resolve_named_target_identity=not args.no_target_identity,
             blind_audit_root=args.blind_audit_root,
+            blind_audit_allowed_paths=tuple(args.blind_audit_allowed_path),
             enable_replan=not args.no_replan,
             action_scheduler_policy=args.action_scheduler,
             delivery_boundary=args.delivery_boundary,
@@ -810,6 +832,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             guided_chemenzy_timeout_s=args.guided_chemenzy_timeout_s,
             max_visual_evidence_pages=args.max_visual_pages,
             minimum_planning_route_steps=args.minimum_planning_route_steps,
+            max_director_wall_time_s=args.max_model_wall_time_s,
         ),
     )
     return result if args.full_output else _compact_target_result(result)

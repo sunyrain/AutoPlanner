@@ -177,6 +177,9 @@ class CampaignActionRuntime:
                             outcome,
                             concurrent_cohort=row["same_revision_cohort"],
                         ),
+                        "failed_or_rejected": _execution_failed_or_rejected(
+                            {"status": outcome.get("status"), "outcome": outcome}
+                        ),
                         "outcome_sha256": str(
                             outcome.get("content_sha256") or ""
                         ),
@@ -410,14 +413,23 @@ class CampaignActionRuntime:
                 )
             if on_execution is not None:
                 on_execution(len(executions), execution_row)
+            failed_or_rejected = _execution_failed_or_rejected(execution_row)
             gained = _execution_gained(execution_row)
-            if action_id and not gained:
+            if action_id and not failed_or_rejected and not gained:
                 no_gain_bindings[action_id] = str(
                     action_row.get("opportunity_sha256") or ""
                 )
             elif action_id:
+                # A failed/rejected action is not evidence that the exact
+                # opportunity has no marginal value.  Remove any stale
+                # binding so a later graph revision or route repair can retry
+                # it instead of being hidden behind a no-gain projection.
                 no_gain_bindings.pop(action_id, None)
-            consecutive_no_gain = 0 if gained else consecutive_no_gain + 1
+            consecutive_no_gain = (
+                0
+                if gained or failed_or_rejected
+                else consecutive_no_gain + 1
+            )
 
         def record_progressive_start_completion(
             execution: Mapping[str, Any],
@@ -2026,6 +2038,15 @@ def _failure_type(status: str, reasons: Iterable[str]) -> str:
         return "pending_external"
     if normalized in {"failed", "error"}:
         return "handler_failure"
+    if normalized in {
+        "rejected",
+        "blocked",
+        "contract_blocked",
+        "contract_invalid",
+        "unavailable",
+        "invalid",
+    }:
+        return "contract_rejected"
     return ""
 
 
@@ -2040,6 +2061,12 @@ def _is_failure_settlement(status: str) -> bool:
         "partial",
         "partially_completed",
         "completed_with_failures",
+        "rejected",
+        "blocked",
+        "contract_blocked",
+        "contract_invalid",
+        "unavailable",
+        "invalid",
     }
 
 
@@ -2306,6 +2333,46 @@ def _execution_gained(execution: Mapping[str, Any]) -> bool:
         outcome,
         concurrent_cohort=bool(execution.get("cohort")),
     )
+
+
+def _execution_failed_or_rejected(execution: Mapping[str, Any]) -> bool:
+    """Identify terminal failures that must not become no-gain evidence."""
+
+    outcome = dict(execution.get("outcome") or {})
+    handler_result = dict(outcome.get("handler_result") or {})
+    statuses = {
+        str(execution.get("status") or "").casefold(),
+        str(outcome.get("status") or "").casefold(),
+        str(handler_result.get("status") or "").casefold(),
+    }
+    failure_statuses = {
+        "failed",
+        "error",
+        "timed_out",
+        "timeout",
+        "cancelled",
+        "canceled",
+        "partial",
+        "partially_completed",
+        "completed_with_failures",
+        "rejected",
+        "blocked",
+        "contract_blocked",
+        "contract_invalid",
+        "unavailable",
+        "invalid",
+    }
+    if statuses & failure_statuses:
+        return True
+    if any(
+        token in status
+        for status in statuses
+        for token in ("reject", "block", "invalid", "fail", "error")
+    ):
+        return True
+    if outcome.get("failure_type") or outcome.get("failure_reasons"):
+        return True
+    return False
 
 
 def _outcome_gained(

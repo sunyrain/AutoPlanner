@@ -221,6 +221,9 @@ class DirectorConfig:
     max_node_expansions_per_branch: int = 25
     max_route_local_repair_rounds: int = 6
     max_node_prompt_bytes: int = 24_000
+    max_node_call_timeout_s: float = 600.0
+    critic_call_timeout_s: float = 600.0
+    require_strategy_graph_edits: bool = False
     max_provider_requests: int = 3
     model: str = ""
     reasoning_effort: str = "low"
@@ -256,6 +259,9 @@ class DirectorConfig:
                 raise ValueError("director integer limits must be positive")
         if not math.isfinite(self.max_wall_time_s) or self.max_wall_time_s <= 0:
             raise ValueError("director max_wall_time_s must be finite and positive")
+        for value in (self.max_node_call_timeout_s, self.critic_call_timeout_s):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError("director call timeout must be finite and positive")
         if self.minimum_route_families > self.max_route_families:
             raise ValueError("director minimum route families exceeds maximum")
         if self.planning_mode not in {"global_skeleton", "sequential_branches"}:

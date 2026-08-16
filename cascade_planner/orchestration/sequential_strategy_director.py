@@ -75,6 +75,14 @@ _STRATEGY_CARD_FIELDS = (
     "strategy_signature",
 )
 
+# Codex CLI usage includes a provider/system envelope in addition to the
+# compact prompt bytes.  Reserve a conservative per-critic allowance before
+# spending the expansion budget so the independent critic cannot be silently
+# starved after strategy generation.
+_CRITIC_INPUT_TOKEN_RESERVE = 24_000
+_CRITIC_OUTPUT_TOKEN_RESERVE = 8_000
+_ROOT_GRAPH_EDIT_RETRY_LIMIT = 3
+
 
 @dataclass(frozen=True, slots=True)
 class NodeExpansion:
@@ -167,6 +175,22 @@ class SequentialStrategyDirectorRunner:
             started=started,
             config=config,
         )
+        unavailable_critics = [
+            branch
+            for branch in branches
+            if branch.get("steps")
+            and str(dict(branch.get("chemical_critic") or {}).get("status") or "")
+            == "unavailable"
+        ]
+        if unavailable_critics:
+            return _agent_result(
+                spec,
+                state=AgentState.FAILED,
+                output=None,
+                usage=_aggregate_usage(records, elapsed_s=time.monotonic() - started),
+                error="independent_codex_critic_unavailable",
+                mode=mode,
+            )
         usage = _aggregate_usage(records, elapsed_s=time.monotonic() - started)
         usage["accepted_expansions"] = (
             len(branches)
@@ -190,12 +214,25 @@ class SequentialStrategyDirectorRunner:
             != "reject"
         ]
         if not usable:
+            rejection_reasons = sorted(
+                {
+                    str(item.get("reason") or "")
+                    for branch in branches
+                    for item in branch.get("rejections") or []
+                    if str(item.get("reason") or "")
+                }
+            )
+            usage["root_graph_edit_retry_limit"] = _ROOT_GRAPH_EDIT_RETRY_LIMIT
+            usage["rejection_reasons"] = rejection_reasons
             return _agent_result(
                 spec,
                 state=AgentState.FAILED,
                 output=None,
                 usage=usage,
-                error="sequential_strategy_search_produced_no_valid_expansion",
+                error=(
+                    "sequential_strategy_search_produced_no_valid_expansion"
+                    + (":" + ",".join(rejection_reasons) if rejection_reasons else "")
+                ),
                 mode=mode,
             )
         plan = _compile_plan(
@@ -227,10 +264,36 @@ class SequentialStrategyDirectorRunner:
         """Run one blind Codex forward critic per constructed route family."""
 
         target = _canonical_smiles(context.target.get("canonical_smiles"))
-        for branch in branches:
+        for index, branch in enumerate(branches):
             if not branch.get("steps"):
                 continue
-            if not _node_budget_allows(records, started=started, quota=quota):
+            remaining_critics = sum(
+                bool(row.get("steps"))
+                and not dict(row.get("chemical_critic") or {}).get("status")
+                for row in branches[index:]
+            )
+            # A critic timeout is an upper bound for one call, not a separate
+            # wall-time budget that can be multiplied by the whole portfolio.
+            # Scale the reservation to the remaining director wall budget so
+            # short local/unit-test budgets still admit every critic while the
+            # production path keeps a real reservation for them.
+            remaining_wall = _remaining_node_wall_time(started, quota)
+            per_critic_wall = min(
+                config.critic_call_timeout_s,
+                remaining_wall / max(1, remaining_critics + 1),
+            )
+            if not _node_budget_allows(
+                records,
+                started=started,
+                quota=quota,
+                reserve_model_invocations=max(0, remaining_critics - 1),
+                reserve_input_tokens=max(0, remaining_critics - 1)
+                * _CRITIC_INPUT_TOKEN_RESERVE,
+                reserve_output_tokens=max(0, remaining_critics - 1)
+                * _CRITIC_OUTPUT_TOKEN_RESERVE,
+                reserve_wall_time_s=max(0, remaining_critics - 1)
+                * max(0.0, per_critic_wall),
+            ):
                 branch["chemical_critic"] = {
                     "schema_version": "chemical_strategy_critique.v1",
                     "status": "unavailable",
@@ -258,12 +321,29 @@ class SequentialStrategyDirectorRunner:
                 branch_index=int(branch.get("branch_index") or 0),
                 timeout_s=max(
                     1.0,
-                    min(180.0, _remaining_node_wall_time(started, quota)),
+                    min(
+                        config.critic_call_timeout_s,
+                        _remaining_node_wall_time(started, quota),
+                    ),
                 ),
             )
             try:
                 record = self.critic_executor(task)
             except Exception as exc:
+                records.append(
+                    WorkerRunRecord(
+                        run_id=f"{task.task_id}:run",
+                        task_id=task.task_id,
+                        case_id=task.case_id,
+                        status="worker_error",
+                        backend="critic_executor",
+                        stderr=f"{type(exc).__name__}: {exc}",
+                        output_validation={
+                            "accepted": False,
+                            "reasons": ["critic_execution_failed"],
+                        },
+                    )
+                )
                 branch["chemical_critic"] = {
                     "schema_version": "chemical_strategy_critique.v1",
                     "status": "unavailable",
@@ -327,6 +407,8 @@ class SequentialStrategyDirectorRunner:
                     branch=branch,
                     records=records,
                     max_prompt_bytes=config.max_node_prompt_bytes,
+                    max_node_call_timeout_s=config.max_node_call_timeout_s,
+                    require_strategy_graph_edits=config.require_strategy_graph_edits,
                     quota=quota,
                     started=started,
                     forbidden_strategy_cards=_accepted_strategy_cards(
@@ -348,11 +430,24 @@ class SequentialStrategyDirectorRunner:
         # Phase 2 expands the already committed strategies round-robin.  Route
         # state remains isolated; only compact StrategyCard signatures are
         # shared to enforce portfolio orthogonality.
+        critic_slots = len(seeded)
+        critic_wall_reserve = critic_slots * min(
+            config.critic_call_timeout_s,
+            quota.wall_time_s / max(1, critic_slots + 1),
+        )
+        critic_input_reserve = critic_slots * _CRITIC_INPUT_TOKEN_RESERVE
+        critic_output_reserve = critic_slots * _CRITIC_OUTPUT_TOKEN_RESERVE
         while not self._cancelled():
             progressed = False
             for branch in branches:
                 if self._cancelled() or not _node_budget_allows(
-                    records, started=started, quota=quota
+                    records,
+                    started=started,
+                    quota=quota,
+                    reserve_model_invocations=critic_slots,
+                    reserve_input_tokens=critic_input_reserve,
+                    reserve_output_tokens=critic_output_reserve,
+                    reserve_wall_time_s=critic_wall_reserve,
                 ):
                     break
                 if (
@@ -366,6 +461,8 @@ class SequentialStrategyDirectorRunner:
                     branch=branch,
                     records=records,
                     max_prompt_bytes=config.max_node_prompt_bytes,
+                    max_node_call_timeout_s=config.max_node_call_timeout_s,
+                    require_strategy_graph_edits=config.require_strategy_graph_edits,
                     quota=quota,
                     started=started,
                     forbidden_strategy_cards=(),
@@ -374,7 +471,15 @@ class SequentialStrategyDirectorRunner:
                 if branch["steps"] and not branch["open_leaves"]:
                     branch["complete_in_bound_stock"] = True
                     return [_public_branch(row) for row in branches], records
-            if not progressed or not _node_budget_allows(records, started=started, quota=quota):
+            if not progressed or not _node_budget_allows(
+                records,
+                started=started,
+                quota=quota,
+                reserve_model_invocations=critic_slots,
+                reserve_input_tokens=critic_input_reserve,
+                reserve_output_tokens=critic_output_reserve,
+                reserve_wall_time_s=critic_wall_reserve,
+            ):
                 break
         return [_public_branch(row) for row in branches], records
 
@@ -435,7 +540,10 @@ class SequentialStrategyDirectorRunner:
                 reasoning_effort=str(spec.metadata.get("reasoning_effort") or "medium"),
                 timeout_s=max(
                     1.0,
-                    min(180.0, _remaining_node_wall_time(started, quota)),
+                    min(
+                        config.max_node_call_timeout_s,
+                        _remaining_node_wall_time(started, quota),
+                    ),
                 ),
             )
             record = self.node_executor(task)
@@ -476,6 +584,8 @@ class SequentialStrategyDirectorRunner:
         branch: dict[str, Any],
         records: list[WorkerRunRecord],
         max_prompt_bytes: int,
+        max_node_call_timeout_s: float,
+        require_strategy_graph_edits: bool = False,
         quota: _NodeCallBudget,
         started: float,
         forbidden_strategy_cards: Iterable[Mapping[str, Any]],
@@ -548,7 +658,10 @@ class SequentialStrategyDirectorRunner:
             reasoning_effort=str(spec.metadata.get("reasoning_effort") or "medium"),
             timeout_s=max(
                 1.0,
-                min(180.0, _remaining_node_wall_time(started, quota)),
+                min(
+                    max_node_call_timeout_s,
+                    _remaining_node_wall_time(started, quota),
+                ),
             ),
         )
         record = self.node_executor(task)
@@ -558,17 +671,48 @@ class SequentialStrategyDirectorRunner:
             expected_product=selected,
             require_strategy_card=is_root_strategy,
             mapped_product_smiles=_mapped_smiles(selected),
+            require_reaction_operations=(
+                bool(require_strategy_graph_edits and is_root_strategy)
+            ),
         )
         if expansion is None or any(
             precursor in expanded_products for precursor in expansion.precursor_smiles
         ):
+            rejection_reason = (
+                _expansion_rejection_reason(
+                    record,
+                    expected_product=selected,
+                    mapped_product_smiles=_mapped_smiles(selected),
+                    require_reaction_operations=(
+                        bool(require_strategy_graph_edits and is_root_strategy)
+                    ),
+                )
+                if expansion is None
+                else "ancestor_cycle"
+            )
             rejected.append(
                 {
                     "node": call_index,
                     "product_smiles": selected,
-                    "reason": "invalid_or_ancestor_cycle",
+                    "reason": rejection_reason,
                 }
             )
+            if is_root_strategy and rejection_reason in {
+                "strategy_graph_edit_missing",
+                "strategy_graph_edit_replay_failed",
+            }:
+                graph_edit_rejections = int(branch.get("graph_edit_rejections") or 0) + 1
+                branch["graph_edit_rejections"] = graph_edit_rejections
+                if graph_edit_rejections >= _ROOT_GRAPH_EDIT_RETRY_LIMIT:
+                    rejected.append(
+                        {
+                            "node": call_index,
+                            "product_smiles": selected,
+                            "reason": "strategy_graph_edit_retry_limit_reached",
+                        }
+                    )
+                    branch["open_leaves"] = deque()
+                    return
             open_leaves.append(selected)
             return
         if not is_root_strategy and branch.get("strategy_card"):
@@ -662,9 +806,13 @@ def _node_budget_allows(
     *,
     started: float,
     quota: _NodeCallBudget,
+    reserve_model_invocations: int = 0,
+    reserve_input_tokens: int = 0,
+    reserve_output_tokens: int = 0,
+    reserve_wall_time_s: float = 0.0,
 ) -> bool:
     rows = list(records)
-    if len(rows) >= quota.model_invocations:
+    if len(rows) + max(0, int(reserve_model_invocations)) >= quota.model_invocations:
         return False
     input_tokens = sum(
         max(
@@ -689,9 +837,10 @@ def _node_budget_allows(
         for row in rows
     )
     return bool(
-        input_tokens < quota.input_tokens
-        and output_tokens < quota.output_tokens
-        and _remaining_node_wall_time(started, quota) > 0
+        input_tokens + max(0, int(reserve_input_tokens)) < quota.input_tokens
+        and output_tokens + max(0, int(reserve_output_tokens)) < quota.output_tokens
+        and _remaining_node_wall_time(started, quota)
+        > max(0.0, float(reserve_wall_time_s))
     )
 
 
@@ -942,7 +1091,9 @@ def _node_prompt(
             "The candidate product_smiles must equal selected_open_leaf exactly after canonicalization.",
             "List at most four atom-contributing precursor molecules and include every heavy-atom contributor; omit only species that contribute no product atom, such as solvent, catalyst, counterion and workup species.",
             "The combined precursor heavy-atom inventory must cover the product inventory. Preserve assigned stereochemistry and do not repeat an ancestor as a precursor.",
-            "When the transformation is expressible on the mapped product, include ordered candidate.reaction_operations so deterministic replay reproduces candidate.precursor_smiles.",
+            "When the transformation is expressible on the mapped product, choose the ordered candidate.reaction_operations first, mentally replay them on selected_open_leaf_mapped, and then copy the resulting unmapped fragment SMILES into candidate.precursor_smiles. The edit program is the source of truth; never invent a precursor topology that the edits do not produce.",
+            "Use only map indices present in selected_open_leaf_mapped. Do not use nullable schema filler fields on an operation; each primitive must contain only its semantically relevant fields.",
+            "If prior_rejections contains strategy_graph_edit_replay_failed, replace the edit program and precursor together; do not merely rename the same precursor or append unrelated hydrogen edits.",
             "Return one local transformation, not a prose-only route and not multiple output candidates.",
             "The output is hypothesis-only and grants no validation, stock, evidence, condition, or solved claim.",
             "CompactBranchContext:",
@@ -1108,6 +1259,7 @@ def _expansion_from_record(
     expected_product: str,
     require_strategy_card: bool = False,
     mapped_product_smiles: str = "",
+    require_reaction_operations: bool = False,
 ) -> NodeExpansion | None:
     if record.status != "accepted_draft":
         return None
@@ -1143,6 +1295,8 @@ def _expansion_from_record(
     if require_strategy_card and not _valid_strategy_card(strategy_card):
         return None
     operations = normalize_reaction_operations(row.get("reaction_operations") or ())
+    if require_reaction_operations and not operations:
+        return None
     reactionjson_audit: dict[str, Any] = {}
     if operations:
         if not mapped_product_smiles:
@@ -1171,12 +1325,61 @@ def _expansion_from_record(
     )
 
 
+def _expansion_rejection_reason(
+    record: WorkerRunRecord,
+    *,
+    expected_product: str,
+    mapped_product_smiles: str,
+    require_reaction_operations: bool,
+) -> str:
+    """Classify a rejected model expansion without weakening the contract."""
+
+    if record.status != "accepted_draft":
+        return "worker_output_not_accepted"
+    payload = dict(dict(record.output_artifact or {}).get("payload") or {})
+    candidates = [
+        dict(row)
+        for row in payload.get("candidates") or []
+        if isinstance(row, Mapping)
+    ]
+    if len(candidates) != 1:
+        return "candidate_count_invalid"
+    row = candidates[0]
+    product = _canonical_smiles(row.get("product_smiles"))
+    if product != expected_product:
+        return "product_mismatch"
+    operations = normalize_reaction_operations(row.get("reaction_operations") or ())
+    if require_reaction_operations and not operations:
+        return "strategy_graph_edit_missing"
+    if operations:
+        precursors = tuple(
+            dict.fromkeys(
+                canonical
+                for value in row.get("precursor_smiles") or []
+                if (canonical := _canonical_smiles(value))
+            )
+        )
+        try:
+            replay_reactionjson(
+                mapped_product_smiles=mapped_product_smiles,
+                operations=operations,
+                expected_precursor_smiles=precursors,
+            )
+        except ReactionJsonReplayError:
+            return "strategy_graph_edit_replay_failed"
+    return "invalid_expansion_contract"
+
+
 def _step_row(
     expansion: NodeExpansion,
     *,
     step_id: str,
     strategy_anchor: bool = False,
 ) -> dict[str, Any]:
+    strategy_card = normalize_strategy_card(
+        expansion.strategy_card or {},
+        reaction_operations=expansion.reaction_operations,
+    )
     reagents = list(expansion.conditions) or ["reaction-class screen"]
     condition = {
         "reagents": reagents,
@@ -1199,15 +1402,13 @@ def _step_row(
         "hypothesis_only": True,
         "condition_predictions": [condition],
         "limitations": list(expansion.limitations),
-        "strategy_card": dict(expansion.strategy_card or {}),
+        "strategy_card": strategy_card,
         "reaction_operations": [dict(row) for row in expansion.reaction_operations],
         "reactionjson_audit": dict(expansion.reactionjson_audit or {}),
-        "strategy_id": str(dict(expansion.strategy_card or {}).get("strategy_id") or ""),
-        "strategy_digest": str(
-            dict(expansion.strategy_card or {}).get("strategy_digest") or ""
-        ),
+        "strategy_id": str(strategy_card.get("strategy_id") or ""),
+        "strategy_digest": str(strategy_card.get("strategy_digest") or ""),
         "execution_domain": str(
-            dict(expansion.strategy_card or {}).get("execution_domain") or "chemical"
+            strategy_card.get("execution_domain") or "chemical"
         ),
         "strategy_anchor": bool(strategy_anchor),
     }
@@ -1500,6 +1701,11 @@ def _canonical_smiles(value: Any) -> str:
     molecule = Chem.MolFromSmiles(str(value or "").strip())
     if molecule is None:
         return ""
+    # Atom maps belong to the separate ReactionJSON edit contract.  Route
+    # identity and precursor comparisons must remain map-invariant; replay
+    # receives a freshly mapped product through ``_mapped_smiles``.
+    for atom in molecule.GetAtoms():
+        atom.SetAtomMapNum(0)
     return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 

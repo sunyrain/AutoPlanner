@@ -30,6 +30,24 @@ _TEXT_FIELDS = (
     "strategy_signature",
 )
 
+# The worker schema keeps every possible ReactionJSON field nullable because
+# strict structured outputs require one fixed object shape.  Normalize each
+# primitive back to its semantic field set before computing a digest or
+# replaying it; otherwise harmless ``null``-schema filler (for example
+# ``order`` on ``break_bond``) is rejected as an unknown replay field.
+_REACTION_OPERATION_FIELDS = {
+    "break_bond": {"op", "map_a", "map_b"},
+    "add_bond": {"op", "map_a", "map_b", "order"},
+    "change_bond_order": {"op", "map_a", "map_b", "delta"},
+    "change_atom": {"op", "map_idx", "atomic_num", "element", "formal_charge", "isotope"},
+    "set_explicit_h": {"op", "map_idx", "count", "no_implicit"},
+    "add_group": {"op", "map_idx", "fragment_smiles"},
+    "remove_group": {"op", "map_indices"},
+    "invert_stereocenter": {"op", "map_idx"},
+    "clear_stereocenter": {"op", "map_idx"},
+    "set_bond_stereo": {"op", "map_a", "map_b", "stereo", "stereo_atom_maps"},
+}
+
 
 def normalize_strategy_card(
     value: Mapping[str, Any] | None,
@@ -112,6 +130,11 @@ def normalize_reaction_operations(
             for key, value in dict(raw).items()
             if value not in (None, "", [], {})
         }
+        kind = str(row.get("op") or "").strip().lower()
+        allowed = _REACTION_OPERATION_FIELDS.get(kind)
+        if allowed is not None:
+            row = {key: value for key, value in row.items() if key in allowed}
+        row["op"] = kind
         if row.get("op"):
             rows.append(row)
     return tuple(rows)
