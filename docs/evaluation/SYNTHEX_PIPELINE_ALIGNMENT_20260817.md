@@ -78,6 +78,22 @@ explicitly reserved for the Codex Critic/Editor phase and route-local repairs;
 the benchmark manifest carries the same values. This is a declared host-policy
 extension, not evidence that the paper's compute accounting has been reproduced.
 
+## Case004 v9 strategy/editor audit
+
+The first end-to-end case004 run under the repaired path used WellAU with
+`gpt-5.6-sol` in a single low-concurrency process. It consumed 15 model calls,
+315,891 input tokens, 58,660 output tokens and 1,243.938 seconds of model wall
+time. The run produced two target-rooted materialized skeletons and passed
+`B1_global_multi_route`.
+
+The Codex Critic phase was reached rather than bypassed after stock/frontier
+closure, and the Editor produced ReactionJSON repairs that replayed through the
+host. The run still failed `B2_host_validated_routes`, `B3`, `B4` and `B5`; it
+therefore remains an unresolved strategy/topology result, not a solved or
+paper-equivalent synthesis. The raw audit is intentionally kept under the
+ignored `results/` tree at
+`results/synthex_strategy_editor_pilot_case004_20260817_v9/target-only-solve-report.json`.
+
 ## Remaining comparability blockers
 
 1. The paper uses exact full-InChIKey membership in a 39,684,411-member combined
