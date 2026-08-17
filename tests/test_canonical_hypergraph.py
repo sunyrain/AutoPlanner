@@ -550,6 +550,86 @@ def test_strategy_card_survives_plan_hypothesis_materialization_and_route(
     ] is True
 
 
+def test_frozen_strategy_card_survives_distinct_multistep_reaction_edits(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    plan = _plan()
+    card = _strategy_card()
+    ester_operations = [{"op": "break_bond", "map_a": 3, "map_b": 4}]
+    ethanol_operations = [{"op": "break_bond", "map_a": 2, "map_b": 3}]
+    legacy_ester_card = normalize_strategy_card(
+        card,
+        reaction_operations=ester_operations,
+    )
+    legacy_ethanol_card = normalize_strategy_card(
+        card,
+        reaction_operations=ethanol_operations,
+    )
+    plan["route_families"][0]["strategy_card"] = card
+    skeleton = plan["multi_step_skeletons"][0]
+    skeleton["steps"] = [
+        {
+            "step_id": "step:ester-cleavage",
+            "product_smiles": "CCOC(C)=O",
+            "precursor_smiles": ["CCO", "CC=O"],
+            "transformation_hypothesis": "acyl C-O bond construction",
+            "strategy_card": legacy_ester_card,
+            "strategy_id": card["strategy_id"],
+            "strategy_digest": card["strategy_digest"],
+            "strategy_anchor": True,
+            "reaction_operations": ester_operations,
+        },
+        {
+            "step_id": "step:ethanol-cleavage",
+            "product_smiles": "CCO",
+            "precursor_smiles": ["CC", "O"],
+            "transformation_hypothesis": "C-O bond construction",
+            "strategy_card": legacy_ethanol_card,
+            "strategy_id": card["strategy_id"],
+            "strategy_digest": card["strategy_digest"],
+            "strategy_anchor": False,
+            "reaction_operations": ethanol_operations,
+        },
+    ]
+
+    admitted = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="multistep-frozen-strategy-plan",
+    )["graph"]
+
+    assert len(admitted["hypotheses"]) == 2
+    assert all(
+        row["admission_accepted"] is True
+        and row["strategy_digest"] == card["strategy_digest"]
+        for row in admitted["hypotheses"].values()
+    )
+    commands = store.frontier_materialization_commands()
+    assert len(commands) == 2
+    assert all(
+        command.payload["strategy_cards"][0]["strategy_digest"]
+        == card["strategy_digest"]
+        for command in commands
+    )
+    results = tuple(runtime.execute(command) for command in commands)
+    materialized = store.apply(
+        CanonicalIngestionBatch(worker_results=results),
+        worker_runtime=runtime,
+        idempotency_key="multistep-frozen-strategy-materialized",
+    )["graph"]
+    assert len(materialized["edges"]) == 2
+    assert {
+        origin["reaction_edit_digest"]
+        for edge in materialized["edges"].values()
+        for origin in edge["origin_records"]
+    } == {
+        command.payload["proposal_refs"][0]["reaction_edit_digest"]
+        for command in commands
+    }
+
+
 def test_route_step_cannot_silently_replace_frozen_strategy(tmp_path: Path) -> None:
     store = CanonicalHypergraphStore(_kernel(tmp_path))
     plan = _plan()

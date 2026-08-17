@@ -86,8 +86,39 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertIn("candidate.strategy_card", prompt)
         self.assertIn("candidate.reaction_operations", prompt)
 
+    def test_route_materialization_schema_does_not_echo_strategy_card(self):
+        task = WorkerTask(
+            task_id="route-step",
+            case_id="opaque-case",
+            task_type="route_step_materialization",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+
+        schema = _worker_output_json_schema(task)
+        candidate = schema["properties"]["payload"]["properties"]["candidates"][
+            "items"
+        ]
+        prompt = _codex_worker_prompt(task)
+
+        self.assertNotIn("strategy_card", candidate["properties"])
+        self.assertIn("reaction_operations", candidate["properties"])
+        self.assertIn("do not echo the supplied immutable StrategyCard", prompt)
+        self.assertIn("candidate.precursor_smiles to []", prompt)
+
     def test_strategy_and_critic_schemas_are_structured_outputs_strict(self):
         tasks = [
+            WorkerTask(
+                task_id="strategy-card",
+                case_id="opaque-strategy-card",
+                task_type="strategic_disconnection_mining",
+                required_artifact_type="StrategyCardReport",
+                input_refs=[],
+                allowed_tools=[],
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
             WorkerTask(
                 task_id="strategy",
                 case_id="opaque-case",

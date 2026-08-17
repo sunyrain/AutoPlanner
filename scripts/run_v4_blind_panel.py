@@ -681,9 +681,12 @@ def _run_case(
         int(matched["max_output_tokens"]),
         int(budget.get("max_total_output_tokens") or 0),
     )
-    max_wall_time_s = max(
-        int(matched["max_model_wall_time_s"]),
-        int(budget.get("max_total_wall_time_s") or 0),
+    # The fixed cutoff is a hard execution limit, not just a reporting horizon.
+    # A historical manifest allowance must not make a long Director task launch
+    # fresh node calls after the frozen panel cutoff.
+    max_wall_time_s = _resolved_model_wall_time_s(
+        case_budget=budget,
+        fixed_cutoff_wall_time_s=fixed_cutoff_wall_time_s,
     )
     max_accepted_expansions = max(
         int(matched["max_accepted_expansions"]),
@@ -901,6 +904,22 @@ def _run_id_for_case(case: BlindCase) -> str:
     """Use the validated manifest identity without target-family/date leakage."""
 
     return case.case_id
+
+
+def _resolved_model_wall_time_s(
+    *,
+    case_budget: Mapping[str, Any],
+    fixed_cutoff_wall_time_s: float,
+) -> float:
+    """Resolve the model allowance without crossing the frozen panel cutoff."""
+
+    return min(
+        float(fixed_cutoff_wall_time_s),
+        max(
+            float(SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_model_wall_time_s"]),
+            float(case_budget.get("max_total_wall_time_s") or 0.0),
+        ),
+    )
 
 
 def _acceptance_cli_args(case: BlindCase) -> list[str]:

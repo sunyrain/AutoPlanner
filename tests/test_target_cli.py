@@ -332,3 +332,25 @@ def test_validation_fork_supports_parallel_patent_and_literature_sources() -> No
     assert args.max_literature_sources == 2
     assert args.no_auto_patent_evidence is False
     assert args.no_auto_literature_evidence is False
+
+
+def test_validation_fork_can_reuse_the_frozen_benchmark_stock() -> None:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command")
+    add_target_commands(commands)
+    args = parser.parse_args(
+        [
+            "fork-validation",
+            "source-run",
+            "--benchmark-stock-index",
+            "D:/bench/stock.sqlite3",
+            "--benchmark-stock-index-sha256",
+            "a" * 64,
+            "--benchmark-stock-name",
+            "emolecules-frozen",
+        ]
+    )
+
+    assert args.benchmark_stock_index == "D:/bench/stock.sqlite3"
+    assert args.benchmark_stock_index_sha256 == "a" * 64
+    assert args.benchmark_stock_name == "emolecules-frozen"

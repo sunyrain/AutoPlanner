@@ -487,6 +487,58 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     validation_fork.add_argument("--run-id")
     validation_fork.add_argument("--run-dir")
     validation_fork.add_argument("--no-live-benchmark-stock", action="store_true")
+    validation_fork.add_argument(
+        "--benchmark-stock-index",
+        default="",
+        help="frozen SQLite stock index reused by the model-free fork",
+    )
+    validation_fork.add_argument(
+        "--benchmark-stock-index-sha256",
+        default="",
+        help="required expected SHA-256 for --benchmark-stock-index",
+    )
+    validation_fork.add_argument(
+        "--benchmark-stock-name",
+        default="",
+        help="public label for the frozen benchmark stock",
+    )
+    validation_fork.add_argument(
+        "--guided-chemenzy",
+        action="store_true",
+        help=(
+            "after the model-free plan replay, run one bounded ChemEnzy "
+            "short-tail search for each distinct stock-open leaf"
+        ),
+    )
+    validation_fork.add_argument("--chemenzy-env-prefix", default="")
+    validation_fork.add_argument(
+        "--chemenzy-stock-name", action="append", default=[]
+    )
+    validation_fork.add_argument(
+        "--chemenzy-stock-path",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+    )
+    validation_fork.add_argument(
+        "--guided-chemenzy-frontiers", type=int, default=4
+    )
+    validation_fork.add_argument(
+        "--guided-chemenzy-routes", type=int, default=1
+    )
+    validation_fork.add_argument(
+        "--guided-chemenzy-steps", type=int, default=6
+    )
+    validation_fork.add_argument(
+        "--guided-chemenzy-iterations", type=int, default=500
+    )
+    validation_fork.add_argument(
+        "--guided-chemenzy-expansion-topk", type=int, default=20
+    )
+    validation_fork.add_argument(
+        "--guided-chemenzy-timeout-s", type=float, default=1_200.0
+    )
+    validation_fork.add_argument("--chemenzy-seed", type=int, default=0)
     validation_fork.add_argument("--no-auto-patent-evidence", action="store_true")
     validation_fork.add_argument("--no-auto-literature-evidence", action="store_true")
     validation_fork.add_argument("--full-output", action="store_true")
@@ -603,6 +655,30 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                     max_pages=args.max_visual_pages,
                 )
             )
+        stock_catalog_builder = None
+        if args.benchmark_stock_index:
+            if args.no_live_benchmark_stock:
+                raise ValueError(
+                    "benchmark_stock_index_conflicts_with_no_live_benchmark_stock"
+                )
+            stock_catalog_builder = FrozenBenchmarkStockIndex(
+                args.benchmark_stock_index,
+                expected_sha256=args.benchmark_stock_index_sha256,
+                catalog_name=args.benchmark_stock_name,
+            )
+        elif args.benchmark_stock_index_sha256 or args.benchmark_stock_name:
+            raise ValueError("benchmark_stock_index_path_required")
+        chemenzy_stock_names, chemenzy_stock_paths = _resolve_chemenzy_stock_binding(
+            stock_names=tuple(
+                str(value)
+                for value in args.chemenzy_stock_name
+                if str(value).strip()
+            ),
+            stock_paths=_parse_chemenzy_stock_paths(args.chemenzy_stock_path),
+            benchmark_stock_index=args.benchmark_stock_index,
+            benchmark_stock_name=args.benchmark_stock_name,
+            chemenzy_enabled=args.guided_chemenzy,
+        )
         result = gateway.fork_target_validation(
             source_run_id=args.source_run_id,
             source_run_dir=args.source_run_dir,
@@ -610,6 +686,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             run_dir=args.run_dir,
             evidence_connector=evidence_connector,
             visual_evidence_provider=visual_evidence_provider,
+            stock_catalog_builder=stock_catalog_builder,
             config=ValidationForkConfig(
                 max_atom_mapping_reactions=args.max_map_reactions,
                 max_live_stock_molecules=args.max_stock_molecules,
@@ -619,6 +696,19 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                 max_self_evo_template_candidates=args.max_self_evo_candidates,
                 max_visual_invocations=args.max_visual_invocations,
                 max_visual_evidence_pages=args.max_visual_pages,
+                enable_guided_chemenzy=args.guided_chemenzy,
+                chemenzy_env_prefix=args.chemenzy_env_prefix,
+                chemenzy_stock_names=chemenzy_stock_names,
+                chemenzy_stock_paths=chemenzy_stock_paths,
+                max_guided_chemenzy_frontiers=args.guided_chemenzy_frontiers,
+                max_guided_chemenzy_routes=args.guided_chemenzy_routes,
+                max_guided_chemenzy_steps=args.guided_chemenzy_steps,
+                max_guided_chemenzy_iterations=args.guided_chemenzy_iterations,
+                guided_chemenzy_expansion_topk=(
+                    args.guided_chemenzy_expansion_topk
+                ),
+                guided_chemenzy_timeout_s=args.guided_chemenzy_timeout_s,
+                chemenzy_seed=args.chemenzy_seed,
             ),
         )
         return result if args.full_output else _compact_validation_fork_result(result)

@@ -55,12 +55,15 @@ SYNTHEX_MATCHED_PROFILE_DEFAULTS = {
     "max_node_prompt_bytes": 24_000,
     "node_call_timeout_s": 600.0,
     "critic_call_timeout_s": 600.0,
-    "max_model_invocations": 81,
+    "max_model_invocations": 120,
     "max_input_tokens": 1_200_000,
     "max_output_tokens": 200_000,
+    # Keep the matched fixed-cutoff contract at 30 minutes.  Critic/Editor
+    # calls are reserved inside this envelope; increasing the cutoff here
+    # would silently change the benchmark being compared with SynthEx.
     "max_model_wall_time_s": 1_800.0,
     "max_prompt_context_bytes": 64_000,
-    "max_accepted_expansions": 81,
+    "max_accepted_expansions": 96,
     "max_attempt_runs": 256,
     "max_total_tasks": 1_024,
     "max_atom_mapping_reactions": 81,

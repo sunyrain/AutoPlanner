@@ -118,6 +118,31 @@ def normalize_strategy_card(
     return card
 
 
+def normalize_strategy_policy_card(
+    value: Mapping[str, Any] | None,
+    *,
+    strategy_id: str = "",
+    route_family_id: str = "",
+) -> dict[str, Any]:
+    """Normalize branch policy identity without inheriting a step edit.
+
+    Older route artifacts embedded the anchor step's ReactionJSON digest into
+    their StrategyCard. That edit is edge provenance, not part of the frozen
+    multi-step policy identity. Removing only the two edit-derived inputs keeps
+    genuine semantic strategy replacements detectable while allowing those
+    artifacts to replay under the corrected contract.
+    """
+
+    raw = dict(value or {})
+    raw.pop("reaction_edit_digest", None)
+    raw.pop("reaction_edit_signature", None)
+    return normalize_strategy_card(
+        raw,
+        strategy_id=strategy_id,
+        route_family_id=route_family_id,
+    )
+
+
 def normalize_reaction_operations(
     operations: Iterable[Mapping[str, Any]] = (),
 ) -> tuple[dict[str, Any], ...]:
@@ -339,6 +364,7 @@ __all__ = [
     "key_bond_signature",
     "normalize_reaction_operations",
     "normalize_strategy_card",
+    "normalize_strategy_policy_card",
     "reaction_edit_digest",
     "reaction_edit_signature",
     "strategy_cards_conflict",

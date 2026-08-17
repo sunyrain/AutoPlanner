@@ -1290,14 +1290,14 @@ def _validate_step(value: Any, *, skeleton_id: str) -> dict[str, Any]:
     else:
         if (
             not isinstance(condition_predictions, list)
-            or not 1 <= len(condition_predictions) <= 2
+            or len(condition_predictions) > 2
             or any(
-            not isinstance(candidate, Mapping)
-            for candidate in condition_predictions
+                not isinstance(candidate, Mapping)
+                for candidate in condition_predictions
             )
         ):
             reasons.append("condition_predictions_not_object_list")
-        else:
+        elif condition_predictions:
             for candidate in condition_predictions:
                 if (
                     str(candidate.get("authority_scope") or "")

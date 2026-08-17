@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from rdkit import Chem
+from rdkit.Chem import Descriptors, rdMolDescriptors
+
 
 def compile_strategic_value_vector(
     graph: Mapping[str, Any],
@@ -26,8 +29,11 @@ def compile_strategic_value_vector(
         ),
         default=0,
     )
+    edit_signature = dict(strategy_card.get("reaction_edit_signature") or {})
+    changed_pairs = list(edit_signature.get("changed_map_pairs") or [])
     key_bonds = len(
-        strategy_card.get("key_bond_signature")
+        changed_pairs
+        or strategy_card.get("key_bond_signature")
         or strategy_card.get("key_bond_changes")
         or []
     )
@@ -35,33 +41,17 @@ def compile_strategic_value_vector(
         1.0,
         (key_bonds + max(0, root_fragment_count - 1)) / 3.0,
     )
-    topology_text = " ".join(
-        [
-            str(strategy_card.get("skeleton_change_class") or ""),
-            str(strategy_card.get("key_forward_transformation") or ""),
-        ]
-    ).lower()
+    structure = _root_structure_metrics(graph, root_edge_ids=root_edge_ids)
     topology_transform = (
         1.0
-        if any(
-            token in topology_text
-            for token in (
-                "cascade",
-                "annulation",
-                "cycloaddition",
-                "rearrangement",
-                "ring",
-            )
-        )
-        else 0.55
-        if any(token in topology_text for token in ("coupling", "fragment", "union"))
+        if float(structure.get("ring_count_drop") or 0.0) > 0.0
+        else 0.7
+        if root_fragment_count > 1
+        else 0.45
+        if changed_pairs
         else 0.2
     )
-    complexity_drop = {
-        "low": 0.25,
-        "medium": 0.65,
-        "high": 1.0,
-    }.get(str(strategy_card.get("expected_complexity_drop") or "").lower(), 0.0)
+    complexity_drop = float(structure.get("complexity_drop") or 0.0)
     stereo_text = str(strategy_card.get("stereochemical_plan") or "").strip().lower()
     stereochemical_leverage = (
         0.0
@@ -97,11 +87,98 @@ def compile_strategic_value_vector(
         "key_bond_leverage": round(key_bond_leverage, 6),
         "topology_transformation_value": round(topology_transform, 6),
         "complexity_drop": round(complexity_drop, 6),
+        "declared_complexity_drop": str(
+            strategy_card.get("expected_complexity_drop") or ""
+        ),
+        "structure_metrics": structure,
         "stereochemical_leverage": round(stereochemical_leverage, 6),
         "convergence": round(root_convergence, 6),
         "protection_efficiency": round(protection_efficiency, 6),
         "score": round(score, 6),
-        "basis": "strategy_card_and_canonical_topology_only",
+        "basis": "canonical_root_structures_and_strategy_edit_identity",
+    }
+
+
+def _root_structure_metrics(
+    graph: Mapping[str, Any],
+    *,
+    root_edge_ids: Iterable[str],
+) -> dict[str, Any]:
+    molecules = dict(graph.get("molecules") or {})
+    edges = dict(graph.get("edges") or {})
+    observations: list[dict[str, float]] = []
+    for edge_id in root_edge_ids:
+        edge = dict(edges.get(str(edge_id)) or {})
+        product = _molecule_metrics(
+            dict(molecules.get(str(edge.get("product_molecule_id") or "")) or {}).get(
+                "canonical_smiles"
+            )
+        )
+        precursors = [
+            _molecule_metrics(
+                dict(molecules.get(str(molecule_id)) or {}).get("canonical_smiles")
+            )
+            for molecule_id in edge.get("precursor_molecule_ids") or []
+        ]
+        precursors = [value for value in precursors if value]
+        if not product or not precursors:
+            continue
+        product_complexity = max(1.0, float(product["bertz_complexity"]))
+        hardest_precursor = max(
+            float(value["bertz_complexity"]) for value in precursors
+        )
+        observations.append(
+            {
+                "complexity_drop": max(
+                    0.0,
+                    min(1.0, (product_complexity - hardest_precursor) / product_complexity),
+                ),
+                "ring_count_drop": max(
+                    0.0,
+                    float(product["ring_count"])
+                    - max(float(value["ring_count"]) for value in precursors),
+                ),
+                "stereocenter_drop": max(
+                    0.0,
+                    float(product["stereocenter_count"])
+                    - max(
+                        float(value["stereocenter_count"]) for value in precursors
+                    ),
+                ),
+                "product_bertz_complexity": product_complexity,
+                "hardest_precursor_bertz_complexity": hardest_precursor,
+            }
+        )
+    if not observations:
+        return {
+            "known": False,
+            "complexity_drop": 0.0,
+            "ring_count_drop": 0.0,
+            "stereocenter_drop": 0.0,
+        }
+    best = max(observations, key=lambda value: value["complexity_drop"])
+    return {
+        "known": True,
+        **{key: round(float(value), 6) for key, value in best.items()},
+    }
+
+
+def _molecule_metrics(value: Any) -> dict[str, float]:
+    molecule = Chem.MolFromSmiles(str(value or "").strip())
+    if molecule is None:
+        return {}
+    return {
+        "bertz_complexity": float(Descriptors.BertzCT(molecule)),
+        "ring_count": float(rdMolDescriptors.CalcNumRings(molecule)),
+        "stereocenter_count": float(
+            len(
+                Chem.FindMolChiralCenters(
+                    molecule,
+                    includeUnassigned=True,
+                    includeCIP=False,
+                )
+            )
+        ),
     }
 
 

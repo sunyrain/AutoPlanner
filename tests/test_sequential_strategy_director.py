@@ -4,6 +4,8 @@ import json
 import re
 from dataclasses import replace
 
+import cascade_planner.orchestration.sequential_strategy_director as sequential_module
+
 from cascade_planner.agent.codex_worker import WorkerRunRecord
 from cascade_planner.application.campaign_context import CampaignContext, CampaignContextDelta
 from cascade_planner.application.run_kernel import RunRevision
@@ -16,6 +18,8 @@ from cascade_planner.orchestration.global_campaign_director import (
 )
 from cascade_planner.orchestration.sequential_strategy_director import (
     SequentialStrategyDirectorRunner,
+    _expansion_from_record,
+    _expansion_rejection_diagnostic,
     _has_atom_provenance_deficit,
     _strategy_conflicts,
 )
@@ -65,7 +69,78 @@ def _spec(context: CampaignContext) -> AgentSpec:
     )
 
 
+def _strategy_card(branch: int) -> dict:
+    return {
+        "scaffold_motif": f"branch-{branch}-scaffold",
+        "key_forward_transformation": f"branch-{branch}-key-construction",
+        # The strategy contract now requires key bonds to be real bonds in the
+        # immutable campaign target (the fixture target is mapped C-C-O).
+        "key_bond_changes": ["map 1-map 2"],
+        "functional_group_conflicts": [],
+        "protection_policy": "avoid unless required for chemoselectivity",
+        "stereochemical_plan": "preserve or construct assigned stereochemistry",
+        "convergence_plan": "join independently accessible fragments",
+        "strategic_step_count": 1,
+        "skeleton_change_class": f"branch-{branch}-class",
+        "expected_complexity_drop": "high",
+        "orthogonality_basis": f"branch-{branch}-orthogonal",
+        "strategy_signature": f"branch-{branch}-signature",
+        "execution_domain": "chemical",
+    }
+
+
+def _strategy_record(task) -> WorkerRunRecord:
+    branch = int(re.search(r'"branch_id":(\d+)', task.objective).group(1))
+    card = _strategy_card(branch)
+    artifact = {
+        "schema_version": "strategy_card_report_artifact.v1",
+        "artifact_id": task.task_id,
+        "artifact_type": "StrategyCardReport",
+        "case_id": task.case_id,
+        "source": "test",
+        "input_refs": task.input_refs,
+        "evidence_refs": [],
+        "validation_status": "draft",
+        "summary": "strategy only",
+        "payload": {
+            "schema_version": "strategy_card_report.v1",
+            "case_id": task.case_id,
+            "target_smiles": "CCO",
+            "strategy_card": card,
+            "alternatives_considered": [
+                {
+                    "candidate_label": f"branch-{branch}-option-{index}",
+                    "key_forward_transformation": (
+                        card["key_forward_transformation"]
+                        if index == 1
+                        else f"branch-{branch}-alternative-{index}"
+                    ),
+                    "key_bond_changes": list(card["key_bond_changes"]),
+                    "advantages": ["structural simplification"],
+                    "risks": ["host validation required"],
+                    "decision": "selected" if index == 1 else "rejected",
+                }
+                for index in range(1, 4)
+            ],
+            "selection_rationale": "best route-defining construction",
+            "limitations": ["hypothesis only"],
+            "no_route_or_solved_claim": True,
+        },
+    }
+    return WorkerRunRecord(
+        run_id=f"{task.task_id}:run",
+        task_id=task.task_id,
+        case_id=task.case_id,
+        status="accepted_draft",
+        output_artifact=artifact,
+        output_validation={"accepted": True, "reasons": []},
+        usage={"input_tokens": 200, "output_tokens": 100},
+    )
+
+
 def _fake_executor(task):
+    if task.required_artifact_type == "StrategyCardReport":
+        return _strategy_record(task)
     match = re.search(r'"selected_open_leaf":"([^"]+)"', task.objective)
     assert match
     product = match.group(1)
@@ -103,20 +178,7 @@ def _fake_executor(task):
         "required_validation": ["structure"],
         "no_solved_claim": True,
         "not_parent_route_proof": True,
-        "strategy_card": {
-            "scaffold_motif": f"branch-{branch}-scaffold",
-            "key_forward_transformation": f"branch-{branch}-key-construction",
-            "key_bond_changes": [f"branch-{branch}-key-bond"],
-            "functional_group_conflicts": [],
-            "protection_policy": "avoid unless required for chemoselectivity",
-            "stereochemical_plan": "preserve or construct assigned stereochemistry",
-            "convergence_plan": "join independently accessible fragments",
-            "strategic_step_count": 1,
-            "skeleton_change_class": f"branch-{branch}-class",
-            "expected_complexity_drop": "high",
-            "orthogonality_basis": f"branch-{branch}-orthogonal",
-            "strategy_signature": f"branch-{branch}-signature",
-        },
+        "strategy_card": _strategy_card(branch),
         "reaction_operations": [],
     }
     artifact = {
@@ -205,6 +267,19 @@ def _critic_record(task, *, assessment: str = "viable") -> WorkerRunRecord:
     )
 
 
+def _blocking_critic_record(task, *, step_id: str) -> WorkerRunRecord:
+    record = _critic_record(task, assessment="reject")
+    artifact = dict(record.output_artifact or {})
+    payload = dict(artifact.get("payload") or {})
+    assessments = [dict(row) for row in payload.get("step_assessments") or []]
+    assessments[0]["step_id"] = step_id
+    assessments[0]["verdict"] = "reject"
+    assessments[0]["reasons"] = ["blocking functional-group incompatibility"]
+    payload["step_assessments"] = assessments
+    artifact["payload"] = payload
+    return replace(record, output_artifact=artifact)
+
+
 def _fake_critic_executor(task):
     return _critic_record(task)
 
@@ -233,7 +308,7 @@ def test_independent_codex_critic_runs_before_plan_delivery() -> None:
     )
 
     assert result.state is AgentState.SUCCEEDED
-    assert result.usage["model_invocations"] == 6
+    assert result.usage["model_invocations"] == 9
     critic_tasks = [
         task
         for task in observed
@@ -247,6 +322,123 @@ def test_independent_codex_critic_runs_before_plan_delivery() -> None:
     assert all(
         dict(family.get("chemical_critic") or {}).get("status") == "viable"
         for family in plan.route_families
+    )
+
+
+def test_unavailable_critic_fails_closed_before_plan_delivery() -> None:
+    context = _context()
+    config = DirectorConfig(
+        minimum_route_families=1,
+        max_route_families=3,
+        max_skeletons=3,
+        max_steps_per_skeleton=25,
+        planning_mode="sequential_branches",
+        strategy_branch_count=1,
+        max_node_expansions_per_branch=1,
+    )
+
+    def unavailable_critic(_task):
+        raise TimeoutError("critic cutoff")
+
+    result = SequentialStrategyDirectorRunner(
+        node_executor=_fake_executor,
+        critic_executor=unavailable_critic,
+    )(_spec(context), context, "initial_architecture", config)
+
+    assert result.state is AgentState.FAILED
+    assert result.usage["critic_unavailable_branch_count"] == 1
+    assert result.output is None
+
+
+def test_codex_critic_editor_loop_repairs_a_blocking_step() -> None:
+    context = _context()
+    config = DirectorConfig(
+        minimum_route_families=1,
+        max_route_families=3,
+        max_skeletons=3,
+        max_steps_per_skeleton=25,
+        planning_mode="sequential_branches",
+        strategy_branch_count=1,
+        max_node_expansions_per_branch=1,
+        max_route_local_repair_rounds=2,
+    )
+    observed = []
+    critic_calls = 0
+
+    def executor(task):
+        nonlocal critic_calls
+        observed.append(task)
+        if task.required_artifact_type == "ChemicalStrategyCritique":
+            critic_calls += 1
+            if critic_calls == 1:
+                return _blocking_critic_record(
+                    task,
+                    step_id="codex:branch:1:1",
+                )
+            return _critic_record(task)
+        return _fake_executor(task)
+
+    result = SequentialStrategyDirectorRunner(
+        node_executor=executor,
+        critic_executor=executor,
+        editor_executor=executor,
+    )(_spec(context), context, "initial_architecture", config)
+
+    assert result.state is AgentState.SUCCEEDED
+    assert critic_calls == 2
+    assert sum(
+        task.task_type == "route_chemistry_edit" for task in observed
+    ) == 1
+    plan = GlobalCampaignPlan.from_dict(result.output)
+    family = plan.route_families[0]
+    assert family["chemical_critic"]["status"] == "viable"
+    assert len(family["critic_editor_history"]) == 2
+    assert len(family["editor_repairs"]) == 1
+
+
+def test_critic_wall_reservation_does_not_starve_route_nodes(monkeypatch) -> None:
+    context = _context()
+    config = DirectorConfig(
+        minimum_route_families=1,
+        max_route_families=3,
+        max_skeletons=3,
+        max_steps_per_skeleton=25,
+        planning_mode="sequential_branches",
+        strategy_branch_count=1,
+        max_node_expansions_per_branch=1,
+    )
+    clock = {"now": 0.0}
+
+    def monotonic() -> float:
+        return clock["now"]
+
+    def slow_executor(task):
+        record = (
+            _critic_record(task)
+            if task.required_artifact_type == "ChemicalStrategyCritique"
+            else _fake_executor(task)
+        )
+        clock["now"] += 0.6 if task.required_artifact_type == "StrategyCardReport" else 0.1
+        return record
+
+    monkeypatch.setattr(sequential_module.time, "monotonic", monotonic)
+    base = _spec(context)
+    spec = replace(base, budget=Budget(max_wall_time_s=1.0, max_tokens=20_000))
+    observed = []
+
+    def recording_executor(task):
+        observed.append(task)
+        return slow_executor(task)
+
+    result = SequentialStrategyDirectorRunner(
+        node_executor=recording_executor,
+        critic_executor=recording_executor,
+    )(spec, context, "initial_architecture", config)
+
+    assert result.state is AgentState.SUCCEEDED
+    assert any(
+        task.required_artifact_type == "RetrosynthesisProposalReport"
+        for task in observed
     )
 
 
@@ -277,7 +469,7 @@ def test_three_independent_branches_expand_one_node_per_call() -> None:
     result = runner(_spec(context), context, "initial_architecture", config)
 
     assert result.state is AgentState.SUCCEEDED
-    assert result.usage["model_invocations"] == 9
+    assert result.usage["model_invocations"] == 12
     assert result.usage["accepted_expansions"] == 6
     plan = GlobalCampaignPlan.from_dict(result.output)
     assert len(plan.route_families) == 3
@@ -294,12 +486,31 @@ def test_three_independent_branches_expand_one_node_per_call() -> None:
         len(task.objective.encode("utf-8")) <= config.max_node_prompt_bytes
         for task in observed_tasks
     )
-    assert all('"phase":"root_strategy"' in task.objective for task in observed_tasks[:3])
     assert all(
-        "compare at least three plausible high-level strategies" in task.objective
+        task.required_artifact_type == "StrategyCardReport"
+        and task.task_type == "strategic_disconnection_mining"
+        and '"phase":"strategy_generator"' in task.objective
+        for task in observed_tasks[:3]
+    )
+    assert all(
+        "Compare at least three materially distinct strategies" in task.objective
         for task in observed_tasks[:3]
     )
     assert all("campaign_target_profile" in task.objective for task in observed_tasks[:3])
+    assert all(
+        task.task_type == "route_step_materialization"
+        for task in observed_tasks[3:]
+    )
+    for skeleton in plan.multi_step_skeletons:
+        strategy_digests = {
+            step["strategy_digest"] for step in skeleton["steps"]
+        }
+        assert len(strategy_digests) == 1
+        assert next(iter(strategy_digests)) == next(
+            family["strategy_card"]["strategy_digest"]
+            for family in plan.route_families
+            if family["route_family_id"] == skeleton["route_family_id"]
+        )
 
 
 def test_every_distinct_open_leaf_is_delegated() -> None:
@@ -349,7 +560,7 @@ def test_internal_ledger_budget_is_checked_between_round_robin_calls() -> None:
         metadata={
             **base.metadata,
             "remaining_model_budget": {
-                "model_invocations": 4,
+                "model_invocations": 7,
                 "input_tokens": 100_000,
                 "output_tokens": 100_000,
                 "wall_time_s": 60.0,
@@ -360,7 +571,7 @@ def test_internal_ledger_budget_is_checked_between_round_robin_calls() -> None:
         spec, context, "initial_architecture", config
     )
 
-    assert result.usage["model_invocations"] == 4
+    assert result.usage["model_invocations"] == 3
     expansion_tasks = [
         task
         for task in tasks
@@ -373,8 +584,8 @@ def test_internal_ledger_budget_is_checked_between_round_robin_calls() -> None:
         int(re.search(r'"branch_id":(\d+)', task.objective).group(1))
         for task in expansion_tasks
     ]
-    assert branch_ids == [1, 2, 3]
-    assert len(critic_tasks) == 1
+    assert branch_ids == []
+    assert len(critic_tasks) == 0
 
 
 def test_stock_closed_branch_waits_until_all_root_strategies_exist() -> None:
@@ -395,7 +606,7 @@ def test_stock_closed_branch_waits_until_all_root_strategies_exist() -> None:
     )
     result = runner(_spec(context), context, "initial_architecture", config)
 
-    assert result.usage["model_invocations"] == 6
+    assert result.usage["model_invocations"] == 9
     plan = GlobalCampaignPlan.from_dict(result.output)
     assert len(plan.route_families) == 3
     assert plan.shared_intermediates == ()
@@ -415,6 +626,8 @@ def test_node_expansion_rejects_more_than_four_atom_contributing_precursors() ->
 
     def overbranched_executor(task):
         record = _fake_executor(task)
+        if task.required_artifact_type == "StrategyCardReport":
+            return record
         artifact = dict(record.output_artifact or {})
         payload = dict(artifact.get("payload") or {})
         candidates = [dict(row) for row in payload.get("candidates") or []]
@@ -428,7 +641,7 @@ def test_node_expansion_rejects_more_than_four_atom_contributing_precursors() ->
     )
 
     assert result.state is AgentState.FAILED
-    assert result.usage["model_invocations"] == 1
+    assert result.usage["model_invocations"] == 2
 
 
 def test_node_expansion_rejects_missing_product_atom_provenance() -> None:
@@ -445,6 +658,8 @@ def test_node_expansion_rejects_missing_product_atom_provenance() -> None:
 
     def atom_deficient_executor(task):
         record = _fake_executor(task)
+        if task.required_artifact_type == "StrategyCardReport":
+            return record
         artifact = dict(record.output_artifact or {})
         payload = dict(artifact.get("payload") or {})
         candidates = [dict(row) for row in payload.get("candidates") or []]
@@ -458,7 +673,138 @@ def test_node_expansion_rejects_missing_product_atom_provenance() -> None:
     )
 
     assert result.state is AgentState.FAILED
-    assert result.usage["model_invocations"] == 1
+    assert result.usage["model_invocations"] == 2
+
+
+def test_reactionjson_is_the_only_precursor_structure_authority() -> None:
+    task = type(
+        "RouteTask",
+        (),
+        {
+            "required_artifact_type": "RetrosynthesisProposalReport",
+            "objective": (
+                'CompactBranchContext:{"branch_id":1,'
+                '"selected_open_leaf":"CCO"}'
+            ),
+            "task_id": "reactionjson-authority",
+            "case_id": "case",
+            "input_refs": [],
+        },
+    )()
+    record = _fake_executor(task)
+    artifact = dict(record.output_artifact or {})
+    payload = dict(artifact.get("payload") or {})
+    candidate = dict(payload["candidates"][0])
+    candidate["precursor_smiles"] = ["CCO"]
+    candidate["reaction_operations"] = [
+        {"op": "break_bond", "map_a": 2, "map_b": 3}
+    ]
+    payload["candidates"] = [candidate]
+    artifact["payload"] = payload
+    record = replace(record, output_artifact=artifact)
+
+    expansion = _expansion_from_record(
+        record,
+        expected_product="CCO",
+        require_strategy_card=True,
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        require_reaction_operations=True,
+    )
+
+    assert expansion is not None
+    assert expansion.precursor_smiles == ("CC", "O")
+    assert expansion.reactionjson_audit["precursor_smiles"] == ["CC", "O"]
+    assert expansion.reactionjson_audit["implicit_valence_completion_maps"] == [
+        2,
+        3,
+    ]
+    assert expansion.precursor_smiles != ("CCO",)
+
+
+def test_reactionjson_failure_returns_causal_replay_diagnostic() -> None:
+    task = type(
+        "RouteTask",
+        (),
+        {
+            "required_artifact_type": "RetrosynthesisProposalReport",
+            "objective": (
+                'CompactBranchContext:{"branch_id":1,'
+                '"selected_open_leaf":"CCO"}'
+            ),
+            "task_id": "reactionjson-diagnostic",
+            "case_id": "case",
+            "input_refs": [],
+        },
+    )()
+    record = _fake_executor(task)
+    artifact = dict(record.output_artifact or {})
+    payload = dict(artifact.get("payload") or {})
+    candidate = dict(payload["candidates"][0])
+    candidate["precursor_smiles"] = []
+    candidate["reaction_operations"] = [
+        {"op": "break_bond", "map_a": 1, "map_b": 3}
+    ]
+    payload["candidates"] = [candidate]
+    artifact["payload"] = payload
+    record = replace(record, output_artifact=artifact)
+
+    diagnostic = _expansion_rejection_diagnostic(
+        record,
+        expected_product="CCO",
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        require_reaction_operations=True,
+    )
+
+    assert diagnostic["reason"] == "strategy_graph_edit_replay_failed"
+    assert "bond_missing" in diagnostic["replay_error"]
+    assert diagnostic["attempted_operations"] == [
+        {"op": "break_bond", "map_a": 1, "map_b": 3}
+    ]
+
+
+def test_strategy_card_survives_three_route_materialization_failures() -> None:
+    context = _context()
+    config = DirectorConfig(
+        minimum_route_families=1,
+        max_route_families=3,
+        max_skeletons=3,
+        max_steps_per_skeleton=25,
+        planning_mode="sequential_branches",
+        strategy_branch_count=1,
+        max_node_expansions_per_branch=3,
+        require_strategy_graph_edits=True,
+    )
+
+    def invalid_materialization_executor(task):
+        record = _fake_executor(task)
+        if task.required_artifact_type == "StrategyCardReport":
+            return record
+        artifact = dict(record.output_artifact or {})
+        payload = dict(artifact.get("payload") or {})
+        candidate = dict(payload["candidates"][0])
+        candidate["precursor_smiles"] = []
+        candidate["reaction_operations"] = [
+            {"op": "break_bond", "map_a": 1, "map_b": 3}
+        ]
+        payload["candidates"] = [candidate]
+        artifact["payload"] = payload
+        return replace(record, output_artifact=artifact)
+
+    result = SequentialStrategyDirectorRunner(
+        node_executor=invalid_materialization_executor
+    )(_spec(context), context, "initial_architecture", config)
+
+    assert result.state is AgentState.FAILED
+    assert result.usage["model_invocations"] == 4
+    assert result.usage["materialization_retry_limit"] == 3
+    retained = result.usage["retained_strategy_hypotheses"]
+    assert len(retained) == 1
+    assert retained[0]["strategy_signature"] == "branch-1-signature"
+    assert retained[0]["key_forward_transformation"] == (
+        "branch-1-key-construction"
+    )
+    assert "strategy_graph_edit_replay_failed" in result.usage["rejection_reasons"]
+    assert "materialization_retry_limit_reached" in result.usage["rejection_reasons"]
 
 
 def test_duplicate_root_strategy_is_retried_before_route_expansion() -> None:
@@ -481,24 +827,14 @@ def test_duplicate_root_strategy_is_retried_before_route_expansion() -> None:
         observed.append(task)
         record = _fake_executor(task)
         branch = int(re.search(r'"branch_id":(\d+)', task.objective).group(1))
-        if branch != 2:
+        if branch != 2 or task.required_artifact_type != "StrategyCardReport":
             return record
         branch_two_calls += 1
         if branch_two_calls > 1:
             return record
         artifact = dict(record.output_artifact or {})
         payload = dict(artifact.get("payload") or {})
-        candidates = [dict(row) for row in payload.get("candidates") or []]
-        card = dict(candidates[0]["strategy_card"])
-        card.update(
-            {
-                "key_forward_transformation": "branch-1-key-construction",
-                "skeleton_change_class": "branch-1-class",
-                "strategy_signature": "branch-1-signature",
-            }
-        )
-        candidates[0]["strategy_card"] = card
-        payload["candidates"] = candidates
+        payload["strategy_card"] = _strategy_card(1)
         artifact["payload"] = payload
         return replace(record, output_artifact=artifact)
 
@@ -510,7 +846,8 @@ def test_duplicate_root_strategy_is_retried_before_route_expansion() -> None:
     )
 
     assert result.state is AgentState.SUCCEEDED
-    assert result.usage["model_invocations"] == 9
+    assert result.usage["model_invocations"] == 13
+    assert result.usage["accepted_expansions"] == 6
     branch_ids = [
         int(re.search(r'"branch_id":(\d+)', task.objective).group(1)) for task in observed
     ]

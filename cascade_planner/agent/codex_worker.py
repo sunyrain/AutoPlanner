@@ -39,7 +39,9 @@ ALLOWED_WORKER_TASK_TYPES = {
     "target_research",
     "stuck_node_research",
     "strategic_disconnection_mining",
+    "route_step_materialization",
     "route_chemistry_critique",
+    "route_chemistry_edit",
     "route_audit_research",
     "condition_research",
     "evolution_candidate_research",
@@ -49,6 +51,7 @@ ALLOWED_WORKER_ARTIFACT_TYPES = {
     "AgentActionBatch",
     "ResearchReport",
     "RetrosynthesisProposalReport",
+    "StrategyCardReport",
     "ChemicalStrategyCritique",
     "GlobalCampaignPlan",
     "EvidenceCard",
@@ -1372,10 +1375,30 @@ def _artifact_payload_instruction(
             "evidence_refs, candidate_kind or retrosynthetic_move, target/frontier context, "
             "strategic_subgoal, anchor_candidate, limitations, and fake-terminal guardrails."
         )
+    if artifact_type == "StrategyCardReport":
+        return (
+            "For payload, return schema_version=strategy_card_report.v1, case_id, target_smiles, "
+            "one complete strategy_card, alternatives_considered, selection_rationale, limitations, "
+            "and no_route_or_solved_claim=true. This is strategy selection only: do not output "
+            "precursor SMILES, ReactionJSON operations, conditions, sources, or a complete route. "
+            "Anchor the selected strategy on mapped target atom pairs in key_bond_changes whenever "
+            "the key forward construction changes target bonds. Compare at least three materially "
+            "different high-level strategies before selecting one."
+        )
     if artifact_type == "RetrosynthesisProposalReport":
         strategy_first = bool(
             task is not None
-            and task.task_type == "strategic_disconnection_mining"
+            and task.task_type
+            in {
+                "strategic_disconnection_mining",
+                "route_step_materialization",
+                "route_chemistry_edit",
+            }
+        )
+        route_materialization = bool(
+            task is not None
+            and task.task_type
+            in {"route_step_materialization", "route_chemistry_edit"}
         )
         return (
             "For payload, return schema_version=retrosynthesis_proposal_report.v1, case_id, agent_role, "
@@ -1385,11 +1408,17 @@ def _artifact_payload_instruction(
             "no_solved_claim=true, and not_parent_route_proof=true. Product and precursor SMILES are advisory "
             "typed hypotheses, and product_retron_type is an advisory product-side classification only; never emit "
             "a reaction SMILES string, reaction SMARTS, or a key named reaction_smiles/rxn/raw_reaction. "
-            "When the WorkerTask phase is root_strategy, also populate candidate.strategy_card with scaffold_motif, "
-            "key_forward_transformation, key_bond_changes, functional_group_conflicts, protection_policy, "
-            "stereochemical_plan, convergence_plan, strategic_step_count (1 or 2), skeleton_change_class, "
-            "expected_complexity_drop, orthogonality_basis, strategy_signature, and execution_domain=chemical|enzymatic|whole_cell|hybrid|mechanistic. When mapped product atoms are "
-            "supplied and the edit is expressible, include candidate.reaction_operations as ordered atom-map graph edits."
+            + (
+                " For route_step_materialization or route_chemistry_edit, do not echo the supplied immutable StrategyCard; the host binds it. "
+                "candidate.reaction_operations must contain the ordered atom-map graph edits. Set "
+                "candidate.precursor_smiles to []: the host deterministically derives canonical precursors from "
+                "ReactionJSON and never treats a second model-redrawn precursor as structure authority. "
+                "Conditions are optional hypotheses, but never emit placeholders such as 'screen', 'TBD', "
+                "'to be determined', 'not specified', or 'as needed'; if no concrete reagent/catalyst/solvent/temperature "
+                "or enzyme hypothesis is available, emit an empty conditions list and explain the gap in limitations."
+                if route_materialization
+                else " For strategic_disconnection_mining, candidate.strategy_card must contain the complete strategic contract and candidate.reaction_operations must encode its mapped edit hypothesis."
+            )
             + (
                 " For this strategy-first task, do not search for or fabricate sources, and do not add source_channel, source_refs, evidence_refs, evidence_level, or confidence to candidates."
                 if strategy_first
@@ -1499,6 +1528,8 @@ def _worker_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
         return _analogical_template_report_payload_json_schema(task)
     if artifact_type == "RetrosynthesisProposalReport":
         return _retrosynthesis_proposal_report_payload_json_schema(task)
+    if artifact_type == "StrategyCardReport":
+        return _strategy_card_report_payload_json_schema(task)
     if artifact_type == "ChemicalStrategyCritique":
         return _chemical_strategy_critique_payload_json_schema(task)
     if artifact_type == "GlobalCampaignPlan":
@@ -1562,7 +1593,7 @@ def _generic_payload_json_schema() -> dict[str, Any]:
     })
 
 
-def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+def _strategy_card_json_schema() -> dict[str, Any]:
     strategy_card_properties = {
         "scaffold_motif": {"type": "string"},
         "key_forward_transformation": {"type": "string"},
@@ -1584,7 +1615,44 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
             "enum": ["chemical", "enzymatic", "whole_cell", "hybrid", "mechanistic"],
         }),
     }
-    strategy_card = _strict_object_schema(strategy_card_properties)
+    return _strict_object_schema(strategy_card_properties)
+
+
+def _strategy_card_report_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    alternative = _strict_object_schema(
+        {
+            "candidate_label": {"type": "string"},
+            "key_forward_transformation": {"type": "string"},
+            "key_bond_changes": _string_array_schema(),
+            "advantages": _string_array_schema(),
+            "risks": _string_array_schema(),
+            "decision": {"type": "string", "enum": ["selected", "rejected"]},
+        }
+    )
+    return _strict_object_schema(
+        {
+            "schema_version": {
+                "type": "string",
+                "enum": ["strategy_card_report.v1"],
+            },
+            "case_id": {"type": "string", "enum": [task.case_id]},
+            "target_smiles": {"type": "string"},
+            "strategy_card": _strategy_card_json_schema(),
+            "alternatives_considered": {
+                "type": "array",
+                "items": alternative,
+                "minItems": 3,
+                "maxItems": 5,
+            },
+            "selection_rationale": {"type": "string"},
+            "limitations": _string_array_schema(),
+            "no_route_or_solved_claim": {"type": "boolean", "enum": [True]},
+        }
+    )
+
+
+def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    strategy_card = _strategy_card_json_schema()
     reaction_operation = _strict_object_schema(
         {
             "op": {
@@ -1639,10 +1707,15 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
         "required_validation": _string_array_schema(),
         "no_solved_claim": {"type": "boolean", "enum": [True]},
         "not_parent_route_proof": {"type": "boolean", "enum": [True]},
-        "strategy_card": strategy_card,
         "reaction_operations": {"type": "array", "items": reaction_operation},
     }
-    if task.task_type != "strategic_disconnection_mining":
+    if task.task_type not in {"route_step_materialization", "route_chemistry_edit"}:
+        candidate_properties["strategy_card"] = strategy_card
+    if task.task_type not in {
+        "strategic_disconnection_mining",
+        "route_step_materialization",
+        "route_chemistry_edit",
+    }:
         candidate_properties["source_channel"] = {
             "type": "string",
             "enum": [
@@ -2211,6 +2284,7 @@ def _typed_artifact_schema_version(artifact_type: str) -> str:
         "AgentActionBatch": "agent_action_batch_artifact.v1",
         "ResearchReport": "research_report.v1",
         "RetrosynthesisProposalReport": "retrosynthesis_proposal_report_artifact.v1",
+        "StrategyCardReport": "strategy_card_report_artifact.v1",
         "ChemicalStrategyCritique": "chemical_strategy_critique_artifact.v1",
         "GlobalCampaignPlan": "global_campaign_plan_artifact.v1",
         "EvidenceCard": "evidence_card_artifact.v1",

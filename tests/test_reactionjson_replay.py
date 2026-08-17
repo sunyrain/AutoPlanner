@@ -16,7 +16,7 @@ from cascade_planner.application.reactionjson_replay import (
         (
             "[CH3:1][CH3:2]",
             {"op": "break_bond", "map_a": 1, "map_b": 2},
-            ["[CH3]", "[CH3]"],
+            ["C", "C"],
         ),
         (
             "[CH3:1].[CH3:2]",
@@ -26,27 +26,27 @@ from cascade_planner.application.reactionjson_replay import (
         (
             "[CH2:1]=[CH2:2]",
             {"op": "change_bond_order", "map_a": 1, "map_b": 2, "delta": -1},
-            ["[CH2][CH2]"],
+            ["CC"],
         ),
         (
             "[CH3:1]",
             {"op": "change_atom", "map_idx": 1, "element": "N"},
-            ["[NH3]"],
+            ["N"],
         ),
         (
             "[C:1]",
             {"op": "set_explicit_h", "map_idx": 1, "count": 4},
-            ["[CH4]"],
+            ["C"],
         ),
         (
             "[CH3:1]",
             {"op": "add_group", "map_idx": 1, "fragment_smiles": "[*][CH3:2]"},
-            ["[CH3]C"],
+            ["CC"],
         ),
         (
             "[CH3:1][CH3:2]",
             {"op": "remove_group", "map_indices": [2]},
-            ["[CH3]"],
+            ["C"],
         ),
         (
             "[C@H:1]([F:2])([Cl:3])[Br:4]",
@@ -95,12 +95,12 @@ def test_public_profile_preserves_order_and_is_deterministic() -> None:
     first = replay_reactionjson(
         mapped_product_smiles="[CH2:1]=[CH2:2]",
         operations=operations,
-        expected_precursor_smiles=["[CH2]", "[CH2]"],
+        expected_precursor_smiles=["C", "C"],
     )
     second = replay_reactionjson(
         mapped_product_smiles="[CH2:1]=[CH2:2]",
         operations=operations,
-        expected_precursor_smiles=["[CH2]", "[CH2]"],
+        expected_precursor_smiles=["C", "C"],
     )
 
     assert first == second

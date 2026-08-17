@@ -20,6 +20,7 @@ from scripts.run_v4_blind_panel import (
     _prior_target_manifest_files,
     _prepare_panel_snapshot,
     _resolve_panel_chemenzy_stock_binding,
+    _resolved_model_wall_time_s,
     _resume_completed_targets,
     _run_id_for_case,
     _select_cases,
@@ -112,6 +113,20 @@ def test_guided_chemenzy_uses_the_same_matched_short_tail_for_every_profile() ->
     ]
     assert "--guided-chemenzy-frontiers" not in fast
     assert "--guided-chemenzy-frontiers" not in standard
+
+
+def test_fixed_cutoff_caps_an_older_larger_manifest_model_budget() -> None:
+    assert _resolved_model_wall_time_s(
+        case_budget={"max_total_wall_time_s": 7_200},
+        fixed_cutoff_wall_time_s=1_800,
+    ) == 1_800
+
+
+def test_larger_cutoff_preserves_the_matched_model_budget_floor() -> None:
+    assert _resolved_model_wall_time_s(
+        case_budget={"max_total_wall_time_s": 900},
+        fixed_cutoff_wall_time_s=7_200,
+    ) == 1_800
 
 
 def test_panel_binds_benchmark_stock_into_chemenzy_by_default(tmp_path: Path) -> None:

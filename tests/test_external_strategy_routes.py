@@ -206,7 +206,7 @@ def test_external_strategy_compiler_accepts_replayed_reactionjson() -> None:
                 "steps": [
                     {
                         "mapped_product_smiles": "[CH3:1][CH3:2]",
-                        "precursor_smiles": ["[CH3]", "[CH3]"],
+                        "precursor_smiles": ["C", "C"],
                         "reactionjson": {
                             "operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}]
                         },
@@ -222,10 +222,11 @@ def test_external_strategy_compiler_accepts_replayed_reactionjson() -> None:
 
     step = compiled["global_plan"]["multi_step_skeletons"][0]["steps"][0]
     assert step["product_smiles"] == "CC"
-    assert step["precursor_smiles"] == ["[CH3]", "[CH3]"]
+    assert step["precursor_smiles"] == ["C", "C"]
     audit = step["provider_reaction_metadata"]["reactionjson_replay_audit"]
     assert audit["accepted"] is True
     assert audit["primitive_counts"]["break_bond"] == 1
+    assert audit["implicit_valence_completion_maps"] == [1, 2]
     assert audit["semantics"]["replay_grants_no_reaction_proof"] is True
 
 

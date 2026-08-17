@@ -333,7 +333,7 @@ def test_graph_edits_and_strategy_binding_survive_materialization_worker(
                     {
                         "step_id": "step:edit",
                         "product_smiles": "CC",
-                        "precursor_smiles": ["[CH3]", "[CH3]"],
+                        "precursor_smiles": ["C", "C"],
                         "transformation_hypothesis": "C-C bond construction",
                         "strategy_card": card,
                         "strategy_anchor": True,

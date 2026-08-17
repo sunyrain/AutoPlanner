@@ -205,10 +205,14 @@ def materialization_commands_for_global_plan(
                 step.get("reaction_operations") or ()
             )
             family = family_details.get(route_family_id, {})
+            # The route-family card is the frozen policy authority.  A step
+            # may carry a copied card for provenance, but it must not silently
+            # replace the family identity. ReactionJSON edits are edge-level
+            # provenance and are carried separately in ``reaction_edit_digest``.
+            source_card = family.get("strategy_card") or step.get("strategy_card") or {}
             strategy_card = normalize_strategy_card(
-                step.get("strategy_card") or family.get("strategy_card") or {},
+                source_card,
                 route_family_id=route_family_id,
-                reaction_operations=(operations if step.get("strategy_anchor") is True else ()),
             )
             strategy_ref = strategy_card if strategy_card_has_content(strategy_card) else {}
             identity = _digest(
@@ -256,9 +260,7 @@ def materialization_commands_for_global_plan(
                     "strategy_digest": str(
                         strategy_ref.get("strategy_digest") or ""
                     ),
-                    "reaction_edit_digest": str(
-                        strategy_ref.get("reaction_edit_digest") or ""
-                    ),
+                    "reaction_edit_digest": reaction_edit_digest(operations),
                     "strategy_anchor": step.get("strategy_anchor") is True,
                 }
             )
@@ -383,10 +385,11 @@ def materialization_commands_for_proposals(
         operations = normalize_reaction_operations(
             row.get("reaction_operations") or ()
         )
+        # Preserve the frozen policy identity from the canonical graph. The
+        # per-edge ReactionJSON edit remains in the payload and proposal refs.
         strategy_card = normalize_strategy_card(
             row.get("strategy_card") or {},
             route_family_id=str(row.get("route_family_id") or ""),
-            reaction_operations=(operations if row.get("strategy_anchor") is True else ()),
         )
         strategy_ref = strategy_card if strategy_card_has_content(strategy_card) else {}
         identity = _digest(
@@ -456,9 +459,7 @@ def materialization_commands_for_proposals(
                 ),
                 "strategy_id": str(strategy_ref.get("strategy_id") or ""),
                 "strategy_digest": str(strategy_ref.get("strategy_digest") or ""),
-                "reaction_edit_digest": str(
-                    strategy_ref.get("reaction_edit_digest") or ""
-                ),
+                "reaction_edit_digest": reaction_edit_digest(operations),
                 "strategy_anchor": row.get("strategy_anchor") is True,
                 "provider_reaction_metadata": (
                     dict(row.get("provider_reaction_metadata") or {})

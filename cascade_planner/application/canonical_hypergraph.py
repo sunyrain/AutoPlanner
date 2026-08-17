@@ -51,7 +51,7 @@ from cascade_planner.application.route_innovations import (
 )
 from cascade_planner.application.strategy_contract import (
     normalize_reaction_operations,
-    normalize_strategy_card,
+    normalize_strategy_policy_card,
     reaction_edit_digest,
     strategy_card_has_content,
 )
@@ -270,6 +270,29 @@ class CanonicalHypergraphStore:
                             hypothesis.get("route_innovations") or []
                         ),
                         **dict(origin),
+                        # The hypothesis owns the normalized strategy and
+                        # ReactionJSON facts. Origin rows are provenance only
+                        # and cannot reconstruct those execution fields.
+                        "strategy_card": dict(
+                            hypothesis.get("strategy_card") or {}
+                        ),
+                        "strategy_id": str(
+                            hypothesis.get("strategy_id") or ""
+                        ),
+                        "strategy_digest": str(
+                            hypothesis.get("strategy_digest") or ""
+                        ),
+                        "reaction_operations": [
+                            dict(value)
+                            for value in hypothesis.get("reaction_operations") or []
+                            if isinstance(value, Mapping)
+                        ],
+                        "reaction_edit_digest": str(
+                            hypothesis.get("reaction_edit_digest") or ""
+                        ),
+                        "reactionjson_audit": dict(
+                            hypothesis.get("reactionjson_audit") or {}
+                        ),
                         # Guided expansion is born under an existing canonical
                         # family.  The provider's temporary alias is retained
                         # as provenance, but it cannot recover that parent
@@ -713,7 +736,7 @@ def _ingest_route_family(
     route_id = route_family_identity(row, target_molecule_id=target_id)
     alias = str(row.get("route_family_id") or row.get("family_id") or row.get("name") or "")
     existing = dict(graph["route_families"].get(route_id) or {})
-    incoming_strategy = normalize_strategy_card(
+    incoming_strategy = normalize_strategy_policy_card(
         row.get("strategy_card") or {},
         route_family_id=route_id,
     )
@@ -827,10 +850,9 @@ def _ingest_hypothesis(
     )
     if alias_route_id:
         route_ids.add(alias_route_id)
-    strategy_card = normalize_strategy_card(
-        row.get("strategy_card") or {},
-        reaction_operations=(operations if row.get("strategy_anchor") is True else ()),
-    )
+    # Strategy identity is frozen at the route-family boundary. ReactionJSON
+    # edits identify this individual edge and must not mutate that identity.
+    strategy_card = normalize_strategy_policy_card(row.get("strategy_card") or {})
     if not strategy_card_has_content(strategy_card) and len(route_ids) == 1:
         strategy_card = dict(
             dict(graph["route_families"].get(next(iter(route_ids))) or {}).get(
@@ -2090,7 +2112,11 @@ def _origin_record(value: Mapping[str, Any], *, default_kind: str) -> dict[str, 
         ),
         "strategy_id": str(row.get("strategy_id") or ""),
         "strategy_digest": str(row.get("strategy_digest") or ""),
-        "reaction_edit_digest": str(row.get("reaction_edit_digest") or ""),
+        "reaction_edit_digest": str(
+            row.get("reaction_edit_digest")
+            or reaction_edit_digest(row.get("reaction_operations") or ())
+            or ""
+        ),
         "strategy_anchor": row.get("strategy_anchor") is True,
     }
     canonical_route_family_ids = sorted(
@@ -2168,6 +2194,7 @@ def _strategy_cards_from_row(
     operations: Iterable[Mapping[str, Any]],
     strategy_anchor: bool,
 ) -> list[dict[str, Any]]:
+    del operations, strategy_anchor
     values = [
         dict(value)
         for value in row.get("strategy_cards") or []
@@ -2176,10 +2203,7 @@ def _strategy_cards_from_row(
     if not values and isinstance(row.get("strategy_card"), Mapping):
         values = [dict(row.get("strategy_card") or {})]
     return [
-        normalize_strategy_card(
-            value,
-            reaction_operations=(operations if strategy_anchor else ()),
-        )
+        normalize_strategy_policy_card(value)
         for value in values
         if strategy_card_has_content(value)
     ]
@@ -2190,7 +2214,7 @@ def _merge_strategy_cards(existing: Any, incoming: Any) -> list[dict[str, Any]]:
     for value in [*(existing or []), *(incoming or [])]:
         if not isinstance(value, Mapping):
             continue
-        card = normalize_strategy_card(value)
+        card = normalize_strategy_policy_card(value)
         if strategy_card_has_content(card):
             rows[str(card["strategy_digest"])] = card
     return [rows[key] for key in sorted(rows)]

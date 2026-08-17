@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 import hashlib
 import json
 from pathlib import Path
+import time
 from typing import Any, Mapping
 
 from cascade_planner.application.blind_acceptance import (
@@ -32,6 +33,10 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 )
 from cascade_planner.application.unified_campaign_spec import UnifiedCampaignSpec
 from cascade_planner.interfaces.live_evidence import EvidenceConnector
+from cascade_planner.interfaces.chemenzy_probe import (
+    ChemenzyProposalProvider,
+    run_chemenzy_guided_frontier_stage,
+)
 from cascade_planner.interfaces.patent_self_evolution import (
     PatentSelfEvolutionSession,
 )
@@ -39,6 +44,7 @@ from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
     _acquire_evidence_stage,
     _audit_stock_stage,
+    _chemenzy_vendor_root,
     _claim,
     _current_disposition,
     _resource_envelope,
@@ -72,6 +78,17 @@ class ValidationForkConfig:
     max_self_evo_template_candidates: int = 12
     max_visual_invocations: int = 0
     max_visual_evidence_pages: int = 2
+    enable_guided_chemenzy: bool = False
+    chemenzy_env_prefix: str = ""
+    chemenzy_stock_names: tuple[str, ...] = ()
+    chemenzy_stock_paths: tuple[tuple[str, str], ...] = ()
+    max_guided_chemenzy_frontiers: int = 4
+    max_guided_chemenzy_routes: int = 1
+    max_guided_chemenzy_steps: int = 6
+    max_guided_chemenzy_iterations: int = 500
+    guided_chemenzy_expansion_topk: int = 20
+    guided_chemenzy_timeout_s: float = 1_200.0
+    chemenzy_seed: int = 0
     schema_version: str = "target_validation_fork_config.v1"
 
     def __post_init__(self) -> None:
@@ -85,6 +102,17 @@ class ValidationForkConfig:
             raise ValueError("validation_fork_visual_invocation_limit_invalid")
         if not 1 <= self.max_visual_evidence_pages <= 12:
             raise ValueError("validation_fork_visual_page_limit_invalid")
+        integer_limits = {
+            "frontiers": self.max_guided_chemenzy_frontiers,
+            "routes": self.max_guided_chemenzy_routes,
+            "steps": self.max_guided_chemenzy_steps,
+            "iterations": self.max_guided_chemenzy_iterations,
+            "expansion_topk": self.guided_chemenzy_expansion_topk,
+        }
+        if any(int(value) < 1 for value in integer_limits.values()):
+            raise ValueError("validation_fork_chemenzy_limit_invalid")
+        if self.guided_chemenzy_timeout_s < 1.0:
+            raise ValueError("validation_fork_chemenzy_timeout_invalid")
 
 
 def fork_target_validation(
@@ -100,6 +128,7 @@ def fork_target_validation(
     inventory_snapshot_builder: InventorySnapshotBuilder | None = None,
     evidence_connector: EvidenceConnector | None = None,
     visual_evidence_provider: VisualEvidenceProvider | None = None,
+    chemenzy_provider: ChemenzyProposalProvider | None = None,
 ) -> dict[str, Any]:
     """Replay one source campaign without another route-planning model call."""
 
@@ -144,6 +173,11 @@ def fork_target_validation(
     derived_budget = _derived_budget(
         source_report,
         max_visual_invocations=active.max_visual_invocations,
+        max_guided_chemenzy_frontiers=(
+            active.max_guided_chemenzy_frontiers
+            if active.enable_guided_chemenzy
+            else 0
+        ),
     )
     source_campaign_spec = source_service.kernel.spec.campaign_spec
     if source_campaign_spec is None:
@@ -155,6 +189,16 @@ def fork_target_validation(
         resource_budget=replace(
             source_campaign_spec.resource_budget,
             model=derived_budget,
+            max_run_wall_time_s=max(
+                source_campaign_spec.resource_budget.max_run_wall_time_s,
+                (
+                    active.max_guided_chemenzy_frontiers
+                    * active.guided_chemenzy_timeout_s
+                    + 300.0
+                    if active.enable_guided_chemenzy
+                    else 0.0
+                ),
+            ),
         ),
     )
     identity = gateway._normalize_run_id(
@@ -314,6 +358,56 @@ def fork_target_validation(
     )
     stages.append(_stage("stock", stock_stage["status"], stock_stage))
 
+    if active.enable_guided_chemenzy:
+        guided = _run_guided_chemenzy_tail(
+            service,
+            target_name=target_name,
+            target_smiles=target_smiles,
+            config=active,
+            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
+            provider=chemenzy_provider,
+        )
+        stages.append(_stage("chemenzy_guided_frontier", guided["status"], guided))
+        if int(guided.get("proposal_count") or 0) > 0:
+            tail_materialization = service.execute_frontier_materialization(
+                idempotency_key="validation-fork:guided-materialization"
+            )
+            stages.append(
+                _stage(
+                    "guided_materialization",
+                    (
+                        "completed"
+                        if tail_materialization.get("changed")
+                        else "reused_or_empty"
+                    ),
+                    tail_materialization,
+                )
+            )
+            tail_validation = validate_materialized_edges(
+                service,
+                atom_mapper=atom_mapper,
+                max_reactions=active.max_atom_mapping_reactions,
+            )
+            stages.append(
+                _stage(
+                    "guided_reaction_validation",
+                    tail_validation["status"],
+                    tail_validation,
+                )
+            )
+            tail_stock = _audit_stock_stage(
+                service,
+                acceptance=acceptance,
+                config=TargetSolveConfig(
+                    enable_live_benchmark_stock=active.enable_live_benchmark_stock,
+                    max_atom_mapping_reactions=active.max_atom_mapping_reactions,
+                    max_live_stock_molecules=active.max_live_stock_molecules,
+                ),
+                catalog_builder=stock_catalog_builder,
+                inventory_builder=inventory_snapshot_builder,
+            )
+            stages.append(_stage("guided_stock", tail_stock["status"], tail_stock))
+
     closeout = service.closeout(
         idempotency_key=f"validation-fork:closeout:{service.kernel.state.graph_revision}"
     )
@@ -392,6 +486,8 @@ def fork_target_validation(
             "derived_route_planning_model_invocation_count_must_equal_zero": True,
             "optional_visual_candidate_is_L0_only": True,
             "derived_visual_invocation_limit": active.max_visual_invocations,
+            "guided_chemenzy_is_model_free_native_search": True,
+            "guided_chemenzy_enabled": active.enable_guided_chemenzy,
         },
     }
     model_invocations = int(report["model_cost"].get("model_invocations") or 0)
@@ -416,6 +512,116 @@ def fork_target_validation(
     }
 
 
+def _run_guided_chemenzy_tail(
+    service: Any,
+    *,
+    target_name: str,
+    target_smiles: str,
+    config: ValidationForkConfig,
+    vendor_root: Path,
+    provider: ChemenzyProposalProvider | None,
+) -> dict[str, Any]:
+    """Run one separately budgeted native-search pass over distinct open leaves."""
+
+    graph = service.graph_store.load()
+    available = [
+        dict(row)
+        for row in dict(graph.get("deficit_frontier") or {}).get("items") or []
+        if isinstance(row, Mapping)
+        and row.get("kind") == "expansion"
+        and dict(row.get("metadata") or {}).get("target_level_native_search")
+        is not True
+        and str(dict(row.get("metadata") or {}).get("frontier_smiles") or "")
+    ]
+    frontier_smiles = tuple(
+        dict.fromkeys(
+            str(dict(row.get("metadata") or {}).get("frontier_smiles") or "")
+            for row in available
+        )
+    )[: config.max_guided_chemenzy_frontiers]
+    if not frontier_smiles:
+        return {
+            "schema_version": "validation_fork_guided_chemenzy_tail.v1",
+            "status": "not_needed",
+            "frontier_count": 0,
+            "proposal_count": 0,
+            "provider_invocation_count": 0,
+        }
+
+    task_id = f"validation-fork-guided-chemenzy:{_digest({'leaves': frontier_smiles})[:20]}"
+    service.kernel.reserve_task(
+        task_id=task_id,
+        kind="proposal",
+        idempotency_key=f"{task_id}:reserve",
+        input_revision=service.kernel.state.graph_revision,
+        resource_class="native_search_frontier",
+        resource_units=len(frontier_smiles),
+        metadata={
+            "validation_fork_guided_tail": True,
+            "frontier_smiles": list(frontier_smiles),
+        },
+    )
+    started = time.monotonic()
+    result: dict[str, Any]
+    try:
+        result = run_chemenzy_guided_frontier_stage(
+            service,
+            target_name=target_name,
+            root_target_smiles=target_smiles,
+            enabled=True,
+            provider=provider,
+            env_prefix=config.chemenzy_env_prefix or None,
+            vendor_root=vendor_root,
+            max_frontiers=len(frontier_smiles),
+            max_routes=config.max_guided_chemenzy_routes,
+            max_steps=config.max_guided_chemenzy_steps,
+            max_iterations=config.max_guided_chemenzy_iterations,
+            expansion_topk=config.guided_chemenzy_expansion_topk,
+            timeout_s=config.guided_chemenzy_timeout_s,
+            include_frontier_smiles=frontier_smiles,
+            search_preset="thorough",
+            random_seed=config.chemenzy_seed,
+            stock_names=config.chemenzy_stock_names,
+            stock_paths=dict(config.chemenzy_stock_paths),
+            enable_condition_prediction=False,
+            enable_enzyme_assignment=False,
+            enable_enzyme_coverage_sidecar=False,
+            pandarallel_workers=1,
+            stop_on_first_host_admitted_route=True,
+        )
+    except Exception as exc:
+        elapsed = round(max(0.0, time.monotonic() - started), 6)
+        service.kernel.settle_task(
+            task_id=task_id,
+            idempotency_key=f"{task_id}:settle",
+            status="failed",
+            failure_reasons=(f"{type(exc).__name__}:{exc}",),
+            elapsed_s=elapsed,
+        )
+        raise
+    elapsed = round(max(0.0, time.monotonic() - started), 6)
+    service.kernel.settle_task(
+        task_id=task_id,
+        idempotency_key=f"{task_id}:settle",
+        status=str(result.get("status") or "completed"),
+        output_sha256=_digest(result),
+        elapsed_s=elapsed,
+    )
+    return {
+        **result,
+        "schema_version": "validation_fork_guided_chemenzy_tail.v1",
+        "elapsed_s": elapsed,
+        "configured_frontier_smiles": list(frontier_smiles),
+        "native_search_units": len(frontier_smiles),
+        "semantics": {
+            **dict(result.get("semantics") or {}),
+            "runs_after_codex_model_budget": True,
+            "one_native_search_unit_per_distinct_open_leaf": True,
+            "condition_and_enzyme_sidecars_deferred_until_route_exists": True,
+        },
+    }
+
+
 def _acceptance_from_report(
     report: Mapping[str, Any],
 ) -> RetrosynthesisAcceptanceSpec:
@@ -437,6 +643,7 @@ def _derived_budget(
     report: Mapping[str, Any],
     *,
     max_visual_invocations: int,
+    max_guided_chemenzy_frontiers: int = 0,
 ) -> RetrosynthesisRunBudget:
     source = dict(report.get("budget") or {})
     visual_enabled = max_visual_invocations > 0
@@ -451,6 +658,15 @@ def _derived_budget(
             int(source.get("max_accepted_expansions") or 0),
         ),
         max_attempt_runs=max(96, int(source.get("max_attempt_runs") or 0)),
+        max_native_search_invocations=max(
+            int(max_guided_chemenzy_frontiers),
+            int(source.get("max_native_search_invocations") or 0),
+        ),
+        min_target_native_search_invocations=0,
+        max_frontier_native_search_invocations=max(
+            int(max_guided_chemenzy_frontiers),
+            int(source.get("max_native_search_invocations") or 0),
+        ),
         max_prompt_context_bytes=96_000 if visual_enabled else 0,
     )
 

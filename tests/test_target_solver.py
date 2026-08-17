@@ -3807,6 +3807,79 @@ def test_validation_fork_replays_global_plan_and_uses_zero_model_calls(
     assert Path(derived["report_path"]).is_file()
 
 
+def test_validation_fork_runs_guided_chemenzy_after_stock_open_leaf(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    source = gateway.solve_target(
+        target_name="blind validation guided tail target",
+        target_smiles=TARGET,
+        run_id="blind-validation-guided-source",
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_partial_catalog,
+    )
+    observed: list[dict[str, Any]] = []
+
+    def provider(**kwargs: Any) -> dict[str, Any]:
+        observed.append(dict(kwargs))
+        return {
+            "status": "completed",
+            "routes": [
+                {
+                    "steps": [
+                        {
+                            "product_smiles": kwargs["target_smiles"],
+                            "reactant_smiles": ["CC=O"],
+                            "source_model": "fixture-guided-tail",
+                        }
+                    ]
+                }
+            ],
+        }
+
+    derived = gateway.fork_target_validation(
+        source_run_id=source["run_id"],
+        run_id="blind-validation-guided-derived",
+        atom_mapper=_mapper,
+        stock_catalog_builder=_partial_catalog,
+        chemenzy_provider=provider,
+        config=ValidationForkConfig(
+            enable_guided_chemenzy=True,
+            max_guided_chemenzy_frontiers=1,
+            max_guided_chemenzy_iterations=500,
+            max_guided_chemenzy_steps=6,
+            guided_chemenzy_timeout_s=1_200,
+        ),
+    )
+
+    guided = next(
+        stage
+        for stage in derived["stages"]
+        if stage["stage"] == "chemenzy_guided_frontier"
+    )
+    assert len(observed) == 1
+    assert observed[0]["target_smiles"] == "CCO"
+    assert observed[0]["limits"]["max_iterations"] == 500
+    assert observed[0]["limits"]["max_steps"] == 6
+    assert observed[0]["limits"]["timeout_s"] == 1_200
+    assert guided["detail"]["provider_invocation_count"] == 1
+    assert guided["detail"]["proposal_count"] == 1
+    assert derived["resource_envelope"]["native_search"]["frontier"][
+        "settled"
+    ] == 1
+    assert derived["model_cost"]["model_invocations"] == 0
+    assert any(
+        stage["stage"] == "guided_materialization"
+        for stage in derived["stages"]
+    )
+
+
 def test_validation_fork_can_admit_one_sparse_visual_candidate(
     tmp_path: Path,
 ) -> None:

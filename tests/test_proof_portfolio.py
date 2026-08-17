@@ -58,8 +58,14 @@ ROUTES = (
 
 def test_strategic_value_and_evidence_maturity_are_independent_axes() -> None:
     graph = {
+        "molecules": {
+            "mol:target": {"canonical_smiles": TARGET},
+            "mol:a": {"canonical_smiles": "CCO"},
+            "mol:b": {"canonical_smiles": "CC(=O)Cl"},
+        },
         "edges": {
             "edge:root": {
+                "product_molecule_id": "mol:target",
                 "precursor_molecule_ids": ["mol:a", "mol:b"],
                 "source_binding_ids": [],
             }
@@ -97,8 +103,51 @@ def test_strategic_value_and_evidence_maturity_are_independent_axes() -> None:
 
     assert first == second
     assert first["score"] > evidence["score"]
-    assert first["basis"] == "strategy_card_and_canonical_topology_only"
+    assert first["structure_metrics"]["known"] is True
+    assert first["basis"] == "canonical_root_structures_and_strategy_edit_identity"
     assert evidence["basis"] == "host_proof_and_source_records_only"
+
+
+def test_declared_complexity_label_does_not_change_structural_strategy_score() -> None:
+    graph = {
+        "molecules": {
+            "mol:target": {"canonical_smiles": "c1ccc2ccccc2c1"},
+            "mol:a": {"canonical_smiles": "c1ccccc1"},
+            "mol:b": {"canonical_smiles": "C=CC=C"},
+        },
+        "edges": {
+            "edge:root": {
+                "product_molecule_id": "mol:target",
+                "precursor_molecule_ids": ["mol:a", "mol:b"],
+            }
+        },
+    }
+    card = {
+        "key_bond_changes": ["map 1-map 2"],
+        "stereochemical_plan": "not applicable",
+        "protection_policy": "avoid protection",
+        "expected_complexity_drop": "low",
+    }
+
+    low = compile_strategic_value_vector(
+        graph,
+        edge_ids=["edge:root"],
+        root_edge_ids=["edge:root"],
+        strategy_card=card,
+        convergence_score=0.0,
+    )
+    high = compile_strategic_value_vector(
+        graph,
+        edge_ids=["edge:root"],
+        root_edge_ids=["edge:root"],
+        strategy_card={**card, "expected_complexity_drop": "high"},
+        convergence_score=0.0,
+    )
+
+    assert low["score"] == high["score"]
+    assert low["complexity_drop"] == high["complexity_drop"]
+    assert low["declared_complexity_drop"] == "low"
+    assert high["declared_complexity_drop"] == "high"
 
 
 def _digest(value: object) -> str:
