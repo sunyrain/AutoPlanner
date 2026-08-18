@@ -213,10 +213,9 @@ class TargetSolveConfig:
     critic_call_timeout_s: float = float(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["critic_call_timeout_s"]
     )
-    # Legacy/direct callers remain compatible by default.  In the paper
-    # profile this means the final plan must expose a host-assembled complete
-    # RouteJSON; individual Route Builder calls still emit one edit program
-    # and are compiled incrementally by the host.
+    # Legacy/direct callers remain compatible by default.  The paper profile
+    # requires every Route Builder payload to carry a complete linear
+    # RouteJSON; the host still owns replay and mapped-structure authority.
     require_complete_route_json: bool = False
     allow_editor_route_mutations: bool = False
     objective_mode: TargetObjectiveMode = "scientific_proof"

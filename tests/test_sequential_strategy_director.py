@@ -829,7 +829,9 @@ def test_compiler_first_builder_carries_real_mapped_precursor_between_calls() ->
         strategy_branch_count=1,
         max_node_expansions_per_branch=2,
         require_strategy_graph_edits=True,
-        require_complete_route_json=True,
+        # Compatibility mode: without the paper RouteJSON contract, the host
+        # may consume one ReactionJSON edit at a time.
+        require_complete_route_json=False,
     )
     observed = []
 
@@ -889,6 +891,44 @@ def test_compiler_first_builder_carries_real_mapped_precursor_between_calls() ->
     assert skeleton["steps"][1]["mapped_product_smiles"] == "[CH3:2][OH:3]"
     assert skeleton["routejson_authority"] == "host_routejson_compiler"
     assert len(skeleton["route_json"]) == 2
+
+
+def test_paper_route_contract_overrides_compiler_first_compatibility_mode() -> None:
+    context = _context()
+    config = DirectorConfig(
+        minimum_route_families=1,
+        max_route_families=3,
+        max_skeletons=3,
+        max_steps_per_skeleton=25,
+        planning_mode="sequential_branches",
+        strategy_branch_count=1,
+        max_node_expansions_per_branch=2,
+        require_strategy_graph_edits=True,
+        require_complete_route_json=True,
+    )
+    observed = []
+
+    def executor(task):
+        observed.append(task)
+        if task.required_artifact_type == "StrategyCardReport":
+            return _strategy_record(task)
+        if task.required_artifact_type == "ChemicalStrategyCritique":
+            return _critic_record(task)
+        assert "one complete linear RouteJSON route" in task.objective
+        return _proposal_record(_complete_route_candidate())
+
+    runner = SequentialStrategyDirectorRunner(
+        node_executor=executor,
+        critic_executor=executor,
+        stock_membership=lambda values: {value: True for value in values},
+    )
+    result = runner(_spec(context), context, "initial_architecture", config)
+
+    assert result.state is AgentState.SUCCEEDED
+    node_tasks = [task for task in observed if task.task_type == "route_step_materialization"]
+    assert node_tasks
+    assert "one complete linear RouteJSON route" in node_tasks[0].objective
+    assert "Expand exactly one retrosynthetic node" not in node_tasks[0].objective
 
 
 def test_every_distinct_open_leaf_is_delegated() -> None:

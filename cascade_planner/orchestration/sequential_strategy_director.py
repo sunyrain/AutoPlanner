@@ -1092,8 +1092,15 @@ class SequentialStrategyDirectorRunner:
         branch["call_count"] = int(branch["call_count"]) + 1
         call_index = int(branch["route_call_count"])
         is_strategy_anchor = not steps and selected == target
-        compiler_first = bool(require_strategy_graph_edits)
-        prompt_complete_route = bool(require_complete_route_json and not compiler_first)
+        # ``compiler_first`` is a compatibility mode for callers that want
+        # one host-compiled graph edit per node.  The paper profile has a
+        # stronger contract: Route Builder must return a complete linear
+        # RouteJSON route.  Do not let the graph-edit requirement silently
+        # downgrade that contract to a single-step payload.
+        compiler_first = bool(
+            require_strategy_graph_edits and not require_complete_route_json
+        )
+        prompt_complete_route = bool(require_complete_route_json)
         prompt = _node_prompt(
             target=target,
             branch_index=branch_index,
