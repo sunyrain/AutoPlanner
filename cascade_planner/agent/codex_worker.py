@@ -838,16 +838,7 @@ def _codex_cli_runtime_environment(
     """Build the subprocess environment used by Codex CLI workers."""
     auth_mode = str(task.codex_auth_mode or "auto").strip().lower()
     if auth_mode == "ambient_codex_cli" or (auth_mode == "auto" and _use_ambient_codex_cli_auth()):
-        env = os.environ.copy()
-        env.pop("CODEX_HOME", None)
-        return env, {
-            "provider": "ambient_codex_cli",
-            "base_url_fingerprint": "",
-            "model": str(task.model or "") or os.environ.get("AUTOPLANNER_CODEX_WORKER_MODEL") or os.environ.get("OPENAI_MODEL") or "",
-            "model_reasoning_effort": _task_reasoning_effort(task),
-            "auth_source": "ambient_codex_cli",
-            "codex_home": "ambient",
-        }
+        return _ambient_codex_cli_worker_environment(tmp_path, task)
     try:
         config = _api_json_config(task)
     except RuntimeError:
@@ -866,6 +857,56 @@ def _codex_cli_runtime_environment(
         config = {**config, "model": str(task.model)}
     config = {**config, "reasoning_effort": _task_reasoning_effort(task)}
     return _codex_cli_worker_environment(tmp_path, workdir, config)
+
+
+def _ambient_codex_cli_worker_environment(
+    tmp_path: Path,
+    task: WorkerTask,
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Snapshot ambient Codex auth into a writable per-worker home.
+
+    Managed runners commonly mount the user's real ``CODEX_HOME`` read-only.
+    Codex still needs to create its state database even for ``--ephemeral``
+    executions, so pointing a worker back at that directory makes the CLI fail
+    before it can contact the configured provider. Copy only the small,
+    read-only inputs needed by the CLI and let all runtime state live under the
+    worker's temporary directory.
+    """
+
+    source_home = _ambient_codex_home()
+    codex_home = tmp_path / "codex_home"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    copied_inputs: list[str] = []
+    for name in ("auth.json", "config.toml", "installation_id", "models_cache.json"):
+        source = source_home / name
+        if not source.is_file():
+            continue
+        shutil.copyfile(source, codex_home / name)
+        copied_inputs.append(name)
+
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+    return env, {
+        "provider": "ambient_codex_cli",
+        "base_url_fingerprint": "",
+        "model": str(task.model or "")
+        or os.environ.get("AUTOPLANNER_CODEX_WORKER_MODEL")
+        or os.environ.get("OPENAI_MODEL")
+        or "",
+        "model_reasoning_effort": _task_reasoning_effort(task),
+        "auth_source": "ambient_codex_cli_snapshot",
+        "codex_home": "ephemeral_ambient",
+        "ambient_inputs": copied_inputs,
+    }
+
+
+def _ambient_codex_home() -> Path:
+    configured = str(os.environ.get("CODEX_HOME") or "").strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_dir():
+            return candidate
+    return Path.home() / ".codex"
 
 
 def _codex_cli_worker_environment(

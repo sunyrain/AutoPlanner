@@ -705,11 +705,23 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
+            ambient_home = tmp_path / "ambient"
+            ambient_home.mkdir()
+            (ambient_home / "auth.json").write_text(
+                json.dumps({"auth_mode": "apikey", "OPENAI_API_KEY": "ambient-key"}),
+                encoding="utf-8",
+            )
+            (ambient_home / "config.toml").write_text(
+                'model = "ambient-model"\n',
+                encoding="utf-8",
+            )
+            (ambient_home / "installation_id").write_text("ambient-installation", encoding="utf-8")
+            (ambient_home / "models_cache.json").write_text("{}", encoding="utf-8")
             with patch.dict(
                 "os.environ",
                 {
                     "AUTOPLANNER_CODEX_WORKER_AUTH": "ambient",
-                    "CODEX_HOME": str(tmp_path / "should_not_leak"),
+                    "CODEX_HOME": str(ambient_home),
                 },
                 clear=False,
             ):
@@ -719,10 +731,25 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                     task,
                 )
 
-        self.assertNotIn("CODEX_HOME", env)
+                worker_home = Path(env["CODEX_HOME"])
+                self.assertNotEqual(worker_home, ambient_home)
+                self.assertTrue(worker_home.is_relative_to(tmp_path / "runtime"))
+                self.assertEqual(
+                    json.loads((worker_home / "auth.json").read_text(encoding="utf-8"))["OPENAI_API_KEY"],
+                    "ambient-key",
+                )
+                self.assertEqual(
+                    (worker_home / "config.toml").read_text(encoding="utf-8"),
+                    'model = "ambient-model"\n',
+                )
+                self.assertEqual(
+                    sorted(metadata["ambient_inputs"]),
+                    ["auth.json", "config.toml", "installation_id", "models_cache.json"],
+                )
+
         self.assertEqual(metadata["provider"], "ambient_codex_cli")
-        self.assertEqual(metadata["auth_source"], "ambient_codex_cli")
-        self.assertEqual(metadata["codex_home"], "ambient")
+        self.assertEqual(metadata["auth_source"], "ambient_codex_cli_snapshot")
+        self.assertEqual(metadata["codex_home"], "ephemeral_ambient")
 
     def test_codex_cli_worker_passes_ephemeral_home_to_subprocess(self):
         task = WorkerTask(
