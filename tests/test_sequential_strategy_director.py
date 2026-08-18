@@ -19,8 +19,10 @@ from cascade_planner.orchestration.global_campaign_director import (
 from cascade_planner.orchestration.sequential_strategy_director import (
     SequentialStrategyDirectorRunner,
     _expansion_from_record,
+    _editor_route_expansions_from_record,
     _expansions_from_record,
     _expansion_rejection_diagnostic,
+    _apply_route_patch,
     _has_atom_provenance_deficit,
     _strategy_conflicts,
 )
@@ -461,6 +463,74 @@ def test_complete_route_json_rejects_internal_cycle() -> None:
     assert expansions is None
 
 
+def test_editor_route_patch_is_recompiled_from_target_and_preserves_host_maps() -> None:
+    current = _complete_route_candidate()["route_json"]
+    candidate = {
+        **_complete_route_candidate(),
+        "route_json": None,
+        "route_patch": [
+            {
+                "op": "replace_step",
+                "step_id": "route:2",
+                "after_step_id": "",
+                "step_ids": [],
+                "step": {
+                    **current[1],
+                    "conditions": ["aqueous workup"],
+                },
+            }
+        ],
+    }
+    expansions, diagnostic, mode = _editor_route_expansions_from_record(
+        _proposal_record(candidate),
+        current_steps=current,
+        mapped_target_smiles="[CH3:1][CH2:2][OH:3]",
+        expected_target_smiles="CCO",
+    )
+
+    assert diagnostic == {}
+    assert mode == "route_patch"
+    assert expansions is not None
+    assert expansions[1].mapped_product_smiles == "[CH3:1][CH3:2]"
+    assert expansions[1].conditions == ("aqueous workup",)
+
+
+def test_editor_patch_supports_insert_delete_and_reorder_operations() -> None:
+    rows = [
+        {"step_id": "a", "product_smiles": "CCO", "reaction_operations": []},
+        {"step_id": "b", "product_smiles": "CC", "reaction_operations": []},
+    ]
+    patched, reason = _apply_route_patch(
+        rows,
+        [
+            {
+                "op": "insert_after",
+                "step_id": "",
+                "after_step_id": "a",
+                "step_ids": [],
+                "step": {"step_id": "c", "product_smiles": "C", "reaction_operations": []},
+            },
+            {
+                "op": "delete_step",
+                "step_id": "b",
+                "after_step_id": "",
+                "step_ids": [],
+                "step": None,
+            },
+            {
+                "op": "reorder",
+                "step_id": "",
+                "after_step_id": "",
+                "step_ids": ["c", "a"],
+                "step": None,
+            },
+        ],
+    )
+
+    assert reason == ""
+    assert [row["step_id"] for row in patched or []] == ["c", "a"]
+
+
 def test_independent_codex_critic_runs_before_plan_delivery() -> None:
     context = _context()
     config = DirectorConfig(
@@ -746,6 +816,79 @@ def test_three_independent_branches_expand_one_node_per_call() -> None:
             for family in plan.route_families
             if family["route_family_id"] == skeleton["route_family_id"]
         )
+
+
+def test_compiler_first_builder_carries_real_mapped_precursor_between_calls() -> None:
+    context = _context()
+    config = DirectorConfig(
+        minimum_route_families=1,
+        max_route_families=3,
+        max_skeletons=3,
+        max_steps_per_skeleton=25,
+        planning_mode="sequential_branches",
+        strategy_branch_count=1,
+        max_node_expansions_per_branch=2,
+        require_strategy_graph_edits=True,
+        require_complete_route_json=True,
+    )
+    observed = []
+
+    def executor(task):
+        observed.append(task)
+        if task.required_artifact_type == "StrategyCardReport":
+            return _strategy_record(task)
+        if task.required_artifact_type == "ChemicalStrategyCritique":
+            return _critic_record(task)
+        product = re.search(r'"selected_open_leaf":"([^"]+)"', task.objective).group(1)
+        operations = (
+            [{"op": "break_bond", "map_a": 1, "map_b": 2}]
+            if product == "CCO"
+            else [{"op": "break_bond", "map_a": 2, "map_b": 3}]
+        )
+        return _proposal_record(
+            {
+                "schema_version": "retrosynthesis_candidate.v1",
+                "candidate_id": task.task_id,
+                "product_smiles": product,
+                # Deliberately wrong advisory text: compiler output must win.
+                "precursor_smiles": ["N"],
+                "reaction_family": "compiler-first fragmentation",
+                "product_retron_type": "bond disconnection",
+                "transformation_rationale": "exercise host graph edits",
+                "conditions": [],
+                "catalyst": "",
+                "enzyme": "",
+                "limitations": [],
+                "required_validation": ["structure"],
+                "no_solved_claim": True,
+                "not_parent_route_proof": True,
+                "reaction_operations": operations,
+                "route_json": None,
+            },
+            target=product,
+        )
+
+    runner = SequentialStrategyDirectorRunner(
+        node_executor=executor,
+        critic_executor=executor,
+        stock_membership=lambda values: {
+            value: value in {"C", "O"} for value in values
+        },
+    )
+    result = runner(_spec(context), context, "initial_architecture", config)
+
+    assert result.state is AgentState.SUCCEEDED
+    node_tasks = [task for task in observed if task.task_type == "route_step_materialization"]
+    assert len(node_tasks) == 2
+    assert node_tasks[0].objective.startswith("Expand exactly one retrosynthetic node")
+    assert '"selected_open_leaf":"CO"' in node_tasks[1].objective
+    assert '"selected_open_leaf_mapped":"[CH3:2][OH:3]"' in node_tasks[1].objective
+    plan = GlobalCampaignPlan.from_dict(result.output)
+    skeleton = plan.multi_step_skeletons[0]
+    assert skeleton["steps"][0]["precursor_smiles"] == ["C", "CO"]
+    assert skeleton["steps"][1]["mapped_product_smiles"] == "[CH3:2][OH:3]"
+    assert skeleton["routejson_authority"] == "host_routejson_compiler"
+    assert len(skeleton["route_json"]) == 2
 
 
 def test_every_distinct_open_leaf_is_delegated() -> None:

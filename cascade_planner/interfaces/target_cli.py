@@ -106,7 +106,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         "--require-complete-route-json",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="require one complete linear RouteJSON route in the paper profile",
+        help="require the paper profile to deliver a host-assembled complete linear RouteJSON route",
     )
     solve.add_argument(
         "--allow-editor-route-mutations",

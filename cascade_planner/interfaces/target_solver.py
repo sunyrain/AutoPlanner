@@ -213,9 +213,10 @@ class TargetSolveConfig:
     critic_call_timeout_s: float = float(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["critic_call_timeout_s"]
     )
-    # Legacy/direct callers remain compatible by default.  The explicit
-    # ``paper_synthex`` materializer/CLI turns both contracts on and the
-    # profile validator refuses to run with either one disabled.
+    # Legacy/direct callers remain compatible by default.  In the paper
+    # profile this means the final plan must expose a host-assembled complete
+    # RouteJSON; individual Route Builder calls still emit one edit program
+    # and are compiled incrementally by the host.
     require_complete_route_json: bool = False
     allow_editor_route_mutations: bool = False
     objective_mode: TargetObjectiveMode = "scientific_proof"

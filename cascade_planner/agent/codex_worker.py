@@ -1411,9 +1411,10 @@ def _artifact_payload_instruction(
             + (
                 " For route_step_materialization or route_chemistry_edit, do not echo the supplied immutable StrategyCard; the host binds it. "
                 "candidate.reaction_operations describes the candidate root step and candidate.route_json may contain the complete ordered linear route. "
-                "Every route_json step must contain its own ordered atom-map reaction_operations. Set candidate.precursor_smiles and every route_json step precursor_smiles to []: "
+                "Every route_json step must contain its own ordered atom-map reaction_operations. Set candidate.precursor_smiles to [] and every route_json step precursor_smiles to []: "
                 "the host deterministically derives canonical precursors from ReactionJSON and never treats a second model-redrawn precursor as structure authority. "
-                "For route_chemistry_edit, route_json is the complete replacement route object and may reorder, insert, or delete steps and change conditions or functional-group operations while preserving the immutable strategy. "
+                "For route_chemistry_edit, prefer route_patch with replace_step, insert_after, delete_step, or reorder operations; the host applies the patch to the frozen route and recompiles it from the target. "
+                "route_json remains a complete replacement-route fallback and may reorder, insert, or delete steps and change conditions or functional-group operations while preserving the immutable strategy. "
                 "Conditions are optional hypotheses, but never emit placeholders such as 'screen', 'TBD', "
                 "'to be determined', 'not specified', or 'as needed'; if no concrete reagent/catalyst/solvent/temperature "
                 "or enzyme hypothesis is available, emit an empty conditions list and explain the gap in limitations."
@@ -1734,6 +1735,27 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
     candidate_properties["route_json"] = _nullable_schema(
         {"type": "array", "items": route_step, "maxItems": 25}
     )
+    if task.task_type == "route_chemistry_edit":
+        route_patch_item = _strict_object_schema(
+            {
+                "op": {
+                    "type": "string",
+                    "enum": [
+                        "replace_step",
+                        "insert_after",
+                        "delete_step",
+                        "reorder",
+                    ],
+                },
+                "step_id": {"type": "string"},
+                "after_step_id": {"type": "string"},
+                "step_ids": _string_array_schema(),
+                "step": _nullable_schema(route_step),
+            }
+        )
+        candidate_properties["route_patch"] = _nullable_schema(
+            {"type": "array", "items": route_patch_item, "maxItems": 50}
+        )
     if task.task_type not in {"route_step_materialization", "route_chemistry_edit"}:
         candidate_properties["strategy_card"] = strategy_card
     if task.task_type not in {

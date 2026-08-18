@@ -224,6 +224,9 @@ class DirectorConfig:
     max_node_call_timeout_s: float = 600.0
     critic_call_timeout_s: float = 600.0
     require_strategy_graph_edits: bool = False
+    # Final-plan RouteJSON contract.  The sequential host compiles it from
+    # one-step ReactionJSON edits; this flag does not force the model to draw
+    # the whole route in every Route Builder call.
     require_complete_route_json: bool = False
     allow_editor_route_mutations: bool = False
     max_provider_requests: int = 3
