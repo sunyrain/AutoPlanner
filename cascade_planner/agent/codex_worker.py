@@ -464,7 +464,19 @@ def _run_codex_cli_worker(
     workdir = Path(task.allowed_workdir or ".").resolve()
     workdir.mkdir(parents=True, exist_ok=True)
     prompt = _codex_worker_prompt(task)
-    with tempfile.TemporaryDirectory(prefix="autoplanner_codex_worker_", ignore_cleanup_errors=True) as tmp:
+    worker_temp_root: Path | None = None
+    try:
+        worker_temp_root = workdir / ".autoplanner" / "codex-worker-tmp"
+        worker_temp_root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        worker_temp_root = None
+    temp_kwargs = {
+        "prefix": "autoplanner_codex_worker_",
+        "ignore_cleanup_errors": True,
+    }
+    if worker_temp_root is not None:
+        temp_kwargs["dir"] = str(worker_temp_root)
+    with tempfile.TemporaryDirectory(**temp_kwargs) as tmp:
         tmp_path = Path(tmp)
         output_path = tmp_path / "last_message.json"
         schema_path = tmp_path / "worker_output_schema.json"
@@ -877,12 +889,19 @@ def _ambient_codex_cli_worker_environment(
     codex_home = tmp_path / "codex_home"
     codex_home.mkdir(parents=True, exist_ok=True)
     copied_inputs: list[str] = []
-    for name in ("auth.json", "config.toml", "installation_id", "models_cache.json"):
+    for name in ("auth.json", "installation_id", "models_cache.json"):
         source = source_home / name
         if not source.is_file():
             continue
         shutil.copyfile(source, codex_home / name)
         copied_inputs.append(name)
+    source_config = source_home / "config.toml"
+    if source_config.is_file():
+        (codex_home / "config.toml").write_text(
+            _ambient_codex_provider_config(source_config),
+            encoding="utf-8",
+        )
+        copied_inputs.append("config.toml")
 
     env = os.environ.copy()
     env["CODEX_HOME"] = str(codex_home)
@@ -897,6 +916,7 @@ def _ambient_codex_cli_worker_environment(
         "auth_source": "ambient_codex_cli_snapshot",
         "codex_home": "ephemeral_ambient",
         "ambient_inputs": copied_inputs,
+        "config_mode": "provider_only_snapshot",
     }
 
 
@@ -907,6 +927,26 @@ def _ambient_codex_home() -> Path:
         if candidate.is_dir():
             return candidate
     return Path.home() / ".codex"
+
+
+def _ambient_codex_provider_config(source: Path) -> str:
+    """Keep model/provider settings while excluding remote MCP/plugin sections."""
+
+    lines = source.read_text(encoding="utf-8", errors="replace").splitlines()
+    kept: list[str] = []
+    section = ""
+    keep_section = True
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1].strip()
+            keep_section = section.startswith("model_providers.")
+            if keep_section:
+                kept.append(line)
+            continue
+        if keep_section:
+            kept.append(line)
+    return "\n".join(kept).rstrip() + "\n"
 
 
 def _codex_cli_worker_environment(

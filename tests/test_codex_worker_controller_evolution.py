@@ -712,7 +712,14 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (ambient_home / "config.toml").write_text(
-                'model = "ambient-model"\n',
+                'model = "ambient-model"\n'
+                'model_provider = "wellau"\n'
+                '\n'
+                '[model_providers.wellau]\n'
+                'base_url = "https://api.wellau.com/v1"\n'
+                '\n'
+                '[mcp_servers.remote]\n'
+                'url = "https://example.invalid/mcp"\n',
                 encoding="utf-8",
             )
             (ambient_home / "installation_id").write_text("ambient-installation", encoding="utf-8")
@@ -740,12 +747,17 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                 )
                 self.assertEqual(
                     (worker_home / "config.toml").read_text(encoding="utf-8"),
-                    'model = "ambient-model"\n',
+                    'model = "ambient-model"\n'
+                    'model_provider = "wellau"\n'
+                    '\n'
+                    '[model_providers.wellau]\n'
+                    'base_url = "https://api.wellau.com/v1"\n',
                 )
                 self.assertEqual(
                     sorted(metadata["ambient_inputs"]),
                     ["auth.json", "config.toml", "installation_id", "models_cache.json"],
                 )
+                self.assertEqual(metadata["config_mode"], "provider_only_snapshot")
 
         self.assertEqual(metadata["provider"], "ambient_codex_cli")
         self.assertEqual(metadata["auth_source"], "ambient_codex_cli_snapshot")
