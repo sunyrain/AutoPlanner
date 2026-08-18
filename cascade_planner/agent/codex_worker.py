@@ -465,11 +465,17 @@ def _run_codex_cli_worker(
     workdir.mkdir(parents=True, exist_ok=True)
     prompt = _codex_worker_prompt(task)
     worker_temp_root: Path | None = None
-    try:
-        worker_temp_root = workdir / ".autoplanner" / "codex-worker-tmp"
-        worker_temp_root.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        worker_temp_root = None
+    candidate_temp_roots = [
+        Path(__file__).resolve().parents[2] / ".codex-worker-tmp",
+        workdir / ".autoplanner" / "codex-worker-tmp",
+    ]
+    for candidate in candidate_temp_roots:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            worker_temp_root = candidate
+            break
+        except OSError:
+            continue
     temp_kwargs = {
         "prefix": "autoplanner_codex_worker_",
         "ignore_cleanup_errors": True,
