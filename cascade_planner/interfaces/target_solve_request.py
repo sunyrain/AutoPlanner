@@ -22,6 +22,7 @@ from cascade_planner.interfaces.target_runtime_dependencies import (
 def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any]:
     max_visual_invocations = _int(payload, "max_visual_invocations", 0)
     execution_profile = str(payload.get("execution_profile") or "standard")
+    paper_protocol = execution_profile == "paper_synthex"
     profile_defaults = TARGET_PROFILE_DEFAULTS.get(execution_profile, TARGET_PROFILE_DEFAULTS["standard"])
     matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
     evidence_connector = _web_evidence_connector(gateway, payload)
@@ -80,6 +81,16 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             ),
             critic_call_timeout_s=float(
                 payload.get("critic_call_timeout_s", matched["critic_call_timeout_s"])
+            ),
+            require_complete_route_json=_bool(
+                payload,
+                "require_complete_route_json",
+                paper_protocol,
+            ),
+            allow_editor_route_mutations=_bool(
+                payload,
+                "allow_editor_route_mutations",
+                paper_protocol,
             ),
             objective_mode=str(payload.get("objective_mode") or "scientific_proof"),
             delivery_boundary=str(

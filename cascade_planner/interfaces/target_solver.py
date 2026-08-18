@@ -213,6 +213,11 @@ class TargetSolveConfig:
     critic_call_timeout_s: float = float(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["critic_call_timeout_s"]
     )
+    # Legacy/direct callers remain compatible by default.  The explicit
+    # ``paper_synthex`` materializer/CLI turns both contracts on and the
+    # profile validator refuses to run with either one disabled.
+    require_complete_route_json: bool = False
+    allow_editor_route_mutations: bool = False
     objective_mode: TargetObjectiveMode = "scientific_proof"
     use_coordinator: bool = False
     enable_web_search: bool = True
@@ -299,7 +304,7 @@ class TargetSolveConfig:
     def __post_init__(self) -> None:
         if self.reasoning_effort not in {"low", "medium", "high"}:
             raise ValueError("target solver reasoning effort is invalid")
-        if self.execution_profile not in {"fast", "standard", "proof"}:
+        if self.execution_profile not in {"fast", "standard", "proof", "paper_synthex"}:
             raise ValueError("target solver execution profile is invalid")
         if self.strategy_search_profile not in {"legacy_global", "synthex_matched"}:
             raise ValueError("target solver strategy search profile is invalid")
@@ -309,6 +314,23 @@ class TargetSolveConfig:
             raise ValueError("target solver node expansion limit is invalid")
         if not 1 <= self.max_route_local_repair_rounds <= 12:
             raise ValueError("target solver route-local repair limit is invalid")
+        if self.execution_profile == "paper_synthex":
+            if self.max_node_expansions_per_branch != int(
+                SYNTHEX_MATCHED_PROFILE_DEFAULTS["route_builder_max_steps"]
+            ):
+                raise ValueError(
+                    "paper_synthex requires 25 Route Builder expansions per branch"
+                )
+            if self.max_route_local_repair_rounds != int(
+                SYNTHEX_MATCHED_PROFILE_DEFAULTS["route_local_repair_rounds"]
+            ):
+                raise ValueError(
+                    "paper_synthex requires six Critic/Editor repair rounds"
+                )
+            if not self.require_complete_route_json:
+                raise ValueError("paper_synthex requires complete linear RouteJSON")
+            if not self.allow_editor_route_mutations:
+                raise ValueError("paper_synthex requires RouteJSON Editor mutations")
         if not 4_000 <= self.max_node_prompt_bytes <= 96_000:
             raise ValueError("target solver compact node prompt limit is invalid")
         for value in (self.max_node_call_timeout_s, self.critic_call_timeout_s):
@@ -599,6 +621,14 @@ def solve_target(
             "max_output_tokens": 18_000,
             "max_tool_calls": 16,
         },
+        "paper_synthex": {
+            "minimum_route_families": 3,
+            "max_route_families": 4,
+            "max_skeletons": 4,
+            "max_steps_per_skeleton": 25,
+            "max_output_tokens": 18_000,
+            "max_tool_calls": 16,
+        },
     }[active.execution_profile]
     minimum_director_families = max(
         director_profile["minimum_route_families"],
@@ -668,6 +698,12 @@ def solve_target(
         enable_initial_web_search=active.enable_initial_director_web_search,
         use_coordinator=active.use_coordinator,
         require_strategy_graph_edits=sequential_strategy,
+        require_complete_route_json=(
+            active.require_complete_route_json and sequential_strategy
+        ),
+        allow_editor_route_mutations=(
+            active.allow_editor_route_mutations and sequential_strategy
+        ),
     )
     resolved_director_runner = director_runner
     if resolved_director_runner is None:

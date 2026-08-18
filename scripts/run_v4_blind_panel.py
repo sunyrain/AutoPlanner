@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--execution-profile",
-        choices=("fast", "standard", "proof"),
+        choices=("fast", "standard", "proof", "paper_synthex"),
         default="standard",
     )
     parser.add_argument(

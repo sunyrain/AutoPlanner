@@ -256,6 +256,31 @@ def test_target_solver_rejects_invalid_chemenzy_seed() -> None:
         TargetSolveConfig(chemenzy_seed=2**32)
 
 
+def test_paper_synthex_profile_keeps_route_depth_and_repair_rounds_fixed() -> None:
+    config = TargetSolveConfig(
+        execution_profile="paper_synthex",
+        require_complete_route_json=True,
+        allow_editor_route_mutations=True,
+    )
+    assert config.max_node_expansions_per_branch == 25
+    assert config.max_route_local_repair_rounds == 6
+
+    with pytest.raises(ValueError, match="25 Route Builder"):
+        TargetSolveConfig(
+            execution_profile="paper_synthex",
+            max_node_expansions_per_branch=2,
+            require_complete_route_json=True,
+            allow_editor_route_mutations=True,
+        )
+    with pytest.raises(ValueError, match="six Critic/Editor"):
+        TargetSolveConfig(
+            execution_profile="paper_synthex",
+            max_route_local_repair_rounds=2,
+            require_complete_route_json=True,
+            allow_editor_route_mutations=True,
+        )
+
+
 def test_action_handler_projection_preserves_failed_outcome_status_and_reasons() -> None:
     results = _campaign_action_handler_results(
         (

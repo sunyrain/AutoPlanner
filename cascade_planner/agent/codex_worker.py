@@ -1410,9 +1410,10 @@ def _artifact_payload_instruction(
             "a reaction SMILES string, reaction SMARTS, or a key named reaction_smiles/rxn/raw_reaction. "
             + (
                 " For route_step_materialization or route_chemistry_edit, do not echo the supplied immutable StrategyCard; the host binds it. "
-                "candidate.reaction_operations must contain the ordered atom-map graph edits. Set "
-                "candidate.precursor_smiles to []: the host deterministically derives canonical precursors from "
-                "ReactionJSON and never treats a second model-redrawn precursor as structure authority. "
+                "candidate.reaction_operations describes the candidate root step and candidate.route_json may contain the complete ordered linear route. "
+                "Every route_json step must contain its own ordered atom-map reaction_operations. Set candidate.precursor_smiles and every route_json step precursor_smiles to []: "
+                "the host deterministically derives canonical precursors from ReactionJSON and never treats a second model-redrawn precursor as structure authority. "
+                "For route_chemistry_edit, route_json is the complete replacement route object and may reorder, insert, or delete steps and change conditions or functional-group operations while preserving the immutable strategy. "
                 "Conditions are optional hypotheses, but never emit placeholders such as 'screen', 'TBD', "
                 "'to be determined', 'not specified', or 'as needed'; if no concrete reagent/catalyst/solvent/temperature "
                 "or enzyme hypothesis is available, emit an empty conditions list and explain the gap in limitations."
@@ -1709,6 +1710,30 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
         "not_parent_route_proof": {"type": "boolean", "enum": [True]},
         "reaction_operations": {"type": "array", "items": reaction_operation},
     }
+    # A paper-protocol Route Builder returns an editable complete linear route
+    # object.  Keep this nullable for legacy proposal callers, but the
+    # paper_synthex director profile makes the array mandatory at admission.
+    route_step = _strict_object_schema(
+        {
+            "step_id": {"type": "string"},
+            "product_smiles": {"type": "string"},
+            "precursor_smiles": _string_array_schema(),
+            "reaction_family": {"type": "string"},
+            "product_retron_type": {"type": "string"},
+            "transformation_rationale": {"type": "string"},
+            "conditions": _string_array_schema(),
+            "catalyst": {"type": "string"},
+            "enzyme": {"type": "string"},
+            "limitations": _string_array_schema(),
+            "required_validation": _string_array_schema(),
+            "no_solved_claim": {"type": "boolean", "enum": [True]},
+            "not_parent_route_proof": {"type": "boolean", "enum": [True]},
+            "reaction_operations": {"type": "array", "items": reaction_operation},
+        }
+    )
+    candidate_properties["route_json"] = _nullable_schema(
+        {"type": "array", "items": route_step, "maxItems": 25}
+    )
     if task.task_type not in {"route_step_materialization", "route_chemistry_edit"}:
         candidate_properties["strategy_card"] = strategy_card
     if task.task_type not in {

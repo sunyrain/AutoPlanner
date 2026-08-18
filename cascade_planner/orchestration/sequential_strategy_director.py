@@ -117,6 +117,7 @@ class NodeExpansion:
     strategy_card: Mapping[str, Any] | None = None
     reaction_operations: tuple[Mapping[str, Any], ...] = ()
     reactionjson_audit: Mapping[str, Any] | None = None
+    step_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,32 +298,54 @@ class SequentialStrategyDirectorRunner:
                 continue
             branch.setdefault("critic_editor_history", [])
             for iteration in range(max_rounds + 1):
-                remaining_critics = sum(
+                future_families = sum(
                     bool(row.get("steps"))
                     and not dict(row.get("chemical_critic") or {}).get("status")
-                    for row in branches[index:]
+                    for row in branches[index + 1 :]
                 )
+                # The current branch always needs this Critic pass, including
+                # a re-critique after an Editor mutation.  Count it explicitly
+                # instead of deriving it from the previous critic status.
+                remaining_critics = 1 + future_families
                 # Keep enough invocation and token budget for one Critic and
                 # one possible Editor for every later route family.
-                future_families = max(0, remaining_critics - 1)
+                remaining_wall = _remaining_node_wall_time(started, quota)
+                family_wall = remaining_wall / max(1, remaining_critics)
+                # Reserve the current Critic's companion Editor as well as
+                # every later Critic/Editor pair.  Without this reservation a
+                # long Route Builder phase could consume the entire wall
+                # budget, allowing the Critic to run but starving the Editor
+                # that the paper loop requires.
+                current_editor_wall_reserve = family_wall * 0.5
+                future_pair_wall_reserve = future_families * family_wall
                 if not _node_budget_allows(
                     records,
                     started=started,
                     quota=quota,
-                    reserve_model_invocations=future_families * 2,
-                    reserve_input_tokens=future_families
-                    * (_CRITIC_INPUT_TOKEN_RESERVE + _EDITOR_INPUT_TOKEN_RESERVE),
-                    reserve_output_tokens=future_families
-                    * (_CRITIC_OUTPUT_TOKEN_RESERVE + _EDITOR_OUTPUT_TOKEN_RESERVE),
+                    reserve_model_invocations=2 + future_families * 2,
+                    reserve_input_tokens=(
+                        _CRITIC_INPUT_TOKEN_RESERVE
+                        + _EDITOR_INPUT_TOKEN_RESERVE
+                        + future_families
+                        * (_CRITIC_INPUT_TOKEN_RESERVE + _EDITOR_INPUT_TOKEN_RESERVE)
+                    ),
+                    reserve_output_tokens=(
+                        _CRITIC_OUTPUT_TOKEN_RESERVE
+                        + _EDITOR_OUTPUT_TOKEN_RESERVE
+                        + future_families
+                        * (_CRITIC_OUTPUT_TOKEN_RESERVE + _EDITOR_OUTPUT_TOKEN_RESERVE)
+                    ),
+                    reserve_wall_time_s=(
+                        current_editor_wall_reserve + future_pair_wall_reserve
+                    ),
                 ):
                     branch["chemical_critic"] = _unavailable_critique(
                         "critic_budget_exhausted"
                     )
                     break
-                remaining_wall = _remaining_node_wall_time(started, quota)
                 per_critic_wall = min(
                     config.critic_call_timeout_s,
-                    remaining_wall / max(1, remaining_critics + 1),
+                    max(0.001, family_wall - current_editor_wall_reserve),
                 )
                 prompt = _critic_prompt(
                     target=target,
@@ -402,6 +425,7 @@ class SequentialStrategyDirectorRunner:
                     max_node_call_timeout_s=config.max_node_call_timeout_s,
                     max_node_expansions_per_branch=config.max_node_expansions_per_branch,
                     require_strategy_graph_edits=config.require_strategy_graph_edits,
+                    allow_editor_route_mutations=config.allow_editor_route_mutations,
                     quota=quota,
                     started=started,
                 )
@@ -426,6 +450,7 @@ class SequentialStrategyDirectorRunner:
         max_node_call_timeout_s: float,
         max_node_expansions_per_branch: int,
         require_strategy_graph_edits: bool,
+        allow_editor_route_mutations: bool,
         quota: _NodeCallBudget,
         started: float,
     ) -> bool:
@@ -453,57 +478,169 @@ class SequentialStrategyDirectorRunner:
             "failure_reasons": list(blocking_step.get("reasons") or [])[:8],
             "repair_actions": list(feedback.get("repair_actions") or [])[:6],
         }
-        prompt = ""
-        # Critic payloads can be much larger than a route node payload.  Keep
-        # the Editor context surgical and progressively drop old prefix rows;
-        # a prompt-size failure must never abort the whole campaign action.
-        for prefix_view, lens in (
-            (prefix, "Codex Editor: surgical repair preserving the StrategyCard"),
-            (prefix[-3:], "Codex Editor: surgical repair"),
-            (prefix[-1:], "Codex Editor: compact surgical repair"),
-            ((), "Codex Editor: minimal surgical repair"),
-        ):
-            candidate_prompt = _node_prompt(
-                target=target,
-                branch_index=int(branch.get("branch_index") or 0),
-                lens=lens,
-                selected_product=selected_product,
-                steps=prefix_view,
-                open_leaves=[selected_product],
-                prior_rejections=[rejection],
-                repair=True,
-                strategy_card=dict(branch.get("strategy_card") or {}),
-                forbidden_strategy_cards=(),
-                host_failure_feedback=feedback,
-            )
-            if len(candidate_prompt.encode("utf-8")) <= max_prompt_bytes:
-                prompt = candidate_prompt
-                break
-        if not prompt:
-            return False
-        if not _node_budget_allows(records, started=started, quota=quota):
-            return False
-        task = _node_task(
-            spec,
-            prompt=prompt,
-            branch_index=int(branch.get("branch_index") or 0),
-            node_index=iteration + 1,
-            model=str(spec.metadata.get("model") or ""),
-            reasoning_effort=str(
-                spec.metadata.get("editor_reasoning_effort") or "high"
-            ),
-            timeout_s=_node_call_timeout_s(
-                started,
-                quota,
-                maximum=max_node_call_timeout_s,
-            ),
-            task_type="route_chemistry_edit",
+        record: WorkerRunRecord | None = None
+        route_expansions: list[NodeExpansion] | None = None
+        editor_feedback = dict(feedback)
+        editor_attempt_limit = (
+            _MATERIALIZATION_RETRY_LIMIT if allow_editor_route_mutations else 1
         )
-        try:
-            record = self.editor_executor(task)
-        except Exception:
+        # Paper-mode Editor receives the complete route so it can reorder,
+        # insert, delete, and change conditions.  If its replacement fails
+        # host materialization, feed the exact replay diagnostic into a fresh
+        # Editor attempt rather than dropping the entire branch.
+        for editor_attempt in range(1, editor_attempt_limit + 1):
+            prompt = ""
+            editor_views = (
+                (
+                    ((steps, target), "Codex Editor: full RouteJSON mutation preserving the StrategyCard"),
+                    ((_compact_route_rows(steps), target), "Codex Editor: compact full-route mutation"),
+                )
+                if allow_editor_route_mutations
+                else (
+                    ((prefix, selected_product), "Codex Editor: surgical repair preserving the StrategyCard"),
+                    ((prefix[-3:], selected_product), "Codex Editor: surgical repair"),
+                    ((prefix[-1:], selected_product), "Codex Editor: compact surgical repair"),
+                    (((), selected_product), "Codex Editor: minimal surgical repair"),
+                )
+            )
+            attempt_rejection = dict(rejection)
+            if editor_attempt > 1:
+                attempt_rejection["editor_materialization_attempt"] = editor_attempt
+            for (prefix_view, product_view), lens in editor_views:
+                candidate_prompt = _node_prompt(
+                    target=target,
+                    branch_index=int(branch.get("branch_index") or 0),
+                    lens=lens,
+                    selected_product=product_view,
+                    steps=prefix_view,
+                    open_leaves=[product_view],
+                    prior_rejections=[attempt_rejection],
+                    repair=True,
+                    strategy_card=dict(branch.get("strategy_card") or {}),
+                    forbidden_strategy_cards=(),
+                    host_failure_feedback=editor_feedback,
+                    complete_route_json=allow_editor_route_mutations,
+                    editor_route_mutations=allow_editor_route_mutations,
+                    minimum_route_depth=(2 if allow_editor_route_mutations else 1),
+                )
+                if len(candidate_prompt.encode("utf-8")) <= max_prompt_bytes:
+                    prompt = candidate_prompt
+                    break
+            if not prompt or not _node_budget_allows(
+                records, started=started, quota=quota
+            ):
+                return False
+            task = _node_task(
+                spec,
+                prompt=prompt,
+                branch_index=int(branch.get("branch_index") or 0),
+                node_index=(iteration + 1) * _MATERIALIZATION_RETRY_LIMIT
+                + editor_attempt,
+                model=str(spec.metadata.get("model") or ""),
+                reasoning_effort=str(
+                    spec.metadata.get("editor_reasoning_effort") or "high"
+                ),
+                timeout_s=_node_call_timeout_s(
+                    started,
+                    quota,
+                    maximum=max_node_call_timeout_s,
+                ),
+                task_type="route_chemistry_edit",
+            )
+            try:
+                record = self.editor_executor(task)
+            except Exception:
+                return False
+            records.append(record)
+            if not allow_editor_route_mutations:
+                break
+            route_expansions = _expansions_from_record(
+                record,
+                expected_product=target,
+                mapped_product_smiles=_mapped_smiles(target),
+                require_reaction_operations=True,
+                require_complete_route_json=True,
+                minimum_route_depth=2,
+            )
+            if route_expansions:
+                break
+            diagnostic = _expansion_rejection_diagnostic(
+                record,
+                expected_product=target,
+                mapped_product_smiles=_mapped_smiles(target),
+                require_reaction_operations=True,
+                require_complete_route_json=True,
+                minimum_route_depth=2,
+            )
+            attempt_rejection["reason"] = str(
+                diagnostic.get("reason") or "editor_route_json_invalid"
+            )
+            attempt_rejection["replay_diagnostic"] = diagnostic
+            branch.setdefault("rejections", []).append(dict(attempt_rejection))
+            editor_feedback = {
+                **feedback,
+                "editor_materialization_failure": diagnostic,
+                "editor_instruction": (
+                    "Repair the serialized full route against this host diagnostic. "
+                    "Every later product must be one exact replayed precursor; "
+                    "do not delete atoms or fragments without encoding the corresponding "
+                    "ReactionJSON edits on the current mapped product."
+                ),
+            }
+        if record is None:
             return False
-        records.append(record)
+        if allow_editor_route_mutations:
+            if not route_expansions:
+                return False
+            old_depth = len(steps)
+            edited_steps: list[dict[str, Any]] = []
+            for route_index, expansion in enumerate(route_expansions):
+                expansion = replace(
+                    expansion,
+                    strategy_card=dict(branch.get("strategy_card") or {}),
+                )
+                edited_steps.append(
+                    _step_row(
+                        expansion,
+                        step_id=(
+                            expansion.step_id
+                            or f"codex:editor:{iteration + 1}:{route_index + 1}"
+                        ),
+                        strategy_anchor=route_index == 0,
+                    )
+                )
+            branch["steps"] = edited_steps
+            branch["expanded_products"] = {
+                _canonical_smiles(row.get("product_smiles"))
+                for row in edited_steps
+                if _canonical_smiles(row.get("product_smiles"))
+            }
+            terminal_precursors = _route_terminal_precursors(route_expansions)
+            membership = self._stock_membership(terminal_precursors)
+            branch["open_leaves"] = deque(
+                value
+                for value in dict.fromkeys(terminal_precursors)
+                if membership.get(value) is not True
+            )
+            # Editor mutations are a separate six-round budget.  They must
+            # not consume the Route Builder's independent 25-node depth.
+            branch["call_count"] = int(branch.get("call_count") or 0) + 1
+            branch.setdefault("editor_repairs", []).append(
+                {
+                    "iteration": iteration,
+                    "step_id": str(blocking_step.get("step_id") or ""),
+                    "editor_task_id": task.task_id,
+                    "mutation_mode": "full_route_json",
+                    "old_route_depth": old_depth,
+                    "new_route_depth": len(edited_steps),
+                    "inserted_step_count": max(0, len(edited_steps) - old_depth),
+                    "deleted_step_count": max(0, old_depth - len(edited_steps)),
+                    "reordered_or_replaced": True,
+                }
+            )
+            branch["complete_in_bound_stock"] = not bool(branch.get("open_leaves"))
+            return True
+
         expansion = _expansion_from_record(
             record,
             expected_product=selected_product,
@@ -561,6 +698,7 @@ class SequentialStrategyDirectorRunner:
                 max_prompt_bytes=max_prompt_bytes,
                 max_node_call_timeout_s=max_node_call_timeout_s,
                 require_strategy_graph_edits=require_strategy_graph_edits,
+                require_complete_route_json=allow_editor_route_mutations,
                 quota=quota,
                 started=started,
             )
@@ -686,6 +824,7 @@ class SequentialStrategyDirectorRunner:
                     max_prompt_bytes=config.max_node_prompt_bytes,
                     max_node_call_timeout_s=config.max_node_call_timeout_s,
                     require_strategy_graph_edits=config.require_strategy_graph_edits,
+                    require_complete_route_json=config.require_complete_route_json,
                     quota=quota,
                     started=started,
                 )
@@ -886,6 +1025,7 @@ class SequentialStrategyDirectorRunner:
         max_prompt_bytes: int,
         max_node_call_timeout_s: float,
         require_strategy_graph_edits: bool = False,
+        require_complete_route_json: bool = False,
         quota: _NodeCallBudget,
         started: float,
     ) -> None:
@@ -918,6 +1058,8 @@ class SequentialStrategyDirectorRunner:
             strategy_card=dict(branch.get("strategy_card") or {}),
             forbidden_strategy_cards=(),
             host_failure_feedback={},
+            complete_route_json=require_complete_route_json,
+            minimum_route_depth=(2 if is_strategy_anchor else 1),
         )
         if len(prompt.encode("utf-8")) > max_prompt_bytes:
             prompt = _node_prompt(
@@ -932,6 +1074,8 @@ class SequentialStrategyDirectorRunner:
                 strategy_card=dict(branch.get("strategy_card") or {}),
                 forbidden_strategy_cards=(),
                 host_failure_feedback={},
+                complete_route_json=require_complete_route_json,
+                minimum_route_depth=(2 if is_strategy_anchor else 1),
             )
         if len(prompt.encode("utf-8")) > max_prompt_bytes:
             prompt = _node_prompt(
@@ -946,6 +1090,8 @@ class SequentialStrategyDirectorRunner:
                 strategy_card=dict(branch.get("strategy_card") or {}),
                 forbidden_strategy_cards=(),
                 host_failure_feedback={},
+                complete_route_json=require_complete_route_json,
+                minimum_route_depth=(2 if is_strategy_anchor else 1),
             )
         _assert_node_prompt_size(prompt, max_prompt_bytes)
         task = _node_task(
@@ -963,14 +1109,18 @@ class SequentialStrategyDirectorRunner:
         )
         record = self.node_executor(task)
         records.append(record)
-        expansion = _expansion_from_record(
+        expansions = _expansions_from_record(
             record,
             expected_product=selected,
             mapped_product_smiles=_mapped_smiles(selected),
             require_reaction_operations=bool(require_strategy_graph_edits),
+            require_complete_route_json=require_complete_route_json,
+            minimum_route_depth=(2 if is_strategy_anchor else 1),
         )
-        if expansion is None or any(
-            precursor in expanded_products for precursor in expansion.precursor_smiles
+        if expansions is None or any(
+            precursor in expanded_products
+            for expansion in expansions
+            for precursor in expansion.precursor_smiles
         ):
             diagnostic = (
                 _expansion_rejection_diagnostic(
@@ -978,8 +1128,10 @@ class SequentialStrategyDirectorRunner:
                     expected_product=selected,
                     mapped_product_smiles=_mapped_smiles(selected),
                     require_reaction_operations=bool(require_strategy_graph_edits),
+                    require_complete_route_json=require_complete_route_json,
+                    minimum_route_depth=(2 if is_strategy_anchor else 1),
                 )
-                if expansion is None
+                if expansions is None
                 else {"reason": "ancestor_cycle"}
             )
             rejection_reason = str(diagnostic.get("reason") or "invalid_expansion_contract")
@@ -993,6 +1145,13 @@ class SequentialStrategyDirectorRunner:
                 }
             )
             if rejection_reason in {
+                "route_json_missing",
+                "route_json_invalid",
+                "route_json_incomplete",
+                "route_json_step_invalid",
+                "route_json_chain_invalid",
+                "route_json_step_reaction_operations_missing",
+                "route_json_step_replay_failed",
                 "strategy_graph_edit_missing",
                 "strategy_graph_edit_replay_failed",
                 "invalid_expansion_contract",
@@ -1016,21 +1175,26 @@ class SequentialStrategyDirectorRunner:
                     return
             open_leaves.append(selected)
             return
-        if branch.get("strategy_card"):
-            expansion = replace(
-                expansion,
-                strategy_card=dict(branch.get("strategy_card") or {}),
+        for route_index, expansion in enumerate(expansions):
+            if branch.get("strategy_card"):
+                expansion = replace(
+                    expansion,
+                    strategy_card=dict(branch.get("strategy_card") or {}),
+                )
+            expanded_products.add(expansion.product_smiles)
+            steps.append(
+                _step_row(
+                    expansion,
+                    step_id=(
+                        expansion.step_id
+                        or f"codex:branch:{branch_index + 1}:{len(steps) + 1}"
+                    ),
+                    strategy_anchor=is_strategy_anchor and route_index == 0,
+                )
             )
-        expanded_products.add(selected)
-        steps.append(
-            _step_row(
-                expansion,
-                step_id=f"codex:branch:{branch_index + 1}:{len(steps) + 1}",
-                strategy_anchor=is_strategy_anchor,
-            )
-        )
-        membership = self._stock_membership(expansion.precursor_smiles)
-        for precursor in expansion.precursor_smiles:
+        terminal_precursors = _route_terminal_precursors(expansions)
+        membership = self._stock_membership(terminal_precursors)
+        for precursor in terminal_precursors:
             if membership.get(precursor) is not True and precursor not in expanded_products:
                 open_leaves.append(precursor)
         branch["open_leaves"] = deque(dict.fromkeys(open_leaves))
@@ -1531,6 +1695,9 @@ def _node_prompt(
     strategy_card: Mapping[str, Any],
     forbidden_strategy_cards: Iterable[Mapping[str, Any]],
     host_failure_feedback: Mapping[str, Any],
+    complete_route_json: bool = False,
+    editor_route_mutations: bool = False,
+    minimum_route_depth: int = 1,
 ) -> str:
     step_rows = [dict(step) for step in steps]
     memory = {
@@ -1556,6 +1723,12 @@ def _node_prompt(
         "open_leaves": list(open_leaves),
         "prior_rejections": [dict(row) for row in prior_rejections],
         "host_failure_feedback": dict(host_failure_feedback),
+        "route_json_contract": {
+            "complete_linear_route_required": bool(complete_route_json),
+            "minimum_route_depth": max(1, int(minimum_route_depth)),
+            "editor_may_reorder_insert_delete": bool(editor_route_mutations),
+            "maximum_steps": 25,
+        },
     }
     phase_instructions = [
         "Act as the Route Builder and execute the supplied immutable StrategyCard; do not silently replace its key construction with an easier functional-group-interconversion route. The host binds the card, so do not echo it in the candidate.",
@@ -1568,17 +1741,46 @@ def _node_prompt(
             "Use host_failure_feedback as a causal rejection: the replacement must directly avoid those failure reasons rather than paraphrase the rejected transformation.",
             "Compare at least three local replacements, then return only the best non-blocking candidate.",
         ]
+    if complete_route_json:
+        phase_instructions.extend(
+            [
+                "Return candidate.route_json as the complete ordered linear retrosynthetic route beginning at selected_open_leaf and continuing to terminal starting-material leaves; do not stop after the key disconnection.",
+                "Every route_json step must be contiguous: after the first step, each product_smiles must be one precursor generated by an earlier step, and every step must provide replayable reaction_operations.",
+                "RouteJSON contains reaction transformations only. Do not emit terminal starting-material leaves as extra steps, do not emit a step with empty reaction_operations, and do not use a no-op step to pad the route. The last transformation's replayed precursor fragments are the terminal leaves.",
+                "Preserve atom-map identities across the full route: later-step operations must use the maps present on the fragment emitted by the preceding replay, not freshly renumbered atoms.",
+                f"This route suffix must contain at least {max(1, int(minimum_route_depth))} real replayable transformation step(s); one step is valid for an already-expanded non-root leaf when it reaches terminal leaves, but the initial target-root route must not stop at one key disconnection.",
+                "Keep candidate.precursor_smiles and every route_json step precursor_smiles empty because the host derives all precursor structures by replay.",
+            ]
+        )
+    if editor_route_mutations:
+        phase_instructions = [
+            "Act as the paper-style RouteJSON Editor. Return a complete replacement candidate.route_json for the entire supplied route while preserving the immutable StrategyCard and its route-defining key construction.",
+            "You may reorder reactions, insert or remove protection/deprotection or activation steps, replace a failed disconnection, and modify conditions or functional-group operations when required by the Critic.",
+            "Do not retain a rejected step merely to preserve step count. Do not delete or replace the route-defining key strategy unless the Critic proved that the serialized route no longer implements the StrategyCard.",
+            "Every replacement step must be contiguous and independently replayable from its product through reaction_operations; precursor_smiles remain empty and are host-derived.",
+            "Use host_failure_feedback causally and return one edited full route, not several candidates.",
+        ]
+    opening = (
+        "Return exactly one candidate containing one complete linear RouteJSON route."
+        if complete_route_json
+        else "Expand exactly one retrosynthetic node and return exactly one candidate."
+    )
     return "\n".join(
         [
-            "Expand exactly one retrosynthetic node and return exactly one candidate.",
+            opening,
             "Route state is isolated from other branches; compact prior StrategyCards are supplied only to enforce portfolio orthogonality.",
             *phase_instructions,
             "The candidate product_smiles must equal selected_open_leaf exactly after canonicalization.",
             "Write the ordered candidate.reaction_operations first. candidate.precursor_smiles must be []; the host applies ReactionJSON to selected_open_leaf_mapped and deterministically derives the canonical precursor structures.",
             "The replayed output may contain at most four atom-contributing precursor molecules, must preserve the heavy-atom inventory required by the product, and must not repeat an ancestor.",
             "Use only map indices present in selected_open_leaf_mapped. Do not use nullable schema filler fields on an operation; each primitive must contain only its semantically relevant fields.",
+            "ReactionJSON field contract: break_bond/add_bond use map_a and map_b (add_bond also order); change_bond_order uses map_a, map_b, and numeric delta (never order); change_atom uses map_idx plus atomic_num/element/formal_charge; set_explicit_h uses map_idx and count; add_group uses map_idx and fragment_smiles; remove_group uses map_indices; stereochemical edits use their named map fields.",
             "If prior_rejections contains strategy_graph_edit_replay_failed, use its replay_diagnostic reason, attempted operations, and replayed fragments to repair the edit program. Do not rename the same idea or append unrelated hydrogen edits.",
-            "Return one local transformation, not a prose-only route and not multiple output candidates.",
+            (
+                "Return one complete RouteJSON route, not a prose-only sketch and not multiple output candidates."
+                if complete_route_json
+                else "Return one local transformation, not a prose-only route and not multiple output candidates."
+            ),
             "The output is hypothesis-only and grants no validation, stock, evidence, condition, or solved claim.",
             "CompactBranchContext:",
             json.dumps(memory, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
@@ -1884,14 +2086,16 @@ def _critique_from_record(record: WorkerRunRecord) -> dict[str, Any]:
     }
 
 
-def _expansion_from_record(
+def _expansions_from_record(
     record: WorkerRunRecord,
     *,
     expected_product: str,
     require_strategy_card: bool = False,
     mapped_product_smiles: str = "",
     require_reaction_operations: bool = False,
-) -> NodeExpansion | None:
+    require_complete_route_json: bool = False,
+    minimum_route_depth: int = 1,
+) -> list[NodeExpansion] | None:
     if record.status != "accepted_draft":
         return None
     payload = dict(dict(record.output_artifact or {}).get("payload") or {})
@@ -1899,68 +2103,203 @@ def _expansion_from_record(
     if len(candidates) != 1:
         return None
     row = candidates[0]
-    product = _canonical_smiles(row.get("product_smiles"))
-    declared_precursors = tuple(
-        dict.fromkeys(
-            canonical
-            for value in row.get("precursor_smiles") or []
-            if (canonical := _canonical_smiles(value))
-        )
-    )
-    operations = normalize_reaction_operations(row.get("reaction_operations") or ())
-    reactionjson_audit: dict[str, Any] = {}
-    if operations:
-        if not mapped_product_smiles:
+    raw_route = row.get("route_json")
+    if raw_route is None:
+        if require_complete_route_json:
             return None
-        try:
-            reactionjson_audit = replay_reactionjson(
-                mapped_product_smiles=mapped_product_smiles,
-                operations=operations,
-                expected_precursor_smiles=None,
-            )
-        except ReactionJsonReplayError:
+        route_rows: list[Mapping[str, Any]] = [row]
+    elif isinstance(raw_route, list):
+        route_rows = [value for value in raw_route if isinstance(value, Mapping)]
+        if not route_rows or (
+            require_complete_route_json
+            and len(route_rows) < max(1, int(minimum_route_depth))
+        ):
             return None
-        precursors = tuple(
-            str(value)
-            for value in reactionjson_audit.get("precursor_smiles") or []
-            if str(value)
-        )
     else:
-        precursors = declared_precursors
-    if (
-        product != expected_product
-        or not precursors
-        or len(precursors) > 4
-        or product in precursors
-        or _has_atom_provenance_deficit(product, precursors)
-    ):
         return None
-    strategy_card = normalize_strategy_card(
-        row.get("strategy_card") or {},
-        reaction_operations=(
-            row.get("reaction_operations") or ()
-            if require_strategy_card
-            else ()
-        ),
+
+    expansions: list[NodeExpansion] = []
+    prior_products: set[str] = set()
+    prior_precursors: tuple[str, ...] = ()
+    prior_mapped_precursors: tuple[str, ...] = ()
+    for index, raw_step in enumerate(route_rows):
+        step = dict(raw_step)
+        # A legacy one-step candidate keeps its fields at the candidate root;
+        # a complete RouteJSON step owns its own fields.
+        product = _canonical_smiles(step.get("product_smiles"))
+        if index == 0 and product != _canonical_smiles(expected_product):
+            return None
+        mapped_product_for_step = mapped_product_smiles if index == 0 else ""
+        if index > 0:
+            # A later RouteJSON step must consume the exact fragment emitted by
+            # the preceding ReactionJSON replay.  Re-numbering the un-mapped
+            # product here would silently destroy the atom-map identity that
+            # the model used for its ordered graph edits.
+            matching = [
+                mapped
+                for mapped in prior_mapped_precursors
+                if _canonical_smiles(mapped) == product
+            ]
+            if not matching or product not in prior_precursors:
+                return None
+            mapped_product_for_step = matching[0]
+        if product in prior_products:
+            return None
+        declared_precursors = tuple(
+            dict.fromkeys(
+                canonical
+                for value in step.get("precursor_smiles") or []
+                if (canonical := _canonical_smiles(value))
+            )
+        )
+        operations = normalize_reaction_operations(step.get("reaction_operations") or ())
+        if index == 0 and not operations and step is not row:
+            operations = normalize_reaction_operations(row.get("reaction_operations") or ())
+        reactionjson_audit: dict[str, Any] = {}
+        if operations:
+            mapped_product = mapped_product_for_step
+            if not mapped_product:
+                return None
+            try:
+                reactionjson_audit = replay_reactionjson(
+                    mapped_product_smiles=mapped_product,
+                    operations=operations,
+                    expected_precursor_smiles=None,
+                )
+            except ReactionJsonReplayError:
+                return None
+            precursors = tuple(
+                str(value)
+                for value in reactionjson_audit.get("precursor_smiles") or []
+                if str(value)
+            )
+            mapped_precursors = tuple(
+                str(value)
+                for value in reactionjson_audit.get("mapped_precursor_smiles") or []
+                if str(value)
+            )
+        else:
+            precursors = declared_precursors
+            mapped_precursors = tuple(_mapped_smiles(value) for value in precursors)
+        if (
+            not product
+            or not precursors
+            or len(precursors) > 4
+            or product in precursors
+            or any(precursor in prior_products for precursor in precursors)
+            or _has_atom_provenance_deficit(product, precursors)
+        ):
+            return None
+        if require_reaction_operations and not operations:
+            return None
+        strategy_card = normalize_strategy_card(
+            row.get("strategy_card") or {},
+            reaction_operations=operations if require_strategy_card else (),
+        )
+        if require_strategy_card and not _valid_strategy_card(strategy_card):
+            return None
+        expansions.append(
+            NodeExpansion(
+                product_smiles=product,
+                precursor_smiles=precursors,
+                reaction_family=str(_route_field(step, row, "reaction_family") or "retrosynthetic transformation"),
+                rationale=str(_route_field(step, row, "transformation_rationale") or "model-proposed local disconnection"),
+                conditions=tuple(
+                    str(value)
+                    for value in (_route_field(step, row, "conditions") or [])
+                    if str(value)
+                ),
+                catalyst=str(_route_field(step, row, "catalyst") or ""),
+                enzyme=str(_route_field(step, row, "enzyme") or ""),
+                limitations=tuple(
+                    str(value)
+                    for value in (_route_field(step, row, "limitations") or [])
+                    if str(value)
+                ),
+                product_retron_type=str(_route_field(step, row, "product_retron_type") or ""),
+                strategy_card=strategy_card,
+                reaction_operations=operations,
+                reactionjson_audit=reactionjson_audit,
+                step_id=str(step.get("step_id") or ""),
+            )
+        )
+        prior_products.add(product)
+        prior_precursors = precursors
+        prior_mapped_precursors = mapped_precursors
+    return expansions
+
+
+def _route_field(
+    step: Mapping[str, Any],
+    row: Mapping[str, Any],
+    key: str,
+) -> Any:
+    """Read a RouteJSON field without turning an explicit empty value into a fallback."""
+
+    return step[key] if key in step else row.get(key)
+
+
+def _route_terminal_precursors(expansions: Iterable[NodeExpansion]) -> tuple[str, ...]:
+    """Return only leaves not consumed as the product of a later route step."""
+
+    rows = tuple(expansions)
+    consumed_products = {row.product_smiles for row in rows[1:]}
+    return tuple(
+        dict.fromkeys(
+            precursor
+            for row in rows
+            for precursor in row.precursor_smiles
+            if precursor not in consumed_products
+        )
     )
-    if require_strategy_card and not _valid_strategy_card(strategy_card):
-        return None
-    if require_reaction_operations and not operations:
-        return None
-    return NodeExpansion(
-        product_smiles=product,
-        precursor_smiles=precursors,
-        reaction_family=str(row.get("reaction_family") or "retrosynthetic transformation"),
-        rationale=str(row.get("transformation_rationale") or "model-proposed local disconnection"),
-        conditions=tuple(str(value) for value in row.get("conditions") or [] if str(value)),
-        catalyst=str(row.get("catalyst") or ""),
-        enzyme=str(row.get("enzyme") or ""),
-        limitations=tuple(str(value) for value in row.get("limitations") or [] if str(value)),
-        product_retron_type=str(row.get("product_retron_type") or ""),
-        strategy_card=strategy_card,
-        reaction_operations=operations,
-        reactionjson_audit=reactionjson_audit,
+
+
+def _compact_route_rows(steps: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the entire route in Editor prompts while dropping bulky derived fields."""
+
+    compact: list[dict[str, Any]] = []
+    for index, row in enumerate(steps, start=1):
+        compact.append(
+            {
+                "step_id": str(row.get("step_id") or f"step:{index}"),
+                "product_smiles": str(row.get("product_smiles") or ""),
+                "precursor_smiles": list(row.get("precursor_smiles") or []),
+                "transformation_hypothesis": str(
+                    row.get("transformation_hypothesis") or ""
+                ),
+                "strategic_role": str(row.get("strategic_role") or ""),
+                "condition_predictions": list(
+                    row.get("condition_predictions") or []
+                ),
+                "reaction_operations": [
+                    dict(operation)
+                    for operation in row.get("reaction_operations") or []
+                    if isinstance(operation, Mapping)
+                ],
+                "strategy_anchor": bool(row.get("strategy_anchor")),
+            }
+        )
+    return compact
+
+
+def _expansion_from_record(
+    record: WorkerRunRecord,
+    *,
+    expected_product: str,
+    require_strategy_card: bool = False,
+    mapped_product_smiles: str = "",
+    require_reaction_operations: bool = False,
+    minimum_route_depth: int = 1,
+) -> NodeExpansion | None:
+    expansions = _expansions_from_record(
+        record,
+        expected_product=expected_product,
+        require_strategy_card=require_strategy_card,
+        mapped_product_smiles=mapped_product_smiles,
+        require_reaction_operations=require_reaction_operations,
+        minimum_route_depth=minimum_route_depth,
     )
+    return expansions[0] if expansions else None
 
 
 def _expansion_rejection_diagnostic(
@@ -1969,6 +2308,8 @@ def _expansion_rejection_diagnostic(
     expected_product: str,
     mapped_product_smiles: str,
     require_reaction_operations: bool,
+    require_complete_route_json: bool = False,
+    minimum_route_depth: int = 1,
 ) -> dict[str, Any]:
     """Return causal Route Builder feedback without weakening replay."""
 
@@ -1983,6 +2324,23 @@ def _expansion_rejection_diagnostic(
     if len(candidates) != 1:
         return {"reason": "candidate_count_invalid"}
     row = candidates[0]
+    raw_route = row.get("route_json")
+    if raw_route is None and require_complete_route_json:
+        return {
+            "reason": "route_json_missing",
+            "declared_product_smiles": _canonical_smiles(row.get("product_smiles")),
+        }
+    if require_complete_route_json and not isinstance(raw_route, list):
+        return {"reason": "route_json_invalid"}
+    if require_complete_route_json:
+        route_diagnostic = _route_json_diagnostic(
+            raw_route,
+            expected_product=expected_product,
+            mapped_product_smiles=mapped_product_smiles,
+            minimum_route_depth=minimum_route_depth,
+        )
+        if route_diagnostic is not None:
+            return route_diagnostic
     product = _canonical_smiles(row.get("product_smiles"))
     if product != expected_product:
         return {
@@ -2024,6 +2382,118 @@ def _expansion_rejection_diagnostic(
             ),
         }
     return {"reason": "invalid_expansion_contract"}
+
+
+def _route_json_diagnostic(
+    raw_route: Any,
+    *,
+    expected_product: str,
+    mapped_product_smiles: str,
+    minimum_route_depth: int = 2,
+) -> dict[str, Any] | None:
+    """Explain the first failed complete-route contract without changing authority."""
+
+    if not isinstance(raw_route, list) or not raw_route:
+        return {"reason": "route_json_invalid"}
+    required_depth = max(1, int(minimum_route_depth))
+    if len(raw_route) < required_depth:
+        return {
+            "reason": "route_json_incomplete",
+            "detail": "single_root_disconnection_is_not_a_complete_route",
+            "route_depth": len(raw_route),
+            "minimum_route_depth": required_depth,
+        }
+    prior_precursors: tuple[str, ...] = ()
+    prior_mapped_precursors: tuple[str, ...] = ()
+    prior_products: set[str] = set()
+    for index, value in enumerate(raw_route):
+        if not isinstance(value, Mapping):
+            return {"reason": "route_json_step_invalid", "step_index": index}
+        step = dict(value)
+        product = _canonical_smiles(step.get("product_smiles"))
+        if not product:
+            return {
+                "reason": "route_json_step_invalid",
+                "step_index": index,
+                "detail": "product_smiles_invalid",
+            }
+        if index == 0 and product != _canonical_smiles(expected_product):
+            return {
+                "reason": "route_json_chain_invalid",
+                "step_index": index,
+                "detail": "first_product_mismatch",
+                "declared_product_smiles": product,
+                "expected_product_smiles": _canonical_smiles(expected_product),
+            }
+        mapped = mapped_product_smiles if index == 0 else ""
+        if index > 0:
+            matching = [
+                value
+                for value in prior_mapped_precursors
+                if _canonical_smiles(value) == product
+            ]
+            if not matching or product not in prior_precursors:
+                return {
+                    "reason": "route_json_chain_invalid",
+                    "step_index": index,
+                    "detail": "product_not_in_previous_precursors",
+                    "product_smiles": product,
+                    "previous_precursors": list(prior_precursors),
+                }
+            mapped = matching[0]
+        if index == 0 and not mapped:
+            return {
+                "reason": "route_json_step_invalid",
+                "step_index": index,
+                "detail": "mapped_product_smiles_invalid",
+            }
+        if product in prior_products:
+            return {
+                "reason": "route_json_chain_invalid",
+                "step_index": index,
+                "detail": "product_repeated",
+                "product_smiles": product,
+            }
+        operations = normalize_reaction_operations(step.get("reaction_operations") or ())
+        if not operations:
+            return {
+                "reason": "route_json_step_reaction_operations_missing",
+                "step_index": index,
+                "product_smiles": product,
+            }
+        replay = diagnose_reactionjson(
+            mapped_product_smiles=mapped,
+            operations=operations,
+            declared_precursor_smiles=step.get("precursor_smiles") or [],
+        )
+        if replay.get("replay_succeeded") is not True:
+            return {
+                "reason": "route_json_step_replay_failed",
+                "step_index": index,
+                "product_smiles": product,
+                "replay_diagnostic": replay,
+            }
+        precursors = tuple(
+            _canonical_smiles(value)
+            for value in replay.get("replayed_precursor_smiles") or []
+            if _canonical_smiles(value)
+        )
+        mapped_precursors = tuple(
+            str(value)
+            for value in replay.get("mapped_replayed_precursor_smiles") or []
+            if str(value)
+        )
+        if not precursors or any(value in prior_products for value in precursors):
+            return {
+                "reason": "route_json_chain_invalid",
+                "step_index": index,
+                "detail": "ancestor_cycle_or_empty_precursors",
+                "replayed_precursor_smiles": list(precursors),
+            }
+        prior_products.add(product)
+        prior_precursors = precursors
+        prior_mapped_precursors = mapped_precursors
+    return None
 
 
 def _step_row(

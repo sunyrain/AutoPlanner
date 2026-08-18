@@ -19,6 +19,7 @@ from cascade_planner.orchestration.global_campaign_director import (
 from cascade_planner.orchestration.sequential_strategy_director import (
     SequentialStrategyDirectorRunner,
     _expansion_from_record,
+    _expansions_from_record,
     _expansion_rejection_diagnostic,
     _has_atom_provenance_deficit,
     _strategy_conflicts,
@@ -284,6 +285,182 @@ def _fake_critic_executor(task):
     return _critic_record(task)
 
 
+def _proposal_record(candidate: dict, *, target: str = "CCO") -> WorkerRunRecord:
+    artifact = {
+        "schema_version": "retrosynthesis_proposal_report_artifact.v1",
+        "artifact_id": "proposal:test",
+        "artifact_type": "RetrosynthesisProposalReport",
+        "case_id": "strategy-case:test",
+        "source": "test",
+        "input_refs": [],
+        "evidence_refs": [],
+        "validation_status": "draft",
+        "summary": "test route",
+        "payload": {
+            "schema_version": "retrosynthesis_proposal_report.v1",
+            "case_id": "strategy-case:test",
+            "agent_role": "test",
+            "target_smiles": target,
+            "candidates": [candidate],
+            "evidence_refs": [],
+            "limitations": [],
+            "no_solved_claim": True,
+        },
+    }
+    return WorkerRunRecord(
+        run_id="proposal:test:run",
+        task_id="proposal:test",
+        case_id="strategy-case:test",
+        status="accepted_draft",
+        output_artifact=artifact,
+        output_validation={"accepted": True, "reasons": []},
+        usage={"input_tokens": 1, "output_tokens": 1},
+    )
+
+
+def _complete_route_candidate() -> dict:
+    return {
+        "schema_version": "retrosynthesis_candidate.v1",
+        "candidate_id": "route:test",
+        "product_smiles": "CCO",
+        "precursor_smiles": [],
+        "reaction_family": "fragmentation",
+        "product_retron_type": "C-O",
+        "transformation_rationale": "split the terminal C-O bond",
+        "conditions": [],
+        "catalyst": "",
+        "enzyme": "",
+        "limitations": [],
+        "required_validation": ["structure"],
+        "no_solved_claim": True,
+        "not_parent_route_proof": True,
+        "reaction_operations": [
+            {"op": "break_bond", "map_a": 2, "map_b": 3}
+        ],
+        "route_json": [
+            {
+                "step_id": "route:1",
+                "product_smiles": "CCO",
+                "precursor_smiles": [],
+                "reaction_family": "fragmentation",
+                "product_retron_type": "C-O",
+                "transformation_rationale": "split the terminal C-O bond",
+                "conditions": [],
+                "catalyst": "",
+                "enzyme": "",
+                "limitations": [],
+                "required_validation": ["structure"],
+                "no_solved_claim": True,
+                "not_parent_route_proof": True,
+                "reaction_operations": [
+                    {"op": "break_bond", "map_a": 2, "map_b": 3}
+                ],
+            },
+            {
+                "step_id": "route:2",
+                "product_smiles": "CC",
+                "precursor_smiles": [],
+                "reaction_family": "fragmentation",
+                "product_retron_type": "C-C",
+                "transformation_rationale": "split the ethyl fragment",
+                "conditions": ["aqueous workup"],
+                "catalyst": "",
+                "enzyme": "",
+                "limitations": [],
+                "required_validation": ["structure"],
+                "no_solved_claim": True,
+                "not_parent_route_proof": True,
+                "reaction_operations": [
+                    {"op": "break_bond", "map_a": 1, "map_b": 2}
+                ],
+            },
+        ],
+    }
+
+
+def test_complete_route_json_replays_as_a_contiguous_linear_chain() -> None:
+    expansions = _expansions_from_record(
+        _proposal_record(_complete_route_candidate()),
+        expected_product="CCO",
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        require_reaction_operations=True,
+        require_complete_route_json=True,
+    )
+    assert expansions is not None
+    assert [row.product_smiles for row in expansions] == ["CCO", "CC"]
+    assert expansions[-1].precursor_smiles == ("C", "C")
+    assert expansions[1].conditions == ("aqueous workup",)
+
+
+def test_complete_route_json_preserves_replay_atom_maps_across_steps() -> None:
+    candidate = _complete_route_candidate()
+    candidate["route_json"][0]["reaction_operations"] = [
+        {"op": "break_bond", "map_a": 20, "map_b": 30}
+    ]
+    candidate["route_json"][1]["reaction_operations"] = [
+        {"op": "break_bond", "map_a": 10, "map_b": 20}
+    ]
+    expansions = _expansions_from_record(
+        _proposal_record(candidate),
+        expected_product="CCO",
+        mapped_product_smiles="[CH3:10][CH2:20][OH:30]",
+        require_reaction_operations=True,
+        require_complete_route_json=True,
+    )
+    assert expansions is not None
+    assert expansions[0].precursor_smiles == ("CC", "O")
+    assert expansions[1].precursor_smiles == ("C", "C")
+
+
+def test_complete_route_json_rejects_terminal_leaf_pseudo_step() -> None:
+    candidate = _complete_route_candidate()
+    candidate["route_json"].append(
+        {
+            "step_id": "terminal-leaf",
+            "product_smiles": "C",
+            "precursor_smiles": [],
+            "reaction_operations": [],
+        }
+    )
+    expansions = _expansions_from_record(
+        _proposal_record(candidate),
+        expected_product="CCO",
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        require_reaction_operations=True,
+        require_complete_route_json=True,
+    )
+    assert expansions is None
+
+
+def test_complete_route_json_allows_one_step_suffix_for_non_root_leaf() -> None:
+    candidate = _complete_route_candidate()
+    candidate["route_json"] = [candidate["route_json"][0]]
+    expansions = _expansions_from_record(
+        _proposal_record(candidate),
+        expected_product="CCO",
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        require_reaction_operations=True,
+        require_complete_route_json=True,
+        minimum_route_depth=1,
+    )
+    assert expansions is not None
+    assert len(expansions) == 1
+
+
+def test_complete_route_json_rejects_internal_cycle() -> None:
+    candidate = _complete_route_candidate()
+    candidate["route_json"][1]["reaction_operations"] = [
+        {"op": "add_group", "map_idx": 2, "fragment_smiles": "[*][OH:3]"}
+    ]
+    expansions = _expansions_from_record(
+        _proposal_record(candidate),
+        expected_product="CCO",
+        require_reaction_operations=True,
+        require_complete_route_json=True,
+    )
+    assert expansions is None
+
+
 def test_independent_codex_critic_runs_before_plan_delivery() -> None:
     context = _context()
     config = DirectorConfig(
@@ -378,11 +555,16 @@ def test_codex_critic_editor_loop_repairs_a_blocking_step() -> None:
             return _critic_record(task)
         return _fake_executor(task)
 
+    base_spec = _spec(context)
+    spec = replace(
+        base_spec,
+        metadata={**dict(base_spec.metadata), "remaining_model_budget": {"model_invocations": 10}},
+    )
     result = SequentialStrategyDirectorRunner(
         node_executor=executor,
         critic_executor=executor,
         editor_executor=executor,
-    )(_spec(context), context, "initial_architecture", config)
+    )(spec, context, "initial_architecture", config)
 
     assert result.state is AgentState.SUCCEEDED
     assert critic_calls == 2
@@ -394,6 +576,59 @@ def test_codex_critic_editor_loop_repairs_a_blocking_step() -> None:
     assert family["chemical_critic"]["status"] == "viable"
     assert len(family["critic_editor_history"]) == 2
     assert len(family["editor_repairs"]) == 1
+
+
+def test_editor_retries_after_routejson_materialization_failure() -> None:
+    context = _context()
+    config = DirectorConfig(
+        minimum_route_families=1,
+        max_route_families=3,
+        max_skeletons=3,
+        max_steps_per_skeleton=25,
+        planning_mode="sequential_branches",
+        strategy_branch_count=1,
+        max_node_expansions_per_branch=1,
+        max_route_local_repair_rounds=2,
+        require_strategy_graph_edits=True,
+        require_complete_route_json=True,
+        allow_editor_route_mutations=True,
+    )
+    editor_attempts = 0
+    critic_attempts = 0
+    observed = []
+
+    def executor(task):
+        nonlocal editor_attempts, critic_attempts
+        observed.append(task)
+        if task.required_artifact_type == "StrategyCardReport":
+            return _strategy_record(task)
+        if task.required_artifact_type == "ChemicalStrategyCritique":
+            critic_attempts += 1
+            if critic_attempts == 1:
+                return _blocking_critic_record(task, step_id="route:1")
+            return _critic_record(task)
+        candidate = _complete_route_candidate()
+        if task.task_type == "route_chemistry_edit":
+            editor_attempts += 1
+            if editor_attempts == 1:
+                candidate["route_json"][1]["product_smiles"] = "CO"
+        return _proposal_record(candidate)
+
+    base_spec = _spec(context)
+    spec = replace(
+        base_spec,
+        metadata={**dict(base_spec.metadata), "remaining_model_budget": {"model_invocations": 10}},
+    )
+    result = SequentialStrategyDirectorRunner(
+        node_executor=executor,
+        critic_executor=executor,
+        editor_executor=executor,
+    )(spec, context, "initial_architecture", config)
+
+    assert result.state is AgentState.SUCCEEDED
+    assert editor_attempts == 2
+    assert critic_attempts == 2
+    assert sum(task.task_type == "route_chemistry_edit" for task in observed) == 2
 
 
 def test_critic_wall_reservation_does_not_starve_route_nodes(monkeypatch) -> None:

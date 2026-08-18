@@ -6,7 +6,7 @@ import json
 from typing import Any, Mapping
 
 
-PAPER_EQUIVALENT_METRIC_SCHEMA = "paper_equivalent_solved_metric.v1"
+PAPER_EQUIVALENT_METRIC_SCHEMA = "paper_equivalent_solved_metric.v2"
 SYNTHEX_STOCK_MEMBER_COUNT = 39_684_411
 
 
@@ -28,7 +28,7 @@ def compile_paper_equivalent_metric(
         for row in blind_acceptance.get("routes") or []
         if isinstance(row, Mapping)
     ]
-    solved_routes = [
+    reached_routes = [
         {
             "route_family_id": str(row.get("route_family_id") or ""),
             "skeleton_id": str(row.get("skeleton_id") or ""),
@@ -38,10 +38,24 @@ def compile_paper_equivalent_metric(
             ),
         }
         for row in routes
-        if row.get("stock_closed") is True
-        and bool(row.get("edge_ids"))
+        if bool(row.get("edge_ids"))
         and bool(row.get("leaf_molecule_ids"))
     ]
+    solved_routes = [
+        row
+        for row in reached_routes
+        if next(
+            (
+                route.get("stock_closed") is True
+                for route in routes
+                if str(route.get("route_family_id") or "") == row["route_family_id"]
+                and str(route.get("skeleton_id") or "") == row["skeleton_id"]
+            ),
+            False,
+        )
+    ]
+    blind_gates = dict(blind_acceptance.get("gates") or {})
+    blind_counts = dict(blind_acceptance.get("counts") or {})
     oracle = dict(stock_oracle or {})
     binding = dict(oracle.get("binding") or {})
     catalog_name = str(binding.get("catalog_name") or "")
@@ -56,6 +70,11 @@ def compile_paper_equivalent_metric(
     )
     result = {
         "schema_version": PAPER_EQUIVALENT_METRIC_SCHEMA,
+        "paper_reach": bool(reached_routes),
+        "paper_reached_route_count": len(reached_routes),
+        "reached_routes": reached_routes,
+        "paper_solved": bool(solved_routes),
+        "paper_solved_route_count": len(solved_routes),
         "paper_equivalent_solved": bool(solved_routes),
         "paper_equivalent_solved_route_count": len(solved_routes),
         "solved_routes": solved_routes,
@@ -71,6 +90,19 @@ def compile_paper_equivalent_metric(
             if exact_paper_stock
             else "metric_valid_for_bound_stock_but_not_paper_stock_comparable"
         ),
+        "strict_b2": {
+            "host_validated": blind_gates.get("B2_host_validated_routes") is True,
+            "host_validated_route_count": int(
+                blind_counts.get("reaction_validated_skeletons") or 0
+            ),
+            "independent_from_paper_reach_and_solved": True,
+            "semantics": {
+                "host_reaction_credibility_axis": True,
+                "not_used_to_compute_paper_reach": True,
+                "not_used_to_compute_paper_solved": True,
+                "not_wet_lab_validation": True,
+            },
+        },
         "independent_axes": {
             "reaction_validation": "reported_elsewhere_not_required",
             "exact_evidence": "reported_elsewhere_not_required",
@@ -78,6 +110,8 @@ def compile_paper_equivalent_metric(
         },
         "semantics": {
             "existential_one_route_metric": True,
+            "paper_reach_requires_target_rooted_route_only": True,
+            "paper_solved_additionally_requires_all_leaves_in_stock": True,
             "target_rooted_topology_required": True,
             "all_leaves_must_hit_one_bound_stock_oracle": True,
             "configured_minimum_route_count_not_used": True,

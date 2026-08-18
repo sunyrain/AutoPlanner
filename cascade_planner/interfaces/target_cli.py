@@ -85,7 +85,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     )
     solve.add_argument(
         "--execution-profile",
-        choices=("fast", "standard", "proof"),
+        choices=("fast", "standard", "proof", "paper_synthex"),
         default="standard",
         help=(
             "fast is the default and returns a compact two-family architecture; "
@@ -101,6 +101,18 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
             "synthex_matched runs three independent compact Codex policy "
             "branches with continuous node expansion"
         ),
+    )
+    solve.add_argument(
+        "--require-complete-route-json",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="require one complete linear RouteJSON route in the paper profile",
+    )
+    solve.add_argument(
+        "--allow-editor-route-mutations",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="allow the Codex Editor to reorder/insert/delete/edit route steps",
     )
     solve.add_argument(
         "--strategy-branches",
@@ -871,6 +883,16 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_node_prompt_bytes=args.max_node_prompt_bytes,
             max_node_call_timeout_s=args.node_call_timeout_s,
             critic_call_timeout_s=args.critic_call_timeout_s,
+            require_complete_route_json=(
+                bool(args.require_complete_route_json)
+                if args.require_complete_route_json is not None
+                else args.execution_profile == "paper_synthex"
+            ),
+            allow_editor_route_mutations=(
+                bool(args.allow_editor_route_mutations)
+                if args.allow_editor_route_mutations is not None
+                else args.execution_profile == "paper_synthex"
+            ),
             objective_mode=objective_compatibility_view,
             use_coordinator=args.coordinator and not args.single_agent,
             enable_web_search=not args.no_web_search,

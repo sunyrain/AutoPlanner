@@ -38,6 +38,20 @@ TARGET_PROFILE_DEFAULTS = {
         "max_model_wall_time_s": 1_800.0,
         "max_director_wall_time_s": 1_800.0,
     },
+    # Paper protocol is an explicit execution surface.  It is deliberately
+    # separate from the ordinary ``standard``/``proof`` operational profiles
+    # so a low-cost canary cannot silently masquerade as a SynthEx run.
+    "paper_synthex": {
+        "steps": 6,
+        "iterations": 500,
+        "topk": 120,
+        "timeout": 1_200.0,
+        "workers": 1,
+        "max_input_tokens": 1_200_000,
+        "max_output_tokens": 200_000,
+        "max_model_wall_time_s": 1_800.0,
+        "max_director_wall_time_s": 1_800.0,
+    },
 }
 
 
@@ -71,6 +85,9 @@ SYNTHEX_MATCHED_PROFILE_DEFAULTS = {
     "short_tail_steps": 6,
     "short_tail_iterations": 500,
     "short_tail_timeout_s": 1_200.0,
+    "route_builder_max_steps": 25,
+    "route_builder_complete_linear_route": True,
+    "editor_route_mutations": True,
     "stock_catalog_name": "ZINC+eMolecules",
     "stock_member_count": 39_684_411,
 }
