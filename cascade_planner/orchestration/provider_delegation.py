@@ -25,6 +25,33 @@ def complete_chemenzy_delegation(
     """
 
     priorities = [dict(value) for value in frontier_priorities]
+    if max(0, int(max_requests)) == 0:
+        repairs: list[dict[str, Any]] = []
+        for index, priority in enumerate(priorities):
+            providers = [
+                str(value).strip()
+                for value in priority.get("provider_preferences") or []
+                if str(value).strip()
+            ]
+            retained = [value for value in providers if value.casefold() != "chemenzy"]
+            if len(retained) == len(providers):
+                continue
+            priorities[index]["provider_preferences"] = retained
+            repairs.append(
+                {
+                    "schema_version": "global_campaign_contract_repair.v1",
+                    "field": "frontier_priorities.provider_delegation",
+                    "priority_id": str(priority.get("priority_id") or ""),
+                    "proposal_id": str(priority.get("proposal_id") or ""),
+                    "reason": "provider_delegation_disabled_by_execution_profile",
+                    "semantics": {
+                        "chemistry_unchanged": True,
+                        "host_priority_preserved": True,
+                        "provider_search_deferred_until_stock_rejected_leaf": True,
+                    },
+                }
+            )
+        return priorities, repairs
     candidates: dict[str, dict[str, Any]] = {}
     for skeleton in skeletons:
         family_id = str(skeleton.get("route_family_id") or "")

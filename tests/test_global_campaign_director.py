@@ -32,6 +32,9 @@ from cascade_planner.orchestration.global_campaign_director import (
     run_api_json_director_child,
     validate_global_campaign_plan,
 )
+from cascade_planner.orchestration.provider_delegation import (
+    complete_chemenzy_delegation,
+)
 from cascade_planner.orchestration.retrosynthesis_service import (
     RetrosynthesisCampaignService,
 )
@@ -62,6 +65,35 @@ def _kernel(tmp_path: Path, *, calls: int = 3) -> RunKernel:
     )
     kernel.start()
     return kernel
+
+
+def test_paper_profile_can_disable_director_provider_delegation() -> None:
+    priorities, repairs = complete_chemenzy_delegation(
+        skeletons=(),
+        frontier_priorities=(
+            {
+                "priority_id": "priority:leaf",
+                "target_smiles": "CCO",
+                "provider_preferences": ["chemenzy", "other-provider"],
+            },
+        ),
+        campaign_target="CCOC(C)=O",
+        canonicalize=lambda value: str(value or ""),
+        max_requests=0,
+    )
+
+    assert DirectorConfig(max_provider_requests=0).max_provider_requests == 0
+    with pytest.raises(ValueError, match="provider request limit"):
+        DirectorConfig(max_provider_requests=-1)
+    with pytest.raises(ValueError, match="strategy portfolio mode"):
+        DirectorConfig(strategy_portfolio_mode="mixed_into_paper_arm")
+    assert priorities[0]["provider_preferences"] == ["other-provider"]
+    assert repairs[0]["reason"] == (
+        "provider_delegation_disabled_by_execution_profile"
+    )
+    assert repairs[0]["semantics"][
+        "provider_search_deferred_until_stock_rejected_leaf"
+    ] is True
 
 
 def _context(
@@ -426,6 +458,51 @@ def test_director_coordinates_global_families_through_one_kernel_call_and_cache(
     assert kernel.state.attempt_count == 0
     assert kernel.state.model_totals["model_invocations"] == 1
     assert kernel.state.accepted_expansion_count == 0
+
+
+def test_single_call_director_plan_remains_bound_by_output_bytes(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    raw["portfolio_rationale"] = "oversized " * 100
+    _, runner = _runner(raw)
+    director = GlobalCampaignDirector(
+        kernel,
+        runner=runner,
+        config=DirectorConfig(max_output_bytes=100),
+    )
+
+    with pytest.raises(
+        GlobalCampaignPlanValidationError,
+        match="director_plan_output_byte_budget_exceeded",
+    ):
+        director.run(context, mode="initial_architecture")
+
+
+def test_host_compiled_sequential_plan_is_not_rejected_by_single_call_byte_limit(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    raw["portfolio_rationale"] = "host accumulated " * 100
+    _, runner = _runner(raw)
+    director = GlobalCampaignDirector(
+        kernel,
+        runner=runner,
+        config=DirectorConfig(
+            planning_mode="sequential_branches",
+            max_output_bytes=100,
+        ),
+    )
+
+    outcome = director.run(context, mode="initial_architecture")
+
+    assert outcome.status == "accepted"
+    assert outcome.plan is not None
+    assert len(json.dumps(outcome.plan.to_dict()).encode("utf-8")) > 100
 
 
 def test_director_rejects_an_operationally_empty_reaction_step(

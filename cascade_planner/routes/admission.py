@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from rdkit import Chem, RDLogger
 
@@ -36,6 +36,9 @@ def audit_retrosynthetic_candidate(
     *,
     forbidden_return_smiles: Iterable[Any] = (),
     policy: RetrosyntheticAdmissionPolicy | None = None,
+    mapped_product_smiles: Any = "",
+    reaction_operations: Iterable[Mapping[str, Any]] = (),
+    reactionjson_audit: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Audit one exact product/precursor multiset without granting proof.
 
@@ -112,9 +115,26 @@ def audit_retrosynthetic_candidate(
                 surplus_advanced_fragments.append(precursors[index])
         if surplus_advanced_fragments:
             reasons.append("surplus_advanced_precursor_fragment")
+    replayed_external_atom_deficit_bound = bool(
+        deficits
+        and dict(reactionjson_audit or {}).get("accepted") is True
+        and dict(reactionjson_audit or {}).get("external_atom_source_required")
+        is True
+        and dict(reactionjson_audit or {}).get(
+            "external_atom_source_grants_reaction_proof"
+        )
+        is False
+        and replayed_external_atom_deficit_is_bound(
+            product,
+            precursors,
+            mapped_product_smiles=mapped_product_smiles,
+            reaction_operations=reaction_operations,
+        )
+    )
     if (
         active.hard_filter_element_inventory
         and deficits
+        and not replayed_external_atom_deficit_bound
         and (
             missing_heavy_atoms > active.max_tolerated_missing_heavy_atoms
             or product_heavy_atoms <= active.strict_small_product_heavy_atom_threshold
@@ -142,6 +162,12 @@ def audit_retrosynthetic_candidate(
         "precursor_element_counts": dict(sorted(precursor_counts.items())),
         "element_deficits": dict(sorted(deficits.items())),
         "missing_product_heavy_atom_count": missing_heavy_atoms,
+        "replayed_external_atom_deficit_bound": (
+            replayed_external_atom_deficit_bound
+        ),
+        "external_atom_source_requires_validation": (
+            replayed_external_atom_deficit_bound
+        ),
         "product_heavy_atom_count": product_heavy_atoms,
         "precursor_heavy_atom_count": precursor_heavy_atoms,
         "surplus_advanced_precursor_fragments": surplus_advanced_fragments,
@@ -152,8 +178,75 @@ def audit_retrosynthetic_candidate(
             "precursor_multiplicity_preserved": True,
             "large_inventory_redundancy_is_not_joint_participation": True,
             "small_salts_and_leaving_groups_are_exempt": True,
+            "replayed_external_atom_edits_grant_no_reaction_proof": True,
         },
     }
+
+
+def replayed_external_atom_deficit_is_bound(
+    product_smiles: Any,
+    precursor_smiles: Iterable[Any],
+    *,
+    mapped_product_smiles: Any,
+    reaction_operations: Iterable[Mapping[str, Any]],
+) -> bool:
+    """Return whether replay edits exactly explain every missing product element.
+
+    ``remove_group`` and ``change_atom`` are retrosynthetic operations.  They may
+    remove product atoms that a forward reagent or donor must supply, so those
+    atoms are not skeletal search precursors.  The allowance is structural only:
+    it requires mapped atoms named by the replayed edit and never grants reaction
+    proof, source authority, or stock closure.
+    """
+
+    product = _canonical_smiles(product_smiles)
+    precursors = [
+        canonical
+        for value in precursor_smiles or ()
+        if (canonical := _canonical_smiles(value))
+    ]
+    required = _element_counts(product)
+    available: Counter[str] = Counter()
+    for precursor in precursors:
+        available.update(_element_counts(precursor))
+    deficits = Counter(
+        {
+            element: count - int(available.get(element, 0))
+            for element, count in required.items()
+            if count > int(available.get(element, 0))
+        }
+    )
+    if not deficits:
+        return False
+
+    molecule = Chem.MolFromSmiles(str(mapped_product_smiles or "").strip())
+    if molecule is None:
+        return False
+    atom_by_map = {
+        int(atom.GetAtomMapNum()): atom
+        for atom in molecule.GetAtoms()
+        if int(atom.GetAtomMapNum()) > 0
+    }
+    explicitly_external: Counter[str] = Counter()
+    for raw in reaction_operations or ():
+        operation = dict(raw)
+        kind = str(operation.get("op") or "").strip().lower()
+        if kind == "remove_group":
+            map_indices = operation.get("map_indices") or ()
+        elif kind == "change_atom":
+            map_indices = (operation.get("map_idx"),)
+        else:
+            continue
+        for raw_map in map_indices:
+            try:
+                atom = atom_by_map[int(raw_map)]
+            except (KeyError, TypeError, ValueError):
+                return False
+            if atom.GetAtomicNum() > 1:
+                explicitly_external[atom.GetSymbol()] += 1
+    return all(
+        explicitly_external[element] >= count for element, count in deficits.items()
+    )
 
 
 def retrosynthetic_admission_record(

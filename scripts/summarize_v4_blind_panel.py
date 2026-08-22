@@ -488,6 +488,10 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
             "target_name": name,
             "case_id": str(row.get("case_id") or ""),
             "status": str(row.get("status") or ""),
+            "scientific_status": str(row.get("scientific_status") or ""),
+            "scientific_disposition": str(
+                row.get("scientific_disposition") or ""
+            ),
             "terminal_disposition": _terminal_disposition(row),
             "retrostar_solved": (
                 int(
@@ -550,6 +554,7 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
             "accepted_under_configured_policy": (
                 row.get("accepted_under_configured_policy") is True
             ),
+            "paper_equivalent": dict(row.get("paper_equivalent") or {}),
             "within_resource_budget": row.get("within_resource_budget") is True,
             "elapsed_s": row.get("elapsed_s"),
             "runner_elapsed_s": row.get("runner_elapsed_s"),
@@ -1036,6 +1041,35 @@ def _hydrate_report_diagnostics(status: Mapping[str, Any]) -> dict[str, Any]:
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             targets[str(name)] = row
             continue
+        projection_available = (
+            dict(row.get("fixed_cutoff_projection") or {}).get("available") is True
+        )
+        claim = dict(report.get("claim") or {})
+        current_disposition = dict(report.get("current_disposition") or {})
+        stop_decision = dict(report.get("stop_decision") or {})
+        scientifically_terminal = bool(
+            claim.get("accepted_under_configured_policy") is True
+            or current_disposition.get("state") == "accepted"
+            or (
+                stop_decision.get("terminal") is True
+                and str(stop_decision.get("decision") or "")
+                in {"completed", "accepted"}
+            )
+        )
+        row.setdefault(
+            "scientific_status",
+            "accepted" if scientifically_terminal else "unresolved",
+        )
+        row.setdefault(
+            "scientific_disposition",
+            str(current_disposition.get("state") or ""),
+        )
+        # Migrate compact rows emitted before operational completion and
+        # scientific acceptance were split.  Preserve the legacy value for
+        # auditability; the frozen report and cutoff projection are unchanged.
+        if row.get("status") == "incomplete" and projection_available:
+            row["legacy_target_status"] = "incomplete"
+            row["status"] = "completed"
         reasons = Counter()
         latest_stock: dict[str, int] = {}
         lineage_dispositions = Counter()

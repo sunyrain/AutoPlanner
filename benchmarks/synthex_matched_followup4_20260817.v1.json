@@ -15,7 +15,7 @@
         "max_prompt_context_bytes": 64000,
         "max_total_input_tokens": 1200000,
         "max_total_output_tokens": 200000,
-        "max_total_wall_time_s": 1800
+        "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfive-002-5cac6c0d9928",
       "schema_version": "blind_retrosynthesis_case.v1",
@@ -37,7 +37,7 @@
         "max_prompt_context_bytes": 64000,
         "max_total_input_tokens": 1200000,
         "max_total_output_tokens": 200000,
-        "max_total_wall_time_s": 1800
+        "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfive-003-63956b2f8f73",
       "schema_version": "blind_retrosynthesis_case.v1",
@@ -59,7 +59,7 @@
         "max_prompt_context_bytes": 64000,
         "max_total_input_tokens": 1200000,
         "max_total_output_tokens": 200000,
-        "max_total_wall_time_s": 1800
+        "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfive-004-026027a93065",
       "schema_version": "blind_retrosynthesis_case.v1",
@@ -81,7 +81,7 @@
         "max_prompt_context_bytes": 64000,
         "max_total_input_tokens": 1200000,
         "max_total_output_tokens": 200000,
-        "max_total_wall_time_s": 1800
+        "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfive-005-ac25497d48",
       "schema_version": "blind_retrosynthesis_case.v1",

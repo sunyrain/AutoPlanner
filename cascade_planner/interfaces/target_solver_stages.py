@@ -377,6 +377,19 @@ def prepare_materialized_edge_validation(
                         "edge_digest": edge["edge_digest"],
                         "product_smiles": edge["product_smiles"],
                         "precursor_smiles": edge["precursor_smiles"],
+                        "reaction_operations": [
+                            dict(value)
+                            for value in edge.get("reaction_operations") or []
+                            if isinstance(value, Mapping)
+                        ],
+                        "reactionjson_audit": dict(
+                            edge.get("reactionjson_audit") or {}
+                        ),
+                        "biocatalytic_steps": [
+                            dict(value)
+                            for value in edge.get("biocatalytic_steps") or []
+                            if isinstance(value, Mapping)
+                        ],
                     },
                     "mapped_reaction_smiles": mapped_reaction,
                     "exact_source_records": exact_records,

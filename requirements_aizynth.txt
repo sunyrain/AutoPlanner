@@ -3,6 +3,9 @@
 aizynthfinder==4.4.1
 rdchiral==1.1.0
 onnxruntime>=1.18
-rdkit>=2024.3.5
+# AiZynthFinder 4.4.1 pins RDKit to the 2023.09 release family.  Keep this
+# environment isolated from AutoPlanner's main RDKit runtime rather than
+# declaring an unsatisfiable cross-environment minimum here.
+rdkit>=2023.9.1,<2024.0.0
 numpy<2.1
 pyyaml

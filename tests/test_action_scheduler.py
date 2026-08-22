@@ -355,6 +355,18 @@ def test_processable_structural_preflight_blocks_all_downstream_actions() -> Non
     ] is True
 
 
+def test_materialization_contract_version_is_bound_to_action_identity() -> None:
+    opportunities = compile_action_opportunities(_structural_preflight_frontier())
+    materialize = next(
+        row
+        for row in opportunities["actions"]
+        if row["kind"] == CampaignActionKind.MATERIALIZE.value
+    )
+
+    assert materialize["metadata"]["action_contract"] == "terminal_rejection.v1"
+    assert materialize["action_id"].startswith("action:host_materialize:")
+
+
 def test_initial_discovery_and_unprocessable_checks_remain_schedulable() -> None:
     frontier = _structural_preflight_frontier()
     frontier["items"] = [
@@ -485,6 +497,67 @@ def test_scheduler_does_not_dispatch_unscoped_codex_replan() -> None:
     assert codex["eligible"] is False
     assert "global_replan_scope_missing" in codex["blocked_reasons"]
     assert decision["selected_action"]["kind"] != "codex_global_replan"
+
+
+def test_paper_short_tail_precedes_scoped_global_replan() -> None:
+    frontier = {
+        "content_sha256": "paper-short-tail-before-replan",
+        "items": [
+            {
+                "deficit_id": "deficit:expansion:paper-tail",
+                "kind": "expansion",
+                "object_id": "molecule:stock-rejected-leaf",
+                "entity_ids": ["molecule:stock-rejected-leaf"],
+                "route_family_ids": ["route-family:open"],
+                "dependency_ids": [],
+                "deterministic": False,
+                "model_allowed": True,
+                "reason": "stock_rejected_leaf_requires_upstream_expansion",
+                "priority": 100.0,
+                "score": {},
+                "metadata": {
+                    "provider_preferences": ["chemenzy"],
+                    "paper_short_tail_eligible": True,
+                    "target_rooted_open_leaf": True,
+                },
+            },
+            {
+                "deficit_id": "event-deficit:replan:provider-failure",
+                "kind": "replan",
+                "object_id": "molecule:failed-tail",
+                "entity_ids": ["molecule:failed-tail"],
+                "route_family_ids": [],
+                "dependency_ids": [],
+                "deterministic": False,
+                "model_allowed": True,
+                "reason": "material_state_requires_global_replan",
+                "priority": 10_000.0,
+                "score": {},
+                "metadata": {"global_replan": True},
+            },
+        ],
+    }
+    opportunities = compile_action_opportunities(frontier)
+
+    decision = schedule_next_action(
+        opportunities,
+        resource_availability={
+            "native_search_frontier": True,
+            "model": True,
+        },
+    )
+
+    assert decision["selected_action"]["kind"] == "chemenzy_frontier_expand"
+    replan = next(
+        row
+        for row in decision["candidates"]
+        if row["kind"] == "codex_global_replan"
+    )
+    assert replan["eligible"] is False
+    assert "paper_short_tail_pending" in replan["blocked_reasons"]
+    assert decision["semantics"][
+        "paper_short_tails_precede_global_replan"
+    ] is True
 
 
 def test_round_robin_scheduler_uses_frozen_kind_cursor_not_adaptive_score() -> None:

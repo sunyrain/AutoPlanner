@@ -24,8 +24,18 @@ def molecule_identity(smiles: Any) -> tuple[str, str]:
 def reaction_edge_identity(
     product_smiles: Any,
     precursor_smiles: Iterable[Any],
+    *,
+    mapped_product_smiles: Any = "",
+    reaction_operations: Iterable[Mapping[str, Any]] = (),
+    reactionjson_audit: Mapping[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    audit = audit_retrosynthetic_candidate(product_smiles, precursor_smiles)
+    audit = audit_retrosynthetic_candidate(
+        product_smiles,
+        precursor_smiles,
+        mapped_product_smiles=mapped_product_smiles,
+        reaction_operations=reaction_operations,
+        reactionjson_audit=reactionjson_audit,
+    )
     digest = str(audit.get("edge_digest") or "")
     return (f"edge:{digest}" if digest else ""), audit
 
@@ -101,8 +111,18 @@ def route_family_identity(
 def hypothesis_identity(
     product_smiles: Any,
     precursor_smiles: Iterable[Any],
+    *,
+    mapped_product_smiles: Any = "",
+    reaction_operations: Iterable[Mapping[str, Any]] = (),
+    reactionjson_audit: Mapping[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    edge_id, audit = reaction_edge_identity(product_smiles, precursor_smiles)
+    edge_id, audit = reaction_edge_identity(
+        product_smiles,
+        precursor_smiles,
+        mapped_product_smiles=mapped_product_smiles,
+        reaction_operations=reaction_operations,
+        reactionjson_audit=reactionjson_audit,
+    )
     digest = str(audit.get("edge_digest") or "")
     return (f"hypothesis:{digest}" if edge_id else ""), audit
 

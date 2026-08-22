@@ -15,6 +15,7 @@ CAMPAIGN_ACTION_SCHEMA = "campaign_action.v2"
 CAMPAIGN_ACTION_RESOURCE_ESTIMATE_SCHEMA = "campaign_action_resource_estimate.v1"
 ACTION_ESTIMATE_SCHEMA = "campaign_action_estimate.v1"
 ACTION_RESULT_SCHEMA = "campaign_action_result.v1"
+MATERIALIZATION_ACTION_CONTRACT = "terminal_rejection.v1"
 
 
 class CampaignActionKind(str, Enum):
@@ -194,15 +195,13 @@ def bind_scheduled_action(
         raise ValueError("campaign action decision has no eligible selection")
     opportunity_sha256 = str(selected.get("content_sha256") or "")
     opportunity_set_sha256 = str(decision.get("opportunity_set_sha256") or "")
-    identity = _digest(
-        {
-            "action_id": str(selected.get("action_id") or ""),
-            "input_revision": int(input_revision),
-            "opportunity_sha256": opportunity_sha256,
-            "opportunity_set_sha256": opportunity_set_sha256,
-        }
+    execution_id = campaign_action_execution_id(
+        action_id=str(selected.get("action_id") or ""),
+        input_revision=input_revision,
+        opportunity_sha256=opportunity_sha256,
+        opportunity_set_sha256=opportunity_set_sha256,
     )
-    execution_id = f"campaign-action:{identity}"
+    identity = execution_id.removeprefix("campaign-action:")
     kind = CampaignActionKind(str(selected.get("kind") or ""))
     resource_class = str(selected.get("resource_class") or "")
     expected_resources = compile_action_resource_estimate(
@@ -251,6 +250,32 @@ def bind_scheduled_action(
             ),
         },
     )
+
+
+def campaign_action_execution_id(
+    *,
+    action_id: str,
+    input_revision: int,
+    opportunity_sha256: str,
+    opportunity_set_sha256: str,
+) -> str:
+    """Return the semantic execution identity for one scheduled Action.
+
+    Scheduler diagnostics such as the round-robin cursor, policy label, or
+    score decomposition intentionally do not participate. Rebinding the same
+    opportunity at the same canonical graph revision must therefore address
+    the same durable execution receipt.
+    """
+
+    identity = _digest(
+        {
+            "action_id": str(action_id or ""),
+            "input_revision": int(input_revision),
+            "opportunity_sha256": str(opportunity_sha256 or ""),
+            "opportunity_set_sha256": str(opportunity_set_sha256 or ""),
+        }
+    )
+    return f"campaign-action:{identity}"
 
 
 def action_task_kind(resource_class: str) -> str:
@@ -410,11 +435,25 @@ def compile_action_opportunities(
         for action_kind, producer, resource_class in mappings:
             score = dict(row.get("score") or {})
             probability = _success_probability_interval(score)
+            action_contract = (
+                MATERIALIZATION_ACTION_CONTRACT
+                if action_kind is CampaignActionKind.MATERIALIZE
+                else ""
+            )
             identity = _digest(
                 {
                     "deficit_id": str(row.get("deficit_id") or ""),
                     "kind": action_kind.value,
                     "producer": producer,
+                    # A materialization contract change must create a fresh
+                    # deterministic execution identity. Otherwise a resumed
+                    # run can replay an old completed-wrapper/rejected-graph
+                    # receipt forever and never reach canonical ingestion.
+                    **(
+                        {"action_contract": action_contract}
+                        if action_contract
+                        else {}
+                    ),
                 }
             )
             opportunities.append(
@@ -486,6 +525,11 @@ def compile_action_opportunities(
                         **dict(row.get("metadata") or {}),
                         "frontier_kind": kind,
                         "frontier_object_id": str(row.get("object_id") or ""),
+                        **(
+                            {"action_contract": action_contract}
+                            if action_contract
+                            else {}
+                        ),
                     },
                 )
             )

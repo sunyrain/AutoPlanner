@@ -1401,9 +1401,28 @@ def _smiles_in_stock_file(canonical: str, path: Path) -> bool:
     if path.suffix.lower() in {".sqlite", ".sqlite3", ".db"}:
         uri = f"file:{path.expanduser().resolve().as_posix()}?mode=ro"
         with sqlite3.connect(uri, uri=True) as connection:
+            identity_key = ""
+            try:
+                metadata_row = connection.execute(
+                    "SELECT value FROM metadata WHERE key = 'identity_key' LIMIT 1"
+                ).fetchone()
+                identity_key = str(metadata_row[0] if metadata_row else "").strip()
+            except sqlite3.OperationalError:
+                # Historical canonical-SMILES stock files predate the metadata
+                # table.  Their schema remains the compatibility fallback.
+                identity_key = ""
+            if identity_key == "full_inchikey":
+                molecule = Chem.MolFromSmiles(canonical)
+                if molecule is None:
+                    return False
+                lookup_column = "full_inchikey"
+                lookup_value = Chem.MolToInchiKey(molecule)
+            else:
+                lookup_column = "canonical_smiles"
+                lookup_value = canonical
             row = connection.execute(
-                "SELECT 1 FROM stock WHERE canonical_smiles = ? LIMIT 1",
-                (canonical,),
+                f"SELECT 1 FROM stock WHERE {lookup_column} = ? LIMIT 1",
+                (lookup_value,),
             ).fetchone()
         return row is not None
     with path.open("r", encoding="utf-8", errors="replace") as handle:

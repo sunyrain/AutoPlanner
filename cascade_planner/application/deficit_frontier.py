@@ -27,10 +27,93 @@ from cascade_planner.application.reaction_proof_versions import active_reaction_
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
 )
+from cascade_planner.application.route_edge_scope import (
+    route_family_scoped_edge_ids,
+)
 
 
 DEFICIT_FRONTIER_SCHEMA = "deficit_frontier.v1"
 DEFICIT_FRONTIER_ITEM_SCHEMA = "deficit_frontier_item.v1"
+
+
+def target_reachable_route_boundaries(
+    graph: Mapping[str, Any],
+    *,
+    route_family_ids: Iterable[str] | None = None,
+) -> dict[str, dict[str, tuple[str, ...]]]:
+    """Project materialized target reachability and open leaves per family.
+
+    Route-family membership alone is insufficient: a rejected connector can
+    leave a perfectly valid local provider island carrying the same family id.
+    Short-tail search is allowed only at a molecule reached by walking
+    materialized edges from the campaign target inside that family.  A
+    host-audited stock hit is a terminal cut and is never traversed upstream.
+    """
+
+    families = dict(graph.get("route_families") or {})
+    edges = dict(graph.get("edges") or {})
+    molecules = dict(graph.get("molecules") or {})
+    target_id = str(graph.get("target_molecule_id") or "")
+    requested = (
+        {str(value) for value in route_family_ids if str(value)}
+        if route_family_ids is not None
+        else {
+            str(route_id)
+            for route_id, route in families.items()
+            if isinstance(route, Mapping) and route.get("selected") is not False
+        }
+    )
+    reachable: dict[str, set[str]] = {}
+    open_leaves: dict[str, set[str]] = {}
+
+    for route_id in sorted(requested):
+        route = dict(families.get(route_id) or {})
+        if not route or route.get("selected") is False:
+            continue
+        by_product: dict[str, list[dict[str, Any]]] = {}
+        for edge_id in route_family_scoped_edge_ids(graph, family=route):
+            edge = dict(edges.get(str(edge_id)) or {})
+            product_id = str(edge.get("product_molecule_id") or "")
+            if product_id:
+                by_product.setdefault(product_id, []).append(edge)
+        # A local provider route without the exact parent connector is an
+        # island, not a campaign route and not a source of short-tail leaves.
+        if not target_id or target_id not in by_product:
+            continue
+
+        pending = [target_id]
+        seen: set[str] = set()
+        while pending:
+            molecule_id = pending.pop()
+            if molecule_id in seen:
+                continue
+            seen.add(molecule_id)
+            reachable.setdefault(molecule_id, set()).add(route_id)
+            molecule = dict(molecules.get(molecule_id) or {})
+            if molecule_id != target_id and molecule.get("stock_closed") is True:
+                continue
+            outgoing = by_product.get(molecule_id, [])
+            if not outgoing:
+                if molecule_id != target_id:
+                    open_leaves.setdefault(molecule_id, set()).add(route_id)
+                continue
+            for edge in outgoing:
+                pending.extend(
+                    str(value)
+                    for value in edge.get("precursor_molecule_ids") or []
+                    if str(value) and str(value) not in seen
+                )
+
+    return {
+        "reachable_route_family_ids": {
+            molecule_id: tuple(sorted(values))
+            for molecule_id, values in sorted(reachable.items())
+        },
+        "open_leaf_route_family_ids": {
+            molecule_id: tuple(sorted(values))
+            for molecule_id, values in sorted(open_leaves.items())
+        },
+    }
 
 
 class DeficitKind(str, Enum):
@@ -174,12 +257,18 @@ def compile_deficit_frontier(
         if isinstance(route, Mapping)
         and route.get("selected") is not False
     }
-    selected_leaf_ids = {
-        str(molecule_id)
-        for route_id, route in route_families.items()
-        if route_id in selected_routes and isinstance(route, Mapping)
-        for molecule_id in route.get("leaf_molecule_ids") or []
-        if str(molecule_id)
+    route_boundaries = target_reachable_route_boundaries(
+        graph,
+        route_family_ids=selected_routes,
+    )
+    reachable_route_ids = dict(
+        route_boundaries["reachable_route_family_ids"]
+    )
+    open_leaf_route_ids = dict(route_boundaries["open_leaf_route_family_ids"])
+    target_rooted_selected_routes = {
+        route_id
+        for route_ids in reachable_route_ids.values()
+        for route_id in route_ids
     }
 
     items: list[DeficitItem] = []
@@ -580,17 +669,31 @@ def compile_deficit_frontier(
             or molecule.get("stock_closed") is True
         ):
             continue
-        routes = _routes_for(route_index, molecule_id)
-        selected = bool(set(routes) & selected_routes)
+        target_routes = tuple(reachable_route_ids.get(str(molecule_id)) or ())
+        open_routes = tuple(open_leaf_route_ids.get(str(molecule_id)) or ())
+        selected = bool(target_routes)
         guided_expansion_observed = any(
             str(hypothesis.get("product_smiles") or "")
             == str(molecule.get("canonical_smiles") or "")
+            and bool(
+                set(str(value) for value in hypothesis.get("route_family_ids") or [])
+                & set(open_routes)
+            )
             and str(origin.get("origin_kind") or "") == "chemenzy"
             and str(origin.get("origin_ref") or "").startswith("chemenzy:guided-")
             for hypothesis in dict(graph.get("hypotheses") or {}).values()
             if isinstance(hypothesis, Mapping)
             for origin in hypothesis.get("origin_records") or []
             if isinstance(origin, Mapping)
+        )
+        guided_expansion_observed = guided_expansion_observed or any(
+            str(signal.get("kind") or "") == DeficitKind.EXPANSION.value
+            and str(signal.get("status") or "") == "resolved"
+            and str(signal.get("object_id") or "") == str(molecule_id)
+            and dict(signal.get("metadata") or {}).get("guided_provider_attempt")
+            is True
+            for signal in dict(graph.get("action_signals") or {}).values()
+            if isinstance(signal, Mapping)
         )
         active_stock_id = str(molecule.get("active_stock_observation_id") or "")
         active_stock = dict(
@@ -599,13 +702,16 @@ def compile_deficit_frontier(
         if (
             molecule.get("provider_expansion_requested") is True
             and active_stock.get("accepted") is not True
+            and selected
+            and not guided_expansion_observed
+            and not (open_routes and active_stock_id)
         ):
             items.append(
                 _item(
                     DeficitKind.EXPANSION,
                     str(molecule_id),
                     entity_ids=(str(molecule_id),),
-                    route_family_ids=routes,
+                    route_family_ids=target_routes,
                     deterministic=False,
                     model_allowed=True,
                     reason="codex_selected_frontier_requires_local_generation",
@@ -631,21 +737,16 @@ def compile_deficit_frontier(
                         "provider_request_rationale": str(
                             molecule.get("provider_request_rationale") or ""
                         ),
+                        "frontier_molecule_id": str(molecule_id),
+                        "target_rooted": True,
+                        "target_rooted_open_leaf": bool(open_routes),
                     },
                 )
             )
-        # Codex may deliberately delegate a shared intermediate that already
-        # has one proposed upstream edge.  ChemEnzy's role is to add local
-        # alternatives around that node, so provider expansion is independent
-        # of leaf status.  Stock closure, by contrast, remains leaf-only.
-        if molecule.get("is_leaf") is not True:
-            continue
-        # ``is_leaf`` also describes proposal-only and budget-truncated route
-        # topology.  The stock worker deliberately audits only the currently
-        # selected, materialized route boundary, so emitting actions for any
-        # other molecule creates deterministic no-op work that can starve
-        # materialization.  Keep the frontier and worker authority aligned.
-        if not selected or molecule_id not in selected_leaf_ids:
+        # Global ``is_leaf`` is unsafe here because an edge in a disconnected
+        # provider island can make a true parent-route leaf look non-terminal.
+        # The family-scoped, target-reachable boundary above is authoritative.
+        if not open_routes:
             continue
         if (
             active_stock_id
@@ -657,7 +758,7 @@ def compile_deficit_frontier(
                     DeficitKind.EXPANSION,
                     str(molecule_id),
                     entity_ids=(str(molecule_id), active_stock_id),
-                    route_family_ids=routes,
+                    route_family_ids=open_routes,
                     deterministic=False,
                     model_allowed=True,
                     reason="stock_rejected_leaf_requires_upstream_expansion",
@@ -672,16 +773,25 @@ def compile_deficit_frontier(
                         ),
                         "provider_preferences": ["chemenzy", "codex_global_director"],
                         "stock_observation_id": active_stock_id,
+                        "frontier_molecule_id": str(molecule_id),
+                        "target_rooted": True,
+                        "target_rooted_open_leaf": True,
+                        "paper_short_tail_eligible": True,
                     },
                 )
             )
+            continue
+        # A negative stock observation is immutable for this bound oracle.
+        # Once the one bounded short-tail attempt has settled, another stock
+        # audit is a deterministic no-op; the route remains incomplete.
+        if active_stock_id and active_stock.get("accepted") is not True:
             continue
         items.append(
             _item(
                 DeficitKind.STOCK,
                 str(molecule_id),
                 entity_ids=(str(molecule_id),),
-                route_family_ids=routes,
+                route_family_ids=open_routes,
                 deterministic=True,
                 model_allowed=False,
                 reason="selected_leaf_requires_trusted_stock_audit",
@@ -736,6 +846,10 @@ def compile_deficit_frontier(
         recomputed_entities.add(str(route_id))
         if route.get("selected") is False:
             continue
+        if route.get("edge_ids") and route_id not in target_rooted_selected_routes:
+            # Retain disconnected local routes as diagnostics, but do not let
+            # them create campaign closure work or satisfy route diversity.
+            continue
         if route.get("closed") is not True:
             items.append(
                 _item(
@@ -770,6 +884,7 @@ def compile_deficit_frontier(
             1
             for route_id, route in dict(graph.get("route_families") or {}).items()
             if route_id in selected_routes
+            and route_id in target_rooted_selected_routes
             and isinstance(route, Mapping)
             and route.get("closed") is True
         )
@@ -846,6 +961,8 @@ def compile_deficit_frontier(
             "frontier_is_not_scientific_authority": True,
             "deterministic_work_precedes_model_work_by_score": True,
             "tie_breaking_is_deterministic": True,
+            "short_tail_requires_target_reachable_open_leaf": True,
+            "settled_negative_stock_is_not_reaudited": True,
         },
     }
     result["content_sha256"] = _digest(result)

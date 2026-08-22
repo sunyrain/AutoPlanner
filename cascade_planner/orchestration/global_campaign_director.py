@@ -217,8 +217,31 @@ class DirectorConfig:
     max_event_replan_calls: int = 2
     max_final_portfolio_synthesis_calls: int = 1
     planning_mode: str = "global_skeleton"
+    # Explicit execution-contract bit for the isolated paper_matched_reach
+    # profile.  Inferring this from a loose combination of strategy settings
+    # allowed legacy/global runners to masquerade as a matched experiment.
+    paper_matched_reach_profile: bool = False
+    # Owns node selection, alternative-action retention, cycle pruning, and
+    # back-propagation for sequential StrategyCard branches.  The paper arm
+    # uses AiZynthFinder's MCTS/UCB tree; the ChemEnzy best-first tree remains
+    # an explicit compatibility engine for ordinary AutoPlanner profiles.
+    strategy_tree_engine: str = "chemenzy_best_first"
+    # Keep the paper-matched three-strategy portfolio independent from the
+    # optional AutoPlanner enzyme-advantage experiment.  This field selects
+    # only the Strategy Generator prior; every resulting step still passes
+    # the same ReactionJSON/RouteJSON host contracts.
+    strategy_portfolio_mode: str = "autoplanner_hybrid"
     strategy_branch_count: int = 3
+    strategy_branch_workers: int = 1
+    stop_on_first_stock_closed_branch: bool = False
     max_node_expansions_per_branch: int = 25
+    # A paper-matched branch has one target-level StrategyCard.  Enhanced
+    # AutoPlanner arms may re-plan against the exact mapped upstream leaf after
+    # that anchor has been executed, while keeping the same total Route Builder
+    # node budget.  One preserves the paper protocol; values above one enable
+    # hierarchical route-internal strategic milestones.
+    max_strategic_milestones_per_branch: int = 1
+    max_reactionjson_candidates_per_node: int = 3
     max_route_local_repair_rounds: int = 6
     max_node_prompt_bytes: int = 24_000
     max_node_call_timeout_s: float = 600.0
@@ -255,13 +278,19 @@ class DirectorConfig:
             self.max_event_replan_calls,
             self.max_final_portfolio_synthesis_calls,
             self.strategy_branch_count,
+            self.strategy_branch_workers,
             self.max_node_expansions_per_branch,
+            self.max_strategic_milestones_per_branch,
+            self.max_reactionjson_candidates_per_node,
             self.max_route_local_repair_rounds,
             self.max_node_prompt_bytes,
-            self.max_provider_requests,
         ):
             if int(value) <= 0:
                 raise ValueError("director integer limits must be positive")
+        if self.max_reactionjson_candidates_per_node > 8:
+            raise ValueError("director ReactionJSON candidate limit is invalid")
+        if int(self.max_provider_requests) < 0:
+            raise ValueError("director provider request limit must be non-negative")
         if not math.isfinite(self.max_wall_time_s) or self.max_wall_time_s <= 0:
             raise ValueError("director max_wall_time_s must be finite and positive")
         for value in (self.max_node_call_timeout_s, self.critic_call_timeout_s):
@@ -271,6 +300,23 @@ class DirectorConfig:
             raise ValueError("director minimum route families exceeds maximum")
         if self.planning_mode not in {"global_skeleton", "sequential_branches"}:
             raise ValueError("director planning mode is invalid")
+        if self.strategy_tree_engine not in {
+            "chemenzy_best_first",
+            "aizynthfinder_mcts",
+        }:
+            raise ValueError("director strategy tree engine is invalid")
+        if not 1 <= int(self.max_strategic_milestones_per_branch) <= 4:
+            raise ValueError("director strategic milestone limit is invalid")
+        if self.strategy_portfolio_mode not in {
+            "paper_independent",
+            "autoplanner_hybrid",
+            "enzyme_advantage",
+            "chemoenzymatic_fusion",
+            "autoplanner_strategy_v2",
+        }:
+            raise ValueError("director strategy portfolio mode is invalid")
+        if self.strategy_branch_workers > self.strategy_branch_count:
+            raise ValueError("director strategy branch workers exceed branch count")
         if (
             isinstance(self.minimum_planning_route_steps, bool)
             or not isinstance(self.minimum_planning_route_steps, int)
@@ -555,6 +601,9 @@ class GlobalCampaignDirector:
                 "allowed_workdir": str(
                     self.kernel.run_dir / ".autoplanner" / "director-workspace"
                 ),
+                "durable_worker_journal": bool(
+                    getattr(self.runner, "durable_worker_journal", False)
+                ),
             },
         )
         started = time.monotonic()
@@ -598,7 +647,16 @@ class GlobalCampaignDirector:
             )
             if plan.mode != mode:
                 raise GlobalCampaignPlanValidationError("director_plan_mode_mismatch")
-            if len(_canonical_bytes(plan.to_dict())) > self.config.max_output_bytes:
+            # ``max_output_bytes`` is a per-child model-output boundary.  In
+            # sequential mode the returned plan is assembled by the host from
+            # many independently bounded Strategy/Builder/Critic artifacts;
+            # applying the single-call limit to that accumulated document
+            # discards valid prefixes after an otherwise successful long run.
+            if (
+                self.config.planning_mode != "sequential_branches"
+                and len(_canonical_bytes(plan.to_dict()))
+                > self.config.max_output_bytes
+            ):
                 raise GlobalCampaignPlanValidationError(
                     "director_plan_output_byte_budget_exceeded"
                 )

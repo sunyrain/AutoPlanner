@@ -11,6 +11,8 @@ from cascade_planner.application.unified_campaign_spec import TargetConstraints
 from cascade_planner.interfaces.target_solver import (
     DEFAULT_TARGET_DIRECTOR_MODEL,
     TargetSolveConfig,
+    _is_paper_reach_profile,
+    _resolve_execution_config,
 )
 from cascade_planner.interfaces.target_runtime_dependencies import (
     SYNTHEX_MATCHED_PROFILE_DEFAULTS,
@@ -22,11 +24,22 @@ from cascade_planner.interfaces.target_runtime_dependencies import (
 def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any]:
     max_visual_invocations = _int(payload, "max_visual_invocations", 0)
     execution_profile = str(payload.get("execution_profile") or "standard")
-    paper_protocol = execution_profile == "paper_synthex"
+    paper_protocol = _is_paper_reach_profile(execution_profile)
     profile_defaults = TARGET_PROFILE_DEFAULTS.get(execution_profile, TARGET_PROFILE_DEFAULTS["standard"])
     matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
-    evidence_connector = _web_evidence_connector(gateway, payload)
-    visual_provider = _web_visual_provider(gateway, payload, enabled=max_visual_invocations > 0)
+    default_model_wall_time_s = float(
+        matched["max_model_wall_time_s"]
+        if paper_protocol
+        else profile_defaults["max_model_wall_time_s"]
+    )
+    evidence_connector = (
+        None if paper_protocol else _web_evidence_connector(gateway, payload)
+    )
+    visual_provider = (
+        None
+        if paper_protocol
+        else _web_visual_provider(gateway, payload, enabled=max_visual_invocations > 0)
+    )
     inventory_builder = inventory_snapshot_builder(payload)
     return gateway.solve_target(
         target_name=str(payload.get("target_name") or "blind target"),
@@ -55,7 +68,9 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_total_output_tokens=_int(
                 payload, "max_output_tokens", matched["max_output_tokens"]
             ),
-            max_total_wall_time_s=float(payload.get("max_model_wall_time_s", matched["max_model_wall_time_s"])),
+            max_total_wall_time_s=float(
+                payload.get("max_model_wall_time_s", default_model_wall_time_s)
+            ),
             max_visual_invocations=max_visual_invocations,
             max_accepted_expansions=_int(
                 payload, "max_accepted_expansions", matched["max_accepted_expansions"]
@@ -63,15 +78,33 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_attempt_runs=_int(payload, "max_attempt_runs", matched["max_attempt_runs"]),
             max_prompt_context_bytes=_int(payload, "max_prompt_context_bytes", matched["max_prompt_context_bytes"]),
         ),
-        config=TargetSolveConfig(
+        config=_resolve_execution_config(TargetSolveConfig(
             model=str(payload.get("model") or DEFAULT_TARGET_DIRECTOR_MODEL),
             reasoning_effort=str(payload.get("reasoning_effort") or matched["reasoning_effort"]),
             execution_profile=execution_profile,
             strategy_search_profile=str(payload.get("strategy_search_profile") or matched["strategy_search_profile"]),
+            strategy_portfolio_mode=str(
+                payload.get("strategy_portfolio_mode") or "auto"
+            ),
             strategy_branch_count=_int(
                 payload, "strategy_branch_count", matched["strategy_branches"]
             ),
+            strategy_branch_workers=_int(
+                payload,
+                "strategy_branch_workers",
+                matched["strategy_branch_workers"],
+            ),
+            stop_on_first_stock_closed_branch=_bool(
+                payload,
+                "stop_on_first_stock_closed_branch",
+                bool(matched["stop_on_first_stock_closed_branch"]),
+            ),
             max_node_expansions_per_branch=_int(payload, "max_node_expansions_per_branch", matched["node_expansions_per_branch"]),
+            max_reactionjson_candidates_per_node=_int(
+                payload,
+                "max_reactionjson_candidates_per_node",
+                matched["reactionjson_candidates_per_node"],
+            ),
             max_route_local_repair_rounds=_int(payload, "max_route_local_repair_rounds", matched["route_local_repair_rounds"]),
             max_node_prompt_bytes=_int(
                 payload, "max_node_prompt_bytes", matched["max_node_prompt_bytes"]
@@ -85,12 +118,12 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             require_complete_route_json=_bool(
                 payload,
                 "require_complete_route_json",
-                paper_protocol,
+                bool(matched["route_builder_complete_linear_route"]),
             ),
             allow_editor_route_mutations=_bool(
                 payload,
                 "allow_editor_route_mutations",
-                paper_protocol,
+                bool(matched["editor_route_mutations"]),
             ),
             objective_mode=str(payload.get("objective_mode") or "scientific_proof"),
             delivery_boundary=str(
@@ -228,10 +261,14 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_director_wall_time_s=float(
                 payload.get(
                     "max_director_wall_time_s",
-                    matched["max_model_wall_time_s"],
+                    (
+                        matched["max_model_wall_time_s"]
+                        if paper_protocol
+                        else profile_defaults["max_director_wall_time_s"]
+                    ),
                 )
             ),
-        ),
+        )),
     )
 
 

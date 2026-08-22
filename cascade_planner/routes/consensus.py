@@ -608,12 +608,104 @@ def validate_retrosynthesis_report_payload(payload: Any) -> list[str]:
     candidates = payload.get("candidates")
     if not isinstance(candidates, list):
         return reasons
+    if "stop_signal" in payload or "stop_reason" in payload:
+        stop_signal = payload.get("stop_signal")
+        stop_reason = str(payload.get("stop_reason") or "").strip()
+        if not isinstance(stop_signal, bool):
+            reasons.append("paper_route_step_stop_signal_not_boolean")
+        elif stop_signal:
+            if candidates:
+                reasons.append("paper_route_step_stop_must_not_include_candidate")
+            if stop_reason not in {
+                "route_complete",
+                "simple_for_explorative_search",
+                "constraint_conflict",
+                "no_reasonable_disconnection",
+            }:
+                reasons.append("paper_route_step_stop_reason_invalid")
+        else:
+            if len(candidates) != 1:
+                reasons.append("paper_route_step_disconnection_requires_one_candidate")
+            if stop_reason:
+                reasons.append("paper_route_step_nonstop_reason_must_be_empty")
     for index, raw in enumerate(candidates):
-        _, candidate_reasons = normalize_route_candidate(
-            raw if isinstance(raw, dict) else {},
-            default_source_channel=_role_source_channel(payload.get("agent_role")),
-        )
+        candidate = raw if isinstance(raw, dict) else {}
+        # Paper-mode Route Builder and Editor artifacts are edit programs, not
+        # executable one-edge proposals.  They intentionally carry empty
+        # precursor_smiles because the host RouteJSON compiler derives the
+        # exact mapped precursors.  Validate their safety and shape here, but
+        # leave chemical identity/chain/atom provenance to host replay.
+        if _is_route_json_draft_candidate(candidate):
+            candidate_reasons = _route_json_draft_candidate_reasons(candidate)
+        else:
+            _, candidate_reasons = normalize_route_candidate(
+                candidate,
+                default_source_channel=_role_source_channel(payload.get("agent_role")),
+            )
         reasons.extend(f"proposal_report_candidate:{index}:{reason}" for reason in candidate_reasons)
+    return sorted(set(reasons))
+
+
+def _is_route_json_draft_candidate(raw: Mapping[str, Any]) -> bool:
+    """Return whether a candidate is a host-compiled graph-edit draft.
+
+    This predicate is deliberately narrow.  A normal consensus candidate must
+    still contain non-empty, parseable precursors; only complete RouteJSON or
+    Editor patch payloads get the deferred host-materialization contract.
+    """
+
+    return bool(
+        isinstance(raw, Mapping)
+        and (
+            (
+                isinstance(raw.get("reaction_operations"), list)
+                and bool(raw.get("reaction_operations"))
+                and raw.get("precursor_smiles") == []
+            )
+            or
+            (isinstance(raw.get("route_json"), list) and bool(raw.get("route_json")))
+            or (isinstance(raw.get("route_patch"), list) and bool(raw.get("route_patch")))
+        )
+    )
+
+
+def _route_json_draft_candidate_reasons(raw: Mapping[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if raw.get("schema_version") not in {None, RETROSYNTHESIS_CANDIDATE_SCHEMA}:
+        reasons.append("invalid_candidate_schema")
+    if raw.get("no_solved_claim") is not True:
+        reasons.append("missing_no_solved_claim")
+    if raw.get("not_parent_route_proof") is not True:
+        reasons.append("missing_not_parent_route_proof")
+    if _contains_solved_claim(raw):
+        reasons.append("direct_solved_claim")
+    if _contains_raw_reaction(raw):
+        reasons.append("raw_reaction_payload")
+    precursor_values = raw.get("precursor_smiles")
+    if precursor_values is not None and not isinstance(precursor_values, list):
+        reasons.append("precursor_smiles_not_list")
+    route = raw.get("route_json")
+    if route is not None:
+        if not isinstance(route, list) or not route:
+            reasons.append("route_json_invalid")
+        else:
+            for index, row in enumerate(route):
+                if not isinstance(row, Mapping):
+                    reasons.append(f"route_json_step_not_object:{index}")
+                    continue
+                if row.get("no_solved_claim") is not True:
+                    reasons.append(f"route_json_step_missing_no_solved_claim:{index}")
+                if row.get("not_parent_route_proof") is not True:
+                    reasons.append(
+                        f"route_json_step_missing_not_parent_route_proof:{index}"
+                    )
+                if _contains_solved_claim(row):
+                    reasons.append(f"route_json_step_direct_solved_claim:{index}")
+                if _contains_raw_reaction(row):
+                    reasons.append(f"route_json_step_raw_reaction_payload:{index}")
+    patch = raw.get("route_patch")
+    if patch is not None and (not isinstance(patch, list) or not patch):
+        reasons.append("route_patch_invalid")
     return sorted(set(reasons))
 
 

@@ -24,6 +24,7 @@ from cascade_planner.interfaces.live_stock import (
 from cascade_planner.interfaces.target_solver import (
     DEFAULT_TARGET_DIRECTOR_MODEL,
     TargetSolveConfig,
+    _is_paper_reach_profile,
 )
 from cascade_planner.interfaces.target_runtime_dependencies import (
     SYNTHEX_MATCHED_PROFILE_DEFAULTS,
@@ -85,7 +86,13 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     )
     solve.add_argument(
         "--execution-profile",
-        choices=("fast", "standard", "proof", "paper_synthex"),
+        choices=(
+            "fast",
+            "standard",
+            "proof",
+            "paper_synthex",
+            "paper_matched_reach",
+        ),
         default="standard",
         help=(
             "fast is the default and returns a compact two-family architecture; "
@@ -103,16 +110,49 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         ),
     )
     solve.add_argument(
+        "--strategy-tree-engine",
+        choices=("auto", "chemenzy_best_first", "aizynthfinder_mcts"),
+        default="auto",
+        help=(
+            "strategy-tree owner; explicit selection is useful for companion-arm "
+            "experiments outside the frozen paper_synthex profile"
+        ),
+    )
+    solve.add_argument(
+        "--strategy-portfolio-mode",
+        choices=(
+            "auto",
+            "paper_independent",
+            "autoplanner_hybrid",
+            "enzyme_advantage",
+            "chemoenzymatic_fusion",
+            "autoplanner_strategy_v2",
+        ),
+        default="auto",
+        help=(
+            "strategy portfolio arm; enzyme_advantage, autoplanner_hybrid, and "
+            "the route-level chemoenzymatic_fusion mode are separately reported "
+            "companion arms and never change the paper-independent endpoint"
+        ),
+    )
+    solve.add_argument(
         "--require-complete-route-json",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="require the paper profile to deliver a host-assembled complete linear RouteJSON route",
+        help=(
+            "RouteJSON admission contract. The paper-matched Route Builder still "
+            "asks one host-replayed ReactionJSON edit per open node; the host "
+            "assembles the complete RouteJSON."
+        ),
     )
     solve.add_argument(
         "--allow-editor-route-mutations",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="allow the Codex Editor to reorder/insert/delete/edit route steps",
+        help=(
+            "legacy compatibility: allow full-route Editor mutations; "
+            "paper_synthex uses route-local repair"
+        ),
     )
     solve.add_argument(
         "--strategy-branches",
@@ -121,10 +161,46 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_branches"],
     )
     solve.add_argument(
+        "--strategy-branch-workers",
+        type=int,
+        choices=range(1, 9),
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_branch_workers"],
+        help="maximum concurrently advancing frozen strategy branches",
+    )
+    solve.add_argument(
+        "--stop-on-first-stock-closed-branch",
+        action=argparse.BooleanOptionalAction,
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS[
+            "stop_on_first_stock_closed_branch"
+        ],
+        help=(
+            "treat 3x25 as a ceiling and stop new Route Builder calls once one "
+            "host-replayed branch reaches the bound stock"
+        ),
+    )
+    solve.add_argument(
         "--node-expansions-per-branch",
         type=int,
         choices=range(1, 65),
         default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["node_expansions_per_branch"],
+    )
+    solve.add_argument(
+        "--strategic-milestones-per-branch",
+        type=int,
+        choices=range(1, 5),
+        default=1,
+        help=(
+            "maximum ordered StrategyCards realized inside one branch; 1 is "
+            "the paper-equivalent single-anchor control"
+        ),
+    )
+    solve.add_argument(
+        "--reactionjson-candidates-per-node",
+        type=int,
+        choices=range(1, 9),
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS[
+            "reactionjson_candidates_per_node"
+        ],
     )
     solve.add_argument(
         "--route-local-repair-rounds",
@@ -300,6 +376,21 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         help="explicit ChemEnzy Python/NumPy/Torch seed used for replay binding",
     )
     solve.add_argument("--no-guided-chemenzy", action="store_true")
+    solve.add_argument(
+        "--native-short-tail-engine",
+        choices=("auto", "aizynthfinder", "chemenzy"),
+        default="auto",
+        help=(
+            "native open-leaf completion engine; paper_synthex resolves auto "
+            "to AiZynthFinder while ordinary runs retain ChemEnzy"
+        ),
+    )
+    solve.add_argument(
+        "--aizynthfinder-short-tail-mode",
+        choices=("canary", "short_tail"),
+        default="short_tail",
+        help="use canary only for workflow smoke tests; paper runs require short_tail",
+    )
     solve.add_argument(
         "--guided-chemenzy-frontiers",
         type=int,
@@ -726,11 +817,12 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         return result if args.full_output else _compact_validation_fork_result(result)
     if args.command != "solve-target":
         raise ValueError(f"unsupported_target_command:{args.command}")
+    paper_protocol = _is_paper_reach_profile(args.execution_profile)
     objective_compatibility_view = _resolve_objective_compatibility_view(
         args.objective_mode
     )
     evidence_connector = None
-    if args.evidence_endpoint:
+    if args.evidence_endpoint and not paper_protocol:
         evidence_connector = build_http_evidence_connector(
             HttpEvidenceConnectorConfig(
                 endpoint=args.evidence_endpoint,
@@ -741,7 +833,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         )
     else:
         builtin_connectors = []
-        if not args.no_auto_patent_evidence:
+        if not paper_protocol and not args.no_auto_patent_evidence:
             from cascade_planner.interfaces.patent_evidence import (
                 BuiltinPatentEvidenceConfig,
                 build_builtin_patent_evidence_connector,
@@ -757,7 +849,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                     )
                 )
             )
-        if not args.no_auto_literature_evidence:
+        if not paper_protocol and not args.no_auto_literature_evidence:
             from cascade_planner.interfaces.literature_evidence import (
                 BuiltinLiteratureEvidenceConfig,
                 build_builtin_literature_evidence_connector,
@@ -809,7 +901,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         )
 
     visual_evidence_provider = None
-    if args.max_visual_invocations:
+    if args.max_visual_invocations and not paper_protocol:
         from cascade_planner.interfaces.visual_evidence import (
             CodexVisualEvidenceConfig,
             build_codex_visual_evidence_provider,
@@ -877,8 +969,20 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             reasoning_effort=args.reasoning_effort,
             execution_profile=args.execution_profile,
             strategy_search_profile=args.strategy_search_profile,
+            strategy_tree_engine=args.strategy_tree_engine,
+            strategy_portfolio_mode=args.strategy_portfolio_mode,
             strategy_branch_count=args.strategy_branches,
+            strategy_branch_workers=args.strategy_branch_workers,
+            stop_on_first_stock_closed_branch=(
+                args.stop_on_first_stock_closed_branch
+            ),
             max_node_expansions_per_branch=args.node_expansions_per_branch,
+            max_strategic_milestones_per_branch=(
+                args.strategic_milestones_per_branch
+            ),
+            max_reactionjson_candidates_per_node=(
+                args.reactionjson_candidates_per_node
+            ),
             max_route_local_repair_rounds=args.route_local_repair_rounds,
             max_node_prompt_bytes=args.max_node_prompt_bytes,
             max_node_call_timeout_s=args.node_call_timeout_s,
@@ -886,12 +990,18 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             require_complete_route_json=(
                 bool(args.require_complete_route_json)
                 if args.require_complete_route_json is not None
-                else args.execution_profile == "paper_synthex"
+                else bool(
+                    SYNTHEX_MATCHED_PROFILE_DEFAULTS[
+                        "route_builder_complete_linear_route"
+                    ]
+                )
             ),
             allow_editor_route_mutations=(
                 bool(args.allow_editor_route_mutations)
                 if args.allow_editor_route_mutations is not None
-                else args.execution_profile == "paper_synthex"
+                else bool(
+                    SYNTHEX_MATCHED_PROFILE_DEFAULTS["editor_route_mutations"]
+                )
             ),
             objective_mode=objective_compatibility_view,
             use_coordinator=args.coordinator and not args.single_agent,
@@ -911,6 +1021,8 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             enable_chemenzy=not args.no_chemenzy,
             enable_target_chemenzy_baseline=args.target_chemenzy_baseline,
             enable_guided_chemenzy=not args.no_guided_chemenzy,
+            native_short_tail_engine=args.native_short_tail_engine,
+            aizynthfinder_short_tail_mode=args.aizynthfinder_short_tail_mode,
             chemenzy_env_prefix=args.chemenzy_env_prefix,
             chemenzy_stock_names=chemenzy_stock_names,
             chemenzy_stock_paths=chemenzy_stock_paths,

@@ -289,6 +289,41 @@ def test_route_summary_selects_only_the_matching_family_execution_option() -> No
     assert summary["chemical_step_equivalent_count"] == 1
 
 
+def test_biocatalytic_step_contract_counts_without_legacy_innovation_annotation() -> None:
+    graph = {
+        "edges": {
+            "edge:p450": {
+                "route_innovations": [],
+                "biocatalytic_steps": [
+                    {
+                        "step_id": "step:p450",
+                        "content_sha256": "a" * 64,
+                        "authority_scope": "model_proposed_execution_hypothesis",
+                        "step_accounting": {
+                            "physical_operation_count": 1,
+                            "chemical_step_equivalent_count": None,
+                            "net_step_savings": None,
+                        },
+                    }
+                ],
+            }
+        }
+    }
+
+    summary = route_innovation_summary(graph, ["edge:p450"])
+
+    assert summary["biocatalytic_step_count"] == 1
+    assert summary["biocatalytic_edge_ids"] == ["edge:p450"]
+    assert summary["chemical_step_equivalent_count"] == 1
+    assert summary["net_step_savings"] == 0
+    assert summary["selected_options"][0][
+        "from_biocatalytic_step_contract"
+    ] is True
+    assert summary["semantics"][
+        "biocatalytic_step_contract_counts_physical_execution_only"
+    ] is True
+
+
 def test_canonical_ingestion_preserves_innovation_from_hypothesis_to_edge(
     tmp_path: Path,
 ) -> None:

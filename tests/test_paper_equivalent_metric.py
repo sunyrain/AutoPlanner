@@ -22,7 +22,7 @@ def test_paper_equivalent_ignores_validation_evidence_and_minimum_route_count() 
         stock_oracle={
             "binding": {
                 "catalog_name": "ZINC + eMolecules",
-                "member_count": 39_684_411,
+                "member_count": 39_478_827,
                 "identity_key": "full_inchikey",
             }
         },
@@ -87,7 +87,7 @@ def test_strict_b2_can_be_true_without_changing_paper_topology_metric() -> None:
         stock_oracle={
             "binding": {
                 "catalog_name": "ZINC+eMolecules",
-                "member_count": 39_684_411,
+                "member_count": 39_478_827,
                 "identity_key": "full_inchikey",
             }
         },
@@ -95,3 +95,20 @@ def test_strict_b2_can_be_true_without_changing_paper_topology_metric() -> None:
     assert result["paper_solved"] is True
     assert result["strict_b2"]["host_validated"] is True
     assert result["strict_b2"]["host_validated_route_count"] == 1
+
+
+def test_paper_declared_entry_count_is_not_misused_as_unique_membership_count() -> None:
+    result = compile_paper_equivalent_metric(
+        {"routes": []},
+        stock_oracle={
+            "binding": {
+                "catalog_name": "ZINC+eMolecules",
+                "member_count": 39_684_411,
+                "identity_key": "full_inchikey",
+            }
+        },
+    )
+
+    assert result["stock_comparable_to_synthex"] is False
+    assert result["required_stock_unique_member_count"] == 39_478_827
+    assert result["paper_declared_stock_entry_count"] == 39_684_411

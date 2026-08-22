@@ -50,6 +50,15 @@ def build_route_candidate(
         }
         if gate.get("generic_validation") is not True and option_id not in validated_ids:
             unvalidated_biocatalytic_edge_ids.append(edge_id)
+    for edge_id in edge_ids:
+        gate = dict(
+            edge_proofs.get(edge_id, {}).get("biocatalytic_step_proof_gate") or {}
+        )
+        if gate.get("required") is True and gate.get("accepted") is not True:
+            unvalidated_biocatalytic_edge_ids.append(str(edge_id))
+    unvalidated_biocatalytic_edge_ids = sorted(
+        set(unvalidated_biocatalytic_edge_ids)
+    )
     leaves = [
         leaf_proof_cache.setdefault(
             molecule_id,

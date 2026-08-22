@@ -2,12 +2,130 @@ from __future__ import annotations
 
 import pytest
 
+from cascade_planner.application.chemical_strategy_critic import (
+    critique_strategy_candidate,
+)
 from cascade_planner.application.reactionjson_replay import (
     PRIMITIVES,
     REACTIONJSON_PROFILE,
     ReactionJsonReplayError,
     replay_reactionjson,
 )
+from cascade_planner.application.routejson_compiler import RouteJSONCompiler
+
+
+def test_critic_reuses_host_bound_routejson_atom_map_namespace() -> None:
+    """The v36 RouteJSON replay must not be rerun in a fresh map namespace."""
+
+    product = (
+        "CCOC(=O)C1(O)c2cc(Br)c(C3CC(=O)C[C@@H](C)O3)cc2C(=O)C1(C)O"
+    )
+    precursor = (
+        "CCOC(=O)C1(O)c2cc(Br)c(C=CC(=O)C[C@@H](C)O)cc2C(=O)C1(C)O"
+    )
+    operations = [
+        {"map_a": 19, "map_b": 26, "op": "break_bond"},
+        {"delta": 1, "map_a": 19, "map_b": 20, "op": "change_bond_order"},
+    ]
+    host_audit = replay_reactionjson(
+        mapped_product_smiles=(
+            "[CH3:1][CH2:2][O:3][C:4](=[O:5])[C:6]1([OH:7])"
+            "[c:8]2[cH:9][c:10]([Br:31])[c:11]([CH:19]3[CH2:20]"
+            "[C:21](=[O:22])[CH2:23][C@@H:24]([CH3:25])[O:26]3)"
+            "[cH:12][c:13]2[C:14](=[O:15])[C:16]1([CH3:17])[OH:18]"
+        ),
+        operations=operations,
+        expected_precursor_smiles=[precursor],
+    )
+
+    result = critique_strategy_candidate(
+        product_smiles=product,
+        precursor_smiles=[precursor],
+        reaction_operations=operations,
+        reactionjson_audit=host_audit,
+        reaction_family="intramolecular hydroalkoxylation",
+    )
+
+    assert result["accepted"] is True
+    assert "critic_reaction_operations_replay_failed" not in result[
+        "blocking_reasons"
+    ]
+    assert "reactionjson_host_map_namespace_reused" in result["observations"]
+    assert result["reactionjson_audit"]["accepted"] is True
+
+
+def test_critic_reuses_host_map_when_compiler_only_normalized_stereo() -> None:
+    """Stereo-only compiler normalization must not trigger a fresh-map replay."""
+
+    operations = [{"op": "break_bond", "map_a": 2, "map_b": 4}]
+    materialized = RouteJSONCompiler().compile_step(
+        mapped_product_smiles="[CH3:1][C@H:2]([CH3:3])[OH:4]",
+        operations=operations,
+        expected_product_smiles="CC(C)O",
+    )
+    assert materialized.audit["mapped_product_stereo_normalized"] is True
+
+    result = critique_strategy_candidate(
+        product_smiles="CC(C)O",
+        precursor_smiles=["CC(C)", "O"],
+        reaction_operations=operations,
+        reactionjson_audit=materialized.audit,
+        reaction_family="host compiler stereo normalization probe",
+    )
+
+    assert result["accepted"] is True
+    assert "critic_reactionjson_product_binding_mismatch" not in result[
+        "blocking_reasons"
+    ]
+    assert "critic_reaction_operations_replay_failed" not in result[
+        "blocking_reasons"
+    ]
+    assert "reactionjson_host_map_namespace_reused_stereo_normalized" in result[
+        "observations"
+    ]
+
+
+def test_critic_accepts_only_replayed_external_oxygen_provenance() -> None:
+    operations = [{"op": "remove_group", "map_indices": [3]}]
+    host_audit = replay_reactionjson(
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        operations=operations,
+        expected_precursor_smiles=["CC"],
+    )
+    bound_audit = {
+        **host_audit,
+        "external_atom_source_required": True,
+        "external_atom_source_status": "declared_graph_edit_requires_validation",
+        "external_atom_source_grants_reaction_proof": False,
+    }
+
+    accepted = critique_strategy_candidate(
+        product_smiles="CCO",
+        precursor_smiles=["CC"],
+        reaction_operations=operations,
+        reactionjson_audit=bound_audit,
+        reaction_family="P450 C-H hydroxylation",
+        enzyme="P450",
+    )
+    unbound = critique_strategy_candidate(
+        product_smiles="CCO",
+        precursor_smiles=["CC"],
+        reaction_operations=operations,
+        reactionjson_audit=host_audit,
+        reaction_family="P450 C-H hydroxylation",
+        enzyme="P450",
+    )
+
+    assert accepted["accepted"] is True
+    assert "critic_atom_provenance_deficit" not in accepted["blocking_reasons"]
+    assert "critic_external_atom_source_bound_by_reactionjson" in accepted[
+        "observations"
+    ]
+    assert "critic_external_atom_source_requires_validation" in accepted[
+        "uncertainties"
+    ]
+    assert unbound["accepted"] is False
+    assert "critic_atom_provenance_deficit" in unbound["blocking_reasons"]
 
 
 @pytest.mark.parametrize(
@@ -106,6 +224,32 @@ def test_public_profile_preserves_order_and_is_deterministic() -> None:
     assert first == second
     assert first["operation_count"] == 2
     assert first["content_sha256"] == second["content_sha256"]
+
+
+def test_add_group_assigns_deterministic_fresh_maps_to_unmapped_atoms() -> None:
+    operation = {
+        "op": "add_group",
+        "map_idx": 7,
+        "fragment_smiles": "[*][Mg]Br",
+    }
+
+    first = replay_reactionjson(
+        mapped_product_smiles="[CH3:7]",
+        operations=[operation],
+        expected_precursor_smiles=["C[Mg]Br"],
+    )
+    second = replay_reactionjson(
+        mapped_product_smiles="[CH3:7]",
+        operations=[operation],
+        expected_precursor_smiles=["C[Mg]Br"],
+    )
+
+    assert first == second
+    assert first["accepted"] is True
+    assert len(first["mapped_precursor_smiles"]) == 1
+    assert ":7]" in first["mapped_precursor_smiles"][0]
+    assert ":8]" in first["mapped_precursor_smiles"][0]
+    assert ":9]" in first["mapped_precursor_smiles"][0]
 
 
 @pytest.mark.parametrize(

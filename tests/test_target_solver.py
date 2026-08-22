@@ -34,6 +34,8 @@ from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
     _campaign_action_handler_results,
     _bind_native_search_budget,
+    _bounded_scheduler_exhausted,
+    _resolve_execution_config,
     _automatic_continuation_exhausted,
     _attempted_chemenzy_frontiers_from_action_history,
     _chemenzy_delegation_audit,
@@ -45,6 +47,7 @@ from cascade_planner.interfaces.target_solver import (
     _material_replan_events,
     _planning_depth_requirement,
     _pending_guided_progress_from_action_history,
+    _paper_matched_primary_projection,
     _program_milestones_from_stages,
     _replan_gain_audit,
     _replan_retention_audit,
@@ -257,28 +260,266 @@ def test_target_solver_rejects_invalid_chemenzy_seed() -> None:
 
 
 def test_paper_synthex_profile_keeps_route_depth_and_repair_rounds_fixed() -> None:
-    config = TargetSolveConfig(
-        execution_profile="paper_synthex",
-        require_complete_route_json=True,
-        allow_editor_route_mutations=True,
-    )
+    config = TargetSolveConfig(execution_profile="paper_synthex")
+    assert config.strategy_portfolio_mode == "auto"
+    assert config.strategy_branch_count == 3
+    assert config.strategy_branch_workers == 3
+    assert config.stop_on_first_stock_closed_branch is False
     assert config.max_node_expansions_per_branch == 25
     assert config.max_route_local_repair_rounds == 6
+    assert config.require_complete_route_json is False
+    assert config.allow_editor_route_mutations is True
 
-    with pytest.raises(ValueError, match="25 Route Builder"):
+    with pytest.raises(ValueError, match="frozen 25-call ceiling"):
         TargetSolveConfig(
             execution_profile="paper_synthex",
             max_node_expansions_per_branch=2,
-            require_complete_route_json=True,
-            allow_editor_route_mutations=True,
         )
+
+    smoke = TargetSolveConfig(
+        execution_profile="paper_matched_reach",
+        max_node_expansions_per_branch=10,
+    )
+    assert smoke.max_node_expansions_per_branch == 10
+    assert _resolve_execution_config(smoke).max_node_expansions_per_branch == 10
     with pytest.raises(ValueError, match="six Critic/Editor"):
         TargetSolveConfig(
             execution_profile="paper_synthex",
             max_route_local_repair_rounds=2,
-            require_complete_route_json=True,
-            allow_editor_route_mutations=True,
         )
+    # Complete RouteJSON is now a final admission contract.  The node prompt
+    # remains one ReactionJSON edit per open leaf; setting the flag explicitly
+    # is therefore valid and must not switch to a one-shot route prompt.
+    assert TargetSolveConfig(
+        execution_profile="paper_synthex",
+        require_complete_route_json=True,
+    ).require_complete_route_json is True
+    with pytest.raises(ValueError, match="RouteJSON-aware Critic/Editor"):
+        TargetSolveConfig(
+            execution_profile="paper_synthex",
+            allow_editor_route_mutations=False,
+        )
+    with pytest.raises(ValueError, match="all three strategy branches"):
+        TargetSolveConfig(
+            execution_profile="paper_synthex",
+            stop_on_first_stock_closed_branch=True,
+        )
+
+
+def test_paper_synthex_resolver_disables_non_reach_work_and_keeps_stock_validation() -> None:
+    resolved = _resolve_execution_config(
+        TargetSolveConfig(
+            execution_profile="paper_synthex",
+            enable_web_search=True,
+            enable_initial_director_web_search=True,
+            enable_patent_self_evolution=True,
+            enable_condition_enrichment=True,
+            enable_chemenzy_condition_prediction=True,
+            enable_chemenzy_enzyme_assignment=True,
+            enable_enzyme_coverage_sidecar=True,
+            enable_program_review=True,
+            enable_program_discovery=True,
+            enable_program_validation=True,
+            max_evidence_tasks=64,
+            max_program_tasks=64,
+            max_experiment_tasks=32,
+            max_run_wall_time_s=7200.0,
+        )
+    )
+
+    assert resolved.strategy_search_profile == "synthex_matched"
+    assert resolved.strategy_tree_engine == "aizynthfinder_mcts"
+    assert resolved.strategy_portfolio_mode == "paper_independent"
+    assert resolved.strategy_branch_count == 3
+    assert resolved.strategy_branch_workers == 3
+    assert resolved.stop_on_first_stock_closed_branch is False
+    assert resolved.max_node_expansions_per_branch == 25
+    assert resolved.max_route_local_repair_rounds == 6
+    assert resolved.require_complete_route_json is True
+    assert resolved.allow_editor_route_mutations is True
+    assert resolved.enable_web_search is False
+    assert resolved.enable_initial_director_web_search is False
+    assert resolved.enable_patent_self_evolution is False
+
+
+def test_paper_synthex_preserves_explicit_enzyme_companion_arm() -> None:
+    resolved = _resolve_execution_config(
+        TargetSolveConfig(
+            execution_profile="paper_synthex",
+            strategy_portfolio_mode="enzyme_advantage",
+        )
+    )
+
+    assert resolved.strategy_portfolio_mode == "enzyme_advantage"
+    assert resolved.strategy_branch_count == 3
+    assert resolved.strategy_branch_workers == 3
+    assert resolved.max_node_expansions_per_branch == 25
+    assert resolved.max_route_local_repair_rounds == 6
+    assert resolved.enable_condition_enrichment is False
+    assert resolved.enable_condition_enrichment is False
+    assert resolved.enable_chemenzy_condition_prediction is False
+    assert resolved.enable_chemenzy_enzyme_assignment is False
+    assert resolved.enable_enzyme_coverage_sidecar is False
+    assert resolved.enable_program_review is False
+    assert resolved.enable_program_discovery is False
+    assert resolved.enable_program_validation is False
+    assert resolved.max_evidence_tasks == 0
+    assert resolved.max_program_tasks == 0
+    assert resolved.max_experiment_tasks == 0
+    assert resolved.max_run_wall_time_s == 86_400.0
+    assert resolved.enable_chemenzy is True
+    assert resolved.enable_guided_chemenzy is True
+    assert resolved.max_chemenzy_steps == 6
+    assert resolved.max_chemenzy_iterations == 500
+    assert resolved.chemenzy_timeout_s == 1200.0
+
+
+def test_paper_synthex_preserves_explicit_hybrid_companion_arm() -> None:
+    resolved = _resolve_execution_config(
+        TargetSolveConfig(
+            execution_profile="paper_synthex",
+            strategy_portfolio_mode="autoplanner_hybrid",
+        )
+    )
+
+    assert resolved.strategy_portfolio_mode == "autoplanner_hybrid"
+
+
+def test_paper_synthex_preserves_explicit_chemoenzymatic_fusion_arm() -> None:
+    resolved = _resolve_execution_config(
+        TargetSolveConfig(
+            execution_profile="paper_synthex",
+            strategy_portfolio_mode="chemoenzymatic_fusion",
+        )
+    )
+
+    assert resolved.strategy_portfolio_mode == "chemoenzymatic_fusion"
+    assert resolved.strategy_tree_engine == "aizynthfinder_mcts"
+    assert resolved.strategy_branch_count == 3
+    assert resolved.strategy_branch_workers == 3
+    assert resolved.max_node_expansions_per_branch == 25
+    assert resolved.enable_condition_enrichment is False
+
+
+def test_paper_synthex_preserves_explicit_strategy_v2_arm() -> None:
+    resolved = _resolve_execution_config(
+        TargetSolveConfig(
+            execution_profile="paper_synthex",
+            strategy_portfolio_mode="autoplanner_strategy_v2",
+        )
+    )
+
+    assert resolved.strategy_portfolio_mode == "autoplanner_strategy_v2"
+    assert resolved.strategy_tree_engine == "aizynthfinder_mcts"
+    assert resolved.strategy_branch_count == 3
+    assert resolved.max_node_expansions_per_branch == 25
+
+
+def test_paper_matched_reach_isolated_profile_forces_exact_reach_arm() -> None:
+    resolved = _resolve_execution_config(
+        TargetSolveConfig(
+            execution_profile="paper_matched_reach",
+            strategy_portfolio_mode="chemoenzymatic_fusion",
+            enable_chemenzy=True,
+            enable_guided_chemenzy=True,
+            enable_condition_enrichment=True,
+            enable_enzyme_coverage_sidecar=True,
+            enable_replan=True,
+            max_validation_tasks=128,
+        )
+    )
+
+    assert resolved.strategy_portfolio_mode == "paper_independent"
+    assert resolved.strategy_branch_count == 3
+    assert resolved.strategy_branch_workers == 3
+    assert resolved.max_node_expansions_per_branch == 25
+    assert resolved.max_route_local_repair_rounds == 6
+    assert resolved.require_complete_route_json is True
+    assert resolved.enable_chemenzy is False
+    assert resolved.enable_guided_chemenzy is False
+    assert resolved.enable_condition_enrichment is False
+    assert resolved.enable_enzyme_coverage_sidecar is False
+    assert resolved.enable_replan is False
+    assert resolved.max_validation_tasks == 0
+
+
+def test_paper_matched_primary_projection_foregrounds_reach_and_real_calls() -> None:
+    config = _resolve_execution_config(
+        TargetSolveConfig(execution_profile="paper_matched_reach")
+    )
+    route_families = [
+        {
+            "route_family_id": f"family:{index}",
+            "strategy_call_count": 1,
+            "route_call_count": 25,
+            "critic_call_count": 1,
+            "editor_attempt_count": 0,
+            "editor_call_count": 0,
+            "paper_policy_call_budget": {
+                "actual_calls": 25,
+                "stock_closed_observed": False,
+            },
+            "aizynthfinder_strategy_search": {
+                "provider_callback_count": 25,
+            },
+            "critic_editor_history": [],
+        }
+        for index in range(1, 4)
+    ]
+    skeletons = [
+        {
+            "route_family_id": f"family:{index}",
+            "routejson_replay_complete": True,
+            "steps": [{"step_id": f"step:{index}"}],
+        }
+        for index in range(1, 4)
+    ]
+    result = _paper_matched_primary_projection(
+        config=config,
+        paper_equivalent={
+            "paper_reach": True,
+            "paper_equivalent_solved": False,
+            "paper_reached_route_count": 3,
+            "paper_equivalent_solved_route_count": 0,
+            "stock_comparable_to_synthex": True,
+        },
+        outcomes=[
+            {
+                "plan": {
+                    "route_families": route_families,
+                    "multi_step_skeletons": skeletons,
+                }
+            }
+        ],
+        stages=[
+            {
+                "stage": "aizynthfinder_stock_recovery",
+                "detail": {
+                    "provider_invocation_count": 3,
+                    "executed_frontier_count": 3,
+                    "results": [
+                        {
+                            "frontier_smiles": ["CCO"],
+                            "status": "unresolved",
+                            "provider_solved": False,
+                            "provider_invocation_count": 1,
+                            "partial_route_ingestion_allowed": False,
+                            "statistics": {"iterations": 500},
+                        }
+                    ],
+                },
+            }
+        ],
+    )
+
+    assert result["paper_reach"] is True
+    assert result["paper_equivalent_solved"] is False
+    assert result["actual_route_builder_policy_calls"] == 75
+    assert result["policy_cap_respected"] is True
+    assert result["maximum_route_builder_policy_calls"] == 75
+    assert result["complete_routejson_branch_count"] == 3
+    assert result["partial_route_ingestion_allowed"] is False
+    assert result["short_tail"]["provider_invocation_count"] == 3
 
 
 def test_action_handler_projection_preserves_failed_outcome_status_and_reasons() -> None:
@@ -1203,6 +1444,25 @@ def test_completed_checkpoint_noop_resume_is_terminal_unresolved() -> None:
         baseline=baseline,
         current={**baseline, "attempt_count": 13},
         portfolio_accepted=False,
+    )
+
+
+def test_no_action_scheduler_pass_is_terminal_without_manual_resume() -> None:
+    assert _bounded_scheduler_exhausted(
+        {"termination": "no_action", "execution_count": 121},
+        portfolio_accepted=False,
+    )
+    assert _bounded_scheduler_exhausted(
+        {"termination": "converged_low_marginal_gain"},
+        portfolio_accepted=False,
+    )
+    assert not _bounded_scheduler_exhausted(
+        {"termination": "action_limit"},
+        portfolio_accepted=False,
+    )
+    assert not _bounded_scheduler_exhausted(
+        {"termination": "no_action"},
+        portfolio_accepted=True,
     )
 
 
@@ -3190,6 +3450,10 @@ def test_zero_result_provider_search_triggers_one_failure_aware_replan(
     assert sum(
         stage["stage"] == "global_replan" for stage in result["stages"]
     ) == 1
+    settled_replan = next(
+        stage for stage in result["stages"] if stage["stage"] == "global_replan"
+    )
+    assert settled_replan["status"] != "running"
 
 
 def test_completed_checkpoint_resume_does_not_repeat_replan_without_new_event(
@@ -4347,3 +4611,123 @@ def test_patent_self_evolution_learns_then_guides_a_new_blind_target(
         )
         for proof in edge.get("reaction_proofs") or []
     )
+
+
+def test_stage_dedup_preserves_settled_provider_result_over_resume_reuse() -> None:
+    from cascade_planner.interfaces.target_solver import _deduplicate_stages
+
+    stages = _deduplicate_stages(
+        [
+            {
+                "stage": "aizynthfinder_guided_frontier",
+                "status": "completed",
+                "detail": {
+                    "provider_invocation_count": 1,
+                    "proposal_count": 6,
+                    "statistics": {"profiling": {"iterations": 500}},
+                },
+            },
+            {
+                "stage": "aizynthfinder_guided_frontier",
+                "status": "reused",
+                "detail": {
+                    "status": "reused",
+                    "new_proposal_count": 0,
+                    "reused_from_status": "frontier_budget_already_spent",
+                },
+            },
+        ]
+    )
+
+    assert len(stages) == 1
+    assert stages[0]["status"] == "completed"
+    assert stages[0]["detail"]["proposal_count"] == 6
+    assert stages[0]["detail"]["statistics"]["profiling"]["iterations"] == 500
+
+
+def test_terminal_report_does_not_advertise_stale_scheduler_action() -> None:
+    from cascade_planner.interfaces.target_solver import _report_next_action
+
+    projected = _report_next_action(
+        {
+            "selected_action_id": "action:stale",
+            "selected_action": {"kind": "native_search_frontier"},
+            "candidate_count": 4,
+            "eligible_candidate_count": 1,
+            "content_sha256": "a" * 64,
+        },
+        stop_decision={"terminal": True, "decision": "unresolved"},
+    )
+
+    assert projected["selected_action_id"] == ""
+    assert projected["selected_action"] == {}
+    assert projected["candidate_count"] == 0
+    assert projected["eligible_candidate_count"] == 0
+    assert projected["terminal"] is True
+    assert projected["historical_decision_sha256"] == "a" * 64
+
+
+def test_expansion_accounting_separates_director_and_provider_origins() -> None:
+    from cascade_planner.interfaces.target_solver import _compile_expansion_accounting
+
+    lifecycle = {
+        "canonical_candidate_count": 2,
+        "records": [
+            {
+                "status": "admitted_unproved",
+                "origin_records": [{"origin_kind": "codex_global_director"}],
+                "admission": {"accepted": True},
+                "materialization": {"materialized": True},
+                "validation": {"accepted": False},
+                "portfolio": {"accepted_route_ids": []},
+            },
+            {
+                "status": "admitted_unproved",
+                "origin_records": [{"origin_kind": "aizynthfinder"}],
+                "admission": {"accepted": True},
+                "materialization": {"materialized": True},
+                "validation": {"accepted": False},
+                "portfolio": {"accepted_route_ids": []},
+            },
+        ],
+    }
+    accounting = _compile_expansion_accounting(
+        lifecycle,
+        outcomes=(
+            {
+                "status": "accepted",
+                "plan": {
+                    "multi_step_skeletons": [
+                        {"steps": [{"step_id": "codex:1"}]}
+                    ]
+                },
+            },
+        ),
+        kernel_accepted_expansion_count=2,
+    )
+
+    assert accounting["director_selected_step_count"] == 1
+    assert accounting["by_origin_kind"]["codex_global_director"][
+        "materialized"
+    ] == 1
+    assert accounting["by_origin_kind"]["aizynthfinder"]["materialized"] == 1
+
+
+def test_search_method_projection_binds_paper_strategy_to_aiz_mcts() -> None:
+    from cascade_planner.interfaces.target_solver import _search_method_projection
+
+    projection = _search_method_projection(
+        _resolve_execution_config(
+            TargetSolveConfig(execution_profile="paper_synthex")
+        )
+    )
+
+    assert projection["native_short_tail_engine"] == "aizynthfinder"
+    assert projection["strategy_search_engine"] == (
+        "AiZynthFinder.MctsSearchTree with host-replayed Codex ReactionJSON policy"
+    )
+    assert projection["strategy_tree_engine"] == "aizynthfinder_mcts"
+    assert projection["strategy_ucb_active"] is True
+    assert projection["llm_expansion_policy_inside_aizynthfinder_mcts"] is True
+    assert projection["paper_algorithm_equivalent"] is True
+    assert projection["paper_source_implementation_identical"] is False

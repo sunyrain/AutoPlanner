@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from cascade_planner.application.reactionjson_replay import replay_reactionjson
 from cascade_planner.harness.reaction_step_verifier import (
     build_verified_procurement_binding,
     canonical_reaction_digest,
@@ -84,6 +85,85 @@ def test_materialized_unmapped_step_is_only_graph_and_stock_closed() -> None:
     assert proof["accepted"] is False
     assert proof["proof_level"] == "L1_graph_and_stock_closed"
     assert "complete_atom_mapped_reaction_missing" in proof["reasons"]
+
+
+def test_replayed_external_oxygen_donor_reaches_structural_l2() -> None:
+    operations = [{"op": "remove_group", "map_indices": [3]}]
+    replay = replay_reactionjson(
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        operations=operations,
+        expected_precursor_smiles=["CC"],
+    )
+    proof = verify_reaction_step(
+        {
+            "step_id": "p450-hydroxylation",
+            "product_smiles": "CCO",
+            "reactant_smiles": ["CC"],
+            "atom_mapped_reaction_smiles": (
+                "[CH3:1][CH3:2]>>[CH3:1][CH2:2][OH:3]"
+            ),
+            "reaction_operations": operations,
+            "reactionjson_audit": {
+                **replay,
+                "external_atom_source_required": True,
+                "external_atom_source_status": (
+                    "declared_graph_edit_requires_validation"
+                ),
+                "external_atom_source_grants_reaction_proof": False,
+            },
+            "biocatalytic_steps": [
+                {
+                    "cofactor_ledger": {
+                        "cosubstrates": ["molecular oxygen"],
+                        "requirements": ["NADPH"],
+                    }
+                }
+            ],
+        }
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L2_reaction_validated"
+    assert proof["checks"]["product_atoms_have_reactant_provenance"] is False
+    assert proof["checks"]["external_atom_source_replayed"] is True
+    assert proof["external_atom_source_audit"]["accepted"] is True
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "replayed_external_atom_installation"
+    )
+
+
+def test_external_atom_claim_without_bound_donor_still_fails_closed() -> None:
+    operations = [{"op": "remove_group", "map_indices": [3]}]
+    replay = replay_reactionjson(
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        operations=operations,
+        expected_precursor_smiles=["CC"],
+    )
+    proof = verify_reaction_step(
+        {
+            "product_smiles": "CCO",
+            "reactant_smiles": ["CC"],
+            "atom_mapped_reaction_smiles": (
+                "[CH3:1][CH3:2]>>[CH3:1][CH2:2][OH:3]"
+            ),
+            "reaction_operations": operations,
+            "reactionjson_audit": {
+                **replay,
+                "external_atom_source_required": True,
+                "external_atom_source_grants_reaction_proof": False,
+            },
+            "biocatalytic_steps": [
+                {"cofactor_ledger": {"cosubstrates": ["glucose"]}}
+            ],
+        }
+    )
+
+    assert proof["accepted"] is False
+    assert proof["checks"]["external_atom_source_replayed"] is False
+    assert "external_atom_donor_inventory_missing" in proof[
+        "external_atom_source_audit"
+    ]["reasons"]
+    assert "product_heavy_atom_without_reactant_provenance" in proof["reasons"]
 
 
 def test_complete_mapped_step_is_mapping_consistent_but_not_parent_eligible() -> None:

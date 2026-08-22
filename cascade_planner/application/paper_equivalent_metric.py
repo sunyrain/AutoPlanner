@@ -6,8 +6,12 @@ import json
 from typing import Any, Mapping
 
 
-PAPER_EQUIVALENT_METRIC_SCHEMA = "paper_equivalent_solved_metric.v2"
-SYNTHEX_STOCK_MEMBER_COUNT = 39_684_411
+PAPER_EQUIVALENT_METRIC_SCHEMA = "paper_equivalent_solved_metric.v3"
+SYNTHEX_STOCK_UNIQUE_MEMBER_COUNT = 39_478_827
+SYNTHEX_STOCK_DECLARED_ENTRY_COUNT = 39_684_411
+# Backward-compatible import name.  A member count is a set cardinality and
+# therefore refers to the unique full-InChIKey membership oracle.
+SYNTHEX_STOCK_MEMBER_COUNT = SYNTHEX_STOCK_UNIQUE_MEMBER_COUNT
 
 
 def compile_paper_equivalent_metric(
@@ -65,7 +69,7 @@ def compile_paper_equivalent_metric(
     exact_paper_stock = (
         "zinc" in normalized_name
         and "emolecules" in normalized_name
-        and member_count == SYNTHEX_STOCK_MEMBER_COUNT
+        and member_count == SYNTHEX_STOCK_UNIQUE_MEMBER_COUNT
         and identity_key == "full_inchikey"
     )
     result = {
@@ -83,7 +87,9 @@ def compile_paper_equivalent_metric(
         "stock_member_count": member_count,
         "stock_identity_key": identity_key,
         "required_stock_catalog_name": "ZINC+eMolecules",
-        "required_stock_member_count": SYNTHEX_STOCK_MEMBER_COUNT,
+        "required_stock_member_count": SYNTHEX_STOCK_UNIQUE_MEMBER_COUNT,
+        "required_stock_unique_member_count": SYNTHEX_STOCK_UNIQUE_MEMBER_COUNT,
+        "paper_declared_stock_entry_count": SYNTHEX_STOCK_DECLARED_ENTRY_COUNT,
         "required_stock_identity_key": "full_inchikey",
         "comparison_disposition": (
             "paper_comparable"
@@ -114,6 +120,8 @@ def compile_paper_equivalent_metric(
             "paper_solved_additionally_requires_all_leaves_in_stock": True,
             "target_rooted_topology_required": True,
             "all_leaves_must_hit_one_bound_stock_oracle": True,
+            "stock_member_count_is_unique_set_cardinality": True,
+            "paper_declared_entry_count_is_not_membership_cardinality": True,
             "configured_minimum_route_count_not_used": True,
             "reaction_validation_not_used": True,
             "evidence_not_used": True,
@@ -138,6 +146,8 @@ def _digest(value: Any) -> str:
 
 __all__ = [
     "PAPER_EQUIVALENT_METRIC_SCHEMA",
+    "SYNTHEX_STOCK_DECLARED_ENTRY_COUNT",
     "SYNTHEX_STOCK_MEMBER_COUNT",
+    "SYNTHEX_STOCK_UNIQUE_MEMBER_COUNT",
     "compile_paper_equivalent_metric",
 ]

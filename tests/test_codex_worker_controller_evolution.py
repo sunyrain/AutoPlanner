@@ -54,6 +54,134 @@ from cascade_planner.agent.evolution_manager import (
 
 
 class CodexWorkerControllerEvolutionTest(unittest.TestCase):
+    def test_paper_matched_worker_schemas_exclude_non_protocol_fields(self):
+        strategy_task = WorkerTask(
+            task_id="paper-strategy",
+            case_id="opaque-case",
+            task_type="paper_matched_strategy_generator",
+            required_artifact_type="StrategyPortfolioReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+        route_task = WorkerTask(
+            task_id="paper-route",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+        critic_task = WorkerTask(
+            task_id="paper-critic",
+            case_id="opaque-case",
+            task_type="paper_matched_route_critic",
+            required_artifact_type="ChemicalStrategyCritique",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+        editor_task = WorkerTask(
+            task_id="paper-editor",
+            case_id="opaque-case",
+            task_type="paper_matched_route_editor",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+
+        strategy_payload = _worker_output_json_schema(strategy_task)[
+            "properties"
+        ]["payload"]
+        strategy_cards = strategy_payload["properties"]["strategy_cards"]
+        self.assertEqual(strategy_cards["minItems"], 3)
+        self.assertEqual(strategy_cards["maxItems"], 3)
+        strategy_card = strategy_cards["items"]
+        self.assertEqual(
+            set(strategy_card["properties"]),
+            {
+                "strategy_query",
+                "scaffold_motif",
+                "key_forward_transformation",
+                "key_bond_changes",
+                "functional_group_conflicts",
+                "protection_policy",
+                "stereochemical_plan",
+                "strategic_step_count",
+                "strategy_signature",
+            },
+        )
+        self.assertNotIn("strategy_card", strategy_payload["properties"])
+
+        route_payload = _worker_output_json_schema(route_task)["properties"][
+            "payload"
+        ]
+        route_candidate = route_payload["properties"]["candidates"]["items"]
+        self.assertFalse(
+            {
+                "route_json",
+                "enzyme",
+                "execution_domain",
+                "biocatalytic_step",
+                "evidence_refs",
+                "source_refs",
+                "required_validation",
+            }
+            & set(route_candidate["properties"])
+        )
+        self.assertIn("conditions", route_candidate["properties"])
+        self.assertIn("catalyst", route_candidate["properties"])
+        self.assertIn("step_role", route_candidate["properties"])
+        self.assertIn("feasibility_check", route_candidate["properties"])
+        self.assertEqual(route_candidate["properties"]["precursor_smiles"]["maxItems"], 0)
+        self.assertIn("stop_signal", route_payload["properties"])
+        self.assertIn("stop_reason", route_payload["properties"])
+        self.assertEqual(route_payload["properties"]["candidates"]["minItems"], 0)
+        self.assertEqual(route_payload["properties"]["candidates"]["maxItems"], 1)
+
+        critic_payload = _worker_output_json_schema(critic_task)["properties"][
+            "payload"
+        ]
+        assessment = critic_payload["properties"]["step_assessments"]["items"]
+        self.assertNotIn("enzyme_assessment", assessment["properties"])
+        self.assertIn("blocking", assessment["properties"])
+        self.assertIn("blocking_type", assessment["properties"])
+        self.assertIn("condition_assessment", assessment["properties"])
+        self.assertNotIn("mechanistic_analysis", assessment["properties"])
+        self.assertNotIn("experimental_variables", critic_payload["properties"])
+
+        editor_payload = _worker_output_json_schema(editor_task)["properties"][
+            "payload"
+        ]
+        editor_candidate = editor_payload["properties"]["candidates"]["items"]
+        self.assertIn("repair_status", editor_candidate["properties"])
+        self.assertIn("repair_summary", editor_candidate["properties"])
+        self.assertIn("route_patch", editor_candidate["properties"])
+        self.assertNotIn("route_json", editor_candidate["properties"])
+        self.assertNotIn("product_smiles", editor_candidate["properties"])
+
+    def test_paper_matched_worker_prompt_uses_lean_role_envelope(self):
+        task = WorkerTask(
+            task_id="paper-route",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+            objective="compact builder objective",
+        )
+
+        prompt = _codex_worker_prompt(task)
+
+        self.assertIn("compact builder objective", prompt)
+        self.assertIn("keep authored fields concise", prompt)
+        self.assertNotIn("Required artifact wrapper", prompt)
+        self.assertNotIn("WorkerTask:", prompt)
+        self.assertNotIn("artifact_payload_instruction", prompt)
+
     def test_strategy_worker_schema_excludes_evidence_metadata(self):
         task = WorkerTask(
             task_id="strategy",
@@ -105,6 +233,9 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
 
         self.assertNotIn("strategy_card", candidate["properties"])
         self.assertIn("reaction_operations", candidate["properties"])
+        self.assertEqual(candidate["properties"]["precursor_smiles"]["maxItems"], 0)
+        route_step = candidate["properties"]["route_json"]["items"]
+        self.assertEqual(route_step["properties"]["precursor_smiles"]["maxItems"], 0)
         self.assertIn("do not echo the supplied immutable StrategyCard", prompt)
         self.assertIn("candidate.precursor_smiles to []", prompt)
 
@@ -177,6 +308,9 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         )
         self.assertEqual(
             payload["properties"]["no_source_authority"]["enum"], [True]
+        )
+        self.assertEqual(
+            payload["properties"]["step_assessments"]["minItems"], 1
         )
 
     def test_global_plan_schema_binds_full_context_ref_not_prompt_digest(self):
@@ -567,10 +701,54 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertLess(approval_index, exec_index)
         self.assertEqual(command[approval_index + 1], "never")
         self.assertGreater(command.index("--sandbox"), exec_index)
+        self.assertIn("--skip-git-repo-check", command)
         self.assertNotIn("--search", no_search_command)
         self.assertIn("--search", search_command)
         self.assertIn('model_reasoning_effort="medium"', effort_command)
         self.assertLess(search_command.index("--search"), search_command.index("exec"))
+
+    def test_ambient_openai_worker_uses_https_without_websocket_retries(self):
+        with patch.dict(
+            "os.environ",
+            {"AUTOPLANNER_CODEX_WORKER_TRANSPORT": "https"},
+            clear=False,
+        ):
+            command = _codex_cli_command(
+                executable="codex",
+                workdir=Path("/tmp/autoplanner-case"),
+                output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+                schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+                runtime_metadata={
+                    "auth_source": "ambient_codex_cli_snapshot",
+                    "configured_model_provider": "openai",
+                },
+            )
+
+        exec_index = command.index("exec")
+        self.assertIn('model_provider="autoplanner_http"', command[:exec_index])
+        self.assertIn(
+            "model_providers.autoplanner_http.supports_websockets=false",
+            command[:exec_index],
+        )
+
+    def test_https_override_does_not_replace_an_explicit_custom_provider(self):
+        with patch.dict(
+            "os.environ",
+            {"AUTOPLANNER_CODEX_WORKER_TRANSPORT": "https"},
+            clear=False,
+        ):
+            command = _codex_cli_command(
+                executable="codex",
+                workdir=Path("/tmp/autoplanner-case"),
+                output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+                schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+                runtime_metadata={
+                    "auth_source": "ambient_codex_cli_snapshot",
+                    "configured_model_provider": "wellau",
+                },
+            )
+
+        self.assertNotIn('model_provider="autoplanner_http"', command)
 
     def test_codex_cli_command_allows_unsandboxed_worker_modes(self):
         with patch.dict("os.environ", {"AUTOPLANNER_CODEX_WORKER_SANDBOX": "danger-full-access"}, clear=False):

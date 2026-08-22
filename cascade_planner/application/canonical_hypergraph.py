@@ -21,6 +21,9 @@ from cascade_planner.application.condition_predictions import (
 from cascade_planner.application.chemical_strategy_critic import (
     critique_strategy_candidate,
 )
+from cascade_planner.application.biocatalytic_step_contract import (
+    normalize_biocatalytic_step,
+)
 from cascade_planner.application.deficit_frontier import (
     compile_deficit_frontier,
     frontier_scientific_projection,
@@ -67,6 +70,7 @@ CANONICAL_HYPERGRAPH_SCHEMA = "canonical_retrosynthesis_hypergraph.v1"
 CANONICAL_HYPERGRAPH_DELTA_SCHEMA = "canonical_hypergraph_delta.v1"
 CANONICAL_INGESTION_REPORT_SCHEMA = "canonical_hypergraph_ingestion_report.v1"
 _ORIGIN_KINDS = {
+    "aizynthfinder",
     "codex",
     "codex_global_director",
     "chemenzy",
@@ -257,14 +261,35 @@ class CanonicalHypergraphStore:
                 continue
             if hypothesis.get("status") != "frontier_candidate":
                 continue
+            strategy_cards = _merge_strategy_cards(
+                hypothesis.get("strategy_cards"),
+                (
+                    [hypothesis.get("strategy_card")]
+                    if isinstance(hypothesis.get("strategy_card"), Mapping)
+                    else []
+                ),
+            )
             origins = list(hypothesis.get("origin_records") or [{}])
             for origin in origins:
+                origin_strategy_digest = str(origin.get("strategy_digest") or "")
+                origin_strategy_card = next(
+                    (
+                        dict(card)
+                        for card in strategy_cards
+                        if str(card.get("strategy_digest") or "")
+                        == origin_strategy_digest
+                    ),
+                    dict(hypothesis.get("strategy_card") or {}),
+                )
                 proposals.append(
                     {
                         "product_smiles": hypothesis["product_smiles"],
                         "precursor_smiles": hypothesis["precursor_smiles"],
                         "condition_predictions": list(
                             hypothesis.get("condition_predictions") or []
+                        ),
+                        "biocatalytic_steps": list(
+                            hypothesis.get("biocatalytic_steps") or []
                         ),
                         "route_innovations": list(
                             hypothesis.get("route_innovations") or []
@@ -273,14 +298,20 @@ class CanonicalHypergraphStore:
                         # The hypothesis owns the normalized strategy and
                         # ReactionJSON facts. Origin rows are provenance only
                         # and cannot reconstruct those execution fields.
-                        "strategy_card": dict(
-                            hypothesis.get("strategy_card") or {}
-                        ),
+                        # One canonical reaction hypothesis may be shared by
+                        # several independently frozen route strategies. Keep
+                        # the full OR-provenance collection across the worker
+                        # boundary; the scalar is only a compatibility view
+                        # matched to this particular origin when possible.
+                        "strategy_cards": [
+                            dict(card) for card in strategy_cards
+                        ],
+                        "strategy_card": origin_strategy_card,
                         "strategy_id": str(
-                            hypothesis.get("strategy_id") or ""
+                            origin_strategy_card.get("strategy_id") or ""
                         ),
                         "strategy_digest": str(
-                            hypothesis.get("strategy_digest") or ""
+                            origin_strategy_card.get("strategy_digest") or ""
                         ),
                         "reaction_operations": [
                             dict(value)
@@ -746,6 +777,31 @@ def _ingest_route_family(
         if strategy_card_has_content(incoming_strategy)
         else existing_strategy
     )
+    strategy_cards = _merge_strategy_cards(
+        existing.get("strategy_cards"),
+        [
+            *(
+                value
+                for value in row.get("strategy_milestone_cards") or []
+                if isinstance(value, Mapping)
+            ),
+            *(
+                value
+                for value in row.get("strategy_cards") or []
+                if isinstance(value, Mapping)
+            ),
+            *(
+                [row.get("root_strategy_card")]
+                if isinstance(row.get("root_strategy_card"), Mapping)
+                else []
+            ),
+            *(
+                [strategy_card]
+                if strategy_card_has_content(strategy_card)
+                else []
+            ),
+        ],
+    )
     aliases = sorted({*existing.get("aliases", []), alias} - {""})
     record = {
         "route_family_id": route_id,
@@ -776,6 +832,11 @@ def _ingest_route_family(
         ),
         "blocking_deficit_ids": list(existing.get("blocking_deficit_ids") or []),
         "strategy_card": strategy_card,
+        # A route-internal multi-milestone policy freezes every allowed
+        # StrategyCard at the route-family boundary.  Individual steps may
+        # bind to any one of these declared milestones without being treated
+        # as a silent replacement of the immutable root strategy.
+        "strategy_cards": strategy_cards,
         "strategy_id": str(strategy_card.get("strategy_id") or ""),
         "strategy_digest": str(strategy_card.get("strategy_digest") or ""),
         "execution_domain": str(
@@ -785,6 +846,24 @@ def _ingest_route_family(
             row.get("chemical_critic")
             or existing.get("chemical_critic")
             or {}
+        ),
+        "provider_short_tail_bindings": _merge_json_rows(
+            existing.get("provider_short_tail_bindings"),
+            row.get("provider_short_tail_bindings"),
+        ),
+        "excluded_provider_group_ids": sorted(
+            {
+                *(
+                    str(value)
+                    for value in existing.get("excluded_provider_group_ids") or []
+                    if str(value)
+                ),
+                *(
+                    str(value)
+                    for value in row.get("excluded_provider_group_ids") or []
+                    if str(value)
+                ),
+            }
         ),
     }
     graph["route_families"][route_id] = _with_digest(record)
@@ -815,7 +894,17 @@ def _ingest_hypothesis(
         )
         return
     precursors = row.get("precursor_smiles") or row.get("reactant_smiles") or []
-    hypothesis_id, audit = hypothesis_identity(row.get("product_smiles"), precursors)
+    hypothesis_id, audit = hypothesis_identity(
+        row.get("product_smiles"),
+        precursors,
+        mapped_product_smiles=row.get("mapped_product_smiles"),
+        reaction_operations=operations,
+        reactionjson_audit=(
+            row.get("reactionjson_audit")
+            if isinstance(row.get("reactionjson_audit"), Mapping)
+            else None
+        ),
+    )
     canonical_product = str(audit.get("product_smiles") or "")
     canonical_precursors = [
         str(item)
@@ -876,6 +965,7 @@ def _ingest_hypothesis(
         precursor_smiles=canonical_precursors,
         strategy_card=strategy_card,
         reaction_operations=operations,
+        reactionjson_audit=dict(row.get("reactionjson_audit") or {}),
         reaction_family=str(row.get("transformation_hypothesis") or ""),
         conditions=[
             item
@@ -899,13 +989,35 @@ def _ingest_hypothesis(
         route_innovations,
         route_ids,
     )
+    biocatalytic_steps = _biocatalytic_steps_from_row(
+        row,
+        product_smiles=canonical_product,
+        precursor_smiles=canonical_precursors,
+        default_execution_domain=str(
+            row.get("execution_domain")
+            or strategy_card.get("execution_domain")
+            or "chemical"
+        ),
+    )
     origin = _origin_record(row, default_kind="codex_global_director")
     existing = dict(graph["hypotheses"].get(hypothesis_id) or {})
+    strategy_cards = _merge_strategy_cards(
+        existing.get("strategy_cards")
+        or (
+            [existing.get("strategy_card")]
+            if isinstance(existing.get("strategy_card"), Mapping)
+            else []
+        ),
+        [strategy_card] if strategy_card_has_content(strategy_card) else [],
+    )
     edge_id = f"edge:{audit['edge_digest']}"
     advisory_only = row.get("advisory_only") is True
+    provider_template_topology = bool(
+        str(row.get("origin_kind") or "") == "chemenzy" and not operations
+    )
     critic_is_admission_authority = bool(
         strategy_card_has_content(strategy_card) or operations
-    )
+    ) and not provider_template_topology
     critic_blocking_reasons = {
         str(reason) for reason in critic.get("blocking_reasons") or [] if str(reason)
     }
@@ -922,7 +1034,6 @@ def _ingest_hypothesis(
     )
     admission_reasons = sorted(
         {
-            *(str(reason) for reason in existing.get("admission_reasons") or []),
             *(str(reason) for reason in audit.get("reasons") or []),
             *(critic_blocking_reasons if critic_is_admission_authority else ()),
             *strategy_reasons,
@@ -934,6 +1045,29 @@ def _ingest_hypothesis(
         }
         - {""}
     )
+    admission_history = list(existing.get("admission_history") or [])
+    if existing and (
+        existing.get("admission_accepted") is not admission_accepted
+        or sorted(str(value) for value in existing.get("admission_reasons") or [])
+        != admission_reasons
+    ):
+        admission_history = _merge_json_rows(
+            admission_history,
+            [
+                {
+                    "admission_accepted": existing.get("admission_accepted") is True,
+                    "admission_reasons": sorted(
+                        str(value)
+                        for value in existing.get("admission_reasons") or []
+                        if str(value)
+                    ),
+                    "admission_audit_sha256": str(
+                        existing.get("admission_audit_sha256") or ""
+                    ),
+                    "status": str(existing.get("status") or ""),
+                }
+            ],
+        )
     record = {
         "hypothesis_id": hypothesis_id,
         "edge_digest": audit["edge_digest"],
@@ -948,6 +1082,7 @@ def _ingest_hypothesis(
         ),
         "admission_accepted": admission_accepted,
         "admission_reasons": admission_reasons,
+        "admission_history": admission_history,
         "origin_records": _merge_by_digest(existing.get("origin_records"), [origin]),
         "route_family_ids": sorted(
             {*(existing.get("route_family_ids") or []), *route_ids} - {""}
@@ -963,17 +1098,27 @@ def _ingest_hypothesis(
             existing.get("condition_predictions"),
             row.get("condition_predictions"),
         ),
+        "biocatalytic_steps": _merge_json_rows(
+            existing.get("biocatalytic_steps"),
+            biocatalytic_steps,
+        ),
         "route_innovations": merge_route_innovations(
             existing.get("route_innovations"),
             route_innovations,
         ),
         "strategy_card": strategy_card,
+        "strategy_cards": strategy_cards,
         "strategy_id": str(strategy_card.get("strategy_id") or ""),
         "strategy_digest": str(strategy_card.get("strategy_digest") or ""),
         "reaction_operations": [dict(value) for value in operations],
         "reaction_edit_digest": reaction_edit_digest(operations),
         "reactionjson_audit": dict(row.get("reactionjson_audit") or {}),
         "chemical_strategy_critic": critic,
+        "admission_semantics": {
+            "provider_template_topology": provider_template_topology,
+            "reaction_credibility_reported_separately": provider_template_topology,
+            "critic_is_admission_authority": critic_is_admission_authority,
+        },
         "admission_audit_sha256": _digest(audit),
     }
     graph["hypotheses"][hypothesis_id] = _with_digest(record)
@@ -1006,6 +1151,10 @@ def _ingest_hypothesis(
             edge.get("route_innovations"),
             route_innovations,
         )
+        edge["biocatalytic_steps"] = _merge_json_rows(
+            edge.get("biocatalytic_steps"),
+            biocatalytic_steps,
+        )
         edge["strategy_cards"] = _merge_strategy_cards(
             edge.get("strategy_cards"),
             [strategy_card],
@@ -1022,6 +1171,21 @@ def _ingest_hypothesis(
         )
         if edge_id in graph["edges"]:
             route["edge_ids"] = sorted({*route.get("edge_ids", []), edge_id})
+        bindings = [
+            dict(dict(origin.get("provider_reaction_metadata") or {}).get(
+                "short_tail_binding"
+            ) or {})
+            for origin in record.get("origin_records") or []
+            if isinstance(origin, Mapping)
+            and dict(dict(origin.get("provider_reaction_metadata") or {}).get(
+                "short_tail_binding"
+            ) or {})
+        ]
+        if bindings:
+            route["provider_short_tail_bindings"] = _merge_json_rows(
+                route.get("provider_short_tail_bindings"),
+                bindings,
+            )
         graph["route_families"][route_id] = _with_digest(route)
         dirty.add(route_id)
     dirty.add(hypothesis_id)
@@ -1122,6 +1286,21 @@ def _ingest_candidate(
         route_innovations,
         route_ids,
     )
+    biocatalytic_steps = _biocatalytic_steps_from_row(
+        row,
+        product_smiles=str(audit["product_smiles"]),
+        precursor_smiles=audit["precursor_smiles_multiset"],
+        default_execution_domain=str(
+            next(
+                (
+                    card.get("execution_domain")
+                    for card in strategy_cards
+                    if card.get("execution_domain")
+                ),
+                "chemical",
+            )
+        ),
+    )
     record = {
         "edge_id": edge_id,
         "edge_digest": audit["edge_digest"],
@@ -1150,6 +1329,10 @@ def _ingest_candidate(
             existing.get("condition_predictions"),
             row.get("condition_predictions"),
         ),
+        "biocatalytic_steps": _merge_json_rows(
+            existing.get("biocatalytic_steps"),
+            biocatalytic_steps,
+        ),
         "route_innovations": merge_route_innovations(
             existing.get("route_innovations"),
             route_innovations,
@@ -1166,6 +1349,7 @@ def _ingest_candidate(
         "chemical_strategy_critic": dict(
             row.get("chemical_strategy_critic") or {}
         ),
+        "admission_semantics": dict(row.get("admission_semantics") or {}),
         "status": "materialized",
         "admission_audit_sha256": _digest(audit),
     }
@@ -1219,6 +1403,13 @@ def _ingest_worker_result(
                 rejected=rejected,
             )
         else:
+            _terminalize_rejected_materialization(
+                graph,
+                payload,
+                failure_reasons=result.failure_reasons,
+                command_id=result.command_id,
+                dirty=dirty,
+            )
             rejected.append(
                 {
                     "kind": "reaction_edge",
@@ -1312,6 +1503,81 @@ def _ingest_worker_result(
             _ingest_stock_observation(graph, audit, dirty=dirty, rejected=rejected)
         return bool(payload.get("leaf_audits"))
     return False
+
+
+def _terminalize_rejected_materialization(
+    graph: dict[str, Any],
+    payload: Mapping[str, Any],
+    *,
+    failure_reasons: Iterable[str],
+    command_id: str,
+    dirty: set[str],
+) -> None:
+    """Retire an admitted hypothesis rejected by canonical materialization.
+
+    The hypothesis admission audit cannot see route ancestry that is added by
+    another edge.  The materializer owns that graph-aware invariant.  Once it
+    deterministically rejects the exact edge identity, keeping the hypothesis
+    as ``frontier_candidate`` creates an impossible pending-materialization
+    gate: the same command cannot change the graph, while preflight continues
+    to block every downstream search action behind it.
+
+    Preserve the proposal and its prior admission in history, but make the
+    graph-aware rejection the current canonical state.  A repaired proposal
+    has a different edge identity and therefore remains independently
+    admissible.
+    """
+
+    edge_digest = str(payload.get("edge_digest") or "")
+    if not edge_digest:
+        return
+    hypothesis_id = f"hypothesis:{edge_digest}"
+    current = dict(graph.get("hypotheses", {}).get(hypothesis_id) or {})
+    if not current or current.get("status") != "frontier_candidate":
+        return
+
+    reasons = sorted(
+        {
+            *(str(value) for value in failure_reasons if str(value)),
+            *(str(value) for value in payload.get("reasons") or [] if str(value)),
+        }
+        or {"materialization_rejected"}
+    )
+    admission_history = _merge_json_rows(
+        current.get("admission_history"),
+        (
+            {
+                "admission_accepted": current.get("admission_accepted") is True,
+                "admission_reasons": sorted(
+                    str(value)
+                    for value in current.get("admission_reasons") or []
+                    if str(value)
+                ),
+                "admission_audit_sha256": str(
+                    current.get("admission_audit_sha256") or ""
+                ),
+                "status": str(current.get("status") or ""),
+            },
+        ),
+    )
+    current.update(
+        {
+            "status": "admission_rejected",
+            "admission_accepted": False,
+            "admission_reasons": reasons,
+            "admission_history": admission_history,
+            "materialization_rejection": {
+                "command_id": str(command_id or ""),
+                "reasons": reasons,
+                "terminal_for_edge_identity": True,
+            },
+        }
+    )
+    graph["hypotheses"][hypothesis_id] = _with_digest(current)
+    dirty.add(hypothesis_id)
+    dirty.update(
+        str(value) for value in current.get("route_family_ids") or [] if str(value)
+    )
 
 
 def _ingest_source_binding(
@@ -1560,6 +1826,7 @@ def _ingest_action_signal(
         reasons.append("action_signal_identity_missing")
     if kind not in {
         "architecture",
+        "expansion",
         "evidence",
         "replan",
         "program_discovery",
@@ -2067,6 +2334,43 @@ def _route_innovation_records(
     return merge_route_innovations((), normalized), sorted(set(reasons))
 
 
+def _biocatalytic_steps_from_row(
+    value: Mapping[str, Any],
+    *,
+    product_smiles: str,
+    precursor_smiles: Iterable[str],
+    default_execution_domain: str,
+) -> list[dict[str, Any]]:
+    """Rebind biological annotations to the canonical edge boundary."""
+
+    row = dict(value)
+    raw_values = [
+        dict(item)
+        for item in row.get("biocatalytic_steps") or []
+        if isinstance(item, Mapping)
+    ]
+    if not raw_values and isinstance(row.get("biocatalytic_step"), Mapping):
+        raw_values = [dict(row.get("biocatalytic_step") or {})]
+    normalized: list[dict[str, Any]] = []
+    for raw in raw_values:
+        catalyst = dict(raw.get("catalyst_hypothesis") or {})
+        record, _reasons = normalize_biocatalytic_step(
+            raw,
+            execution_domain=str(
+                raw.get("execution_domain") or default_execution_domain
+            ),
+            product_smiles=product_smiles,
+            precursor_smiles=precursor_smiles,
+            enzyme_label=str(
+                catalyst.get("enzyme_label") or raw.get("enzyme_label") or ""
+            ),
+            step_id=str(raw.get("step_id") or row.get("step_id") or ""),
+        )
+        if record:
+            normalized.append(record)
+    return _merge_json_rows((), normalized)
+
+
 def _bind_innovations_to_routes(
     values: Iterable[Mapping[str, Any]],
     route_ids: Iterable[str],
@@ -2154,16 +2458,18 @@ def _strategy_binding_reasons(
     route_ids: Iterable[str],
     strategy_card: Mapping[str, Any],
 ) -> list[str]:
-    expected = {
-        str(dict(dict(graph.get("route_families") or {}).get(route_id) or {}).get("strategy_digest") or "")
-        for route_id in route_ids
-    } - {""}
-    if not expected:
+    allowed = set().union(
+        *(
+            _route_family_strategy_digests(graph, route_id)
+            for route_id in route_ids
+        )
+    )
+    if not allowed:
         return []
     if not strategy_card_has_content(strategy_card):
         return ["strategy_binding_missing"]
     observed = str(strategy_card.get("strategy_digest") or "")
-    return [] if observed in expected else ["strategy_replacement_conflict"]
+    return [] if observed in allowed else ["strategy_replacement_conflict"]
 
 
 def _strategy_collection_binding_reasons(
@@ -2172,11 +2478,12 @@ def _strategy_collection_binding_reasons(
     route_ids: Iterable[str],
     strategy_cards: Iterable[Mapping[str, Any]],
 ) -> list[str]:
-    expected = {
-        str(dict(dict(graph.get("route_families") or {}).get(route_id) or {}).get("strategy_digest") or "")
+    allowed_by_route = [
+        _route_family_strategy_digests(graph, route_id)
         for route_id in route_ids
-    } - {""}
-    if not expected:
+    ]
+    allowed_by_route = [values for values in allowed_by_route if values]
+    if not allowed_by_route:
         return []
     observed = {
         str(card.get("strategy_digest") or "")
@@ -2185,7 +2492,37 @@ def _strategy_collection_binding_reasons(
     } - {""}
     if not observed:
         return ["strategy_binding_missing"]
-    return [] if expected <= observed else ["strategy_replacement_conflict"]
+    return (
+        []
+        if all(values & observed for values in allowed_by_route)
+        else ["strategy_replacement_conflict"]
+    )
+
+
+def _route_family_strategy_digests(
+    graph: Mapping[str, Any],
+    route_id: str,
+) -> set[str]:
+    route = dict(
+        dict(graph.get("route_families") or {}).get(str(route_id)) or {}
+    )
+    rows = [
+        *(
+            value
+            for value in route.get("strategy_cards") or []
+            if isinstance(value, Mapping)
+        ),
+        *(
+            [route.get("strategy_card")]
+            if isinstance(route.get("strategy_card"), Mapping)
+            else []
+        ),
+    ]
+    return {
+        str(card.get("strategy_digest") or "")
+        for card in rows
+        if strategy_card_has_content(card)
+    } - {""}
 
 
 def _strategy_cards_from_row(

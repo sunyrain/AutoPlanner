@@ -310,6 +310,43 @@ def test_runtime_reserves_settles_and_replays_without_double_counting(
     assert kernel.state.model_totals["model_invocations"] == 0
 
 
+def test_action_cache_reuses_same_execution_across_scheduler_diagnostic_drift(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    calls = 0
+
+    def handle(_action) -> dict:
+        nonlocal calls
+        calls += 1
+        return {"status": "completed", "changed": False}
+
+    runtime = CampaignActionRuntime(
+        kernel,
+        {CampaignActionKind.MATERIALIZE: handle},
+    )
+    first_decision = _decision()
+    first_action = bind_scheduled_action(first_decision, input_revision=0)
+    runtime.execute(first_action, decision=first_decision)
+
+    rebound_decision = {
+        **first_decision,
+        "scheduler_policy": "rebound-diagnostic-policy",
+        "round_robin_cursor": 17,
+    }
+    rebound_action = bind_scheduled_action(rebound_decision, input_revision=0)
+
+    assert rebound_action.execution_id == first_action.execution_id
+    assert (
+        rebound_action.to_dict()["content_sha256"]
+        != first_action.to_dict()["content_sha256"]
+    )
+    replay = runtime.execute(rebound_action, decision=rebound_decision)
+
+    assert replay["cache_hit"] is True
+    assert calls == 1
+
+
 def test_native_handler_checkpoint_resumes_without_second_provider_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -778,6 +815,41 @@ def test_failed_or_rejected_action_is_not_recorded_as_no_gain(
     )
 
     assert result["consecutive_no_gain"] == 0
+    assert result["convergence_ledger"]["no_gain_bindings"] == []
+
+
+def test_canonical_rejection_report_is_not_persisted_as_no_gain(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    opportunity_set = _no_gain_opportunity_set(count=1)
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.MATERIALIZE: lambda _action: {
+                "status": "completed",
+                "changed": False,
+                "rejected": [
+                    {
+                        "kind": "reaction_edge",
+                        "reasons": ["ancestor_or_target_cycle"],
+                    }
+                ],
+            }
+        },
+    )
+
+    result = runtime.run_anytime(
+        opportunity_provider=lambda: opportunity_set,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+        max_consecutive_no_gain=1,
+    )
+
+    assert result["execution_count"] == 1
+    assert result["consecutive_no_gain"] == 0
+    assert result["convergence_ledger"]["failed_or_rejected_count"] == 1
     assert result["convergence_ledger"]["no_gain_bindings"] == []
     reasons = result["unexecuted_actions"]["actions"]
     assert reasons == []

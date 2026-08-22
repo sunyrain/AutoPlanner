@@ -221,15 +221,32 @@ def _add_group(molecule: Chem.RWMol, row: Mapping[str, Any]) -> Chem.RWMol:
     if len(dummies) != 1 or dummies[0].GetDegree() != 1:
         raise ReactionJsonReplayError("reactionjson_fragment_attachment_invalid")
     existing_maps = set(_map_lookup(molecule))
-    fragment_maps = [
-        atom.GetAtomMapNum() for atom in fragment.GetAtoms() if atom.GetAtomicNum() != 0
+    fragment_atoms = [
+        atom for atom in fragment.GetAtoms() if atom.GetAtomicNum() != 0
     ]
-    if any(value <= 0 for value in fragment_maps) or len(fragment_maps) != len(
-        set(fragment_maps)
-    ):
+    explicit_fragment_maps = [
+        int(atom.GetAtomMapNum())
+        for atom in fragment_atoms
+        if int(atom.GetAtomMapNum()) > 0
+    ]
+    if len(explicit_fragment_maps) != len(set(explicit_fragment_maps)):
         raise ReactionJsonReplayError("reactionjson_fragment_maps_invalid")
-    if existing_maps & set(fragment_maps):
+    if existing_maps & set(explicit_fragment_maps):
         raise ReactionJsonReplayError("reactionjson_fragment_map_collision")
+    # SynthEx's public Editor example adds ``*MgBr`` without requiring the
+    # model to invent atom-map numbers for the new handle.  Allocate those
+    # maps deterministically at the replay boundary while retaining strict
+    # uniqueness/collision checks for any explicit maps the model supplied.
+    used_maps = existing_maps | set(explicit_fragment_maps)
+    next_map = max(used_maps, default=0) + 1
+    for atom in fragment_atoms:
+        if int(atom.GetAtomMapNum()) > 0:
+            continue
+        while next_map in used_maps:
+            next_map += 1
+        atom.SetAtomMapNum(next_map)
+        used_maps.add(next_map)
+        next_map += 1
     dummy = dummies[0]
     neighbor = dummy.GetNeighbors()[0]
     attachment_bond = fragment.GetBondBetweenAtoms(dummy.GetIdx(), neighbor.GetIdx())

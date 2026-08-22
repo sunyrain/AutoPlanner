@@ -800,6 +800,52 @@ def test_partial_provider_lineage_is_not_result_loss_after_b4() -> None:
     assert summary["result_first"]["provider_integration_loss_case_ids"] == []
 
 
+def test_hydration_migrates_legacy_incomplete_row_with_frozen_projection(
+    tmp_path: Path,
+) -> None:
+    report = tmp_path / "target-only-solve-report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "claim": {"accepted_under_configured_policy": False},
+                "current_disposition": {"state": "stock_closed_proof_open"},
+                "stop_decision": {"terminal": False, "decision": "paused"},
+                "stages": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    status = _hydrate_report_diagnostics(
+        {
+            "target_count": 1,
+            "targets": {
+                "target": {
+                    "status": "incomplete",
+                    "case_id": "case",
+                    "report_path": str(report),
+                    "fixed_cutoff_projection": {"available": True},
+                    "route_counts": {"stock_closed_skeletons": 1},
+                    "gate_summary": {"B4": True},
+                    "paper_equivalent": {"paper_equivalent_solved": True},
+                }
+            },
+        }
+    )
+
+    row = status["targets"]["target"]
+    assert row["status"] == "completed"
+    assert row["legacy_target_status"] == "incomplete"
+    assert row["scientific_status"] == "unresolved"
+    assert row["scientific_disposition"] == "stock_closed_proof_open"
+
+    summary = summarize_panel(status)
+    assert summary["metrics"]["paper_equivalent_solved"]["count"] == 1
+    assert summary["result_first"]["milestone_counts"]["B4"] == 1
+    assert summary["per_target"][0]["paper_equivalent"][
+        "paper_equivalent_solved"
+    ] is True
+
+
 def test_explicit_provider_topology_loss_is_not_hidden_by_another_b4_route() -> None:
     summary = summarize_panel(
         {

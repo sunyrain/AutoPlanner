@@ -90,6 +90,7 @@ def run_chemenzy_proposal_stage(
     pandarallel_workers: int = 2,
     one_step_models: tuple[str, ...] = tuple(DEFAULT_ONE_STEP_MODELS),
     stop_on_first_host_admitted_route: bool = False,
+    short_tail_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Acquire a small proposal pool and admit it through the canonical graph."""
 
@@ -241,7 +242,10 @@ def run_chemenzy_proposal_stage(
                 }
             )
         for step_index, step in enumerate(route.get("steps") or [], start=1):
-            provider_metadata = _provider_reaction_metadata(step)
+            provider_metadata = _provider_reaction_metadata(
+                step,
+                short_tail_binding=short_tail_binding,
+            )
             hypothesis = {
                     "step_id": f"{alias}:step:{step_index}",
                     "proposal_id": f"{alias}:step:{step_index}",
@@ -600,6 +604,24 @@ def run_chemenzy_guided_frontier_stage(
                 stop_on_first_host_admitted_route=(
                     stop_on_first_host_admitted_route
                 ),
+                short_tail_binding={
+                    "schema_version": "provider_short_tail_binding.v1",
+                    "provider_group_id": f"chemenzy:guided-{digest}",
+                    "frontier_smiles": frontier_smiles,
+                    "frontier_molecule_id": str(
+                        metadata.get("frontier_molecule_id") or item.get("object_id") or ""
+                    ),
+                    "parent_route_family_ids": list(route_ids),
+                    "stock_observation_id": str(
+                        metadata.get("stock_observation_id") or ""
+                    ),
+                    "paper_short_tail_eligible": (
+                        metadata.get("paper_short_tail_eligible") is True
+                    ),
+                    "target_rooted_open_leaf": (
+                        metadata.get("target_rooted_open_leaf") is True
+                    ),
+                },
             )
         )
     proposal_count = sum(int(result.get("proposal_count") or 0) for result in results)

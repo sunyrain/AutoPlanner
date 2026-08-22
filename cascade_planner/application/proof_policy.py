@@ -20,6 +20,9 @@ from cascade_planner.application.proof_fact_projection import (
     lifecycle_impact,
 )
 from cascade_planner.application.route_innovations import innovation_proof_gate
+from cascade_planner.application.biocatalytic_step_contract import (
+    biocatalytic_step_proof_gate,
+)
 
 
 PROOF_POLICY_SCHEMA = "retrosynthesis_proof_policy.v1"
@@ -136,6 +139,28 @@ def stitch_edge_proof(
         edge.get("route_innovations") or [],
         reaction_proofs,
     )
+    biocatalytic_gate = biocatalytic_step_proof_gate(
+        edge.get("biocatalytic_steps") or [],
+        reaction_proofs,
+    )
+    if biocatalytic_gate["required"]:
+        innovation_gate = {
+            **dict(innovation_gate),
+            "required": True,
+            "accepted": bool(innovation_gate.get("accepted"))
+            and bool(biocatalytic_gate.get("accepted")),
+            "reasons": sorted(
+                {
+                    *(str(value) for value in innovation_gate.get("reasons") or []),
+                    *(str(value) for value in biocatalytic_gate.get("reasons") or []),
+                }
+            ),
+            "biocatalytic_step_gate": biocatalytic_gate,
+        }
+        if biocatalytic_gate.get("accepted") is not True:
+            reasons.extend(biocatalytic_gate.get("reasons") or [])
+            achieved = min(achieved, 1)
+            accepted = False
     row = {
         "schema_version": EDGE_PROOF_STITCH_SCHEMA,
         "policy_version": policy.version,
@@ -160,6 +185,7 @@ def stitch_edge_proof(
         "independent_source_groups": sorted(source_groups),
         "independently_supported": independently_supported,
         "innovation_proof_gate": innovation_gate,
+        "biocatalytic_step_proof_gate": biocatalytic_gate,
         "conflict_ids": sorted(
             str(value.get("conflict_id") or "") for value in conflicts
         ),

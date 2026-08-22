@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 from threading import Event
@@ -62,6 +63,12 @@ from cascade_planner.application.experimental_claim_contracts import (
     EXPERIMENTAL_CLAIM_SET_ORACLE_SCHEMA,
     validate_experimental_claim_set,
 )
+from cascade_planner.application.deficit_frontier import (
+    target_reachable_route_boundaries,
+)
+from cascade_planner.application.route_edge_scope import (
+    guided_provider_group_ids,
+)
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
@@ -85,6 +92,9 @@ from cascade_planner.application.proof_portfolio import (
 from cascade_planner.application.paper_equivalent_metric import (
     compile_paper_equivalent_metric,
 )
+from cascade_planner.application.route_reconciliation import (
+    compile_route_reconciliation,
+)
 from cascade_planner.application.guided_search_progress import (
     compile_parent_route_stock_progress,
     evaluate_guided_stock_progress,
@@ -102,6 +112,11 @@ from cascade_planner.interfaces.chemenzy_probe import (
     ChemenzyProposalProvider,
     run_chemenzy_guided_frontier_stage,
     run_chemenzy_proposal_stage,
+)
+from cascade_planner.interfaces.aizynthfinder_sidecar import (
+    AiZynthFinderProvider,
+    AiZynthFinderSidecarConfig,
+    run_aizynthfinder_guided_frontier_stage,
 )
 from cascade_planner.interfaces.live_evidence import (
     EvidenceConnector,
@@ -185,6 +200,19 @@ _DIRECTOR_TOPOLOGY_REASONS = frozenset(
     }
 )
 _MAX_DIRECTOR_OUTCOMES = 10
+_PAPER_REACH_PROFILES = frozenset({"paper_synthex", "paper_matched_reach"})
+
+
+def _is_paper_reach_profile(profile: str) -> bool:
+    """Return whether ``profile`` uses the isolated SynthEx reach contract."""
+
+    return str(profile or "") in _PAPER_REACH_PROFILES
+
+
+def _is_isolated_paper_matched_profile(profile: str) -> bool:
+    """Return whether the strict, non-extensible paper reach arm is active."""
+
+    return str(profile or "") == "paper_matched_reach"
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,11 +223,30 @@ class TargetSolveConfig:
     strategy_search_profile: str = str(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_search_profile"]
     )
+    # ``auto`` binds paper_synthex to AiZynthFinder MCTS and leaves ordinary
+    # profiles on the historical ChemEnzy best-first compatibility path.
+    strategy_tree_engine: str = "auto"
+    # ``auto`` resolves to the independent paper portfolio for paper_synthex
+    # and to the hybrid chemical/enzyme portfolio for ordinary AutoPlanner
+    # runs.  ``enzyme_advantage`` is an explicit separate ablation arm.
+    strategy_portfolio_mode: str = "auto"
     strategy_branch_count: int = int(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_branches"]
     )
+    strategy_branch_workers: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_branch_workers"]
+    )
+    stop_on_first_stock_closed_branch: bool = bool(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["stop_on_first_stock_closed_branch"]
+    )
     max_node_expansions_per_branch: int = int(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["node_expansions_per_branch"]
+    )
+    # One is the paper-equivalent single-anchor control.  Enhanced runs may
+    # introduce further StrategyCards only on exact mapped upstream leaves.
+    max_strategic_milestones_per_branch: int = 1
+    max_reactionjson_candidates_per_node: int = int(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["reactionjson_candidates_per_node"]
     )
     max_route_local_repair_rounds: int = int(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["route_local_repair_rounds"]
@@ -213,11 +260,16 @@ class TargetSolveConfig:
     critic_call_timeout_s: float = float(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["critic_call_timeout_s"]
     )
-    # Legacy/direct callers remain compatible by default.  The paper profile
-    # requires every Route Builder payload to carry a complete linear
-    # RouteJSON; the host still owns replay and mapped-structure authority.
+    # Route Builder calls remain compact one-step ReactionJSON edits.  The
+    # paper Critic/Improvement stage, however, edits the accumulated RouteJSON
+    # document so a local repair cannot discard the rest of an AiZ route.
+    # Ordinary profiles keep the legacy compatibility default.  The named
+    # paper profile binds this to ``True`` in ``_resolve_execution_config``;
+    # its node-wise AiZ policy still emits one ReactionJSON edit per call.
     require_complete_route_json: bool = False
-    allow_editor_route_mutations: bool = False
+    allow_editor_route_mutations: bool = bool(
+        SYNTHEX_MATCHED_PROFILE_DEFAULTS["editor_route_mutations"]
+    )
     objective_mode: TargetObjectiveMode = "scientific_proof"
     use_coordinator: bool = False
     enable_web_search: bool = True
@@ -233,6 +285,13 @@ class TargetSolveConfig:
     enable_target_chemenzy_baseline: bool = bool(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["target_chemenzy_baseline"]
     )
+    # SynthEx uses AiZynthFinder for native template search.  ChemEnzy remains
+    # available for ordinary AutoPlanner runs and enzyme-oriented ablations.
+    enable_aizynthfinder_short_tail: bool = True
+    aizynthfinder_python_executable: str = ""
+    aizynthfinder_config_path: str = ""
+    aizynthfinder_short_tail_mode: str = "short_tail"
+    native_short_tail_engine: str = "auto"
     enable_guided_chemenzy: bool = True
     enable_chemenzy_condition_prediction: bool = True
     enable_condition_enrichment: bool = True
@@ -304,33 +363,93 @@ class TargetSolveConfig:
     def __post_init__(self) -> None:
         if self.reasoning_effort not in {"low", "medium", "high"}:
             raise ValueError("target solver reasoning effort is invalid")
-        if self.execution_profile not in {"fast", "standard", "proof", "paper_synthex"}:
+        if self.execution_profile not in {
+            "fast",
+            "standard",
+            "proof",
+            "paper_synthex",
+            "paper_matched_reach",
+        }:
             raise ValueError("target solver execution profile is invalid")
         if self.strategy_search_profile not in {"legacy_global", "synthex_matched"}:
             raise ValueError("target solver strategy search profile is invalid")
+        if self.strategy_tree_engine not in {
+            "auto",
+            "chemenzy_best_first",
+            "aizynthfinder_mcts",
+        }:
+            raise ValueError("target solver strategy tree engine is invalid")
+        if self.strategy_portfolio_mode not in {
+            "auto",
+            "paper_independent",
+            "autoplanner_hybrid",
+            "enzyme_advantage",
+            "chemoenzymatic_fusion",
+            "autoplanner_strategy_v2",
+        }:
+            raise ValueError("target solver strategy portfolio mode is invalid")
+        if self.native_short_tail_engine not in {
+            "auto",
+            "aizynthfinder",
+            "chemenzy",
+        }:
+            raise ValueError("target solver native short-tail engine is invalid")
+        if self.aizynthfinder_short_tail_mode not in {"canary", "short_tail"}:
+            raise ValueError("target solver AiZynthFinder short-tail mode is invalid")
         if not 1 <= self.strategy_branch_count <= 8:
             raise ValueError("target solver strategy branch count is invalid")
+        if not 1 <= self.strategy_branch_workers <= self.strategy_branch_count:
+            raise ValueError("target solver strategy branch workers are invalid")
         if not 1 <= self.max_node_expansions_per_branch <= 64:
             raise ValueError("target solver node expansion limit is invalid")
+        if not 1 <= self.max_strategic_milestones_per_branch <= 4:
+            raise ValueError("target solver strategic milestone limit is invalid")
+        if not 1 <= self.max_reactionjson_candidates_per_node <= 8:
+            raise ValueError("target solver ReactionJSON candidate limit is invalid")
         if not 1 <= self.max_route_local_repair_rounds <= 12:
             raise ValueError("target solver route-local repair limit is invalid")
-        if self.execution_profile == "paper_synthex":
-            if self.max_node_expansions_per_branch != int(
+        if _is_paper_reach_profile(self.execution_profile):
+            if self.stop_on_first_stock_closed_branch:
+                raise ValueError(
+                    "paper matched reach requires all three strategy branches to finish"
+                )
+            paper_call_ceiling = int(
                 SYNTHEX_MATCHED_PROFILE_DEFAULTS["route_builder_max_steps"]
+            )
+            if self.max_node_expansions_per_branch > paper_call_ceiling:
+                raise ValueError(
+                    "paper matched reach cannot exceed 25 Route Builder calls per branch"
+                )
+            if (
+                self.execution_profile == "paper_synthex"
+                and self.max_node_expansions_per_branch != paper_call_ceiling
             ):
                 raise ValueError(
-                    "paper_synthex requires 25 Route Builder expansions per branch"
+                    "formal paper_synthex requires the frozen 25-call ceiling; "
+                    "use paper_matched_reach for a reduced-call smoke"
+                )
+            if self.max_reactionjson_candidates_per_node != int(
+                SYNTHEX_MATCHED_PROFILE_DEFAULTS[
+                    "reactionjson_candidates_per_node"
+                ]
+            ):
+                raise ValueError(
+                    "paper matched reach requires the matched ReactionJSON candidate width"
                 )
             if self.max_route_local_repair_rounds != int(
                 SYNTHEX_MATCHED_PROFILE_DEFAULTS["route_local_repair_rounds"]
             ):
                 raise ValueError(
-                    "paper_synthex requires six Critic/Editor repair rounds"
+                    "paper matched reach requires six Critic/Editor repair rounds"
                 )
-            if not self.require_complete_route_json:
-                raise ValueError("paper_synthex requires complete linear RouteJSON")
+            # ``require_complete_route_json`` is the final RouteJSON admission
+            # contract.  It must not be confused with the prompt shape: the
+            # matched Route Builder still asks for one ReactionJSON edit per
+            # selected open leaf and the host compiles the connected route.
             if not self.allow_editor_route_mutations:
-                raise ValueError("paper_synthex requires RouteJSON Editor mutations")
+                raise ValueError(
+                    "paper matched reach requires RouteJSON-aware Critic/Editor repair"
+                )
         if not 4_000 <= self.max_node_prompt_bytes <= 96_000:
             raise ValueError("target solver compact node prompt limit is invalid")
         for value in (self.max_node_call_timeout_s, self.critic_call_timeout_s):
@@ -430,6 +549,126 @@ class TargetSolveConfig:
         )
 
 
+def _resolve_execution_config(config: TargetSolveConfig) -> TargetSolveConfig:
+    """Normalize the named execution profile before any work is scheduled.
+
+    ``synthex_matched`` is a search-policy selector, while the paper reach
+    profiles are execution contracts.  ``paper_synthex`` is retained only as
+    a legacy manifest alias; new experiments should use ``paper_matched_reach``.
+    an execution contract.  Historically callers could select the former and
+    still inherit evidence, condition, Program, web-search, or 7,200-second
+    defaults.  That made a run look paper-like in its metadata while spending
+    its budget on work that SynthEx does not perform during reach measurement.
+
+    The paper profile deliberately leaves stock and host reaction validation
+    enabled, but makes the reach path topology-first.  It does not change the
+    bound stock oracle or invent the paper's larger inventory.
+    """
+
+    if not _is_paper_reach_profile(config.execution_profile):
+        return config
+    matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
+    strict_matched = _is_isolated_paper_matched_profile(config.execution_profile)
+    # The strict named profile cannot be turned into an enzyme/hybrid arm by a
+    # caller override.  The legacy ``paper_synthex`` alias preserves the old
+    # companion-arm behavior for historical manifests only.
+    portfolio_mode = str(matched["strategy_portfolio_mode"])
+    if not strict_matched and config.strategy_portfolio_mode in {
+        "enzyme_advantage",
+        "autoplanner_hybrid",
+        "chemoenzymatic_fusion",
+        "autoplanner_strategy_v2",
+    }:
+        portfolio_mode = config.strategy_portfolio_mode
+    route_builder_call_ceiling = int(matched["node_expansions_per_branch"])
+    if config.execution_profile == "paper_matched_reach":
+        # ``paper_matched_reach`` also backs reduced-call smoke runs. Preserve
+        # the explicitly requested ceiling (already validated as <= the paper
+        # maximum) instead of silently restoring 25. The formal panel protocol
+        # separately requires the frozen 25-call value.
+        route_builder_call_ceiling = int(config.max_node_expansions_per_branch)
+    return replace(
+        config,
+        strategy_search_profile="synthex_matched",
+        strategy_tree_engine=str(matched["strategy_tree_engine"]),
+        strategy_portfolio_mode=portfolio_mode,
+        strategy_branch_count=int(matched["strategy_branches"]),
+        strategy_branch_workers=int(matched["strategy_branch_workers"]),
+        stop_on_first_stock_closed_branch=bool(
+            matched["stop_on_first_stock_closed_branch"]
+        ),
+        max_node_expansions_per_branch=route_builder_call_ceiling,
+        max_reactionjson_candidates_per_node=int(
+            matched["reactionjson_candidates_per_node"]
+        ),
+        max_route_local_repair_rounds=int(matched["route_local_repair_rounds"]),
+        require_complete_route_json=True,
+        allow_editor_route_mutations=bool(matched["editor_route_mutations"]),
+        # The paper arm owns one Route Builder -> Critic/Editor state machine.
+        # A second campaign-level replan would silently add another planning
+        # algorithm and make the reported call budget incomparable.
+        enable_replan=(False if strict_matched else config.enable_replan),
+        action_scheduler_policy="adaptive",
+        delivery_boundary="stock_result",
+        enable_web_search=False,
+        enable_initial_director_web_search=False,
+        enable_target_chemenzy_baseline=False,
+        enable_chemenzy=(False if strict_matched else config.enable_chemenzy),
+        enable_guided_chemenzy=(
+            False if strict_matched else config.enable_guided_chemenzy
+        ),
+        enable_aizynthfinder_short_tail=True,
+        aizynthfinder_short_tail_mode="short_tail",
+        native_short_tail_engine="aizynthfinder",
+        enable_builtin_patent_evidence=False,
+        enable_patent_self_evolution=False,
+        enable_chemenzy_condition_prediction=False,
+        enable_condition_enrichment=False,
+        enable_chemenzy_enzyme_assignment=False,
+        enable_enzyme_coverage_sidecar=False,
+        enable_program_review=False,
+        enable_program_admission=False,
+        enable_program_discovery=False,
+        enable_program_validation=False,
+        enable_experimental_claim_admission=False,
+        max_evidence_tasks=0,
+        max_validation_tasks=(0 if strict_matched else config.max_validation_tasks),
+        max_program_tasks=0,
+        max_experiment_tasks=0,
+        max_run_wall_time_s=float(matched["max_run_wall_time_s"]),
+        max_chemenzy_steps=int(matched["short_tail_steps"]),
+        max_chemenzy_iterations=int(matched["short_tail_iterations"]),
+        chemenzy_timeout_s=float(matched["short_tail_timeout_s"]),
+        max_guided_chemenzy_iterations=int(matched["short_tail_iterations"]),
+        guided_chemenzy_timeout_s=float(matched["short_tail_timeout_s"]),
+    )
+
+
+def _frontier_native_search_enabled(config: TargetSolveConfig) -> bool:
+    """Resolve the native leaf-completion engine for the active profile."""
+
+    engine = _native_short_tail_engine(config)
+    if engine == "aizynthfinder":
+        return bool(config.enable_aizynthfinder_short_tail)
+    return bool(config.enable_chemenzy and config.enable_guided_chemenzy)
+
+
+def _native_short_tail_engine(config: TargetSolveConfig) -> str:
+    if config.native_short_tail_engine != "auto":
+        return config.native_short_tail_engine
+    return "aizynthfinder" if _is_paper_reach_profile(config.execution_profile) else "chemenzy"
+
+
+def _strategy_tree_engine(config: TargetSolveConfig) -> str:
+    if config.strategy_tree_engine != "auto":
+        return config.strategy_tree_engine
+    return (
+        "aizynthfinder_mcts"
+        if _is_paper_reach_profile(config.execution_profile)
+        else "chemenzy_best_first"
+    )
+
+
 def solve_target(
     gateway: "CampaignGateway",
     *,
@@ -451,6 +690,7 @@ def solve_target(
     evidence_connector: EvidenceConnector | None = None,
     visual_evidence_provider: VisualEvidenceProvider | None = None,
     chemenzy_provider: ChemenzyProposalProvider | None = None,
+    aizynthfinder_provider: AiZynthFinderProvider | None = None,
     condition_predictor: Any | None = None,
     program_capabilities: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None = None,
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
@@ -458,7 +698,17 @@ def solve_target(
 ) -> dict[str, Any]:
     """Run or resume the real SMILES-only campaign path through one V4 kernel."""
 
-    active = config or TargetSolveConfig()
+    active = _resolve_execution_config(config or TargetSolveConfig())
+    if _is_paper_reach_profile(active.execution_profile):
+        # The paper reach arm is topology/stock-first.  Do not let an
+        # explicitly supplied evidence, visual, condition, or Program sidecar
+        # reintroduce pre-B4 work after profile normalization.
+        evidence_connector = None
+        visual_evidence_provider = None
+        condition_predictor = None
+        program_capabilities = None
+        mechanism_proposals = ()
+        program_validation_feedback = ()
     canonical = canonical_smiles(target_smiles)
     if not canonical:
         raise BlindBenchmarkError("blind_target_smiles_invalid")
@@ -629,10 +879,22 @@ def solve_target(
             "max_output_tokens": 18_000,
             "max_tool_calls": 16,
         },
+        "paper_matched_reach": {
+            "minimum_route_families": 3,
+            "max_route_families": 4,
+            "max_skeletons": 4,
+            "max_steps_per_skeleton": 25,
+            "max_output_tokens": 18_000,
+            "max_tool_calls": 16,
+        },
     }[active.execution_profile]
-    minimum_director_families = max(
-        director_profile["minimum_route_families"],
-        resolved_acceptance.minimum_complete_routes,
+    minimum_director_families = (
+        int(active.strategy_branch_count)
+        if _is_isolated_paper_matched_profile(active.execution_profile)
+        else max(
+            director_profile["minimum_route_families"],
+            resolved_acceptance.minimum_complete_routes,
+        )
     )
     if active.minimum_planning_route_steps > director_profile["max_steps_per_skeleton"]:
         raise ValueError("minimum planning route depth exceeds execution profile capacity")
@@ -648,20 +910,34 @@ def solve_target(
             or isinstance(director_runner, SequentialStrategyDirectorRunner)
         )
     )
+    if (
+        _is_isolated_paper_matched_profile(active.execution_profile)
+        and director_runner is not None
+        and not isinstance(director_runner, SequentialStrategyDirectorRunner)
+    ):
+        raise BlindBenchmarkError(
+            "paper_matched_reach_forbids_global_initial_architecture_runner"
+        )
     director_config = DirectorConfig(
         minimum_route_families=minimum_director_families,
         minimum_planning_route_steps=active.minimum_planning_route_steps,
-        max_route_families=max(
-            director_profile["max_route_families"],
-            minimum_director_families,
-            active.strategy_branch_count if sequential_strategy else 0,
-            active.max_route_local_repair_rounds if sequential_strategy else 0,
+        max_route_families=(
+            int(active.strategy_branch_count)
+            if _is_isolated_paper_matched_profile(active.execution_profile)
+            else max(
+                director_profile["max_route_families"],
+                minimum_director_families,
+                active.strategy_branch_count if sequential_strategy else 0,
+            )
         ),
-        max_skeletons=max(
-            director_profile["max_skeletons"],
-            minimum_director_families,
-            active.strategy_branch_count if sequential_strategy else 0,
-            active.max_route_local_repair_rounds if sequential_strategy else 0,
+        max_skeletons=(
+            int(active.strategy_branch_count)
+            if _is_isolated_paper_matched_profile(active.execution_profile)
+            else max(
+                director_profile["max_skeletons"],
+                minimum_director_families,
+                active.strategy_branch_count if sequential_strategy else 0,
+            )
         ),
         max_steps_per_skeleton=max(
             director_profile["max_steps_per_skeleton"],
@@ -685,13 +961,44 @@ def solve_target(
         ),
         max_final_portfolio_synthesis_calls=1,
         planning_mode=("sequential_branches" if sequential_strategy else "global_skeleton"),
+        paper_matched_reach_profile=_is_isolated_paper_matched_profile(
+            active.execution_profile
+        ),
+        strategy_tree_engine=_strategy_tree_engine(active),
+        strategy_portfolio_mode=(
+            active.strategy_portfolio_mode
+            if active.strategy_portfolio_mode != "auto"
+            else "paper_independent"
+            if _is_paper_reach_profile(active.execution_profile)
+            else "autoplanner_hybrid"
+        ),
         strategy_branch_count=active.strategy_branch_count,
+        strategy_branch_workers=active.strategy_branch_workers,
+        stop_on_first_stock_closed_branch=(
+            active.stop_on_first_stock_closed_branch and sequential_strategy
+        ),
         max_node_expansions_per_branch=active.max_node_expansions_per_branch,
+        max_strategic_milestones_per_branch=(
+            active.max_strategic_milestones_per_branch
+        ),
+        max_reactionjson_candidates_per_node=(
+            active.max_reactionjson_candidates_per_node
+        ),
         max_route_local_repair_rounds=active.max_route_local_repair_rounds,
         max_node_prompt_bytes=active.max_node_prompt_bytes,
         max_node_call_timeout_s=active.max_node_call_timeout_s,
         critic_call_timeout_s=active.critic_call_timeout_s,
-        max_provider_requests=max(3, guided_frontier_limit),
+        # SynthEx runs template completion only after a strategic route has
+        # exposed a real, non-purchasable leaf.  Codex-selected provider
+        # priorities belong to the broader AutoPlanner profile, not this arm.
+        max_provider_requests=(
+            0
+            if (
+                _is_paper_reach_profile(active.execution_profile)
+                or not active.enable_chemenzy
+            )
+            else max(3, guided_frontier_limit)
+        ),
         model=active.model,
         reasoning_effort=active.reasoning_effort,
         enable_web_search=active.enable_web_search,
@@ -708,9 +1015,40 @@ def solve_target(
     resolved_director_runner = director_runner
     if resolved_director_runner is None:
         if sequential_strategy:
+            if director_config.strategy_tree_engine == "aizynthfinder_mcts":
+                strategy_stock_index = Path(
+                    str(getattr(stock_catalog_builder, "index_path", "") or "")
+                ).expanduser()
+                if not strategy_stock_index.is_file():
+                    raise BlindBenchmarkError(
+                        "aizynthfinder_strategy_stock_index_required_before_paid_calls"
+                    )
+                strategy_python = Path(
+                    active.aizynthfinder_python_executable
+                    or Path(__file__).resolve().parents[2]
+                    / ".venv_aizynth"
+                    / "Scripts"
+                    / "python.exe"
+                ).expanduser()
+                if not strategy_python.is_file():
+                    raise BlindBenchmarkError(
+                        "aizynthfinder_strategy_runtime_required_before_paid_calls"
+                    )
             resolved_director_runner = SequentialStrategyDirectorRunner(
                 stock_membership=_frozen_stock_membership_checker(
                     stock_catalog_builder
+                ),
+                aizynthfinder_strategy_python_executable=(
+                    active.aizynthfinder_python_executable
+                ),
+                aizynthfinder_strategy_stock_index=str(
+                    getattr(stock_catalog_builder, "index_path", "") or ""
+                ),
+                worker_record_seed_path=os.environ.get(
+                    "AUTOPLANNER_SEQUENTIAL_WORKER_JOURNAL_SEED", ""
+                ),
+                worker_record_seed_recovery_mode=os.environ.get(
+                    "AUTOPLANNER_SEQUENTIAL_WORKER_JOURNAL_RECOVERY_MODE", ""
                 ),
                 cancel_event=result_delivery_cancel_event,
             )
@@ -788,6 +1126,24 @@ def solve_target(
         )
     stages = list(checkpoint.get("stages") or [])
     outcomes = list(checkpoint.get("director_outcomes") or [])
+    if resume:
+        routejson_resume_repair = _repair_legacy_routejson_and_provider_stitch(
+            service,
+            outcomes=outcomes,
+        )
+        if (
+            routejson_resume_repair.get("status") != "not_needed"
+            or dict(routejson_resume_repair.get("diagnostics") or {}).get(
+                "scanned_hypothesis_count"
+            )
+        ):
+            stages.append(
+                _stage(
+                    "routejson_resume_repair",
+                    str(routejson_resume_repair.get("status") or "partial"),
+                    routejson_resume_repair,
+                )
+            )
     attempted_guided_frontier_smiles = _attempted_chemenzy_frontiers(stages)
     if resume:
         stages.append(
@@ -894,14 +1250,16 @@ def solve_target(
                 and target_native.get("available") is True
             ),
             "native_search_frontier": bool(
-                active.enable_chemenzy
-                and active.enable_guided_chemenzy
+                _frontier_native_search_enabled(active)
                 and guided_continuation_allowed
                 and not guided_progress_pending
                 and frontier_native.get("available") is True
             ),
             "native_search": bool(
-                active.enable_chemenzy
+                (
+                    active.enable_chemenzy
+                    or active.enable_aizynthfinder_short_tail
+                )
                 and (
                     target_native.get("available") is True
                     or frontier_native.get("available") is True
@@ -1064,8 +1422,79 @@ def solve_target(
             }
         _frontier_id, frontier_key = molecule_identity(frontier_smiles)
         frontier_key = frontier_key or frontier_smiles
+        current_graph = service.graph_store.load()
+
+        def record_attempt(result: Mapping[str, Any]) -> None:
+            provider_id = _native_short_tail_engine(active)
+            signal_id = (
+                f"guided-provider-attempt:{provider_id}:"
+                + hashlib.sha256(frontier_key.encode("utf-8")).hexdigest()[:24]
+            )
+            service.publish_action_signals(
+                (
+                    {
+                        "signal_id": signal_id,
+                        "deficit_id": signal_id,
+                        "kind": "expansion",
+                        "status": "resolved",
+                        "object_id": _frontier_id,
+                        "entity_ids": [_frontier_id],
+                        "route_family_ids": sorted(action.route_family_ids),
+                        "dependency_ids": [],
+                        "deterministic": False,
+                        "model_allowed": True,
+                        "reason": "bounded_guided_provider_attempt_settled",
+                        "metadata": {
+                            "guided_provider_attempt": True,
+                            "provider_id": provider_id,
+                            "frontier_smiles": frontier_key,
+                            "provider_invocation_count": int(
+                                result.get("provider_invocation_count") or 0
+                            ),
+                            "proposal_count": int(result.get("proposal_count") or 0),
+                            "result_status": str(result.get("status") or "unresolved"),
+                        },
+                    },
+                ),
+                idempotency_key=f"{action.idempotency_key}:guided-attempt-settled",
+            )
+
+        if _is_paper_reach_profile(active.execution_profile):
+            boundaries = target_reachable_route_boundaries(
+                current_graph,
+                route_family_ids=action.route_family_ids,
+            )
+            eligible_routes = set(
+                dict(boundaries["open_leaf_route_family_ids"]).get(_frontier_id)
+                or ()
+            ) & set(action.route_family_ids)
+            molecule = dict(
+                dict(current_graph.get("molecules") or {}).get(_frontier_id) or {}
+            )
+            stock_id = str(molecule.get("active_stock_observation_id") or "")
+            stock = dict(
+                dict(current_graph.get("stock_observations") or {}).get(stock_id)
+                or {}
+            )
+            if (
+                not eligible_routes
+                or not stock_id
+                or stock.get("accepted") is True
+                or action.metadata.get("paper_short_tail_eligible") is not True
+            ):
+                return {
+                    "status": "skipped",
+                    "frontier_smiles": [frontier_key],
+                    "proposal_count": 0,
+                    "provider_invocation_count": 0,
+                    "reasons": ["paper_short_tail_requires_stock_rejected_target_leaf"],
+                    "semantics": {
+                        "disconnected_provider_calls_are_suppressed": True,
+                        "provider_budget_was_not_spent": True,
+                    },
+                }
         if frontier_key in attempted_guided_frontier_smiles:
-            return {
+            skipped = {
                 "status": "skipped",
                 "frontier_smiles": [frontier_key],
                 "proposal_count": 0,
@@ -1076,19 +1505,23 @@ def solve_target(
                     "deduplication_is_frontier_identity_based": True,
                 },
             }
-        current_graph = service.graph_store.load()
+            record_attempt(skipped)
+            return skipped
+        expected_origin_kind = _native_short_tail_engine(active)
         if any(
             str(hypothesis.get("product_smiles") or "") == frontier_smiles
             and any(
-                str(origin.get("origin_kind") or "") == "chemenzy"
-                and str(origin.get("origin_ref") or "").startswith("chemenzy:guided-")
+                str(origin.get("origin_kind") or "") == expected_origin_kind
+                and str(origin.get("origin_ref") or "").startswith(
+                    f"{expected_origin_kind}:guided-"
+                )
                 for origin in hypothesis.get("origin_records") or []
                 if isinstance(origin, Mapping)
             )
             for hypothesis in dict(current_graph.get("hypotheses") or {}).values()
             if isinstance(hypothesis, Mapping)
         ):
-            return {
+            skipped = {
                 "status": "skipped",
                 "frontier_smiles": [frontier_smiles],
                 "proposal_count": 0,
@@ -1098,6 +1531,8 @@ def solve_target(
                     "duplicate_guided_provider_call_suppressed": True,
                 },
             }
+            record_attempt(skipped)
+            return skipped
         before_progress = compile_parent_route_stock_progress(
             compile_proof_portfolio(
                 current_graph,
@@ -1106,43 +1541,63 @@ def solve_target(
             ),
             parent_route_family_ids=action.route_family_ids,
         )
-        result = run_chemenzy_guided_frontier_stage(
-            service,
-            target_name=case.target_name,
-            root_target_smiles=canonical,
-            enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
-            provider=chemenzy_provider,
-            env_prefix=active.chemenzy_env_prefix or None,
-            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
-            max_frontiers=1,
-            max_routes=1,
-            max_steps=min(6, active.max_chemenzy_steps),
-            max_iterations=active.max_guided_chemenzy_iterations,
-            expansion_topk=min(80, active.chemenzy_expansion_topk),
-            timeout_s=active.guided_chemenzy_timeout_s,
-            include_frontier_smiles=(frontier_smiles,),
-            search_preset="thorough",
-            random_seed=active.chemenzy_seed,
-            stock_names=active.chemenzy_stock_names,
-            stock_paths=dict(active.chemenzy_stock_paths),
-            enable_condition_prediction=(
-                active.enable_chemenzy_condition_prediction
-                and active.action_scheduler_policy != "adaptive"
-            ),
-            enable_enzyme_assignment=(
-                active.enable_chemenzy_enzyme_assignment
-                and active.action_scheduler_policy != "adaptive"
-            ),
-            enable_enzyme_coverage_sidecar=(
-                active.enable_enzyme_coverage_sidecar
-                and active.action_scheduler_policy != "adaptive"
-            ),
-            pandarallel_workers=active.chemenzy_pandarallel_workers,
-            stop_on_first_host_admitted_route=(
-                active.delivery_boundary == "stock_result"
-            ),
-        )
+        if _native_short_tail_engine(active) == "aizynthfinder":
+            result = run_aizynthfinder_guided_frontier_stage(
+                service,
+                frontier_smiles=frontier_smiles,
+                parent_route_family_ids=tuple(sorted(action.route_family_ids)),
+                timeout_s=active.guided_chemenzy_timeout_s,
+                provider=aizynthfinder_provider,
+                sidecar_config=AiZynthFinderSidecarConfig(
+                    python_executable=active.aizynthfinder_python_executable,
+                    config_path=active.aizynthfinder_config_path,
+                    mode=active.aizynthfinder_short_tail_mode,
+                ),
+                # SynthEx scores only a complete AiZ route whose every leaf
+                # reaches the frozen stock.  Importing the best partial tail
+                # is an AutoPlanner repair enhancement and would otherwise
+                # contaminate the paper-matched arm with recursive new leaves.
+                accept_partial_routes=not _is_paper_reach_profile(active.execution_profile),
+            )
+        else:
+            result = run_chemenzy_guided_frontier_stage(
+                service,
+                target_name=case.target_name,
+                root_target_smiles=canonical,
+                enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
+                provider=chemenzy_provider,
+                env_prefix=active.chemenzy_env_prefix or None,
+                vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
+                max_frontiers=1,
+                max_routes=1,
+                max_steps=min(6, active.max_chemenzy_steps),
+                max_iterations=active.max_guided_chemenzy_iterations,
+                expansion_topk=min(80, active.chemenzy_expansion_topk),
+                timeout_s=active.guided_chemenzy_timeout_s,
+                include_frontier_smiles=(frontier_smiles,),
+                search_preset="thorough",
+                random_seed=active.chemenzy_seed,
+                stock_names=active.chemenzy_stock_names,
+                stock_paths=dict(active.chemenzy_stock_paths),
+                enable_condition_prediction=(
+                    active.enable_chemenzy_condition_prediction
+                    and active.action_scheduler_policy != "adaptive"
+                ),
+                enable_enzyme_assignment=(
+                    active.enable_chemenzy_enzyme_assignment
+                    and active.action_scheduler_policy != "adaptive"
+                ),
+                enable_enzyme_coverage_sidecar=(
+                    active.enable_enzyme_coverage_sidecar
+                    and active.action_scheduler_policy != "adaptive"
+                ),
+                pandarallel_workers=active.chemenzy_pandarallel_workers,
+                stop_on_first_host_admitted_route=(
+                    active.delivery_boundary == "stock_result"
+                ),
+            )
         attempted_guided_frontier_smiles.add(frontier_key)
+        record_attempt(result)
         result = {
             **dict(result),
             "guided_progress_checkpoint": {
@@ -2558,7 +3013,7 @@ def solve_target(
         ),
         **(
             {CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle_guided_chemenzy}
-            if active.enable_chemenzy and active.enable_guided_chemenzy
+            if _frontier_native_search_enabled(active)
             else {}
         ),
         **(
@@ -3353,13 +3808,33 @@ def solve_target(
         )
         _checkpoint(checkpoint_path, identity, stages, outcomes)
 
-    delegation_audit = _chemenzy_delegation_audit(
-        outcomes,
-        service.graph_store.load(),
+    native_provider_id = _native_short_tail_engine(active)
+    guided_stage_name = f"{native_provider_id}_guided_frontier"
+    recovery_stage_name = f"{native_provider_id}_stock_recovery"
+    delegation_stage_name = f"{native_provider_id}_delegation"
+    delegation_audit = (
+        {
+            "schema_version": "native_provider_delegation_audit.v1",
+            "stage": delegation_stage_name,
+            "provider_id": native_provider_id,
+            "status": "stock_driven",
+            "request_count": 0,
+            "queued_count": 0,
+            "rejected_count": 0,
+            "semantics": {
+                "paper_short_tail_is_triggered_by_target_reachable_stock_rejection": True,
+                "director_provider_annotation_is_not_required": True,
+            },
+        }
+        if native_provider_id == "aizynthfinder"
+        else _chemenzy_delegation_audit(
+            outcomes,
+            service.graph_store.load(),
+        )
     )
     stages.append(
         _stage(
-            "chemenzy_delegation",
+            delegation_stage_name,
             delegation_audit["status"],
             delegation_audit,
         )
@@ -3368,7 +3843,7 @@ def solve_target(
     # The target-level ChemEnzy route pool seeds complete multi-step options;
     # guided delegation below expands canonical subtargets selected by Codex.
     prior_attempted_frontiers = _attempted_chemenzy_frontiers(stages)
-    prior_guided = _latest_stage(stages, "chemenzy_guided_frontier")
+    prior_guided = _latest_stage(stages, guided_stage_name)
     prior_guided_status = str(prior_guided.get("status") or "")
     reuse_guided = (
         prior_guided_status
@@ -3404,8 +3879,8 @@ def solve_target(
             identity,
             stages,
             outcomes,
-            "chemenzy_guided_frontier",
-            enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
+            guided_stage_name,
+            enabled=_frontier_native_search_enabled(active),
         )
         # Keep at least one local-expansion slot for leaves revealed by the
         # first validation/stock pass.  Spending the whole allowance on the
@@ -3418,7 +3893,7 @@ def solve_target(
         guided_opportunities = compile_action_opportunities(
             dict(service.graph_store.load().get("deficit_frontier") or {})
         )
-        stock_recovery_only = any(
+        stock_recovery_only = _is_paper_reach_profile(active.execution_profile) or any(
             row.get("kind") == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
             and str(dict(row.get("metadata") or {}).get("stock_observation_id") or "")
             for row in guided_opportunities.get("actions") or []
@@ -3439,19 +3914,25 @@ def solve_target(
             []
             if stock_recovery_only
             else project_action_results(
-                "chemenzy_guided_frontier_expand",
+                f"{native_provider_id}_guided_frontier_expand",
                 (CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,),
                 max_actions=initial_guided_limit,
             )
         )
-        guided_stage = _aggregate_guided_chemenzy_action_results(guided_action_executions)
+        guided_stage = _aggregate_guided_chemenzy_action_results(
+            guided_action_executions,
+            provider_id=native_provider_id,
+        )
         if stock_recovery_only:
             guided_stage["semantics"] = {
                 **dict(guided_stage.get("semantics") or {}),
                 "stock_recovery_frontiers_deferred_until_stock_stage": True,
+                "paper_short_tail_runs_only_after_stock_rejection": (
+                    _is_paper_reach_profile(active.execution_profile)
+                ),
             }
         guided_stage["new_proposal_count"] = int(guided_stage.get("proposal_count") or 0)
-    stages.append(_stage("chemenzy_guided_frontier", guided_stage["status"], guided_stage))
+    stages.append(_stage(guided_stage_name, guided_stage["status"], guided_stage))
     guided_materialization: dict[str, Any] = {}
     guided_validation: dict[str, Any] = {}
     guided_stock: dict[str, Any] = {}
@@ -3573,14 +4054,92 @@ def solve_target(
         0,
         guided_frontier_limit - len(attempted_guided_frontiers),
     )
+    # The strict paper-matched arm must not let the first B4 route terminate
+    # the unified loop before the other target-rooted open leaves receive
+    # their native short-tail attempt.  The normal anytime scheduler quite
+    # correctly stops at a delivery milestone for ordinary runs, but that
+    # policy is too early here: B4 is a result axis, while the SynthEx-matched
+    # contract still requires bounded AiZynthFinder completion for every
+    # complete RouteJSON leaf rejected by the frozen stock oracle.  Schedule
+    # those actions directly, with the same canonical ActionRuntime, so they
+    # consume the normal native-search budget and remain in the event journal.
+    direct_recovery_executions: list[dict[str, Any]] = []
+    if (
+        remaining_guided
+        and _is_isolated_paper_matched_profile(active.execution_profile)
+    ):
+        direct_action_ids: set[str] = set()
+        for index in range(int(remaining_guided)):
+            opportunity_set = compile_action_opportunities(
+                dict(service.graph_store.load().get("deficit_frontier") or {})
+            )
+            eligible_short_tail = [
+                row
+                for row in opportunity_set.get("actions") or []
+                if isinstance(row, Mapping)
+                and str(row.get("kind") or "")
+                == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value
+                and dict(row.get("metadata") or {}).get(
+                    "paper_short_tail_eligible"
+                )
+                is True
+            ]
+            if not eligible_short_tail:
+                break
+            execution = unified_core_runtime.schedule_and_execute(
+                opportunity_set,
+                milestones=_campaign_milestones(current_campaign_gates()),
+                resource_availability=scheduler_resources(),
+                excluded_action_ids=tuple(sorted(direct_action_ids)),
+                round_robin_cursor=index,
+                available_action_kinds=(
+                    CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,
+                ),
+            )
+            if str(execution.get("status") or "") in {
+                "no_action",
+                "budget_exhausted",
+            }:
+                break
+            direct_recovery_executions.append(dict(execution))
+            action_id = str(
+                dict(execution.get("action") or {}).get("action_id") or ""
+            )
+            if action_id:
+                direct_action_ids.add(action_id)
+            observe_unified_core_execution(
+                len(unified_core_runtime.action_execution_history()),
+                execution,
+            )
     if remaining_guided:
         recovery_action_executions = project_action_results(
-            "chemenzy_stock_recovery_expand",
+            f"{native_provider_id}_stock_recovery_expand",
             (CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,),
             max_actions=remaining_guided,
         )
-        recovery_stage = _aggregate_guided_chemenzy_action_results(recovery_action_executions)
-        stages.append(_stage("chemenzy_stock_recovery", recovery_stage["status"], recovery_stage))
+        # ``observe_unified_core_execution`` places direct executions into the
+        # same projection backlog.  Keep this assertion as a diagnostic field
+        # rather than introducing a second result queue.
+        if direct_recovery_executions and not recovery_action_executions:
+            recovery_action_executions = [
+                dict(value) for value in direct_recovery_executions
+            ]
+        recovery_stage = _aggregate_guided_chemenzy_action_results(
+            recovery_action_executions,
+            provider_id=native_provider_id,
+        )
+        if direct_recovery_executions:
+            recovery_stage["direct_paper_short_tail_dispatch_count"] = len(
+                direct_recovery_executions
+            )
+            recovery_stage.setdefault("semantics", {}).update(
+                {
+                    "paper_short_tail_dispatched_after_stock_stage": True,
+                    "B4_does_not_suppress_open_leaf_short_tail": True,
+                    "dispatch_uses_canonical_action_runtime": True,
+                }
+            )
+        stages.append(_stage(recovery_stage_name, recovery_stage["status"], recovery_stage))
     if int(recovery_stage.get("proposal_count") or 0) > 0:
         recovery_materialization_executions = project_action_results(
             "recovery_materialize",
@@ -3808,13 +4367,11 @@ def solve_target(
             for outcome in outcomes
         ):
             outcomes.append(replan)
-        if not any(
-            row.get("stage") == "global_replan"
-            and str(dict(row.get("detail") or {}).get("context_sha256") or "")
-            == str(replan.get("context_sha256") or "")
-            for row in stages
-        ):
-            stages.append(_stage("global_replan", replan["status"], replan))
+        # Always settle the live marker.  Failed director outcomes have an
+        # empty context digest, just like the running marker; comparing those
+        # digests previously left terminal reports claiming the replan was
+        # still running.
+        stages.append(_stage("global_replan", replan["status"], replan))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
         if replan.get("status") == "accepted" and replan.get("plan"):
             rematerialization_executions = project_action_results(
@@ -4155,15 +4712,25 @@ def solve_target(
             },
         )
     )
+    final_graph = service.graph_store.load()
     gates = compile_blind_acceptance_report(
         preflight=preflight,
         director_outcomes=outcomes,
-        graph=service.graph_store.load(),
+        graph=final_graph,
         portfolio=closeout["portfolio"],
     )
     paper_equivalent = compile_paper_equivalent_metric(
         gates,
         stock_oracle=resolved_stock_oracle.to_dict(),
+    )
+    route_reconciliation = compile_route_reconciliation(
+        outcomes,
+        lifecycle=compile_candidate_lifecycle(
+            final_graph,
+            closeout["portfolio"],
+            ingestion_observations=stages,
+        ),
+        paper_equivalent=paper_equivalent,
     )
     stages.append(
         _stage(
@@ -4199,7 +4766,6 @@ def solve_target(
         budget=resolved_budget,
         max_run_wall_time_s=service.kernel.spec.limits.max_run_wall_time_s,
     )
-    final_graph = service.graph_store.load()
     final_opportunities = compile_action_opportunities(
         dict(final_graph.get("deficit_frontier") or {})
     )
@@ -4265,6 +4831,10 @@ def solve_target(
     director_outcome_limit_exhausted = bool(
         not campaign_accepted and len(outcomes) >= _MAX_DIRECTOR_OUTCOMES
     )
+    bounded_scheduler_exhausted = _bounded_scheduler_exhausted(
+        unified_core_loop,
+        portfolio_accepted=campaign_accepted,
+    )
     if director_outcome_limit_exhausted:
         stages.append(
             _stage(
@@ -4288,6 +4858,41 @@ def solve_target(
             reasons=(
                 "director_outcome_limit_exhausted",
                 "configured_scientific_acceptance_not_met",
+            ),
+        )
+    elif bounded_scheduler_exhausted:
+        stages.append(
+            _stage(
+                "bounded_scheduler_exhaustion",
+                "unresolved",
+                {
+                    "reason": "no_registered_eligible_action_remains",
+                    "loop_termination": str(
+                        unified_core_loop.get("termination") or ""
+                    ),
+                    "execution_count": int(
+                        unified_core_loop.get("execution_count") or 0
+                    ),
+                    "unexecuted_actions": dict(
+                        unified_core_loop.get("unexecuted_actions") or {}
+                    ),
+                    "semantics": {
+                        "terminal_unresolved_is_not_scientific_acceptance": True,
+                        "same_state_resume_would_repeat_the_same_scheduler_decision": True,
+                        "new_evidence_or_a_new_campaign_can_be_run_separately": True,
+                    },
+                },
+            )
+        )
+        _transition_unresolved_if_active(
+            service.kernel,
+            idempotency_key=(
+                f"solve-target:bounded-scheduler-exhausted:"
+                f"{service.kernel.state.revision}"
+            ),
+            reasons=(
+                "acceptance_not_met_and_no_registered_eligible_action",
+                "new_evidence_or_new_campaign_required",
             ),
         )
     elif continuation_exhausted:
@@ -4370,6 +4975,13 @@ def solve_target(
         candidate_lifecycle,
         lineage_observations=report_stages,
     )
+    expansion_accounting = _compile_expansion_accounting(
+        candidate_lifecycle,
+        outcomes=outcomes,
+        kernel_accepted_expansion_count=(
+            service.kernel.state.accepted_expansion_count
+        ),
+    )
     report = {
         "schema_version": TARGET_SOLVE_REPORT_SCHEMA,
         "run_id": identity,
@@ -4378,6 +4990,7 @@ def solve_target(
         "campaign_spec": service.kernel.spec.campaign_spec.to_dict(),
         "preflight": preflight,
         "config": asdict(active),
+        "search_method": _search_method_projection(active),
         "acceptance": resolved_acceptance.to_dict(),
         "budget": resolved_budget.to_dict(),
         "director_outcomes": outcomes,
@@ -4385,15 +4998,14 @@ def solve_target(
         "trajectory": trajectory,
         "candidate_lifecycle": candidate_lifecycle,
         "candidate_provenance": candidate_provenance,
-        "next_action": {
-            "selected_action_id": final_action_decision["selected_action_id"],
-            "selected_action": final_action_decision["selected_action"],
-            "candidate_count": final_action_decision["candidate_count"],
-            "eligible_candidate_count": final_action_decision["eligible_candidate_count"],
-            "decision_sha256": final_action_decision["content_sha256"],
-        },
+        "expansion_accounting": expansion_accounting,
+        "next_action": _report_next_action(
+            final_action_decision,
+            stop_decision=stop,
+        ),
         "gates": gates,
         "paper_equivalent": paper_equivalent,
+        "route_reconciliation": route_reconciliation,
         "quality_state": quality_state,
         "planning_depth": planning_depth,
         "model_cost": dict(service.kernel.state.model_totals),
@@ -4407,6 +5019,21 @@ def solve_target(
         "workbench_ref": workbench["snapshot_ref"],
         "claim": claim,
     }
+    if _is_isolated_paper_matched_profile(active.execution_profile):
+        primary = _paper_matched_primary_projection(
+            config=active,
+            paper_equivalent=paper_equivalent,
+            outcomes=outcomes,
+            stages=report_stages,
+        )
+        # Keep the two paper endpoints visible without making readers descend
+        # through strict B2/B3/evidence/condition projections.  The complete
+        # scientific report remains available as independent sidecars below.
+        report["paper_reach"] = primary["paper_reach"]
+        report["paper_equivalent_solved"] = primary[
+            "paper_equivalent_solved"
+        ]
+        report["paper_matched_primary"] = primary
     return _persist_target_report(
         service,
         report=report,
@@ -4890,6 +5517,8 @@ def _aggregate_evidence_action_results(
 
 def _aggregate_guided_chemenzy_action_results(
     executions: Iterable[Mapping[str, Any]],
+    *,
+    provider_id: str = "chemenzy",
 ) -> dict[str, Any]:
     results = _campaign_action_handler_results(
         executions,
@@ -4910,6 +5539,17 @@ def _aggregate_guided_chemenzy_action_results(
         for row in result.get("results") or []
         if isinstance(row, Mapping)
     ]
+    provider_ids = sorted(
+        {
+            str(result.get("provider_id") or "").strip()
+            for result in results
+            if str(result.get("provider_id") or "").strip()
+        }
+    )
+    provider_id = provider_ids[0] if len(provider_ids) == 1 else str(provider_id or "chemenzy")
+    if provider_id == "aizynthfinder" and not provider_results:
+        provider_results = [dict(result) for result in results]
+    stage_name = f"{provider_id}_guided_frontier"
     route_lineage = [
         {
             **dict(lineage),
@@ -4926,8 +5566,9 @@ def _aggregate_guided_chemenzy_action_results(
         if isinstance(lineage, Mapping)
     ]
     return {
-        "schema_version": "v4_chemenzy_guided_frontier_stage.v1",
-        "stage": "chemenzy_guided_frontier",
+        "schema_version": f"v4_{provider_id}_guided_frontier_stage.v1",
+        "stage": stage_name,
+        "provider_id": provider_id,
         "status": ("completed" if proposal_count else "unresolved" if results else "not_needed"),
         "frontier_count": len(frontier_smiles),
         "executed_frontier_count": len(results),
@@ -4954,6 +5595,9 @@ def _aggregate_guided_chemenzy_action_results(
             "frontier_batch_is_bounded": True,
             "provider_result_requires_host_materialization": True,
             "scheduler_owned_execution": True,
+            "legacy_action_kind_is_transport_only": (
+                provider_id == "aizynthfinder"
+            ),
         },
     }
 
@@ -5054,6 +5698,20 @@ def _automatic_continuation_exhausted(
     )
 
 
+def _bounded_scheduler_exhausted(
+    loop: Mapping[str, Any],
+    *,
+    portfolio_accepted: bool,
+) -> bool:
+    """Recognize a settled pass that a same-state resume cannot advance."""
+
+    return bool(
+        not portfolio_accepted
+        and str(loop.get("termination") or "")
+        in {"no_action", "converged_low_marginal_gain"}
+    )
+
+
 def _transition_unresolved_if_active(
     kernel: Any,
     *,
@@ -5089,6 +5747,27 @@ def _refresh_terminal_report(
     """Recompute reporting projections for a terminal run without new work."""
 
     graph = service.graph_store.load()
+    stock_refresh = _aggregate_stock_action_results(
+        (),
+        graph=graph,
+        required_boundary=acceptance.stock_boundary,
+        max_molecules=config.max_live_stock_molecules,
+    )
+    if stock_refresh.get("status") == "reused":
+        stages.append(
+            _stage(
+                "stock",
+                "reused",
+                {
+                    **stock_refresh,
+                    "terminal_report_refresh": True,
+                    "semantics": {
+                        **dict(stock_refresh.get("semantics") or {}),
+                        "no_stock_provider_call_on_terminal_refresh": True,
+                    },
+                },
+            )
+        )
     portfolio = compile_proof_portfolio(
         graph,
         acceptance_spec=acceptance,
@@ -5100,6 +5779,19 @@ def _refresh_terminal_report(
         director_outcomes=outcomes,
         graph=graph,
         portfolio=portfolio,
+    )
+    paper_equivalent = compile_paper_equivalent_metric(
+        gates,
+        stock_oracle=service.kernel.spec.campaign_spec.stock_oracle.to_dict(),
+    )
+    route_reconciliation = compile_route_reconciliation(
+        outcomes,
+        lifecycle=compile_candidate_lifecycle(
+            graph,
+            portfolio,
+            ingestion_observations=stages,
+        ),
+        paper_equivalent=paper_equivalent,
     )
     resource_envelope = _resource_envelope(
         model_cost=service.kernel.state.model_totals,
@@ -5162,11 +5854,18 @@ def _refresh_terminal_report(
         "campaign_spec": service.kernel.spec.campaign_spec.to_dict(),
         "preflight": dict(preflight),
         "config": asdict(config),
+        "search_method": _search_method_projection(config),
         "acceptance": acceptance.to_dict(),
         "budget": budget.to_dict(),
         "director_outcomes": outcomes,
         "stages": _deduplicate_stages(stages),
+        "next_action": _report_next_action(
+            dict(previous.get("next_action") or {}),
+            stop_decision=stop_decision,
+        ),
         "gates": gates,
+        "paper_equivalent": paper_equivalent,
+        "route_reconciliation": route_reconciliation,
         "quality_state": quality_state,
         "planning_depth": planning_depth,
         "model_cost": dict(service.kernel.state.model_totals),
@@ -5187,6 +5886,18 @@ def _refresh_terminal_report(
             "portfolio_sha256": str(portfolio.get("content_sha256") or ""),
         },
     }
+    if _is_isolated_paper_matched_profile(config.execution_profile):
+        primary = _paper_matched_primary_projection(
+            config=config,
+            paper_equivalent=paper_equivalent,
+            outcomes=outcomes,
+            stages=report["stages"],
+        )
+        report["paper_reach"] = primary["paper_reach"]
+        report["paper_equivalent_solved"] = primary[
+            "paper_equivalent_solved"
+        ]
+        report["paper_matched_primary"] = primary
     report.pop("report_ref", None)
     report.pop("report_path", None)
     report.pop("content_sha256", None)
@@ -5241,7 +5952,7 @@ def _bind_native_search_budget(
             if config.max_guided_chemenzy_frontiers is None
             else config.max_guided_chemenzy_frontiers
         )
-        if config.enable_chemenzy and config.enable_guided_chemenzy
+        if _frontier_native_search_enabled(config)
         else 0
     )
     frontier_budget_cap = max(
@@ -5474,6 +6185,8 @@ def _attempted_chemenzy_frontiers(
         if row.get("stage") in {
             "chemenzy_guided_frontier",
             "chemenzy_stock_recovery",
+            "aizynthfinder_guided_frontier",
+            "aizynthfinder_stock_recovery",
         }:
             candidates.extend(detail.get("frontier_smiles") or [])
         action = dict(detail.get("action") or {})
@@ -6033,6 +6746,463 @@ def _acquire_evidence_stage(
             "connector_cannot_grant_reaction_validation": True,
             "receipt_grants_no_scientific_authority": True,
             "connector_acquisition_preceded_stable_order_canonical_commit": True,
+        },
+    }
+
+
+def _repair_legacy_routejson_and_provider_stitch(
+    service: Any,
+    *,
+    outcomes: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Deterministically repair two historical matched-profile defects.
+
+    Older runs replayed host-compiled ReactionJSON operations in a newly
+    numbered atom-map namespace.  Their valid edges were retained as rejected
+    hypotheses, which also caused later provider tails to be stored as local
+    islands.  On resume, re-admit the immutable accepted Director plan under
+    the current host replay rule, materialize only those stale edges, and then
+    attach an existing provider island only when its exact root is a current
+    target-reachable open leaf.  No model or provider call is made here.
+    """
+
+    plans = tuple(
+        dict(plan)
+        for raw in outcomes
+        if isinstance(raw, Mapping)
+        for plan in (raw.get("plan"),)
+        if raw.get("status") == "accepted" and isinstance(plan, Mapping)
+    )
+    # A previous resume can already have repaired admission while stopping
+    # before the corresponding host-materialization command.  Such a row is
+    # no longer ``admission_rejected`` and therefore must be selected from the
+    # immutable Director plan explicitly.  Otherwise the resume path reports a
+    # misleading materialization gap forever.
+    plan_proposal_ids: set[str] = set()
+    for plan in plans:
+        for skeleton in plan.get("multi_step_skeletons") or []:
+            if not isinstance(skeleton, Mapping):
+                continue
+            for step in skeleton.get("route_json") or []:
+                if isinstance(step, Mapping) and str(step.get("step_id") or ""):
+                    plan_proposal_ids.add(str(step.get("step_id")))
+
+    graph = service.graph_store.load()
+    stale_ids: list[str] = []
+    scanned_hypothesis_count = 0
+    legacy_rejected_count = 0
+    plan_pending_count = 0
+    for hypothesis_id, raw in dict(graph.get("hypotheses") or {}).items():
+        if not isinstance(raw, Mapping):
+            continue
+        scanned_hypothesis_count += 1
+        hypothesis = dict(raw)
+        audit = dict(hypothesis.get("reactionjson_audit") or {})
+        if not bool(hypothesis.get("reaction_operations")) or audit.get("accepted") is not True:
+            continue
+        if not str(audit.get("mapped_product_smiles") or ""):
+            continue
+        status = str(hypothesis.get("status") or "")
+        reasons = {
+            str(value) for value in hypothesis.get("admission_reasons") or []
+        }
+        legacy_rejected = status == "admission_rejected" and bool(
+            {
+                "critic_reaction_operations_replay_failed",
+                "critic_reactionjson_product_binding_mismatch",
+            }
+            & reasons
+        )
+        if legacy_rejected:
+            legacy_rejected_count += 1
+        proposal_ids = {
+            str(origin.get("proposal_id") or "")
+            for origin in hypothesis.get("origin_records") or []
+            if isinstance(origin, Mapping)
+        }
+        materialized = bool(
+            dict(hypothesis.get("materialization") or {}).get("materialized")
+        ) or status == "materialized"
+        plan_pending = bool(
+            proposal_ids & plan_proposal_ids
+        ) and not materialized and (
+            status in {"frontier_candidate", "admitted_unproved"}
+            or hypothesis.get("admission_accepted") is True
+        )
+        if plan_pending:
+            plan_pending_count += 1
+        if legacy_rejected or plan_pending:
+            stale_ids.append(str(hypothesis_id))
+    stale_ids.sort()
+    if stale_ids and service.kernel.state.status != "running":
+        repair_fingerprint = _digest(
+            {
+                "repair": "routejson-materialization-resume.v1",
+                "scientific_sha256": str(graph.get("scientific_sha256") or ""),
+                "hypothesis_ids": stale_ids,
+            }
+        )
+        if service.kernel.state.status == "paused":
+            service.kernel.resume(
+                idempotency_key=(
+                    "solve-target:routejson-repair-resume:"
+                    + repair_fingerprint[:24]
+                )
+            )
+        else:
+            service.kernel.reopen_for_new_work(
+                work_fingerprint=repair_fingerprint,
+                reasons=("routejson_resume_repair",),
+                idempotency_key=(
+                    "solve-target:routejson-repair-reopen:"
+                    + repair_fingerprint[:24]
+                ),
+            )
+    plan_replay: dict[str, Any] = {"changed": False}
+    materialization: dict[str, Any] = {"changed": False, "executed_command_count": 0}
+    if stale_ids and plans:
+        repair_identity = _digest(
+            {
+                "repair": "routejson_host_map_namespace.v1",
+                "scientific_sha256": str(graph.get("scientific_sha256") or ""),
+                "hypothesis_ids": stale_ids,
+                "plan_ids": [str(value.get("plan_id") or "") for value in plans],
+            }
+        )
+        plan_replay = service.apply_batch(
+            CanonicalIngestionBatch(global_plans=plans),
+            idempotency_key=f"solve-target:routejson-map-replay:{repair_identity}",
+        )
+        readmitted_graph = service.graph_store.load()
+        readmitted_ids = [
+            hypothesis_id
+            for hypothesis_id in stale_ids
+            if (
+                dict(readmitted_graph.get("hypotheses") or {})
+                .get(hypothesis_id, {})
+                .get("status")
+                in {"frontier_candidate", "admitted_unproved"}
+                or dict(readmitted_graph.get("hypotheses") or {})
+                .get(hypothesis_id, {})
+                .get("admission_accepted")
+                is True
+            )
+        ]
+        if readmitted_ids:
+            materialization = service.execute_frontier_materialization(
+                idempotency_key=(
+                    f"solve-target:routejson-map-materialize:{repair_identity}"
+                ),
+                hypothesis_ids=readmitted_ids,
+            )
+
+    graph = service.graph_store.load()
+    routes = dict(graph.get("route_families") or {})
+    edges = dict(graph.get("edges") or {})
+    target_id = str(graph.get("target_molecule_id") or "")
+    route_scope_rows: list[dict[str, Any]] = []
+    excluded_provider_groups: list[dict[str, Any]] = []
+    for route_id, raw_route in sorted(routes.items()):
+        route = dict(raw_route) if isinstance(raw_route, Mapping) else {}
+        aliases = [str(value) for value in route.get("aliases") or [] if str(value)]
+        if not route or not any(value.startswith("codex:sequential:family:") for value in aliases):
+            continue
+        grouped_provider_edges: dict[str, set[str]] = {}
+        base_edge_ids: set[str] = set()
+        for raw_edge_id in route.get("edge_ids") or []:
+            edge_id = str(raw_edge_id)
+            edge = dict(edges.get(edge_id) or {})
+            groups = set(guided_provider_group_ids(edge))
+            if not groups:
+                base_edge_ids.add(edge_id)
+                continue
+            for group_id in groups:
+                grouped_provider_edges.setdefault(group_id, set()).add(edge_id)
+        if not grouped_provider_edges:
+            continue
+        by_product: dict[str, list[dict[str, Any]]] = {}
+        for edge_id in base_edge_ids:
+            edge = dict(edges.get(edge_id) or {})
+            product_id = str(edge.get("product_molecule_id") or "")
+            if product_id:
+                by_product.setdefault(product_id, []).append(edge)
+        base_leaves: set[str] = set()
+        pending = [target_id] if target_id in by_product else []
+        seen: set[str] = set()
+        while pending:
+            molecule_id = pending.pop()
+            if molecule_id in seen:
+                continue
+            seen.add(molecule_id)
+            outgoing = by_product.get(molecule_id, [])
+            if not outgoing:
+                if molecule_id != target_id:
+                    base_leaves.add(molecule_id)
+                continue
+            for edge in outgoing:
+                pending.extend(
+                    str(value)
+                    for value in edge.get("precursor_molecule_ids") or []
+                    if str(value) and str(value) not in seen
+                )
+        bindings: list[dict[str, Any]] = []
+        excluded: set[str] = set(route.get("excluded_provider_group_ids") or [])
+        for group_id, group_edge_ids in sorted(grouped_provider_edges.items()):
+            products = {
+                str(dict(edges.get(edge_id) or {}).get("product_molecule_id") or "")
+                for edge_id in group_edge_ids
+            } - {""}
+            precursors = {
+                str(value)
+                for edge_id in group_edge_ids
+                for value in dict(edges.get(edge_id) or {}).get(
+                    "precursor_molecule_ids"
+                )
+                or []
+                if str(value)
+            }
+            roots = sorted(products - precursors)
+            provider_root_id = roots[0] if len(roots) == 1 else ""
+            eligible = bool(provider_root_id and provider_root_id in base_leaves)
+            binding = {
+                "schema_version": "provider_short_tail_binding.v1",
+                "provider_group_id": group_id,
+                "frontier_molecule_id": provider_root_id,
+                "parent_route_family_ids": [str(route_id)],
+                "paper_short_tail_eligible": eligible,
+                "target_rooted_open_leaf": eligible,
+                "binding_source": "historical_topology_reconstruction",
+            }
+            bindings.append(binding)
+            if not eligible:
+                excluded.add(group_id)
+                excluded_provider_groups.append(
+                    {
+                        "provider_group_id": group_id,
+                        "route_family_id": str(route_id),
+                        "provider_root_molecule_id": provider_root_id,
+                        "reason": (
+                            "provider_root_is_internal_strategic_node"
+                            if provider_root_id and provider_root_id in seen
+                            else "provider_root_not_uniquely_bound_to_strategic_leaf"
+                        ),
+                    }
+                )
+        route_scope_rows.append(
+            {
+                "route_family_id": aliases[0],
+                "strategy": str(route.get("strategy") or ""),
+                "strategy_card": dict(route.get("strategy_card") or {}),
+                "chemical_critic": dict(route.get("chemical_critic") or {}),
+                "provider_short_tail_bindings": bindings,
+                "excluded_provider_group_ids": sorted(excluded),
+            }
+        )
+    route_scope: dict[str, Any] = {"changed": False}
+    if route_scope_rows:
+        scope_identity = _digest(
+            {
+                "repair": "historical_provider_short_tail_scope.v1",
+                "scientific_sha256": str(graph.get("scientific_sha256") or ""),
+                "routes": route_scope_rows,
+            }
+        )
+        route_scope = service.apply_batch(
+            CanonicalIngestionBatch(route_families=tuple(route_scope_rows)),
+            idempotency_key=f"solve-target:provider-scope:{scope_identity}",
+        )
+
+    graph = service.graph_store.load()
+    boundaries = target_reachable_route_boundaries(graph)
+    open_leaf_routes = dict(boundaries.get("open_leaf_route_family_ids") or {})
+    rooted_route_ids = {
+        str(route_id)
+        for values in dict(
+            boundaries.get("reachable_route_family_ids") or {}
+        ).values()
+        for route_id in values
+    }
+    provider_rows: list[dict[str, Any]] = []
+    attached_islands: list[dict[str, Any]] = []
+    ambiguous_islands: list[str] = []
+    routes = dict(graph.get("route_families") or {})
+    edges = dict(graph.get("edges") or {})
+    hypotheses = dict(graph.get("hypotheses") or {})
+    for route_id, raw_route in sorted(routes.items()):
+        route = dict(raw_route) if isinstance(raw_route, Mapping) else {}
+        aliases = [str(value) for value in route.get("aliases") or [] if str(value)]
+        if (
+            not route
+            or str(route_id) in rooted_route_ids
+            or not any(
+                value.startswith(("aizynthfinder:guided-", "chemenzy:guided-"))
+                for value in aliases
+            )
+        ):
+            continue
+        matching_roots = {
+            str(edge.get("product_molecule_id") or "")
+            for edge_id in route.get("edge_ids") or []
+            for edge in (dict(edges.get(str(edge_id)) or {}),)
+            if str(edge.get("product_molecule_id") or "") in open_leaf_routes
+        }
+        if len(matching_roots) != 1:
+            if matching_roots:
+                ambiguous_islands.append(str(route_id))
+            continue
+        provider_root_id = next(iter(matching_roots))
+        parent_route_ids = tuple(open_leaf_routes[provider_root_id])
+        parent_digests = {
+            str(dict(routes.get(parent_id) or {}).get("strategy_digest") or "")
+            for parent_id in parent_route_ids
+        } - {""}
+        if len(parent_digests) > 1:
+            ambiguous_islands.append(str(route_id))
+            continue
+        parent_card = next(
+            (
+                dict(dict(routes.get(parent_id) or {}).get("strategy_card") or {})
+                for parent_id in parent_route_ids
+                if dict(dict(routes.get(parent_id) or {}).get("strategy_card") or {})
+            ),
+            {},
+        )
+        island_row_count = 0
+        for hypothesis_id in route.get("hypothesis_ids") or []:
+            hypothesis = dict(hypotheses.get(str(hypothesis_id)) or {})
+            origins = [
+                dict(value)
+                for value in hypothesis.get("origin_records") or []
+                if isinstance(value, Mapping)
+                and str(value.get("origin_kind") or "")
+                in {"aizynthfinder", "chemenzy"}
+            ]
+            if not hypothesis or not origins:
+                continue
+            origin = origins[0]
+            group_ids = set(
+                guided_provider_group_ids(
+                    {
+                        "origin_records": [origin],
+                    }
+                )
+            )
+            provider_kind = str(origin.get("origin_kind") or "chemenzy")
+            provider_group_id = (
+                next(iter(group_ids))
+                if len(group_ids) == 1
+                else f"{provider_kind}:guided-recovered:{provider_root_id}"
+            )
+            provider_metadata = dict(
+                origin.get("provider_reaction_metadata") or {}
+            )
+            provider_metadata["short_tail_binding"] = {
+                "schema_version": "provider_short_tail_binding.v1",
+                "provider_group_id": provider_group_id,
+                "frontier_molecule_id": provider_root_id,
+                "parent_route_family_ids": list(parent_route_ids),
+                "paper_short_tail_eligible": True,
+                "target_rooted_open_leaf": True,
+                "binding_source": "historical_topology_reconstruction",
+            }
+            provider_rows.append(
+                {
+                    **origin,
+                    "provider_reaction_metadata": provider_metadata,
+                    "step_id": str(
+                        origin.get("proposal_id") or hypothesis.get("hypothesis_id") or ""
+                    ),
+                    "canonical_route_family_ids": list(parent_route_ids),
+                    "product_smiles": str(hypothesis.get("product_smiles") or ""),
+                    "precursor_smiles": list(hypothesis.get("precursor_smiles") or []),
+                    "strategy_card": parent_card,
+                    "reaction_operations": list(
+                        hypothesis.get("reaction_operations") or []
+                    ),
+                    "reactionjson_audit": dict(
+                        hypothesis.get("reactionjson_audit") or {}
+                    ),
+                    "condition_predictions": list(
+                        hypothesis.get("condition_predictions") or []
+                    ),
+                    "route_innovations": list(
+                        hypothesis.get("route_innovations") or []
+                    ),
+                }
+            )
+            island_row_count += 1
+        if island_row_count:
+            attached_islands.append(
+                {
+                    "provider_route_family_id": str(route_id),
+                    "provider_root_molecule_id": provider_root_id,
+                    "parent_route_family_ids": list(parent_route_ids),
+                    "hypothesis_count": island_row_count,
+                }
+            )
+
+    provider_stitch: dict[str, Any] = {"changed": False}
+    if provider_rows:
+        stitch_identity = _digest(
+            {
+                "repair": "target_reachable_provider_stitch.v1",
+                "scientific_sha256": str(graph.get("scientific_sha256") or ""),
+                "rows": provider_rows,
+            }
+        )
+        provider_stitch = service.apply_batch(
+            CanonicalIngestionBatch(hypotheses=tuple(provider_rows)),
+            idempotency_key=f"solve-target:provider-stitch:{stitch_identity}",
+        )
+
+    final_graph = service.graph_store.load()
+    remaining_stale = [
+        hypothesis_id
+        for hypothesis_id in stale_ids
+        if dict(final_graph.get("hypotheses") or {})
+        .get(hypothesis_id, {})
+        .get("status")
+        == "admission_rejected"
+    ]
+    changed = bool(
+        plan_replay.get("changed")
+        or materialization.get("changed")
+        or route_scope.get("changed")
+        or provider_stitch.get("changed")
+    )
+    if not stale_ids and not provider_rows:
+        status = "not_needed"
+    elif remaining_stale or ambiguous_islands:
+        status = "partial"
+    else:
+        status = "completed"
+    return {
+        "schema_version": "routejson_resume_repair.v1",
+        "status": status,
+        "changed": changed,
+        "stale_routejson_hypothesis_count": len(stale_ids),
+        "remaining_stale_hypothesis_ids": remaining_stale,
+        "replayed_plan_count": len(plans) if stale_ids else 0,
+        "materialized_command_count": int(
+            materialization.get("executed_command_count") or 0
+        ),
+        "diagnostics": {
+            "scanned_hypothesis_count": scanned_hypothesis_count,
+            "accepted_plan_count": len(plans),
+            "plan_proposal_id_count": len(plan_proposal_ids),
+            "legacy_rejected_count": legacy_rejected_count,
+            "plan_pending_count": plan_pending_count,
+            "selected_hypothesis_ids": list(stale_ids),
+        },
+        "attached_provider_islands": attached_islands,
+        "excluded_provider_groups": excluded_provider_groups,
+        "ambiguous_provider_island_ids": ambiguous_islands,
+        "semantics": {
+            "no_model_invocation": True,
+            "no_provider_invocation": True,
+            "immutable_cached_outputs_replayed": True,
+            "provider_root_must_equal_current_target_reachable_open_leaf": True,
+            "internal_node_provider_search_is_not_reclassified_as_paper_short_tail": True,
         },
     }
 
@@ -6882,6 +8052,401 @@ def _current_disposition(
     }
 
 
+def _report_next_action(
+    decision: Mapping[str, Any],
+    *,
+    stop_decision: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project scheduler state without advertising work after terminalization.
+
+    Scheduling happens before the kernel chooses its terminal disposition, so
+    the final pre-stop decision remains in the historical stage log.  It must
+    not survive as an executable ``next_action`` once the run is terminal.
+    """
+
+    terminal = stop_decision.get("terminal") is True
+    decision_sha256 = str(
+        decision.get("content_sha256")
+        or decision.get("decision_sha256")
+        or decision.get("historical_decision_sha256")
+        or ""
+    )
+    if terminal:
+        return {
+            "selected_action_id": "",
+            "selected_action": {},
+            "candidate_count": 0,
+            "eligible_candidate_count": 0,
+            "decision_sha256": "",
+            "terminal": True,
+            "terminal_reason": str(stop_decision.get("decision") or "terminal"),
+            "historical_decision_sha256": decision_sha256,
+            "semantics": {
+                "historical_scheduler_choice_is_not_an_executable_next_action": True,
+            },
+        }
+    return {
+        "selected_action_id": str(decision.get("selected_action_id") or ""),
+        "selected_action": dict(decision.get("selected_action") or {}),
+        "candidate_count": int(decision.get("candidate_count") or 0),
+        "eligible_candidate_count": int(
+            decision.get("eligible_candidate_count") or 0
+        ),
+        "decision_sha256": decision_sha256,
+        "terminal": False,
+    }
+
+
+def _search_method_projection(config: TargetSolveConfig) -> dict[str, Any]:
+    """State which engine owns strategy search versus native short tails."""
+
+    short_tail_engine = _native_short_tail_engine(config)
+    strategy_tree_engine = _strategy_tree_engine(config)
+    # The matched AiZ arm is always compiler-first.  The complete-route flag
+    # records the *admission* requirement and must not switch the search back
+    # to the legacy one-shot RouteJSON prompt.
+    compiler_first = bool(
+        config.strategy_search_profile == "synthex_matched"
+        and strategy_tree_engine == "aizynthfinder_mcts"
+    )
+    aizynthfinder_strategy = bool(
+        compiler_first and strategy_tree_engine == "aizynthfinder_mcts"
+    )
+    return {
+        "schema_version": "target_search_method_projection.v1",
+        "strategy_tree_engine": strategy_tree_engine,
+        "strategy_search_engine": (
+            "AiZynthFinder.MctsSearchTree with host-replayed Codex ReactionJSON policy"
+            if aizynthfinder_strategy
+            else "ChemEnzyRetroPlanner.MolTree facade"
+            if compiler_first
+            else "AutoPlanner linear RouteJSON compatibility path"
+        ),
+        "strategy_node_selection_policy": (
+            "AiZynthFinder UCB selection and back-propagation"
+            if aizynthfinder_strategy
+            else "best_first_v_target"
+            if compiler_first
+            else "linear_open_leaf_queue"
+        ),
+        "strategy_reactionjson_candidates_per_node": int(
+            config.max_reactionjson_candidates_per_node
+        ),
+        "strategic_milestone_limit_per_branch": int(
+            config.max_strategic_milestones_per_branch
+        ),
+        "route_internal_strategy_refresh": bool(
+            int(config.max_strategic_milestones_per_branch) > 1
+        ),
+        "strategy_ucb_active": aizynthfinder_strategy,
+        "strategy_progressive_widening_active": False,
+        "native_short_tail_engine": short_tail_engine,
+        "llm_expansion_policy_inside_aizynthfinder_mcts": (
+            aizynthfinder_strategy
+        ),
+        "paper_parameter_alignment": {
+            "strategy_branches": int(config.strategy_branch_count) == 3,
+            "one_strategy_card_per_branch": int(
+                config.max_strategic_milestones_per_branch
+            )
+            == 1,
+            "policy_call_ceiling_per_branch": int(
+                config.max_node_expansions_per_branch
+            )
+            == 25,
+            "short_tail_depth": int(config.max_chemenzy_steps) == 6,
+            "short_tail_iterations": int(
+                config.max_guided_chemenzy_iterations
+            )
+            == 500,
+            "short_tail_timeout_s": float(
+                config.guided_chemenzy_timeout_s
+            )
+            == 1_200.0,
+        },
+        "paper_algorithm_equivalent": bool(
+            aizynthfinder_strategy
+            and int(config.max_strategic_milestones_per_branch) == 1
+        ),
+        "paper_source_implementation_identical": False,
+        "non_equivalence_reason": (
+            ""
+            if aizynthfinder_strategy
+            and int(config.max_strategic_milestones_per_branch) == 1
+            else "route-internal strategy refresh is an AutoPlanner enhancement"
+            if aizynthfinder_strategy
+            else "LLM strategy actions are not executed by AiZynthFinder MCTS"
+        ),
+        "source_identity_caveat": (
+            "The paper implementation is not fully released; equivalence means the "
+            "published AiZynthFinder MCTS/LLM-policy contract and limits are aligned, "
+            "not byte-identical source code."
+        ),
+    }
+
+
+def _paper_matched_primary_projection(
+    *,
+    config: TargetSolveConfig,
+    paper_equivalent: Mapping[str, Any],
+    outcomes: Iterable[Mapping[str, Any]],
+    stages: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Compile the small, paper-facing result before strict sidecar axes.
+
+    Paid-call authority comes from host-recorded branch counters, never the
+    AiZ provider callback count.  Short-tail rows are copied only from the
+    post-stock-rejection recovery stage and therefore cannot make a partial
+    provider route look solved.
+    """
+
+    plan: dict[str, Any] = {}
+    for outcome in outcomes:
+        if not isinstance(outcome, Mapping):
+            continue
+        candidate = outcome.get("plan")
+        if isinstance(candidate, Mapping) and candidate.get("route_families"):
+            plan = dict(candidate)
+            break
+    families = [
+        dict(row)
+        for row in plan.get("route_families") or []
+        if isinstance(row, Mapping)
+    ]
+    skeletons = {
+        str(row.get("route_family_id") or ""): dict(row)
+        for row in plan.get("multi_step_skeletons") or []
+        if isinstance(row, Mapping)
+    }
+    maximum_calls = int(config.max_node_expansions_per_branch)
+    branch_rows: list[dict[str, Any]] = []
+    for ordinal, family in enumerate(families, start=1):
+        budget = dict(family.get("paper_policy_call_budget") or {})
+        search = dict(family.get("aizynthfinder_strategy_search") or {})
+        actual_calls = int(
+            budget.get("actual_calls")
+            if budget.get("actual_calls") is not None
+            else family.get("route_call_count")
+            or 0
+        )
+        stock_closed = bool(
+            budget.get("stock_closed_observed")
+            if budget.get("stock_closed_observed") is not None
+            else budget.get("stock_closed")
+            or search.get("selected_solved")
+        )
+        family_id = str(family.get("route_family_id") or "")
+        skeleton = skeletons.get(family_id, {})
+        replay_complete = bool(
+            skeleton.get("routejson_replay_complete")
+            and skeleton.get("steps")
+        )
+        branch_rows.append(
+            {
+                "branch": ordinal,
+                "route_family_id": family_id,
+                "strategy_calls": int(family.get("strategy_call_count") or 0),
+                "actual_policy_calls": actual_calls,
+                "provider_callback_count": int(
+                    search.get("provider_callback_count")
+                    or search.get("reported_policy_calls")
+                    or 0
+                ),
+                "maximum_policy_calls": maximum_calls,
+                "stock_closed_before_short_tail": stock_closed,
+                "policy_cap_respected": bool(actual_calls <= maximum_calls),
+                "routejson_host_replay_complete": replay_complete,
+                "critic_calls": int(family.get("critic_call_count") or 0),
+                # Attempted Editor worker calls are the actual call count;
+                # editor_call_count records only edits that were applied.
+                "editor_calls": int(family.get("editor_attempt_count") or 0),
+                "editor_applied": int(family.get("editor_call_count") or 0),
+                "critic_editor_history": [
+                    dict(row)
+                    for row in family.get("critic_editor_history") or []
+                    if isinstance(row, Mapping)
+                ],
+                "editor_working_route": dict(
+                    family.get("editor_working_route") or {}
+                ),
+                "editor_rejection_diagnostics": [
+                    dict(row)
+                    for row in family.get("editor_rejection_diagnostics") or []
+                    if isinstance(row, Mapping)
+                ],
+            }
+        )
+
+    short_tail_stage: dict[str, Any] = {}
+    for stage in stages:
+        if not isinstance(stage, Mapping):
+            continue
+        if str(stage.get("stage") or "") == "aizynthfinder_stock_recovery":
+            short_tail_stage = dict(stage)
+    short_tail_detail = dict(short_tail_stage.get("detail") or {})
+    short_tail_rows = [
+        {
+            "frontier_smiles": list(row.get("frontier_smiles") or []),
+            "status": str(row.get("status") or ""),
+            "provider_solved": bool(row.get("provider_solved")),
+            "provider_invocation_count": int(
+                row.get("provider_invocation_count") or 0
+            ),
+            "partial_route_ingestion_allowed": bool(
+                row.get("partial_route_ingestion_allowed")
+            ),
+            "statistics": dict(row.get("statistics") or {}),
+        }
+        for row in short_tail_detail.get("results") or []
+        if isinstance(row, Mapping)
+    ]
+    policy_cap_respected = bool(
+        len(branch_rows) == int(config.strategy_branch_count)
+        and all(row["policy_cap_respected"] for row in branch_rows)
+    )
+    result = {
+        "schema_version": "paper_matched_primary_result.v1",
+        "execution_profile": config.execution_profile,
+        "paper_reach": bool(paper_equivalent.get("paper_reach")),
+        "paper_equivalent_solved": bool(
+            paper_equivalent.get("paper_equivalent_solved")
+        ),
+        "paper_reached_route_count": int(
+            paper_equivalent.get("paper_reached_route_count") or 0
+        ),
+        "paper_equivalent_solved_route_count": int(
+            paper_equivalent.get("paper_equivalent_solved_route_count") or 0
+        ),
+        "stock_comparable_to_synthex": bool(
+            paper_equivalent.get("stock_comparable_to_synthex")
+        ),
+        "strategy_branch_count": len(branch_rows),
+        "actual_route_builder_policy_calls": sum(
+            int(row["actual_policy_calls"]) for row in branch_rows
+        ),
+        "maximum_route_builder_policy_calls": int(
+            config.strategy_branch_count
+        )
+        * maximum_calls,
+        "policy_cap_respected": policy_cap_respected,
+        "branches": branch_rows,
+        "actual_critic_calls": sum(int(row["critic_calls"]) for row in branch_rows),
+        "actual_editor_calls": sum(int(row["editor_calls"]) for row in branch_rows),
+        "complete_routejson_branch_count": sum(
+            bool(row["routejson_host_replay_complete"]) for row in branch_rows
+        ),
+        "partial_route_ingestion_allowed": False,
+        "short_tail": {
+            "engine": "AiZynthFinder",
+            "depth": int(config.max_chemenzy_steps),
+            "iterations": int(config.max_guided_chemenzy_iterations),
+            "timeout_s": float(config.guided_chemenzy_timeout_s),
+            "runs_after_complete_routejson_and_stock_rejection": True,
+            "provider_invocation_count": int(
+                short_tail_detail.get("provider_invocation_count") or 0
+            ),
+            "executed_frontier_count": int(
+                short_tail_detail.get("executed_frontier_count") or 0
+            ),
+            "results": short_tail_rows,
+        },
+        "independent_sidecars": {
+            "reaction_validation": "reported_outside_primary_endpoint",
+            "conditions": "reported_outside_primary_endpoint",
+            "evidence": "reported_outside_primary_endpoint",
+            "strict_b2_b3": "reported_outside_primary_endpoint",
+        },
+    }
+    result["content_sha256"] = _digest(result)
+    return result
+
+
+def _compile_expansion_accounting(
+    lifecycle: Mapping[str, Any],
+    *,
+    outcomes: Iterable[Mapping[str, Any]],
+    kernel_accepted_expansion_count: int,
+) -> dict[str, Any]:
+    """Separate mixed kernel throughput from origin-specific route progress."""
+
+    by_origin: dict[str, dict[str, Any]] = {}
+    for raw in lifecycle.get("records") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        record = dict(raw)
+        origins = {
+            str(origin.get("origin_kind") or "")
+            for origin in record.get("origin_records") or []
+            if isinstance(origin, Mapping)
+            and str(origin.get("origin_kind") or "")
+        }
+        for origin_kind in sorted(origins or {"unattributed"}):
+            row = by_origin.setdefault(
+                origin_kind,
+                {
+                    "candidate_records": 0,
+                    "admission_accepted": 0,
+                    "materialized": 0,
+                    "validated": 0,
+                    "portfolio_accepted": 0,
+                    "status_counts": {},
+                },
+            )
+            row["candidate_records"] += 1
+            row["admission_accepted"] += int(
+                dict(record.get("admission") or {}).get("accepted") is True
+            )
+            row["materialized"] += int(
+                dict(record.get("materialization") or {}).get("materialized")
+                is True
+            )
+            row["validated"] += int(
+                dict(record.get("validation") or {}).get("accepted") is True
+            )
+            row["portfolio_accepted"] += int(
+                bool(
+                    dict(record.get("portfolio") or {}).get(
+                        "accepted_route_ids"
+                    )
+                )
+            )
+            status = str(record.get("status") or "unknown")
+            status_counts = row["status_counts"]
+            status_counts[status] = int(status_counts.get(status) or 0) + 1
+
+    selected_step_ids = {
+        str(step.get("step_id") or "")
+        for outcome in outcomes
+        if isinstance(outcome, Mapping)
+        and str(outcome.get("status") or "") == "accepted"
+        for plan in (outcome.get("plan"),)
+        if isinstance(plan, Mapping)
+        for skeleton in plan.get("multi_step_skeletons") or []
+        if isinstance(skeleton, Mapping)
+        for step in skeleton.get("steps") or []
+        if isinstance(step, Mapping) and str(step.get("step_id") or "")
+    }
+    return {
+        "schema_version": "target_expansion_accounting.v1",
+        "kernel_accepted_expansion_count": int(
+            kernel_accepted_expansion_count
+        ),
+        "director_selected_step_count": len(selected_step_ids),
+        "canonical_candidate_count": int(
+            lifecycle.get("canonical_candidate_count") or 0
+        ),
+        "by_origin_kind": {
+            key: by_origin[key] for key in sorted(by_origin)
+        },
+        "semantics": {
+            "kernel_count_includes_all_proposal_origins": True,
+            "director_selected_steps_are_not_equivalent_to_provider_steps": True,
+            "origin_counts_are_associations_and_may_overlap": True,
+            "canonical_graph_remains_candidate_authority": True,
+        },
+    }
+
+
 def _open_gate_reasons(
     gates: Mapping[str, Any],
     *,
@@ -7420,7 +8985,12 @@ def _chemenzy_provider_lineage_rows(
         dict(stage.get("detail") or {})
         for stage in stages
         if stage.get("stage")
-        in {"chemenzy_baseline", "chemenzy_guided_frontier", "chemenzy_stock_recovery"}
+        in {
+            "aizynthfinder_guided_frontier",
+            "chemenzy_baseline",
+            "chemenzy_guided_frontier",
+            "chemenzy_stock_recovery",
+        }
         and dict(stage.get("detail") or {}).get("route_lineage")
     ]
     source_rows: dict[str, dict[str, Any]] = {}
@@ -7494,6 +9064,23 @@ def _deduplicate_stages(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key = name or f"unnamed:{_digest(row.get('detail') or {})}"
         current = dict(row)
         previous = dict(rows.get(key, (-1, {}))[1])
+        previous_detail = dict(previous.get("detail") or {})
+        current_detail = dict(current.get("detail") or {})
+        if (
+            previous
+            and (
+                int(previous_detail.get("provider_invocation_count") or 0) > 0
+                or int(previous_detail.get("proposal_count") or 0) > 0
+            )
+            and int(current_detail.get("provider_invocation_count") or 0) == 0
+            and int(current_detail.get("proposal_count") or 0) == 0
+            and str(current.get("status") or current_detail.get("status") or "")
+            in {"not_needed", "reused", "skipped"}
+        ):
+            # A resume observation must not erase the settled provider search
+            # that made the frontier budget unavailable in the first place.
+            rows[key] = (index, previous)
+            continue
         if (
             previous.get("status") == "running"
             and current.get("status") != "running"

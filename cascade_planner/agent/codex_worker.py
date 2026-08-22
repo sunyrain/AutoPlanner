@@ -42,16 +42,29 @@ ALLOWED_WORKER_TASK_TYPES = {
     "route_step_materialization",
     "route_chemistry_critique",
     "route_chemistry_edit",
+    "paper_matched_strategy_generator",
+    "paper_matched_route_step",
+    "paper_matched_route_critic",
+    "paper_matched_route_editor",
     "route_audit_research",
     "condition_research",
     "evolution_candidate_research",
     "global_campaign_direction",
 }
+PAPER_MATCHED_WORKER_TASK_TYPES = frozenset(
+    {
+        "paper_matched_strategy_generator",
+        "paper_matched_route_step",
+        "paper_matched_route_critic",
+        "paper_matched_route_editor",
+    }
+)
 ALLOWED_WORKER_ARTIFACT_TYPES = {
     "AgentActionBatch",
     "ResearchReport",
     "RetrosynthesisProposalReport",
     "StrategyCardReport",
+    "StrategyPortfolioReport",
     "ChemicalStrategyCritique",
     "GlobalCampaignPlan",
     "EvidenceCard",
@@ -388,6 +401,9 @@ def validate_worker_output(task: WorkerTask, artifact: Any) -> dict[str, Any]:
         reasons.append("worker_route_tree_mutation")
     if _contains_raw_reaction_injection(artifact):
         reasons.append("worker_raw_reaction_injection")
+    if task.task_type == "paper_matched_route_step":
+        payload = artifact.get("payload") if isinstance(artifact, dict) else None
+        reasons.extend(_paper_matched_route_step_contract_reasons(payload))
     return {
         "schema_version": WORKER_OUTPUT_VALIDATION_SCHEMA,
         "accepted": not reasons,
@@ -395,6 +411,38 @@ def validate_worker_output(task: WorkerTask, artifact: Any) -> dict[str, Any]:
         "artifact_id": str(artifact.get("artifact_id") or ""),
         "artifact_type": str(artifact.get("artifact_type") or ""),
     }
+
+
+def _paper_matched_route_step_contract_reasons(payload: Any) -> list[str]:
+    """Validate the paper Route Builder's disconnection-or-stop choice."""
+
+    if not isinstance(payload, Mapping):
+        return ["paper_route_step_payload_not_object"]
+    reasons: list[str] = []
+    stop_signal = payload.get("stop_signal")
+    stop_reason = str(payload.get("stop_reason") or "").strip()
+    candidates = payload.get("candidates")
+    if not isinstance(stop_signal, bool):
+        reasons.append("paper_route_step_stop_signal_not_boolean")
+    if not isinstance(candidates, list):
+        reasons.append("paper_route_step_candidates_not_list")
+        candidates = []
+    if stop_signal is True:
+        if candidates:
+            reasons.append("paper_route_step_stop_must_not_include_candidate")
+        if stop_reason not in {
+            "route_complete",
+            "simple_for_explorative_search",
+            "constraint_conflict",
+            "no_reasonable_disconnection",
+        }:
+            reasons.append("paper_route_step_stop_reason_invalid")
+    elif stop_signal is False:
+        if len(candidates) != 1:
+            reasons.append("paper_route_step_disconnection_requires_one_candidate")
+        if stop_reason:
+            reasons.append("paper_route_step_nonstop_reason_must_be_empty")
+    return sorted(set(reasons))
 
 
 def worker_task_from_dict(data: dict[str, Any]) -> WorkerTask:
@@ -902,7 +950,9 @@ def _ambient_codex_cli_worker_environment(
         shutil.copyfile(source, codex_home / name)
         copied_inputs.append(name)
     source_config = source_home / "config.toml"
+    configured_model_provider = ""
     if source_config.is_file():
+        configured_model_provider = _ambient_codex_model_provider(source_config)
         (codex_home / "config.toml").write_text(
             _ambient_codex_provider_config(source_config),
             encoding="utf-8",
@@ -923,6 +973,8 @@ def _ambient_codex_cli_worker_environment(
         "codex_home": "ephemeral_ambient",
         "ambient_inputs": copied_inputs,
         "config_mode": "provider_only_snapshot",
+        "configured_model_provider": configured_model_provider,
+        "transport": _codex_worker_transport(),
     }
 
 
@@ -953,6 +1005,19 @@ def _ambient_codex_provider_config(source: Path) -> str:
         if keep_section:
             kept.append(line)
     return "\n".join(kept).rstrip() + "\n"
+
+
+def _ambient_codex_model_provider(source: Path) -> str:
+    """Read the active top-level provider without retaining unrelated config."""
+
+    for line in source.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            break
+        if not stripped.startswith("model_provider") or "=" not in stripped:
+            continue
+        return stripped.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
 
 
 def _codex_cli_worker_environment(
@@ -1274,6 +1339,7 @@ def _codex_cli_command(
     multi_agent_enabled: bool = False,
 ) -> list[str]:
     command = list(executable) if isinstance(executable, list) else [executable]
+    runtime_metadata = dict(runtime_metadata or {})
     search_allowed = _env_flag("AUTOPLANNER_CODEX_WORKER_SEARCH", default=True)
     if search_enabled is not None:
         search_allowed = bool(search_enabled) and search_allowed
@@ -1285,10 +1351,31 @@ def _codex_cli_command(
         "--ask-for-approval",
         "never",
     ])
+    if _codex_worker_force_https(runtime_metadata):
+        provider_id = "autoplanner_http"
+        base_url = str(
+            os.environ.get("AUTOPLANNER_CODEX_WORKER_HTTPS_BASE_URL")
+            or "https://chatgpt.com/backend-api/codex"
+        ).strip()
+        command.extend(
+            [
+                "-c",
+                f"model_provider={_toml_string(provider_id)}",
+                "-c",
+                f"model_providers.{provider_id}.name={_toml_string('OpenAI HTTPS')}",
+                "-c",
+                f"model_providers.{provider_id}.base_url={_toml_string(base_url)}",
+                "-c",
+                f"model_providers.{provider_id}.wire_api={_toml_string('responses')}",
+                "-c",
+                f"model_providers.{provider_id}.requires_openai_auth=true",
+                "-c",
+                f"model_providers.{provider_id}.supports_websockets=false",
+            ]
+        )
     command.extend([
         "exec",
     ])
-    runtime_metadata = dict(runtime_metadata or {})
     if str(runtime_metadata.get("codex_home") or "") == "ephemeral":
         command.append("--ignore-user-config")
         base_url = str(runtime_metadata.get("base_url") or "").strip()
@@ -1301,6 +1388,13 @@ def _codex_cli_command(
         "--cd",
         str(workdir),
     ])
+    # Worker workspaces are deliberately created under the run directory (or
+    # another caller-provided temporary root), which is commonly outside a
+    # Git repository and therefore not persisted in Codex's trusted-project
+    # list.  The worker already has an explicit sandbox/approval policy; the
+    # Git trust check is only a CLI launch precondition and otherwise causes
+    # zero-token failures before the provider is contacted.
+    command.append("--skip-git-repo-check")
     sandbox = _codex_worker_sandbox_mode()
     if sandbox == "bypassed":
         command.append("--dangerously-bypass-approvals-and-sandbox")
@@ -1331,6 +1425,24 @@ def _codex_cli_command(
     return command
 
 
+def _codex_worker_transport() -> str:
+    value = str(
+        os.environ.get("AUTOPLANNER_CODEX_WORKER_TRANSPORT") or "https"
+    ).strip().lower()
+    if value in {"http", "https", "sse"}:
+        return "https"
+    return "auto"
+
+
+def _codex_worker_force_https(runtime_metadata: Mapping[str, Any]) -> bool:
+    if _codex_worker_transport() != "https":
+        return False
+    if str(runtime_metadata.get("auth_source") or "") != "ambient_codex_cli_snapshot":
+        return False
+    provider = str(runtime_metadata.get("configured_model_provider") or "openai").strip()
+    return provider in {"", "openai", "autoplanner_http"}
+
+
 def _codex_worker_sandbox_mode() -> str:
     raw = (
         os.environ.get("AUTOPLANNER_CODEX_WORKER_SANDBOX")
@@ -1353,6 +1465,16 @@ def _task_allows_cli_search(task: WorkerTask) -> bool:
 
 
 def _codex_worker_prompt(task: WorkerTask) -> str:
+    if task.task_type in PAPER_MATCHED_WORKER_TASK_TYPES:
+        return "\n".join(
+            [
+                "Return exactly one JSON object satisfying the supplied output schema; emit no markdown or prose outside JSON.",
+                "This is a blind paper-matched chemistry task. Use only the supplied structures and route context; do not browse, infer target identity, inspect stock, or claim evidence, validation, or solved status.",
+                "Reason deeply before choosing, but keep authored fields concise and report only the selected result, not hidden deliberation or a long explanation.",
+                "Task objective:",
+                task.objective,
+            ]
+        )
     task_json = json.dumps(task.to_dict(), ensure_ascii=False, indent=2, sort_keys=True)
     coordinator_rules = []
     if task.agent_mode == "coordinator":
@@ -1371,7 +1493,10 @@ def _codex_worker_prompt(task: WorkerTask) -> str:
     )
     source_rule = (
         "- This is blind strategy design. Do not search for literature, infer target identity/name, or optimize for source availability. Source/evidence fields are optional and carry no strategic weight."
-        if task.task_type in {"strategic_disconnection_mining", "route_chemistry_critique"}
+        if task.task_type in {
+            "strategic_disconnection_mining",
+            "route_chemistry_critique",
+        }
         else "- Prefer traceable sources. For literature evidence, include DOI, URL, or local_ref in payload/source metadata."
     )
     return "\n".join([
@@ -1415,6 +1540,26 @@ def _artifact_payload_instruction(
     *,
     task: WorkerTask | None = None,
 ) -> str:
+    paper_task_type = str(task.task_type if task is not None else "")
+    paper_instruction = {
+        ("paper_matched_strategy_generator", "StrategyCardReport"): (
+            "Return the schema-defined single concise four-point strategy; do not add routes, precursor structures, conditions, evidence, or alternatives."
+        ),
+        ("paper_matched_strategy_generator", "StrategyPortfolioReport"): (
+            "Return exactly three schema-defined, materially distinct concise strategies; do not add routes, precursor structures, conditions, evidence, or extra alternatives."
+        ),
+        ("paper_matched_route_step", "RetrosynthesisProposalReport"): (
+            "Return one schema-defined node-local ReactionJSON decision or the explicit Builder stop signal; the host derives precursors and owns stock and solved status."
+        ),
+        ("paper_matched_route_editor", "RetrosynthesisProposalReport"): (
+            "Return one schema-defined coordinated route_patch repair, or mark the route structurally unrepairable with an empty patch; the host applies and replays the patch."
+        ),
+        ("paper_matched_route_critic", "ChemicalStrategyCritique"): (
+            "Return the schema-defined concise forward audit, marking only concrete chemical contradictions as blocking."
+        ),
+    }.get((paper_task_type, artifact_type))
+    if paper_instruction:
+        return paper_instruction
     if artifact_type == "AgentActionBatch":
         return (
             "For payload, return schema_version=agent_action_batch.v1, case_id, round_index, mode, semantics, and actions. "
@@ -1468,9 +1613,19 @@ def _artifact_payload_instruction(
             "one complete strategy_card, alternatives_considered, selection_rationale, limitations, "
             "and no_route_or_solved_claim=true. This is strategy selection only: do not output "
             "precursor SMILES, ReactionJSON operations, conditions, sources, or a complete route. "
-            "Anchor the selected strategy on mapped target atom pairs in key_bond_changes whenever "
-            "the key forward construction changes target bonds. Compare at least three materially "
+            "Use anchor_bond_changes for target atom pairs that bind the route search, and use "
+            "precursor_only_bond_changes for conceptual precursor bonds that may be absent from "
+            "the target. Include conceptual_precursor_roles and required_reactive_features when "
+            "the strategy depends on a specific reactive pair. Compare at least three materially "
             "different high-level strategies before selecting one."
+        )
+    if artifact_type == "StrategyPortfolioReport":
+        return (
+            "For payload, return schema_version=strategy_portfolio_report.v1, case_id, target_smiles, "
+            "exactly three complete strategy_cards, selection_rationale, limitations, and "
+            "no_route_or_solved_claim=true. Each card is a hypothesis only: do not output "
+            "precursor SMILES, ReactionJSON operations, conditions, sources, or a complete route. "
+            "The three cards must differ in skeletal logic and graph-edit signature."
         )
     if artifact_type == "RetrosynthesisProposalReport":
         strategy_first = bool(
@@ -1485,7 +1640,10 @@ def _artifact_payload_instruction(
         route_materialization = bool(
             task is not None
             and task.task_type
-            in {"route_step_materialization", "route_chemistry_edit"}
+            in {
+                "route_step_materialization",
+                "route_chemistry_edit",
+            }
         )
         return (
             "For payload, return schema_version=retrosynthesis_proposal_report.v1, case_id, agent_role, "
@@ -1500,8 +1658,8 @@ def _artifact_payload_instruction(
                 "candidate.reaction_operations describes the candidate root step and candidate.route_json may contain the complete ordered linear route. "
                 "Every route_json step must contain its own ordered atom-map reaction_operations. Set candidate.precursor_smiles to [] and every route_json step precursor_smiles to []: "
                 "the host deterministically derives canonical precursors from ReactionJSON and never treats a second model-redrawn precursor as structure authority. "
-                "For route_chemistry_edit, prefer route_patch with replace_step, insert_after, delete_step, or reorder operations; the host applies the patch to the frozen route and recompiles it from the target. "
-                "route_json remains a complete replacement-route fallback and may reorder, insert, or delete steps and change conditions or functional-group operations while preserving the immutable strategy. "
+                "For route_chemistry_edit, return a complete revised route_json by default; use route_patch only for conditions or an isolated single-step repair whose product boundary and dependencies stay unchanged. The Editor may insert, delete, reorder, change functional-group states and reaction handles, replace a disconnection, and change route length or terminal leaves while preserving the campaign target, complete target-rooted connectivity, and overall Strategy intent. "
+                "Repair every supplied blocker as one coordinated route. Never truncate an unresolved suffix or terminate at an unavailable advanced intermediate merely to lower the blocking fraction. If no defensible complete repair exists, return route_patch=[] and route_json=null so the host preserves the original route and critique. "
                 "Conditions are optional hypotheses, but never emit placeholders such as 'screen', 'TBD', "
                 "'to be determined', 'not specified', or 'as needed'; if no concrete reagent/catalyst/solvent/temperature "
                 "or enzyme hypothesis is available, emit an empty conditions list and explain the gap in limitations."
@@ -1518,7 +1676,8 @@ def _artifact_payload_instruction(
         return (
             "For payload, return schema_version=chemical_strategy_critique.v1 and independently forward-audit the supplied frozen route. "
             "Assess every step for atom provenance, plausible mechanism, functional-group compatibility, site/chemoselectivity, stereochemical outcome, sequence ordering, competing pathways, and enzyme identity/capability where applicable. "
-            "Use overall_assessment=viable|uncertain|reject; reject only a concrete chemical contradiction, not merely missing literature. "
+            "Use step verdict pass for coherent chemistry, uncertain for unresolved conditions/precedent/scope/selectivity without contradiction, and reject only for a concrete chemical contradiction. Set overall_assessment=reject if any step rejects, uncertain if none reject and at least one is uncertain, otherwise viable. "
+            "For each reject, identify the exact step_id and smallest structure-local replacement boundary while preserving unrelated non-blocking steps and the complete target-to-terminal-leaf synthesis boundary. Never recommend truncating the route or deleting an unresolved suffix to improve the blocking fraction. "
             "Include strategy_adherence, step_assessments, route_level_risks, repair_actions, experimental_variables, no_reaction_proof=true, no_source_authority=true, and no_solved_claim=true. "
             "Do not search the web, cite sources, infer the target name, or defer chemical judgment to literature availability."
         )
@@ -1576,16 +1735,35 @@ def _artifact_payload_instruction(
 
 
 def _worker_output_json_schema(task: WorkerTask) -> dict[str, Any]:
+    paper_matched = task.task_type in PAPER_MATCHED_WORKER_TASK_TYPES
     properties = {
-        "schema_version": {"type": "string"},
-        "artifact_id": {"type": "string"},
+        "schema_version": (
+            {
+                "type": "string",
+                "enum": [_typed_artifact_schema_version(task.required_artifact_type)],
+            }
+            if paper_matched
+            else {"type": "string"}
+        ),
+        "artifact_id": (
+            {
+                "type": "string",
+                "enum": [f"{task.task_id}:{task.required_artifact_type}"],
+            }
+            if paper_matched
+            else {"type": "string"}
+        ),
         "artifact_type": {"type": "string", "enum": [task.required_artifact_type]},
         "case_id": {"type": "string", "enum": [task.case_id]},
-        "source": {"type": "string"},
-        "input_refs": _string_array_schema(),
-        "evidence_refs": _string_array_schema(),
+        "source": (
+            {"type": "string", "enum": ["codex_cli", "api_json"]}
+            if paper_matched
+            else {"type": "string"}
+        ),
+        "input_refs": _string_array_schema(max_items=0 if paper_matched else None),
+        "evidence_refs": _string_array_schema(max_items=0 if paper_matched else None),
         "validation_status": {"type": "string", "enum": ["draft", "draft_only"]},
-        "summary": {"type": "string"},
+        "summary": _short_text_schema(300) if paper_matched else {"type": "string"},
         "payload": _worker_payload_json_schema(task),
     }
     return _strict_object_schema(
@@ -1619,6 +1797,8 @@ def _worker_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
         return _retrosynthesis_proposal_report_payload_json_schema(task)
     if artifact_type == "StrategyCardReport":
         return _strategy_card_report_payload_json_schema(task)
+    if artifact_type == "StrategyPortfolioReport":
+        return _strategy_portfolio_report_payload_json_schema(task)
     if artifact_type == "ChemicalStrategyCritique":
         return _chemical_strategy_critique_payload_json_schema(task)
     if artifact_type == "GlobalCampaignPlan":
@@ -1647,8 +1827,25 @@ def _strict_object_schema(
     }
 
 
-def _string_array_schema() -> dict[str, Any]:
-    return {"type": "array", "items": {"type": "string"}}
+def _short_text_schema(max_length: int) -> dict[str, Any]:
+    return {"type": "string", "maxLength": max(1, int(max_length))}
+
+
+def _string_array_schema(
+    *,
+    min_items: int | None = None,
+    max_items: int | None = None,
+    item_max_length: int | None = None,
+) -> dict[str, Any]:
+    item_schema: dict[str, Any] = {"type": "string"}
+    if item_max_length is not None:
+        item_schema["maxLength"] = max(1, int(item_max_length))
+    schema: dict[str, Any] = {"type": "array", "items": item_schema}
+    if min_items is not None:
+        schema["minItems"] = max(0, int(min_items))
+    if max_items is not None:
+        schema["maxItems"] = max(0, int(max_items))
+    return schema
 
 
 def _nullable_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
@@ -1683,13 +1880,51 @@ def _generic_payload_json_schema() -> dict[str, Any]:
 
 
 def _strategy_card_json_schema() -> dict[str, Any]:
+    biocatalytic_intent = _strict_object_schema(
+        {
+            "mode": {
+                "type": "string",
+                "enum": [
+                    "enzyme_reaction",
+                    "whole_cell_transformation",
+                    "chemoenzymatic_cascade",
+                ],
+            },
+            "enzyme_classes": _string_array_schema(),
+            "ec_numbers": _string_array_schema(),
+            "candidate_ids": _string_array_schema(),
+            "whole_cell_hosts": _string_array_schema(),
+            "selectivity_objective": {"type": "string"},
+            "substrate_scope_basis": {"type": "string"},
+            "cofactor_assessment": {
+                "type": "string",
+                "enum": ["required", "not_required", "unresolved"],
+            },
+            "intended_chemical_step_equivalent_count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 25,
+            },
+            "fallback_policy": {"type": "string"},
+            "validation_plan": _string_array_schema(),
+        }
+    )
     strategy_card_properties = {
         "scaffold_motif": {"type": "string"},
         "key_forward_transformation": {"type": "string"},
+        "forward_transformation_class": {"type": "string"},
+        "retrosynthetic_simplification": {"type": "string"},
         "key_bond_changes": _string_array_schema(),
+        "anchor_bond_changes": _string_array_schema(),
+        "precursor_only_bond_changes": _string_array_schema(),
+        "bond_order_changes": _string_array_schema(),
+        "conceptual_precursor_roles": _string_array_schema(),
+        "required_reactive_features": _string_array_schema(),
+        "atom_fragment_provenance": _string_array_schema(),
         "functional_group_conflicts": _string_array_schema(),
         "protection_policy": {"type": "string"},
         "stereochemical_plan": {"type": "string"},
+        "stereochemical_control_basis": {"type": "string"},
         "convergence_plan": {"type": "string"},
         "strategic_step_count": {"type": "integer", "minimum": 1, "maximum": 2},
         "skeleton_change_class": {"type": "string"},
@@ -1699,15 +1934,98 @@ def _strategy_card_json_schema() -> dict[str, Any]:
         },
         "orthogonality_basis": {"type": "string"},
         "strategy_signature": {"type": "string"},
+        "substrate_specific_failure_modes": _string_array_schema(),
+        "fallback_strategy": {"type": "string"},
+        "strategy_basis": {"type": "string"},
         "execution_domain": _nullable_schema({
             "type": "string",
             "enum": ["chemical", "enzymatic", "whole_cell", "hybrid", "mechanistic"],
         }),
+        "biocatalytic_intent": _nullable_schema(biocatalytic_intent),
     }
     return _strict_object_schema(strategy_card_properties)
 
 
+def _biocatalytic_step_json_schema() -> dict[str, Any]:
+    """Model-authored biological metadata; exact structures remain host-owned."""
+
+    return _strict_object_schema(
+        {
+            "mode": {
+                "type": "string",
+                "enum": [
+                    "enzyme_reaction",
+                    "whole_cell_transformation",
+                    "chemoenzymatic_cascade",
+                ],
+            },
+            "enzyme_label": {"type": "string"},
+            "enzyme_classes": _string_array_schema(),
+            "ec_numbers": _string_array_schema(),
+            "candidate_ids": _string_array_schema(),
+            "sequence_refs": _string_array_schema(),
+            "whole_cell_hosts": _string_array_schema(),
+            "selectivity_objective": {"type": "string"},
+            "substrate_scope_basis": {"type": "string"},
+            "cofactor_assessment": {
+                "type": "string",
+                "enum": ["required", "not_required", "unresolved"],
+            },
+            "cofactor_requirements": _string_array_schema(),
+            "cofactor_regenerations": _string_array_schema(),
+            "cosubstrates": _string_array_schema(),
+            "precedent_refs": _string_array_schema(),
+            "validation_plan": _string_array_schema(),
+        }
+    )
+
+
+def _paper_strategy_card_json_schema() -> dict[str, Any]:
+    return _strict_object_schema(
+        {
+            "strategy_query": _short_text_schema(320),
+            "scaffold_motif": _short_text_schema(360),
+            "key_forward_transformation": _short_text_schema(480),
+            "key_bond_changes": _string_array_schema(
+                min_items=1,
+                max_items=3,
+                item_max_length=64,
+            ),
+            "functional_group_conflicts": _string_array_schema(
+                max_items=3,
+                item_max_length=180,
+            ),
+            "protection_policy": _short_text_schema(320),
+            "stereochemical_plan": _short_text_schema(420),
+            "strategic_step_count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2,
+            },
+            "strategy_signature": _short_text_schema(160),
+        }
+    )
+
+
 def _strategy_card_report_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    if task.task_type == "paper_matched_strategy_generator":
+        return _strict_object_schema(
+            {
+                "schema_version": {
+                    "type": "string",
+                    "enum": ["strategy_card_report.v1"],
+                },
+                "case_id": {"type": "string", "enum": [task.case_id]},
+                "target_smiles": {"type": "string"},
+                "strategy_card": _paper_strategy_card_json_schema(),
+                "selection_rationale": _short_text_schema(360),
+                "limitations": _string_array_schema(
+                    max_items=2,
+                    item_max_length=220,
+                ),
+                "no_route_or_solved_claim": {"type": "boolean", "enum": [True]},
+            }
+        )
     alternative = _strict_object_schema(
         {
             "candidate_label": {"type": "string"},
@@ -1781,17 +2099,199 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
             }),
         },
     )
+    host_derived_precursor_schema = (
+        {"type": "array", "items": {"type": "string"}, "maxItems": 0}
+        if task.task_type
+        in {
+            "route_step_materialization",
+            "route_chemistry_edit",
+            "paper_matched_route_step",
+            "paper_matched_route_editor",
+        }
+        else _string_array_schema()
+    )
+
+    if task.task_type == "paper_matched_route_step":
+        candidate = _strict_object_schema(
+            {
+                "schema_version": {
+                    "type": "string",
+                    "enum": ["retrosynthesis_candidate.v1"],
+                },
+                "candidate_id": {"type": "string"},
+                "product_smiles": {"type": "string"},
+                "precursor_smiles": host_derived_precursor_schema,
+                "step_role": {
+                    "type": "string",
+                    "enum": ["key", "enabling", "supporting"],
+                },
+                "reaction_family": _short_text_schema(160),
+                "transformation_rationale": _short_text_schema(420),
+                "feasibility_check": _short_text_schema(520),
+                "conditions": _string_array_schema(
+                    max_items=4,
+                    item_max_length=160,
+                ),
+                "catalyst": _short_text_schema(160),
+                "limitations": _string_array_schema(
+                    max_items=2,
+                    item_max_length=220,
+                ),
+                "no_solved_claim": {"type": "boolean", "enum": [True]},
+                "not_parent_route_proof": {"type": "boolean", "enum": [True]},
+                "reaction_operations": {
+                    "type": "array",
+                    "items": reaction_operation,
+                    "minItems": 1,
+                    "maxItems": 12,
+                },
+            }
+        )
+        return _strict_object_schema(
+            {
+                "schema_version": {
+                    "type": "string",
+                    "enum": ["retrosynthesis_proposal_report.v1"],
+                },
+                "case_id": {"type": "string", "enum": [task.case_id]},
+                "agent_role": {"type": "string"},
+                "target_smiles": {"type": "string"},
+                "stop_signal": {"type": "boolean"},
+                "stop_reason": {
+                    "type": "string",
+                    "enum": [
+                        "",
+                        "route_complete",
+                        "simple_for_explorative_search",
+                        "constraint_conflict",
+                        "no_reasonable_disconnection",
+                    ],
+                },
+                "candidates": {
+                    "type": "array",
+                    "items": candidate,
+                    "minItems": 0,
+                    "maxItems": 1,
+                },
+                "evidence_refs": _string_array_schema(max_items=0),
+                "limitations": _string_array_schema(
+                    max_items=2,
+                    item_max_length=220,
+                ),
+                "no_solved_claim": {"type": "boolean", "enum": [True]},
+            }
+        )
+
+    if task.task_type == "paper_matched_route_editor":
+        route_step = _strict_object_schema(
+            {
+                "step_id": _short_text_schema(160),
+                "product_smiles": {"type": "string"},
+                "mapped_product_smiles": {"type": "string"},
+                "precursor_smiles": host_derived_precursor_schema,
+                "reaction_family": _short_text_schema(160),
+                "transformation_rationale": _short_text_schema(420),
+                "conditions": _string_array_schema(
+                    max_items=4,
+                    item_max_length=160,
+                ),
+                "catalyst": _short_text_schema(160),
+                "reaction_operations": {
+                    "type": "array",
+                    "items": reaction_operation,
+                    "minItems": 1,
+                    "maxItems": 12,
+                },
+            }
+        )
+        route_patch_item = _strict_object_schema(
+            {
+                "op": {
+                    "type": "string",
+                    "enum": [
+                        "replace_step",
+                        "insert_after",
+                        "delete_step",
+                        "reorder",
+                        "set_conditions",
+                    ],
+                },
+                "step_id": _short_text_schema(160),
+                "after_step_id": _short_text_schema(160),
+                "step_ids": _string_array_schema(
+                    max_items=25,
+                    item_max_length=160,
+                ),
+                "step": _nullable_schema(route_step),
+                "conditions": _nullable_schema(
+                    _string_array_schema(max_items=4, item_max_length=160)
+                ),
+                "catalyst": _nullable_schema(_short_text_schema(160)),
+            }
+        )
+        candidate = _strict_object_schema(
+            {
+                "schema_version": {
+                    "type": "string",
+                    "enum": ["retrosynthesis_candidate.v1"],
+                },
+                "candidate_id": _short_text_schema(160),
+                "repair_status": {
+                    "type": "string",
+                    "enum": ["revised", "unrepairable"],
+                },
+                "repair_summary": _short_text_schema(500),
+                "unrepairable_reason": _short_text_schema(500),
+                "no_solved_claim": {"type": "boolean", "enum": [True]},
+                "not_parent_route_proof": {"type": "boolean", "enum": [True]},
+                "route_patch": {
+                    "type": "array",
+                    "items": route_patch_item,
+                    "maxItems": 30,
+                },
+            }
+        )
+        return _strict_object_schema(
+            {
+                "schema_version": {
+                    "type": "string",
+                    "enum": ["retrosynthesis_proposal_report.v1"],
+                },
+                "case_id": {"type": "string", "enum": [task.case_id]},
+                "agent_role": {"type": "string"},
+                "target_smiles": {"type": "string"},
+                "candidates": {
+                    "type": "array",
+                    "items": candidate,
+                    "minItems": 1,
+                    "maxItems": 1,
+                },
+                "evidence_refs": _string_array_schema(max_items=0),
+                "limitations": _string_array_schema(
+                    max_items=1,
+                    item_max_length=240,
+                ),
+                "no_solved_claim": {"type": "boolean", "enum": [True]},
+            }
+        )
+
+
     candidate_properties = {
         "schema_version": {"type": "string", "enum": ["retrosynthesis_candidate.v1"]},
         "candidate_id": {"type": "string"},
         "product_smiles": {"type": "string"},
-        "precursor_smiles": _string_array_schema(),
+        "precursor_smiles": host_derived_precursor_schema,
         "reaction_family": {"type": "string"},
         "product_retron_type": {"type": "string"},
         "transformation_rationale": {"type": "string"},
         "conditions": _string_array_schema(),
         "catalyst": {"type": "string"},
         "enzyme": {"type": "string"},
+        "execution_domain": {
+            "type": "string",
+            "enum": ["chemical", "enzymatic", "whole_cell", "hybrid", "mechanistic"],
+        },
+        "biocatalytic_step": _nullable_schema(_biocatalytic_step_json_schema()),
         "limitations": _string_array_schema(),
         "required_validation": _string_array_schema(),
         "no_solved_claim": {"type": "boolean", "enum": [True]},
@@ -1805,13 +2305,18 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
         {
             "step_id": {"type": "string"},
             "product_smiles": {"type": "string"},
-            "precursor_smiles": _string_array_schema(),
+            "precursor_smiles": host_derived_precursor_schema,
             "reaction_family": {"type": "string"},
             "product_retron_type": {"type": "string"},
             "transformation_rationale": {"type": "string"},
             "conditions": _string_array_schema(),
             "catalyst": {"type": "string"},
             "enzyme": {"type": "string"},
+            "execution_domain": {
+                "type": "string",
+                "enum": ["chemical", "enzymatic", "whole_cell", "hybrid", "mechanistic"],
+            },
+            "biocatalytic_step": _nullable_schema(_biocatalytic_step_json_schema()),
             "limitations": _string_array_schema(),
             "required_validation": _string_array_schema(),
             "no_solved_claim": {"type": "boolean", "enum": [True]},
@@ -1843,7 +2348,10 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
         candidate_properties["route_patch"] = _nullable_schema(
             {"type": "array", "items": route_patch_item, "maxItems": 50}
         )
-    if task.task_type not in {"route_step_materialization", "route_chemistry_edit"}:
+    if task.task_type not in {
+        "route_step_materialization",
+        "route_chemistry_edit",
+    }:
         candidate_properties["strategy_card"] = strategy_card
     if task.task_type not in {
         "strategic_disconnection_mining",
@@ -1891,9 +2399,107 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
     })
 
 
-def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
-    step_assessment = _strict_object_schema(
+def _strategy_portfolio_report_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    strategy_card_schema = (
+        _paper_strategy_card_json_schema()
+        if task.task_type == "paper_matched_strategy_generator"
+        else _strategy_card_json_schema()
+    )
+    return _strict_object_schema(
         {
+            "schema_version": {
+                "type": "string",
+                "enum": ["strategy_portfolio_report.v1"],
+            },
+            "case_id": {"type": "string", "enum": [task.case_id]},
+            "target_smiles": {"type": "string"},
+            "strategy_cards": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": strategy_card_schema,
+            },
+            "selection_rationale": _short_text_schema(360),
+            "limitations": _string_array_schema(
+                max_items=2,
+                item_max_length=220,
+            ),
+            "no_route_or_solved_claim": {"type": "boolean", "enum": [True]},
+        }
+    )
+
+
+def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    if task.task_type == "paper_matched_route_critic":
+        step_assessment = _strict_object_schema(
+            {
+                "step_id": _short_text_schema(160),
+                "verdict": {
+                    "type": "string",
+                    "enum": ["pass", "uncertain", "reject"],
+                },
+                "blocking": {"type": "boolean"},
+                "blocking_type": {
+                    "type": "string",
+                    "enum": [
+                        "none",
+                        "structure",
+                        "missing_reactive_handle",
+                        "mechanism",
+                        "atom_provenance",
+                        "conditions",
+                        "functional_group_compatibility",
+                        "chemoselectivity",
+                        "stereochemistry",
+                        "sequence_dependency",
+                        "competing_pathway",
+                    ],
+                },
+                "reasons": _string_array_schema(
+                    max_items=2,
+                    item_max_length=260,
+                ),
+                "condition_assessment": _short_text_schema(320),
+                "suggested_revision": _short_text_schema(420),
+            }
+        )
+        return _strict_object_schema(
+            {
+                "schema_version": {
+                    "type": "string",
+                    "enum": ["chemical_strategy_critique.v1"],
+                },
+                "case_id": {"type": "string", "enum": [task.case_id]},
+                "overall_assessment": {
+                    "type": "string",
+                    "enum": ["viable", "uncertain", "reject"],
+                },
+                "strategy_adherence": {"type": "boolean"},
+                "step_assessments": {
+                    "type": "array",
+                    "items": step_assessment,
+                    "minItems": 1,
+                    "maxItems": 32,
+                },
+                "route_level_risks": _string_array_schema(
+                    max_items=4,
+                    item_max_length=280,
+                ),
+                "repair_actions": _string_array_schema(
+                    max_items=4,
+                    item_max_length=360,
+                ),
+                "limitations": _string_array_schema(
+                    max_items=2,
+                    item_max_length=240,
+                ),
+                "no_reaction_proof": {"type": "boolean", "enum": [True]},
+                "no_source_authority": {"type": "boolean", "enum": [True]},
+                "no_solved_claim": {"type": "boolean", "enum": [True]},
+            }
+        )
+
+    assessment_properties = {
             "step_id": {"type": "string"},
             "mechanistic_analysis": {"type": "string"},
             "atom_provenance": {"type": "string"},
@@ -1902,14 +2508,14 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
             "stereochemistry": {"type": "string"},
             "sequence_ordering": {"type": "string"},
             "competing_pathways": _string_array_schema(),
-            "enzyme_assessment": {"type": "string"},
             "verdict": {
                 "type": "string",
                 "enum": ["pass", "uncertain", "reject"],
             },
             "reasons": _string_array_schema(),
         }
-    )
+    assessment_properties["enzyme_assessment"] = {"type": "string"}
+    step_assessment = _strict_object_schema(assessment_properties)
     return _strict_object_schema(
         {
             "schema_version": {
@@ -1928,6 +2534,7 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
             "step_assessments": {
                 "type": "array",
                 "items": step_assessment,
+                "minItems": 1,
                 "maxItems": 32,
             },
             "route_level_risks": _string_array_schema(),

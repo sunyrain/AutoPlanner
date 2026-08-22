@@ -20,6 +20,7 @@ from scripts.run_v4_blind_panel import (
     _prior_target_manifest_files,
     _prepare_panel_snapshot,
     _resolve_panel_chemenzy_stock_binding,
+    _resolve_panel_fixed_cutoff_wall_time_s,
     _resolved_model_wall_time_s,
     _resume_completed_targets,
     _run_id_for_case,
@@ -115,18 +116,40 @@ def test_guided_chemenzy_uses_the_same_matched_short_tail_for_every_profile() ->
     assert "--guided-chemenzy-frontiers" not in standard
 
 
+
+def test_paper_synthex_defaults_to_the_operational_target_cutoff() -> None:
+    assert _resolve_panel_fixed_cutoff_wall_time_s(
+        execution_profile="paper_synthex",
+        requested=None,
+    ) == 86_400.0
+
+
+def test_paper_synthex_rejects_short_tail_timeout_as_total_cutoff() -> None:
+    with pytest.raises(ValueError, match="short-tail timeout"):
+        _resolve_panel_fixed_cutoff_wall_time_s(
+            execution_profile="paper_synthex",
+            requested=1_200.0,
+        )
+
+
+def test_non_paper_panel_cutoff_keeps_legacy_default() -> None:
+    assert _resolve_panel_fixed_cutoff_wall_time_s(
+        execution_profile="standard",
+        requested=None,
+    ) == 7_200.0
+
 def test_fixed_cutoff_caps_an_older_larger_manifest_model_budget() -> None:
     assert _resolved_model_wall_time_s(
-        case_budget={"max_total_wall_time_s": 7_200},
-        fixed_cutoff_wall_time_s=1_800,
-    ) == 1_800
+        case_budget={"max_total_wall_time_s": 90_000},
+        fixed_cutoff_wall_time_s=86_400,
+    ) == 86_400
 
 
 def test_larger_cutoff_preserves_the_matched_model_budget_floor() -> None:
     assert _resolved_model_wall_time_s(
-        case_budget={"max_total_wall_time_s": 900},
-        fixed_cutoff_wall_time_s=7_200,
-    ) == 1_800
+        case_budget={"max_total_wall_time_s": 1_800},
+        fixed_cutoff_wall_time_s=86_400,
+    ) == 70_200
 
 
 def test_panel_binds_benchmark_stock_into_chemenzy_by_default(tmp_path: Path) -> None:
@@ -365,6 +388,42 @@ def test_resume_reuses_only_completed_report_backed_targets(tmp_path: Path) -> N
     assert resumed["target-0"]["resume_reused_completed_report"] is True
 
 
+def test_resume_does_not_skip_stale_completed_row_with_paused_kernel(
+    tmp_path: Path,
+) -> None:
+    case = BlindCase(case_id="case-0", target_name="target-0", target_smiles="CCO")
+    report = tmp_path / "runs" / case.target_name / "target-only-solve-report.json"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        json.dumps(
+            {
+                "stop_decision": {"decision": "paused", "terminal": False},
+                "current_disposition": {"historical_kernel_status": "paused"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    previous = {
+        "schema_version": "v4_blind_panel_status.v1",
+        "ablation": "baseline",
+        "selection": {"selected_case_ids": [case.case_id]},
+        "frozen_snapshot": {"content_sha256": "a" * 64},
+        "targets": {
+            case.target_name: {"status": "completed", "case_id": case.case_id}
+        },
+    }
+
+    resumed = _resume_completed_targets(
+        previous,
+        cases=[case],
+        output_root=tmp_path,
+        snapshot={"content_sha256": "a" * 64},
+        ablation="baseline",
+    )
+
+    assert resumed == {}
+
+
 def test_panel_snapshot_keeps_ablation_out_of_base_environment_but_binds_workers(
     tmp_path: Path,
 ) -> None:
@@ -382,6 +441,7 @@ def test_panel_snapshot_keeps_ablation_out_of_base_environment_but_binds_workers
             model="gpt-5.5",
             reasoning_effort="low",
             execution_profile="standard",
+            strategy_portfolio_mode="enzyme_advantage",
             worker_count=workers,
             visual=False,
             ablation=ablation,
@@ -399,6 +459,10 @@ def test_panel_snapshot_keeps_ablation_out_of_base_environment_but_binds_workers
     assert baseline["base_environment_sha256"] == no_replan["base_environment_sha256"]
     assert baseline["content_sha256"] != no_replan["content_sha256"]
     assert baseline["base_environment_sha256"] != two_workers["base_environment_sha256"]
+    assert (
+        baseline["provider_snapshot"]["strategy_portfolio_mode"]
+        == "enzyme_advantage"
+    )
 
 
 def test_panel_summary_scores_only_the_fixed_cutoff_trajectory_projection(
@@ -498,7 +562,7 @@ def test_panel_summary_scores_only_the_fixed_cutoff_trajectory_projection(
     assert summary["chemenzy"]["proposal_count"] == 17
 
 
-def test_panel_does_not_mark_nonaccepted_terminal_report_as_completed(
+def test_panel_marks_frozen_observation_complete_without_conflating_acceptance(
     tmp_path: Path,
 ) -> None:
     snapshot = compile_campaign_snapshot(
@@ -544,7 +608,53 @@ def test_panel_does_not_mark_nonaccepted_terminal_report_as_completed(
     )
 
     assert summary["fixed_cutoff_projection"]["available"] is True
-    assert summary["status"] == "incomplete"
+    assert summary["status"] == "completed"
+    assert summary["scientific_status"] == "unresolved"
+    assert summary["accepted_under_configured_policy"] is False
+
+
+def test_panel_does_not_report_nonterminal_paused_run_as_completed(
+    tmp_path: Path,
+) -> None:
+    snapshot = compile_campaign_snapshot(
+        phase="paused-observation",
+        observed_at="2026-08-10T00:00:00Z",
+        event_sequence=1,
+        graph_revision=1,
+        wall_time_s=1.0,
+        gates={"gates": {}, "counts": {}},
+        resource_usage={"tasks": {"dimensions": {"total": {"settled": 1}}}},
+        route_counts={},
+    )
+    report_path = tmp_path / "target-only-solve-report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "run_id": "case-paused",
+                "preflight": {"case": {"case_id": "case-paused"}},
+                "claim": {"accepted_under_configured_policy": False},
+                "stop_decision": {"decision": "paused", "terminal": False},
+                "current_disposition": {
+                    "state": "unresolved",
+                    "historical_kernel_status": "paused",
+                },
+                "gates": {},
+                "trajectory": compile_campaign_trajectory([snapshot]),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = _summarize_report(
+        report_path,
+        elapsed_s=1.0,
+        reused=False,
+        cutoff={"wall_time_s": 2.0, "settled_task_count": 2},
+    )
+
+    assert summary["fixed_cutoff_projection"]["available"] is True
+    assert summary["status"] == "paused"
+    assert summary["scientific_status"] == "unresolved"
 
 
 def test_panel_summary_retains_stage_failure_reasons(tmp_path: Path) -> None:

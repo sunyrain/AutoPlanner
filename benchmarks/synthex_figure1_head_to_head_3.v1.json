@@ -10,16 +10,16 @@
       },
       "budget": {
         "max_accepted_expansions": 96,
-        "max_attempt_runs": 192,
-        "max_model_invocations": 81,
-        "max_prompt_context_bytes": 64000,
-        "max_total_input_tokens": 1200000,
-        "max_total_output_tokens": 200000,
-        "max_total_wall_time_s": 7200
+        "max_attempt_runs": 256,
+        "max_model_invocations": 150,
+        "max_prompt_context_bytes": 96000,
+        "max_total_input_tokens": 3000000,
+        "max_total_output_tokens": 1000000,
+        "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfig1-001-9c1f431594a7",
       "schema_version": "blind_retrosynthesis_case.v1",
-      "target_name": "opaque SynthEx Figure 1 target 001",
+      "target_name": "opaque case 9c1f431594a7",
       "target_smiles": "C=C(C)[C@H]1CC[C@]2(C)C[C@@H]3[C@H](C)CC[C@@H]3/C(C)=C\\CC12"
     },
     {
@@ -32,16 +32,16 @@
       },
       "budget": {
         "max_accepted_expansions": 96,
-        "max_attempt_runs": 192,
-        "max_model_invocations": 81,
-        "max_prompt_context_bytes": 64000,
-        "max_total_input_tokens": 1200000,
-        "max_total_output_tokens": 200000,
-        "max_total_wall_time_s": 7200
+        "max_attempt_runs": 256,
+        "max_model_invocations": 150,
+        "max_prompt_context_bytes": 96000,
+        "max_total_input_tokens": 3000000,
+        "max_total_output_tokens": 1000000,
+        "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfig1-002-5cac6c0d9928",
       "schema_version": "blind_retrosynthesis_case.v1",
-      "target_name": "opaque SynthEx Figure 1 target 002",
+      "target_name": "opaque case 5cac6c0d9928",
       "target_smiles": "COc1ccc2c3c1C(=O)CC(C)(C)N3C(=O)[C@@]21C[C@@]2([N+](=O)[O-])CN3CCC[C@@H]3C[C@H]2C1(C)C"
     },
     {
@@ -54,16 +54,16 @@
       },
       "budget": {
         "max_accepted_expansions": 96,
-        "max_attempt_runs": 192,
-        "max_model_invocations": 81,
-        "max_prompt_context_bytes": 64000,
-        "max_total_input_tokens": 1200000,
-        "max_total_output_tokens": 200000,
-        "max_total_wall_time_s": 7200
+        "max_attempt_runs": 256,
+        "max_model_invocations": 150,
+        "max_prompt_context_bytes": 96000,
+        "max_total_input_tokens": 3000000,
+        "max_total_output_tokens": 1000000,
+        "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfig1-003-63956b2f8f73",
       "schema_version": "blind_retrosynthesis_case.v1",
-      "target_name": "opaque SynthEx Figure 1 target 003",
+      "target_name": "opaque case 63956b2f8f73",
       "target_smiles": "CC(C)=CC(=O)NC1=C(CC2=C(NC(=O)C=C(C)C)N3[C@@H](C)[C@H]4O[C@H]4[C@@]3(C)C2=O)C(=O)[C@]2(C)[C@@H]3O[C@@H]3[C@H](C)N12"
     }
   ],

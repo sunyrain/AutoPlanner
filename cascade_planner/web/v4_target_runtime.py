@@ -264,7 +264,12 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
 def _stage_progress_metrics(row: Mapping[str, Any]) -> dict[str, int | float]:
     stage = str(row.get("stage") or "")
     detail = dict(row.get("detail") or {})
-    if stage in {"chemenzy_guided_frontier", "chemenzy_stock_recovery"}:
+    if stage in {
+        "chemenzy_guided_frontier",
+        "chemenzy_stock_recovery",
+        "aizynthfinder_guided_frontier",
+        "aizynthfinder_stock_recovery",
+    }:
         return {
             "frontiers": int(detail.get("frontier_count") or 0),
             "provider_calls": int(
@@ -274,7 +279,7 @@ def _stage_progress_metrics(row: Mapping[str, Any]) -> dict[str, int | float]:
             ),
             "proposals": int(detail.get("proposal_count") or 0),
         }
-    if stage == "chemenzy_delegation":
+    if stage in {"chemenzy_delegation", "aizynthfinder_delegation"}:
         return {
             "requests": int(detail.get("request_count") or 0),
             "queued": int(detail.get("queued_count") or 0),

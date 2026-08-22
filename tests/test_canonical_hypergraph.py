@@ -18,6 +18,10 @@ from cascade_planner.application.canonical_hypergraph import (
 from cascade_planner.application.deficit_frontier import (
     compile_deficit_frontier,
     frontier_scientific_projection,
+    target_reachable_route_boundaries,
+)
+from cascade_planner.application.route_edge_scope import (
+    route_family_scoped_edge_ids,
 )
 from cascade_planner.application.fact_lifecycle import build_fact_lifecycle_event
 from cascade_planner.application.proof_policy import ProofPolicy, stitch_edge_proof
@@ -27,6 +31,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 from cascade_planner.application.reaction_proof_versions import (
     CURRENT_REACTION_VALIDATOR_VERSION,
 )
+from cascade_planner.application.reactionjson_replay import replay_reactionjson
 from cascade_planner.application.retrosynthesis_workers import (
     build_retrosynthesis_worker_handlers,
     materialization_commands_for_global_plan,
@@ -260,14 +265,22 @@ def test_rejected_stock_leaf_becomes_provider_expansion_deficit() -> None:
                 "route:acyl": {
                     "selected": True,
                     "closed": False,
-                    "edge_ids": [],
+                    "edge_ids": ["edge:root"],
                     "leaf_molecule_ids": ["molecule:leaf"],
                 }
             },
             "dependency_index": {
                 "routes_by_entity": {"molecule:leaf": ["route:acyl"]}
             },
-            "edges": {},
+            "edges": {
+                "edge:root": {
+                    "edge_id": "edge:root",
+                    "product_molecule_id": "molecule:target",
+                    "precursor_molecule_ids": ["molecule:leaf"],
+                    "status": "materialized",
+                    "reaction_proofs": [],
+                }
+            },
             "hypotheses": {},
             "conflicts": {},
         }
@@ -333,6 +346,14 @@ def test_stock_deficit_requires_current_selected_materialized_leaf_boundary() ->
     graph["route_families"]["route:selected"]["leaf_molecule_ids"] = [
         "molecule:leaf"
     ]
+    graph["route_families"]["route:selected"]["edge_ids"] = ["edge:root"]
+    graph["edges"]["edge:root"] = {
+        "edge_id": "edge:root",
+        "product_molecule_id": "molecule:target",
+        "precursor_molecule_ids": ["molecule:leaf"],
+        "status": "materialized",
+        "reaction_proofs": [],
+    }
     materialized_boundary = compile_deficit_frontier(graph)
     stock = next(
         row for row in materialized_boundary["items"] if row["kind"] == "stock"
@@ -550,6 +571,87 @@ def test_strategy_card_survives_plan_hypothesis_materialization_and_route(
     ] is True
 
 
+def test_shared_reaction_keeps_every_route_strategy_through_materialization(
+    tmp_path: Path,
+) -> None:
+    """A shared OR edge must not collapse independent route-policy bindings."""
+
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    first_card = _strategy_card()
+    second_card = normalize_strategy_card(
+        {
+            **first_card,
+            "convergence_plan": "prepare the alcohol linearly, then use the shared acyl union",
+            "orthogonality_basis": "linear alcohol branch before the common esterification",
+            "strategy_signature": "linear alcohol route with shared esterification",
+        }
+    )
+    plan = _plan()
+    plan["route_families"] = [
+        {
+            "route_family_id": "family:convergent",
+            "strategic_disconnection": "convergent acyl substitution",
+            "strategy_card": first_card,
+        },
+        {
+            "route_family_id": "family:linear",
+            "strategic_disconnection": "linear alcohol synthesis then acyl substitution",
+            "strategy_card": second_card,
+        },
+    ]
+    shared_step = dict(plan["multi_step_skeletons"][0]["steps"][0])
+    plan["multi_step_skeletons"] = [
+        {
+            "skeleton_id": "skeleton:convergent",
+            "route_family_id": "family:convergent",
+            "steps": [{**shared_step, "step_id": "step:convergent", "strategy_card": first_card}],
+        },
+        {
+            "skeleton_id": "skeleton:linear",
+            "route_family_id": "family:linear",
+            "steps": [{**shared_step, "step_id": "step:linear", "strategy_card": second_card}],
+        },
+    ]
+
+    admitted_result = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="shared-reaction-two-strategies-plan",
+    )
+    admitted = admitted_result["graph"]
+    assert admitted_result["rejected"] == []
+    assert len(admitted["route_families"]) == 2
+    assert len(admitted["hypotheses"]) == 1
+    hypothesis = next(iter(admitted["hypotheses"].values()))
+    assert len(hypothesis["route_family_ids"]) == 2
+    assert {card["strategy_digest"] for card in hypothesis["strategy_cards"]} == {
+        first_card["strategy_digest"],
+        second_card["strategy_digest"],
+    }
+
+    commands = store.frontier_materialization_commands()
+    assert len(commands) == 1
+    assert {
+        card["strategy_digest"] for card in commands[0].payload["strategy_cards"]
+    } == {first_card["strategy_digest"], second_card["strategy_digest"]}
+    result = runtime.execute(commands[0])
+    materialized_result = store.apply(
+        CanonicalIngestionBatch(worker_results=(result,)),
+        worker_runtime=runtime,
+        idempotency_key="shared-reaction-two-strategies-materialized",
+    )
+    materialized = materialized_result["graph"]
+    assert materialized_result["rejected"] == []
+    assert len(materialized["edges"]) == 1
+    edge = next(iter(materialized["edges"].values()))
+    assert len(edge["route_family_ids"]) == 2
+    assert {card["strategy_digest"] for card in edge["strategy_cards"]} == {
+        first_card["strategy_digest"],
+        second_card["strategy_digest"],
+    }
+
+
 def test_frozen_strategy_card_survives_distinct_multistep_reaction_edits(
     tmp_path: Path,
 ) -> None:
@@ -655,6 +757,45 @@ def test_route_step_cannot_silently_replace_frozen_strategy(tmp_path: Path) -> N
     assert hypothesis["status"] == "admission_rejected"
     assert "strategy_replacement_conflict" in hypothesis["admission_reasons"]
     assert not store.frontier_materialization_commands()
+
+
+def test_declared_route_internal_strategy_milestone_is_not_a_replacement(
+    tmp_path: Path,
+) -> None:
+    store = CanonicalHypergraphStore(_kernel(tmp_path))
+    plan = _plan()
+    root = _strategy_card()
+    milestone = normalize_strategy_card(
+        {
+            **root,
+            "key_forward_transformation": "declared downstream annulation",
+            "key_bond_changes": ["form downstream C-N bond"],
+            "skeleton_change_class": "route-internal annulation milestone",
+            "strategy_signature": "declared route-internal milestone",
+        }
+    )
+    family = plan["route_families"][0]
+    family["strategy_card"] = root
+    family["root_strategy_card"] = root
+    family["strategy_milestone_cards"] = [root, milestone]
+    step = plan["multi_step_skeletons"][0]["steps"][0]
+    step["strategy_card"] = milestone
+    step["strategy_id"] = milestone["strategy_id"]
+    step["strategy_digest"] = milestone["strategy_digest"]
+
+    graph = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="declared-route-internal-milestone",
+    )["graph"]
+    hypothesis = next(iter(graph["hypotheses"].values()))
+    route = next(iter(graph["route_families"].values()))
+
+    assert hypothesis["status"] == "frontier_candidate"
+    assert hypothesis["admission_reasons"] == []
+    assert {
+        card["strategy_digest"] for card in route["strategy_cards"]
+    } == {root["strategy_digest"], milestone["strategy_digest"]}
+    assert len(store.frontier_materialization_commands()) == 1
 
 
 def _command(
@@ -856,6 +997,153 @@ def test_guided_frontier_materialization_preserves_canonical_parent_family(
     assert guided_edge["edge_id"] in parent["edge_ids"]
 
 
+def test_v36_provider_template_topology_stitches_while_critic_risk_stays_separate(
+    tmp_path: Path,
+) -> None:
+    """Replay the v36 terminal provider edge that the old critic discarded."""
+
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    plan = _plan()
+    card = _strategy_card()
+    plan["route_families"][0]["strategy_card"] = card
+    planned = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="v36-provider-parent-plan",
+    )["graph"]
+    parent_id = next(iter(planned["route_families"]))
+    product = (
+        "C[C@@H]1CC(=O)CC(Br)(c2ccc(C(O)(C(=O)O)C(C)(O)C(=O)Cl)cc2)O1"
+    )
+    precursors = [
+        "CC1(C)OB(B2OC(C)(C)C(C)(C)O2)OC1(C)C",
+        "COC(=O)C(C)(O)c1ccc(Br)cc1",
+    ]
+
+    admitted = store.apply(
+        CanonicalIngestionBatch(
+            hypotheses=(
+                {
+                    "step_id": "chemenzy:v36:terminal",
+                    "canonical_route_family_id": parent_id,
+                    "product_smiles": product,
+                    "precursor_smiles": precursors,
+                    "origin_kind": "chemenzy",
+                    "origin_ref": "cached-v36-guided-result",
+                    "strategy_card": card,
+                    "transformation_hypothesis": "provider short-tail template",
+                },
+            )
+        ),
+        idempotency_key="v36-provider-terminal-hypothesis",
+    )["graph"]
+    hypothesis = next(
+        row
+        for row in admitted["hypotheses"].values()
+        if row["product_smiles"] == product
+    )
+
+    assert hypothesis["admission_accepted"] is True
+    assert hypothesis["status"] == "frontier_candidate"
+    assert hypothesis["chemical_strategy_critic"]["accepted"] is False
+    assert "critic_atom_provenance_deficit" in hypothesis[
+        "chemical_strategy_critic"
+    ]["blocking_reasons"]
+    assert hypothesis["admission_semantics"] == {
+        "provider_template_topology": True,
+        "reaction_credibility_reported_separately": True,
+        "critic_is_admission_authority": False,
+    }
+
+    commands = store.frontier_materialization_commands(
+        [hypothesis["hypothesis_id"]]
+    )
+    assert len(commands) == 1
+    materialized = store.apply(
+        CanonicalIngestionBatch(
+            worker_results=tuple(runtime.execute(command) for command in commands)
+        ),
+        worker_runtime=runtime,
+        idempotency_key="v36-provider-terminal-materialized",
+    )["graph"]
+    edge = next(
+        row
+        for row in materialized["edges"].values()
+        if row["product_smiles"] == product
+    )
+    assert edge["edge_id"] in materialized["route_families"][parent_id]["edge_ids"]
+    assert edge["chemical_strategy_critic"]["accepted"] is False
+
+
+def test_replaying_host_bound_routejson_clears_stale_map_namespace_rejection(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    plan = _plan()
+    card = _strategy_card()
+    plan["route_families"][0]["strategy_card"] = card
+    graph = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="routejson-readmission-parent",
+    )["graph"]
+    parent_id = next(iter(graph["route_families"]))
+    product = (
+        "CCOC(=O)C1(O)c2cc(Br)c(C3CC(=O)C[C@@H](C)O3)cc2C(=O)C1(C)O"
+    )
+    precursor = (
+        "CCOC(=O)C1(O)c2cc(Br)c(C=CC(=O)C[C@@H](C)O)cc2C(=O)C1(C)O"
+    )
+    operations = [
+        {"map_a": 19, "map_b": 26, "op": "break_bond"},
+        {"delta": 1, "map_a": 19, "map_b": 20, "op": "change_bond_order"},
+    ]
+    base = {
+        "step_id": "codex:v36:map-space",
+        "canonical_route_family_id": parent_id,
+        "product_smiles": product,
+        "precursor_smiles": [precursor],
+        "origin_kind": "codex_global_director",
+        "strategy_card": card,
+        "reaction_operations": operations,
+    }
+    rejected = store.apply(
+        CanonicalIngestionBatch(hypotheses=(base,)),
+        idempotency_key="routejson-before-host-map-binding",
+    )["graph"]
+    hypothesis_id, _ = hypothesis_identity(product, [precursor])
+    assert rejected["hypotheses"][hypothesis_id]["admission_accepted"] is False
+    assert "critic_reaction_operations_replay_failed" in rejected["hypotheses"][
+        hypothesis_id
+    ]["admission_reasons"]
+
+    host_audit = replay_reactionjson(
+        mapped_product_smiles=(
+            "[CH3:1][CH2:2][O:3][C:4](=[O:5])[C:6]1([OH:7])"
+            "[c:8]2[cH:9][c:10]([Br:31])[c:11]([CH:19]3[CH2:20]"
+            "[C:21](=[O:22])[CH2:23][C@@H:24]([CH3:25])[O:26]3)"
+            "[cH:12][c:13]2[C:14](=[O:15])[C:16]1([CH3:17])[OH:18]"
+        ),
+        operations=operations,
+        expected_precursor_smiles=[precursor],
+    )
+    readmitted = store.apply(
+        CanonicalIngestionBatch(
+            hypotheses=({**base, "reactionjson_audit": host_audit},)
+        ),
+        idempotency_key="routejson-after-host-map-binding",
+    )["graph"]["hypotheses"][hypothesis_id]
+
+    assert readmitted["admission_accepted"] is True
+    assert readmitted["admission_reasons"] == []
+    assert readmitted["status"] == "frontier_candidate"
+    assert readmitted["admission_history"][0]["admission_accepted"] is False
+    assert "critic_reaction_operations_replay_failed" in readmitted[
+        "admission_history"
+    ][0]["admission_reasons"]
+
+
 def test_admission_rejected_director_step_is_retained_as_l0_without_work(
     tmp_path: Path,
 ) -> None:
@@ -895,6 +1183,55 @@ def test_admission_rejected_director_step_is_retained_as_l0_without_work(
     assert retained["retained_as_l0"] is True
 
 
+def test_replayed_mesylate_removal_is_admitted_with_external_source_open(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    product = "CCOS(C)(=O)=O"
+    precursor = "CCO"
+    mapped_product = "[CH3:1][CH2:2][O:3][S:4]([CH3:7])(=[O:5])=[O:6]"
+    operations = [{"op": "remove_group", "map_indices": [4, 5, 6, 7]}]
+    replay = replay_reactionjson(
+        mapped_product_smiles=mapped_product,
+        operations=operations,
+        expected_precursor_smiles=[precursor],
+    )
+    reactionjson_audit = {
+        **replay,
+        "external_atom_source_required": True,
+        "external_atom_source_status": "declared_graph_edit_requires_validation",
+        "external_atom_source_grants_reaction_proof": False,
+    }
+    row = {
+        "step_id": "step:mesylation",
+        "product_smiles": product,
+        "mapped_product_smiles": mapped_product,
+        "precursor_smiles": [precursor],
+        "reaction_operations": operations,
+        "reactionjson_audit": reactionjson_audit,
+        "transformation_hypothesis": "alcohol mesylation",
+    }
+    _hypothesis_id, admission = hypothesis_identity(
+        product,
+        [precursor],
+        mapped_product_smiles=mapped_product,
+        reaction_operations=operations,
+        reactionjson_audit=reactionjson_audit,
+    )
+
+    graph = store.apply(
+        CanonicalIngestionBatch(hypotheses=(row,)),
+        idempotency_key="replayed-mesylation-external-source",
+    )["graph"]
+    hypothesis = next(iter(graph["hypotheses"].values()))
+
+    assert hypothesis["admission_accepted"] is True
+    assert hypothesis["admission_reasons"] == []
+    assert admission["replayed_external_atom_deficit_bound"] is True
+    assert hypothesis["status"] == "frontier_candidate"
+
+
 def test_codex_provider_delegation_becomes_one_canonical_expansion_deficit(
     tmp_path: Path,
 ) -> None:
@@ -916,6 +1253,16 @@ def test_codex_provider_delegation_becomes_one_canonical_expansion_deficit(
         CanonicalIngestionBatch(global_plans=(plan,)),
         idempotency_key="plan-with-provider-frontier",
     )["graph"]
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    results = tuple(
+        runtime.execute(command)
+        for command in store.frontier_materialization_commands()
+    )
+    graph = store.apply(
+        CanonicalIngestionBatch(worker_results=results),
+        worker_runtime=runtime,
+        idempotency_key="materialize-provider-frontier-parent",
+    )["graph"]
 
     molecule_id, _ = molecule_identity("CCO")
     molecule = graph["molecules"][molecule_id]
@@ -931,6 +1278,168 @@ def test_codex_provider_delegation_becomes_one_canonical_expansion_deficit(
     assert graph["deficit_frontier"]["semantics"][
         "frontier_is_not_scientific_authority"
     ] is True
+
+
+def test_disconnected_provider_island_never_becomes_short_tail_work(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    plan = _plan()
+    plan["multi_step_skeletons"][0]["steps"].append(
+        {
+            "step_id": "step:island",
+            "product_smiles": "CCCO",
+            "precursor_smiles": ["CCC=O"],
+            "transformation_hypothesis": "disconnected local reduction",
+        }
+    )
+    plan["frontier_priorities"] = [
+        {
+            "priority_id": "priority:island",
+            "target_smiles": "CCCO",
+            "provider_preferences": ["chemenzy"],
+            "priority": 9,
+        }
+    ]
+    graph = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="plan-with-disconnected-provider-island",
+    )["graph"]
+    # Materialize only the island edge; its connector to the target is absent.
+    island_commands = tuple(
+        command
+        for command in store.frontier_materialization_commands()
+        if dict(command.payload).get("product_smiles") == "CCCO"
+    )
+    results = tuple(runtime.execute(command) for command in island_commands)
+    graph = store.apply(
+        CanonicalIngestionBatch(worker_results=results),
+        worker_runtime=runtime,
+        idempotency_key="materialize-disconnected-provider-island",
+    )["graph"]
+    island_id, _ = molecule_identity("CCCO")
+
+    assert not any(
+        item["kind"] == "expansion" and item["object_id"] == island_id
+        for item in graph["deficit_frontier"]["items"]
+    )
+
+
+def test_settled_short_tail_attempt_is_not_retried_or_reaudited() -> None:
+    graph = {
+        "scientific_sha256": "fixture",
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {"canonical_smiles": "CCO", "stock_closed": False},
+            "molecule:leaf": {
+                "canonical_smiles": "CC",
+                "stock_closed": False,
+                "active_stock_observation_id": "stock:miss",
+            },
+        },
+        "stock_observations": {"stock:miss": {"accepted": False}},
+        "route_families": {
+            "route:selected": {
+                "selected": True,
+                "closed": False,
+                "edge_ids": ["edge:root"],
+            }
+        },
+        "edges": {
+            "edge:root": {
+                "edge_id": "edge:root",
+                "product_molecule_id": "molecule:target",
+                "precursor_molecule_ids": ["molecule:leaf"],
+                "status": "materialized",
+                "reaction_proofs": [],
+            }
+        },
+        "hypotheses": {},
+        "action_signals": {
+            "attempt:leaf": {
+                "kind": "expansion",
+                "status": "resolved",
+                "object_id": "molecule:leaf",
+                "metadata": {"guided_provider_attempt": True},
+            }
+        },
+        "dependency_index": {"routes_by_entity": {}},
+        "conflicts": {},
+    }
+
+    frontier = compile_deficit_frontier(graph)
+
+    assert not any(
+        item["object_id"] == "molecule:leaf"
+        and item["kind"] in {"expansion", "stock"}
+        for item in frontier["items"]
+    )
+
+
+def test_internal_node_provider_group_is_excluded_from_route_traversal() -> None:
+    graph = {
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {"canonical_smiles": "CCCC", "stock_closed": False},
+            "molecule:internal": {"canonical_smiles": "CCC", "stock_closed": False},
+            "molecule:leaf": {"canonical_smiles": "CC", "stock_closed": False},
+            "molecule:provider-leaf": {
+                "canonical_smiles": "C",
+                "stock_closed": False,
+            },
+        },
+        "edges": {
+            "edge:root": {
+                "edge_id": "edge:root",
+                "product_molecule_id": "molecule:target",
+                "precursor_molecule_ids": ["molecule:internal"],
+                "origin_records": [{"origin_kind": "codex_global_director"}],
+            },
+            "edge:planned": {
+                "edge_id": "edge:planned",
+                "product_molecule_id": "molecule:internal",
+                "precursor_molecule_ids": ["molecule:leaf"],
+                "origin_records": [{"origin_kind": "codex_global_director"}],
+            },
+            "edge:invalid-tail": {
+                "edge_id": "edge:invalid-tail",
+                "product_molecule_id": "molecule:internal",
+                "precursor_molecule_ids": ["molecule:provider-leaf"],
+                "origin_records": [
+                    {
+                        "origin_kind": "chemenzy",
+                        "origin_ref": "chemenzy:guided-internal:route:1:native",
+                    }
+                ],
+            },
+        },
+        "route_families": {
+            "route:one": {
+                "selected": True,
+                "edge_ids": ["edge:root", "edge:planned", "edge:invalid-tail"],
+                "excluded_provider_group_ids": ["chemenzy:guided-internal"],
+            }
+        },
+        "stock_observations": {},
+        "hypotheses": {},
+        "action_signals": {},
+        "dependency_index": {"routes_by_entity": {}},
+        "conflicts": {},
+        "scientific_sha256": "fixture",
+    }
+
+    allowed = route_family_scoped_edge_ids(
+        graph,
+        family=graph["route_families"]["route:one"],
+    )
+    boundaries = target_reachable_route_boundaries(graph)
+
+    assert allowed == {"edge:root", "edge:planned"}
+    assert boundaries["open_leaf_route_family_ids"] == {
+        "molecule:leaf": ("route:one",)
+    }
 
 
 def test_codex_can_delegate_a_non_leaf_shared_intermediate(
@@ -1000,6 +1509,7 @@ def test_one_ingestion_path_deduplicates_edges_and_preserves_all_origins(
         store,
         runtime,
         (
+            {**base, "origin_kind": "aizynthfinder", "proposal_id": "aiz:1"},
             {**base, "origin_kind": "chemenzy", "proposal_id": "chem:1"},
             {**base, "origin_kind": "template", "proposal_id": "template:1"},
             {**base, "origin_kind": "manual", "proposal_id": "manual:1"},
@@ -1010,6 +1520,7 @@ def test_one_ingestion_path_deduplicates_edges_and_preserves_all_origins(
 
     assert len(result["graph"]["edges"]) == 1
     assert {row["origin_kind"] for row in edge["origin_records"]} == {
+        "aizynthfinder",
         "chemenzy",
         "template",
         "manual",
@@ -1072,6 +1583,73 @@ def test_cycle_and_impossible_edges_are_rejected_before_graph_expansion(
     reasons = {reason for row in second["rejected"] for reason in row["reasons"]}
     assert "ancestor_or_target_cycle" in reasons
     assert "large_atom_jump" in reasons
+
+
+def test_graph_aware_materialization_rejection_retires_pending_hypothesis(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    _apply_proposals(
+        kernel,
+        store,
+        runtime,
+        (
+            {
+                "product_smiles": "CCO",
+                "precursor_smiles": ["COC"],
+                "origin_kind": "manual",
+            },
+        ),
+        key="cycle-parent",
+    )
+    planned = store.apply(
+        CanonicalIngestionBatch(
+            hypotheses=(
+                {
+                    "product_smiles": "COC",
+                    "precursor_smiles": ["CCO"],
+                    "origin_kind": "aizynthfinder",
+                    "proposal_id": "aiz:cycle-return",
+                },
+            )
+        ),
+        idempotency_key="cycle-return-hypothesis",
+    )["graph"]
+    hypothesis_id = next(
+        hypothesis_id
+        for hypothesis_id, row in planned["hypotheses"].items()
+        if row["product_smiles"] == "COC"
+    )
+
+    assert planned["hypotheses"][hypothesis_id]["status"] == "frontier_candidate"
+    commands = store.frontier_materialization_commands((hypothesis_id,))
+    assert len(commands) == 1
+    worker_result = runtime.execute(commands[0])
+    assert worker_result.status == "rejected"
+    assert "ancestor_or_target_cycle" in worker_result.failure_reasons
+
+    rejected = store.apply(
+        CanonicalIngestionBatch(worker_results=(worker_result,)),
+        worker_runtime=runtime,
+        idempotency_key="cycle-return-materialization",
+    )
+    graph = rejected["graph"]
+    hypothesis = graph["hypotheses"][hypothesis_id]
+
+    assert rejected["changed"] is True
+    assert hypothesis["status"] == "admission_rejected"
+    assert hypothesis["admission_accepted"] is False
+    assert "ancestor_or_target_cycle" in hypothesis["admission_reasons"]
+    assert hypothesis["materialization_rejection"]["terminal_for_edge_identity"]
+    assert hypothesis["admission_history"][-1]["status"] == "frontier_candidate"
+    assert all(
+        row["object_id"] != hypothesis_id
+        for row in graph["deficit_frontier"]["items"]
+        if row["kind"] == "materialization"
+    )
+    assert not store.frontier_materialization_commands((hypothesis_id,))
 
 
 def test_incremental_projection_equals_full_recompute_oracle(tmp_path: Path) -> None:

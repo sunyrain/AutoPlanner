@@ -14,20 +14,42 @@ import json
 import re
 from typing import Any, Iterable, Mapping
 
+from cascade_planner.application.biocatalytic_step_contract import (
+    normalize_biocatalytic_strategy_intent,
+)
+
 
 STRATEGY_CARD_SCHEMA = "strategy_card.v1"
 REACTION_EDIT_SIGNATURE_SCHEMA = "reaction_edit_signature.v1"
 
 _TEXT_FIELDS = (
+    "strategy_query",
     "scaffold_motif",
     "key_forward_transformation",
+    "forward_transformation_class",
+    "retrosynthetic_simplification",
     "protection_policy",
     "stereochemical_plan",
+    "stereochemical_control_basis",
     "convergence_plan",
     "skeleton_change_class",
     "expected_complexity_drop",
     "orthogonality_basis",
     "strategy_signature",
+    "fallback_strategy",
+    "strategy_basis",
+)
+
+_LIST_FIELDS = (
+    "key_bond_changes",
+    "anchor_bond_changes",
+    "precursor_only_bond_changes",
+    "bond_order_changes",
+    "conceptual_precursor_roles",
+    "required_reactive_features",
+    "atom_fragment_provenance",
+    "substrate_specific_failure_modes",
+    "functional_group_conflicts",
 )
 
 # The worker schema keeps every possible ReactionJSON field nullable because
@@ -68,23 +90,40 @@ def normalize_strategy_card(
         if operations
         else dict(raw.get("reaction_edit_signature") or {})
     )
+    execution_domain = _execution_domain(raw)
+    biocatalytic_intent, biocatalytic_intent_reasons = (
+        normalize_biocatalytic_strategy_intent(
+            raw.get("biocatalytic_intent")
+            if isinstance(raw.get("biocatalytic_intent"), Mapping)
+            else None,
+            execution_domain=execution_domain,
+        )
+    )
     card: dict[str, Any] = {
         "schema_version": STRATEGY_CARD_SCHEMA,
         **{
             field: str(raw.get(field) or "").strip()
             for field in _TEXT_FIELDS
         },
-        "key_bond_changes": _string_list(raw.get("key_bond_changes")),
-        "functional_group_conflicts": _string_list(
-            raw.get("functional_group_conflicts")
-        ),
+        **{
+            field: _string_list(raw.get(field))
+            for field in _LIST_FIELDS
+        },
         "strategic_step_count": _bounded_int(raw.get("strategic_step_count"), 1, 2),
-        "execution_domain": _execution_domain(raw),
+        "execution_domain": execution_domain,
+        "biocatalytic_intent": biocatalytic_intent,
+        "biocatalytic_intent_reasons": biocatalytic_intent_reasons,
         "route_family_id": str(route_family_id or raw.get("route_family_id") or ""),
         "reaction_edit_digest": operation_digest,
         "reaction_edit_signature": edit_signature,
     }
     card["key_bond_signature"] = key_bond_signature(card["key_bond_changes"])
+    card["anchor_bond_signature"] = key_bond_signature(
+        card["anchor_bond_changes"] or card["key_bond_changes"]
+    )
+    card["precursor_bond_signature"] = key_bond_signature(
+        card["precursor_only_bond_changes"]
+    )
     card["topology_signature"] = _normalized_text(
         [card["scaffold_motif"], card["skeleton_change_class"]]
     )
@@ -94,11 +133,16 @@ def normalize_strategy_card(
     )
     structural = {
         "key_bond_signature": card["key_bond_signature"],
+        "anchor_bond_signature": card["anchor_bond_signature"],
+        "precursor_bond_signature": card["precursor_bond_signature"],
         "reaction_edit_digest": operation_digest,
         "topology_signature": card["topology_signature"],
         "convergence_signature": card["convergence_signature"],
         "stereochemical_signature": card["stereochemical_signature"],
         "execution_domain": card["execution_domain"],
+        "biocatalytic_intent_sha256": str(
+            biocatalytic_intent.get("content_sha256") or ""
+        ),
     }
     card["structural_signature"] = _digest(structural)
     body = {
@@ -113,6 +157,7 @@ def normalize_strategy_card(
         "hypothesis_only": True,
         "evidence_independent_identity": True,
         "reaction_edit_digest_is_not_reaction_proof": True,
+        "biocatalytic_intent_is_not_an_executable_step": True,
     }
     card["content_sha256"] = _digest(card)
     return card
@@ -243,6 +288,8 @@ def strategy_structural_signature(
     return {
         "structural_signature": normalized["structural_signature"],
         "key_bond_signature": normalized["key_bond_signature"],
+        "anchor_bond_signature": normalized["anchor_bond_signature"],
+        "precursor_bond_signature": normalized["precursor_bond_signature"],
         "reaction_edit_digest": normalized["reaction_edit_digest"],
         "topology_signature": normalized["topology_signature"],
         "convergence_signature": normalized["convergence_signature"],

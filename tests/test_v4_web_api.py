@@ -1118,6 +1118,56 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
     assert constraints.stock_source_ids == ("test-stock",)
 
 
+def test_v4_paper_profile_is_topology_first_before_gateway_dispatch() -> None:
+    captured: dict = {}
+
+    class RecordingGateway:
+        def solve_target(self, **kwargs):
+            captured.update(kwargs)
+            return {"schema_version": "fixture", "run_id": "api-paper"}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    response = app.test_client().post(
+        "/api/v4/solve-target",
+        json={
+            "run_id": "api-paper",
+            "target_name": "paper target",
+            "target_smiles": "CCO",
+            "execution_profile": "paper_synthex",
+            "enable_web_search": True,
+            "enable_initial_director_web_search": True,
+            "enable_auto_patent_evidence": True,
+            "enable_patent_self_evolution": True,
+            "enable_condition_enrichment": True,
+            "enable_program_discovery": True,
+            "max_visual_invocations": 1,
+            "max_evidence_tasks": 64,
+            "max_program_tasks": 64,
+            "max_experiment_tasks": 32,
+            "max_run_wall_time_s": 7200,
+        },
+    )
+
+    assert response.status_code == 201
+    config = captured["config"]
+    assert captured["evidence_connector"] is None
+    assert captured["visual_evidence_provider"] is None
+    assert config.execution_profile == "paper_synthex"
+    assert config.strategy_search_profile == "synthex_matched"
+    assert config.require_complete_route_json is False
+    assert config.allow_editor_route_mutations is True
+    assert config.enable_web_search is False
+    assert config.enable_initial_director_web_search is False
+    assert config.enable_patent_self_evolution is False
+    assert config.enable_condition_enrichment is False
+    assert config.enable_program_discovery is False
+    assert config.max_evidence_tasks == 0
+    assert config.max_program_tasks == 0
+    assert config.max_experiment_tasks == 0
+    assert config.max_run_wall_time_s == 86_400.0
+
+
 def test_v4_milestone_subscription_route_is_explicit_product_policy() -> None:
     captured: dict = {}
 

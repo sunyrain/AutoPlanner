@@ -201,7 +201,37 @@ def _common_reasons(data: dict[str, Any]) -> list[str]:
     if data.get("validation_status") not in {"draft", "draft_only", "accepted", "validated", "rejected"}:
         reasons.append("invalid_validation_status")
     if not data.get("evidence_refs") and not data.get("input_refs"):
-        reasons.append("missing_evidence_or_input_refs")
+        # Paper-mode RouteJSON/Editor artifacts are blind edit programs.  The
+        # prompt context is intentionally not serialized as an evidence or
+        # input handle; the host compiler is their trust boundary.  Keep the
+        # generic provenance requirement for all other artifacts.
+        payload = data.get("payload")
+        route_draft = bool(
+            data.get("artifact_type") == "RetrosynthesisProposalReport"
+            and isinstance(payload, dict)
+            and (
+                (
+                    payload.get("stop_signal") is True
+                    and payload.get("candidates") == []
+                )
+                or any(
+                    isinstance(candidate, dict)
+                    and (
+                        (
+                            isinstance(candidate.get("reaction_operations"), list)
+                            and bool(candidate.get("reaction_operations"))
+                            and candidate.get("precursor_smiles") == []
+                        )
+                        or
+                        (isinstance(candidate.get("route_json"), list) and bool(candidate.get("route_json")))
+                        or (isinstance(candidate.get("route_patch"), list) and bool(candidate.get("route_patch")))
+                    )
+                    for candidate in payload.get("candidates") or []
+                )
+            )
+        )
+        if not route_draft:
+            reasons.append("missing_evidence_or_input_refs")
     return reasons
 
 

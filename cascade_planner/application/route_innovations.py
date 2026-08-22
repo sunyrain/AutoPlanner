@@ -193,7 +193,56 @@ def route_innovation_summary(
                 str(value.get("innovation_id") or ""),
             )
         )
-        if matching:
+        matching_biocatalytic = [
+            value for value in matching if value.get("kind") in BIOCATALYTIC_KINDS
+        ]
+        biocatalytic_steps = [
+            dict(value)
+            for value in edge.get("biocatalytic_steps") or []
+            if isinstance(value, Mapping) and value
+        ]
+        if matching_biocatalytic:
+            selected.append({"edge_id": str(edge_id), **matching_biocatalytic[0]})
+        elif biocatalytic_steps:
+            # The executable biocatalytic-step contract is newer than the
+            # optional route-innovation annotation.  Count the physical
+            # enzyme/whole-cell step even when no compression option was
+            # separately emitted; this changes display/accounting only and
+            # never grants reaction or enzyme validation.
+            biocatalytic_steps.sort(
+                key=lambda value: (
+                    str(value.get("content_sha256") or ""),
+                    str(value.get("step_id") or ""),
+                )
+            )
+            step = biocatalytic_steps[0]
+            accounting = dict(step.get("step_accounting") or {})
+            equivalent_count = accounting.get("chemical_step_equivalent_count")
+            net_savings = accounting.get("net_step_savings")
+            step_identity = str(step.get("content_sha256") or _digest(step))
+            selected.append(
+                {
+                    "edge_id": str(edge_id),
+                    "schema_version": ROUTE_INNOVATION_SCHEMA,
+                    "kind": BIOCATALYTIC_STEP,
+                    "innovation_id": f"biocatalytic-step:{step_identity[:24]}",
+                    "chemical_step_equivalent_count": max(
+                        1,
+                        int(equivalent_count if equivalent_count is not None else 1),
+                    ),
+                    "step_savings": max(
+                        0,
+                        int(net_savings if net_savings is not None else 0),
+                    ),
+                    "authority_scope": str(
+                        step.get("authority_scope") or "model_proposed_execution_hypothesis"
+                    ),
+                    "from_biocatalytic_step_contract": True,
+                    "not_reaction_proof": True,
+                    "not_exact_source_evidence": True,
+                }
+            )
+        elif matching:
             selected.append({"edge_id": str(edge_id), **matching[0]})
     enzyme = [value for value in selected if value.get("kind") in BIOCATALYTIC_KINDS]
     supersteps = [
@@ -225,6 +274,7 @@ def route_innovation_summary(
         "semantics": {
             "physical_edges_and_chemical_equivalents_are_distinct": True,
             "proposal_options_do_not_grant_reaction_proof": True,
+            "biocatalytic_step_contract_counts_physical_execution_only": True,
             "mechanism_extrapolation_is_not_source_reported": True,
         },
     }

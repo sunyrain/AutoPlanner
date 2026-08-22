@@ -386,7 +386,11 @@ def _finite_float(value: Any) -> float | None:
     return numeric
 
 
-def _provider_reaction_metadata(step: Mapping[str, Any]) -> dict[str, Any]:
+def _provider_reaction_metadata(
+    step: Mapping[str, Any],
+    *,
+    short_tail_binding: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     raw = _json_safe_copy(step.get("raw_backend_metadata") or {})
     payload = {
         "schema_version": "chemenzy_provider_reaction_metadata.v1",
@@ -399,10 +403,12 @@ def _provider_reaction_metadata(step: Mapping[str, Any]) -> dict[str, Any]:
         "host_search_admission": _json_safe_copy(
             step.get("host_search_admission") or {}
         ),
+        "short_tail_binding": _json_safe_copy(short_tail_binding or {}),
         "semantics": {
             "provider_metadata_is_advisory": True,
             "host_template_replay_required_for_reaction_proof": True,
             "provider_stock_status_is_not_stock_authority": True,
+            "short_tail_binding_is_host_owned": True,
         },
     }
     payload["content_sha256"] = hashlib.sha256(

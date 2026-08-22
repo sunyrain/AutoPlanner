@@ -35,10 +35,33 @@ from scripts.run_chem_enzy_plan_for_web import (
     _smiles_in_stock_file,
     _web_payload_from_result,
 )
+from cascade_planner.interfaces.chemenzy_probe_routes import (
+    _provider_reaction_metadata,
+)
 
 
 BAD_PRODUCT = "O=C(O)C(O)(CCO)C(=O)OCc1ccccc1"
 BAD_REACTANTS = ["O=C(Cl)OCc1ccccc1", "O=C([O-])[O-]"]
+
+
+def test_provider_metadata_binds_paper_short_tail_to_exact_frontier() -> None:
+    binding = {
+        "schema_version": "provider_short_tail_binding.v1",
+        "provider_group_id": "chemenzy:guided-example",
+        "frontier_molecule_id": "mol:leaf",
+        "frontier_smiles": "CCO",
+        "parent_route_family_ids": ["route:one"],
+        "paper_short_tail_eligible": True,
+        "target_rooted_open_leaf": True,
+    }
+
+    metadata = _provider_reaction_metadata(
+        {"rxn_smiles": "CC>>CCO", "source_model": "ChemEnzyRetroPlanner"},
+        short_tail_binding=binding,
+    )
+
+    assert metadata["short_tail_binding"] == binding
+    assert metadata["semantics"]["short_tail_binding_is_host_owned"] is True
 
 
 def _verifier_route(*reasons: str) -> dict:

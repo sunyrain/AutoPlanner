@@ -59,6 +59,10 @@ config/examples/*
 exports/
 runs/
 
+# Local Codex worker runtime and event streams
+.codex-worker-tmp/
+codex_worker_events/
+
 # IDE
 .vscode/
 .idea/
@@ -206,6 +210,12 @@ archive/cleanup_*/docs/
 docs/**/report_*/
 docs/**/*_report.pdf
 docs/**/*_report.png
+docs/evaluation/evidence/**/rendered-pages/
+docs/evaluation/evidence/**/*.pdf
+docs/evaluation/evidence/**/SynthEx-source/
+docs/evaluation/evidence/**/synthelite-source/
+docs/evaluation/figures/*.tif
+docs/evaluation/figures/*.tiff
 *.aux
 *.bbl
 *.blg

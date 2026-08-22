@@ -93,6 +93,42 @@ def test_blind_acceptance_prunes_only_rejected_tail_expansion() -> None:
     assert report["routes"][0]["pruned_rejected_tail_step_ids"] == ["step:tail"]
 
 
+def test_stock_closure_remains_observable_when_reaction_validation_fails() -> None:
+    root = _step("step:root", TARGET, ["CCO", "CC(=O)Cl"])
+    edge_id, edge = _validated_edge(TARGET, root["precursor_smiles"])
+    edge["reaction_proofs"] = [{"accepted": False}]
+    leaf_ids = [molecule_identity(value)[0] for value in root["precursor_smiles"]]
+    observations = {
+        f"stock:{index}": {
+            "accepted": True,
+            "provider_result": {"payload": {"boundary_type": "benchmark_stock"}},
+        }
+        for index, _ in enumerate(leaf_ids)
+    }
+    molecules = {
+        molecule_id: {"active_stock_observation_id": f"stock:{index}"}
+        for index, molecule_id in enumerate(leaf_ids)
+    }
+
+    report = compile_blind_acceptance_report(
+        preflight=_preflight(),
+        director_outcomes=[_outcome([root], accepted={"step:root"})],
+        graph={
+            "target_molecule_id": molecule_identity(TARGET)[0],
+            "edges": {edge_id: edge},
+            "molecules": molecules,
+            "stock_observations": observations,
+        },
+        portfolio=_portfolio(),
+    )
+
+    assert report["gates"]["B2_host_validated_routes"] is False
+    assert report["gates"]["B4_stock_boundary"] is True
+    assert report["routes"][0]["reaction_validated"] is False
+    assert report["routes"][0]["stock_closed"] is True
+    assert report["semantics"]["gates_are_independent_measurements"] is True
+
+
 def test_canonical_source_route_counts_without_director_skeleton_alias() -> None:
     """Exact-source DAGs materialised after Codex remain real B1/B2 routes."""
 

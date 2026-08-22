@@ -12,6 +12,9 @@ from cascade_planner.application.proof_policy import (
     stitch_leaf_stock_proof,
 )
 from cascade_planner.application.route_candidate_builder import build_route_candidate
+from cascade_planner.application.route_edge_scope import (
+    route_family_scoped_edge_ids,
+)
 
 
 PROOF_ROUTE_SCHEMA = "proof_stitched_route.v1"
@@ -48,11 +51,7 @@ def enumerate_family_variants(
     leaf_proof_cache: dict[str, dict[str, Any]],
     limit: int,
 ) -> tuple[list[RouteSubroute], list[dict[str, Any]]]:
-    allowed = {
-        str(value)
-        for value in family.get("edge_ids") or []
-        if str(value) in dict(graph.get("edges") or {})
-    }
+    allowed = route_family_scoped_edge_ids(graph, family=family)
     outgoing: dict[str, list[str]] = {}
     for edge_id in sorted(allowed):
         edge = graph["edges"][edge_id]

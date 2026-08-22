@@ -37,6 +37,10 @@ from cascade_planner.interfaces.target_runtime_dependencies import (  # noqa: E4
     SYNTHEX_MATCHED_PROFILE_DEFAULTS,
     TARGET_PROFILE_DEFAULTS,
 )
+from cascade_planner.interfaces.target_solver import _is_paper_reach_profile  # noqa: E402
+from cascade_planner.eval.synthex_protocol_preflight import (  # noqa: E402
+    validate_synthex_head_to_head_protocol,
+)
 from scripts.compare_v4_matched_panels import (  # noqa: E402
     _markdown as _comparison_markdown,
     compare_matched_panels,
@@ -53,6 +57,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--output-root", required=True)
     parser.add_argument(
+        "--paper-protocol",
+        help=(
+            "Optional frozen SynthEx head-to-head protocol. When supplied, "
+            "its complete three-target, runtime-budget and exact-stock contract "
+            "is validated before any provider is started."
+        ),
+    )
+    parser.add_argument(
         "--model", default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["model"]
     )
     parser.add_argument(
@@ -62,8 +74,87 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--execution-profile",
-        choices=("fast", "standard", "proof", "paper_synthex"),
-        default="standard",
+        choices=(
+            "fast",
+            "standard",
+            "proof",
+            "paper_synthex",
+            "paper_matched_reach",
+        ),
+        default="paper_matched_reach",
+        help=(
+            "execution contract; the matched panel defaults to paper_synthex "
+            "(use standard/proof only for explicitly non-paper arms)"
+        ),
+    )
+    parser.add_argument(
+        "--strategy-portfolio-mode",
+        choices=(
+            "auto",
+            "paper_independent",
+            "autoplanner_hybrid",
+            "enzyme_advantage",
+            "autoplanner_strategy_v2",
+        ),
+        default="auto",
+        help=(
+            "strategy arm passed to every target; enzyme_advantage is a "
+            "separate companion panel and cannot be labeled as the paper arm"
+        ),
+    )
+    parser.add_argument(
+        "--strategic-milestones-per-branch",
+        type=int,
+        choices=range(1, 5),
+        default=1,
+        help=(
+            "ordered route-internal StrategyCards per branch; 1 freezes the "
+            "paper single-anchor control"
+        ),
+    )
+    parser.add_argument(
+        "--node-expansions-per-branch",
+        type=int,
+        choices=range(1, 65),
+        default=None,
+        help=(
+            "Diagnostic override for Route Builder calls per branch; omitted "
+            "preserves the frozen paper-matched allowance."
+        ),
+    )
+    parser.add_argument(
+        "--reactionjson-candidates-per-node",
+        type=int,
+        choices=range(1, 9),
+        default=None,
+        help=(
+            "ReactionJSON candidate width for a non-paper ablation; paper_synthex "
+            "keeps the frozen width=1 contract"
+        ),
+    )
+    parser.add_argument(
+        "--native-short-tail-engine",
+        choices=("auto", "aizynthfinder", "chemenzy"),
+        default=None,
+        help=(
+            "short-tail engine for non-paper ablations; omitted preserves the "
+            "profile default"
+        ),
+    )
+    parser.add_argument(
+        "--strategy-tree-engine",
+        choices=("auto", "chemenzy_best_first", "aizynthfinder_mcts"),
+        default=None,
+        help=(
+            "Route Builder tree owner; explicitly set aizynthfinder_mcts for "
+            "a matched AiZ MCTS control outside paper_synthex."
+        ),
+    )
+    parser.add_argument(
+        "--no-chemenzy",
+        action="store_true",
+        default=False,
+        help="disable the optional Chemenzy target/guided providers for an ablation",
     )
     parser.add_argument(
         "--objective-mode",
@@ -71,7 +162,16 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=argparse.SUPPRESS,
     )
-    parser.add_argument("--fixed-cutoff-wall-time-s", type=float, default=7_200.0)
+    parser.add_argument(
+        "--fixed-cutoff-wall-time-s",
+        type=float,
+        default=None,
+        help=(
+            "Fixed target wall-time cutoff. For paper_synthex the default is "
+            "an operational 24 h emergency ceiling; scientific limits are the "
+            "per-call, invocation, expansion, repair, and short-tail budgets."
+        ),
+    )
     parser.add_argument(
         "--fixed-cutoff-total-tasks",
         type=int,
@@ -185,13 +285,18 @@ def main(argv: list[str] | None = None) -> int:
             "scores are read-only fixed-cutoff trajectory projections",
             file=sys.stderr,
         )
-    if args.fixed_cutoff_wall_time_s <= 0:
-        raise SystemExit("--fixed-cutoff-wall-time-s must be positive")
+    try:
+        fixed_cutoff_wall_time_s = _resolve_panel_fixed_cutoff_wall_time_s(
+            execution_profile=args.execution_profile,
+            requested=args.fixed_cutoff_wall_time_s,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if args.fixed_cutoff_total_tasks <= 0:
         raise SystemExit("--fixed-cutoff-total-tasks must be positive")
     projection_policy = {
         "schema_version": "campaign_fixed_cutoff_policy.v1",
-        "wall_time_s": float(args.fixed_cutoff_wall_time_s),
+        "wall_time_s": fixed_cutoff_wall_time_s,
         "settled_task_count": int(args.fixed_cutoff_total_tasks),
         "case_budget_dimensions_are_applied": True,
     }
@@ -206,6 +311,39 @@ def main(argv: list[str] | None = None) -> int:
     )
     if not cases:
         raise SystemExit("No benchmark cases selected")
+    paper_protocol_preflight: dict[str, Any] = {}
+    if args.paper_protocol:
+        if (
+            args.node_expansions_per_branch is not None
+            and args.node_expansions_per_branch
+            != int(SYNTHEX_MATCHED_PROFILE_DEFAULTS["node_expansions_per_branch"])
+        ):
+            raise SystemExit(
+                "paper_protocol_forbids_node_expansion_budget_override"
+            )
+        if args.only or args.max_targets is not None or len(cases) != len(manifest_cases):
+            raise SystemExit("paper_protocol_requires_full_frozen_manifest")
+        paper_protocol_preflight = validate_synthex_head_to_head_protocol(
+            protocol_path=args.paper_protocol,
+            manifest_path=manifest,
+            repository_root=ROOT,
+            model=args.model,
+            reasoning_effort=args.reasoning_effort,
+            execution_profile=args.execution_profile,
+            strategy_portfolio_mode=args.strategy_portfolio_mode,
+            benchmark_stock_index=args.benchmark_stock_index,
+            benchmark_stock_name=args.benchmark_stock_name,
+        )
+        if paper_protocol_preflight.get("ready_for_paid_experiment") is not True:
+            issue_codes = ",".join(
+                str(row.get("code") or "unknown")
+                for row in paper_protocol_preflight.get("issues") or []
+                if isinstance(row, Mapping)
+            )
+            raise SystemExit(f"paper_protocol_preflight_failed:{issue_codes}")
+        protocol_stock = dict(paper_protocol_preflight.get("stock") or {})
+        args.benchmark_stock_index = str(protocol_stock.get("index_path") or "")
+        args.benchmark_stock_name = str(protocol_stock.get("catalog_name") or "")
     matched_baseline_path = _optional_file(
         args.matched_baseline_summary,
         "matched_baseline_summary",
@@ -240,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         reasoning_effort=args.reasoning_effort,
         execution_profile=args.execution_profile,
+        strategy_portfolio_mode=args.strategy_portfolio_mode,
         projection_policy=projection_policy,
         worker_count=args.workers,
         visual=args.visual,
@@ -251,6 +390,7 @@ def main(argv: list[str] | None = None) -> int:
         inventory_snapshot=args.inventory_snapshot,
         benchmark_stock_index=args.benchmark_stock_index,
         benchmark_stock_name=args.benchmark_stock_name,
+        paper_protocol=args.paper_protocol,
         leakage_audit_pack=args.leakage_audit_pack,
         allowed_prior_target_manifests=allowed_prior_target_manifests,
         resume=args.resume,
@@ -266,6 +406,40 @@ def main(argv: list[str] | None = None) -> int:
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
         "execution_profile": args.execution_profile,
+        "strategy_portfolio_mode": args.strategy_portfolio_mode,
+        "strategic_milestones_per_branch": (
+            args.strategic_milestones_per_branch
+        ),
+        "node_expansions_per_branch": (
+            args.node_expansions_per_branch
+            if args.node_expansions_per_branch is not None
+            else SYNTHEX_MATCHED_PROFILE_DEFAULTS["node_expansions_per_branch"]
+        ),
+        "reactionjson_candidates_per_node": (
+            args.reactionjson_candidates_per_node
+            if args.reactionjson_candidates_per_node is not None
+            else SYNTHEX_MATCHED_PROFILE_DEFAULTS["reactionjson_candidates_per_node"]
+        ),
+        "requested_native_short_tail_engine": args.native_short_tail_engine,
+        "no_chemenzy": bool(args.no_chemenzy),
+        "native_short_tail_engine": (
+            args.native_short_tail_engine
+            if args.native_short_tail_engine is not None
+            else (
+                "aizynthfinder"
+                if _is_paper_reach_profile(args.execution_profile)
+                else "chemenzy"
+            )
+        ),
+        "strategy_tree_engine": (
+            args.strategy_tree_engine
+            if args.strategy_tree_engine is not None
+            else (
+                "aizynthfinder_mcts"
+                if _is_paper_reach_profile(args.execution_profile)
+                else "auto"
+            )
+        ),
         "fixed_cutoff_policy": projection_policy,
         "ignored_legacy_objective_mode": str(args.objective_mode or ""),
         "ablation": args.ablation,
@@ -276,9 +450,41 @@ def main(argv: list[str] | None = None) -> int:
         "chemenzy_stock_alignment": {
             "benchmark_index_bound_to_provider": bool(args.benchmark_stock_index),
             "provider_and_host_search_boundary_equal": bool(
-                args.benchmark_stock_index and chemenzy_stock_paths
+                not _is_paper_reach_profile(args.execution_profile)
+                and args.benchmark_stock_index
+                and chemenzy_stock_paths
             ),
         },
+        "native_stock_alignment": {
+            # The selected short-tail engine, rather than the broad execution
+            # profile, owns the native-search stock boundary.  A standard
+            # ablation can explicitly select AiZynthFinder, and recording it
+            # as ChemEnzy makes an AiZ-only run look contaminated even when
+            # the provider call and route lineage are AiZ-native.
+            "provider_id": (
+                args.native_short_tail_engine
+                if args.native_short_tail_engine is not None
+                else (
+                    "aizynthfinder"
+                    if _is_paper_reach_profile(args.execution_profile)
+                    else "chemenzy"
+                )
+            ),
+            "benchmark_index_bound_to_provider": bool(
+                args.benchmark_stock_index
+            ),
+            "provider_and_host_search_boundary_equal": bool(
+                args.benchmark_stock_index
+                and (
+                    (
+                        args.native_short_tail_engine == "aizynthfinder"
+                        or _is_paper_reach_profile(args.execution_profile)
+                    )
+                    or chemenzy_stock_paths
+                )
+            ),
+        },
+        "paper_protocol_preflight": paper_protocol_preflight,
         "matched_baseline": (
             {
                 "path": str(matched_baseline_path),
@@ -431,7 +637,16 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             reasoning_effort=args.reasoning_effort,
             execution_profile=args.execution_profile,
-            fixed_cutoff_wall_time_s=args.fixed_cutoff_wall_time_s,
+            strategy_portfolio_mode=args.strategy_portfolio_mode,
+            strategic_milestones_per_branch=(
+                args.strategic_milestones_per_branch
+            ),
+            node_expansions_per_branch=args.node_expansions_per_branch,
+            reactionjson_candidates_per_node=args.reactionjson_candidates_per_node,
+            native_short_tail_engine=args.native_short_tail_engine,
+            strategy_tree_engine=args.strategy_tree_engine,
+            no_chemenzy=args.no_chemenzy,
+            fixed_cutoff_wall_time_s=fixed_cutoff_wall_time_s,
             fixed_cutoff_total_tasks=args.fixed_cutoff_total_tasks,
             resume=args.resume,
             visual=args.visual,
@@ -598,12 +813,46 @@ def _resume_completed_targets(
             row.get("status") == "completed"
             and row.get("case_id") == case.case_id
             and report_path.is_file()
+            and not _report_requires_operational_resume(report_path)
         ):
             completed[case.target_name] = {
                 **row,
                 "resume_reused_completed_report": True,
             }
     return completed
+
+
+def _report_requires_operational_resume(path: Path) -> bool:
+    """Reject a panel reuse when the owning run still needs local repair.
+
+    A run may have reached a historical terminal state while a deterministic
+    resume repair was only partially applied.  In that case the kernel is no
+    longer paused, but reusing the report would permanently hide an admitted
+    yet unmaterialized route step.  The reconciliation diagnostic is
+    deliberately read-only, so using it as a resume trigger cannot upgrade a
+    scientific claim.
+    """
+
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    if not isinstance(report, Mapping):
+        return True
+    reconciliation = dict(report.get("route_reconciliation") or {})
+    if any(
+        str(route.get("classification") or "") == "materialization_admission_gap"
+        for route in reconciliation.get("routes") or []
+        if isinstance(route, Mapping)
+    ):
+        return True
+    stop = dict(report.get("stop_decision") or {})
+    disposition = dict(report.get("current_disposition") or {})
+    return bool(
+        str(stop.get("decision") or "") == "paused"
+        or stop.get("terminal") is False
+        or str(disposition.get("historical_kernel_status") or "") == "paused"
+    )
 
 
 def _select_cases(
@@ -616,7 +865,9 @@ def _select_cases(
     selected = [
         case
         for case in cases
-        if not selected_names or case.target_name.casefold() in selected_names
+        if not selected_names
+        or case.target_name.casefold() in selected_names
+        or case.case_id.casefold() in selected_names
     ]
     if max_targets is not None:
         if isinstance(max_targets, bool) or int(max_targets) < 1:
@@ -625,6 +876,35 @@ def _select_cases(
     return selected
 
 
+
+def _resolve_panel_fixed_cutoff_wall_time_s(
+    *,
+    execution_profile: str,
+    requested: float | None,
+) -> float:
+    """Resolve the panel cutoff without confusing paper and short-tail budgets."""
+
+    default_cutoff = 7_200.0
+    if _is_paper_reach_profile(execution_profile):
+        expected = float(SYNTHEX_MATCHED_PROFILE_DEFAULTS["max_run_wall_time_s"])
+        if requested is None:
+            return expected
+        value = float(requested)
+        if value <= 0:
+            raise ValueError("--fixed-cutoff-wall-time-s must be positive")
+        if abs(value - expected) > 1e-9:
+            raise ValueError(
+                "paper_synthex requires the frozen operational target cutoff; "
+                "1200 s is one short-tail timeout and 1800 s belongs to the "
+                "standalone exhaustive baseline, not the complete LLM workflow"
+            )
+        return value
+    if requested is None:
+        return default_cutoff
+    value = float(requested)
+    if value <= 0:
+        raise ValueError("--fixed-cutoff-wall-time-s must be positive")
+    return value
 def _run_case(
     case: BlindCase,
     *,
@@ -633,6 +913,13 @@ def _run_case(
     model: str,
     reasoning_effort: str,
     execution_profile: str,
+    strategy_portfolio_mode: str = "auto",
+    strategic_milestones_per_branch: int = 1,
+    node_expansions_per_branch: int | None = None,
+    reactionjson_candidates_per_node: int | None = None,
+    native_short_tail_engine: str | None = None,
+    strategy_tree_engine: str | None = None,
+    no_chemenzy: bool = False,
     resume: bool,
     visual: bool,
     chemenzy_env_prefix: str | None,
@@ -669,6 +956,11 @@ def _run_case(
     proof_profile = execution_profile == "proof"
     profile_defaults = TARGET_PROFILE_DEFAULTS[execution_profile]
     matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
+    expansion_budget = (
+        int(node_expansions_per_branch)
+        if node_expansions_per_branch is not None
+        else int(matched["node_expansions_per_branch"])
+    )
     max_model_invocations = max(
         int(matched["max_model_invocations"]),
         int(budget.get("max_model_invocations") or 0),
@@ -719,6 +1011,22 @@ def _run_case(
                 cutoff=cutoff,
             )
         raise RuntimeError("non_fresh_run_dir_requires_resume")
+    candidate_width = (
+        int(reactionjson_candidates_per_node)
+        if reactionjson_candidates_per_node is not None
+        else int(matched["reactionjson_candidates_per_node"])
+    )
+    if _is_paper_reach_profile(execution_profile) and candidate_width != int(
+        matched["reactionjson_candidates_per_node"]
+    ):
+        raise ValueError(
+            "paper_synthex panel cannot override the frozen ReactionJSON candidate width"
+        )
+    short_tail_engine = native_short_tail_engine
+    if short_tail_engine is None:
+        short_tail_engine = (
+            "aizynthfinder" if _is_paper_reach_profile(execution_profile) else "chemenzy"
+        )
     command = [
         sys.executable,
         "-m",
@@ -744,10 +1052,33 @@ def _run_case(
         execution_profile,
         "--strategy-search-profile",
         str(matched["strategy_search_profile"]),
+        "--strategy-portfolio-mode",
+        str(strategy_portfolio_mode),
+        "--strategy-tree-engine",
+        str(
+            strategy_tree_engine
+            if strategy_tree_engine is not None
+            else (
+                "aizynthfinder_mcts"
+                if _is_paper_reach_profile(execution_profile)
+                else "auto"
+            )
+        ),
         "--strategy-branches",
         str(matched["strategy_branches"]),
+        "--strategy-branch-workers",
+        str(matched["strategy_branch_workers"]),
+        (
+            "--stop-on-first-stock-closed-branch"
+            if matched["stop_on_first_stock_closed_branch"]
+            else "--no-stop-on-first-stock-closed-branch"
+        ),
         "--node-expansions-per-branch",
-        str(matched["node_expansions_per_branch"]),
+        str(expansion_budget),
+        "--strategic-milestones-per-branch",
+        str(int(strategic_milestones_per_branch)),
+        "--reactionjson-candidates-per-node",
+        str(candidate_width),
         "--route-local-repair-rounds",
         str(matched["route_local_repair_rounds"]),
         "--max-node-prompt-bytes",
@@ -759,13 +1090,15 @@ def _run_case(
         "--delivery-boundary",
         "stock_result",
         "--no-target-chemenzy-baseline",
+        "--no-web-search",
+        "--no-auto-patent-evidence",
+        "--no-auto-literature-evidence",
         "--chemenzy-provider-route-reserve",
         "16",
         "--chemenzy-host-route-portfolio",
         "16",
         "--display-route-limit",
         "4",
-        "--initial-director-web-search",
         *_acceptance_cli_args(case),
         "--max-model-invocations",
         str(max_model_invocations),
@@ -806,12 +1139,38 @@ def _run_case(
         "3",
         "--max-literature-sources",
         "4",
+        # A clean ChemEnzy-off arm must disable both the direct provider and
+        # the guided frontier scheduler. Passing only --no-chemenzy leaves
+        # enable_guided_chemenzy at its CLI default, which still enqueues
+        # chemenzy_frontier_expand campaign actions and contaminates an
+        # ostensibly AiZ-only control.
+        *(
+            ["--no-chemenzy", "--no-guided-chemenzy"]
+            if no_chemenzy
+            else []
+        ),
+        *(
+            [
+                "--native-short-tail-engine",
+                str(short_tail_engine),
+                "--aizynthfinder-short-tail-mode",
+                "short_tail",
+            ]
+            if short_tail_engine == "aizynthfinder"
+            else []
+        ),
         *_guided_chemenzy_cli_args(execution_profile),
         "--max-visual-invocations",
         "1" if visual else "0",
         "--max-visual-pages",
         "10" if visual and proof_profile else "6",
     ]
+    # The paper protocol ends after the bounded Critic–Editor loop and the
+    # fixed AiZ short tail.  The general Campaign scheduler's post-tail
+    # route-local replan is useful operationally, but is an extra scientific
+    # budget and must be opt-in outside this matched panel.
+    if _is_paper_reach_profile(execution_profile):
+        command.append("--no-replan")
     command.extend(_ablation_cli_args(ablation))
     for path in allowed_prior_target_manifests:
         command.extend(["--blind-audit-allowed-path", str(path)])
@@ -984,21 +1343,25 @@ def _prepare_panel_snapshot(
     inventory_snapshot: str | None,
     benchmark_stock_index: str | None = None,
     benchmark_stock_name: str = "",
+    paper_protocol: str | None = None,
     leakage_audit_pack: str | None,
     allowed_prior_target_manifests: tuple[Path, ...] = (),
     resume: bool,
     projection_policy: Mapping[str, Any] | None = None,
+    strategy_portfolio_mode: str = "auto",
 ) -> dict[str, Any]:
     snapshot_path = output_root / "snapshots" / "benchmark-snapshot.json"
     seed = _optional_file(self_evo_library_seed, "self_evo_library_seed")
     inventory = _optional_file(inventory_snapshot, "inventory_snapshot")
     benchmark_index = _optional_file(benchmark_stock_index, "benchmark_stock_index")
+    protocol = _optional_file(paper_protocol, "paper_protocol")
     leakage_pack = _optional_file(leakage_audit_pack, "leakage_audit_pack")
     chemenzy_python = _chemenzy_python(chemenzy_env_prefix)
     provider_snapshot = {
         "model": model,
         "reasoning_effort": reasoning_effort,
         "execution_profile": execution_profile,
+        "strategy_portfolio_mode": strategy_portfolio_mode,
         "worker_count": worker_count,
         "visual_enabled": visual,
         "codex_cli": _binary_fingerprint(shutil.which("codex")),
@@ -1018,6 +1381,8 @@ def _prepare_panel_snapshot(
             _file_sha256(benchmark_index) if benchmark_index else ""
         ),
         "benchmark_stock_name": str(benchmark_stock_name or ""),
+        "paper_protocol_path": str(protocol or ""),
+        "paper_protocol_sha256": _file_sha256(protocol) if protocol else "",
         "leakage_audit_pack_path": str(leakage_pack or ""),
         "leakage_audit_pack_sha256": _file_sha256(leakage_pack) if leakage_pack else "",
         "allowed_prior_target_manifests": [
@@ -1278,15 +1643,28 @@ def _summarize_report(
         or current_disposition.get("state") == "accepted"
         or terminal_completed
     )
+    # ``status`` is an operational lifecycle field. A terminal solver with a
+    # valid frozen projection completed its benchmark observation even when a
+    # stricter scientific acceptance axis remains open. A paused kernel is
+    # different: reporting it as completed makes supervisors and the UI
+    # oscillate between a pending run and a frozen completed row.
+    operationally_paused = bool(
+        str(stop_decision.get("decision") or "") == "paused"
+        or str(current_disposition.get("historical_kernel_status") or "")
+        == "paused"
+    )
     target_status = (
         "projection_unavailable"
         if not projection_available
+        else "paused"
+        if operationally_paused
         else "completed"
-        if scientifically_terminal
-        else "incomplete"
     )
+    scientific_status = "accepted" if scientifically_terminal else "unresolved"
     return {
         "status": target_status,
+        "scientific_status": scientific_status,
+        "scientific_disposition": str(current_disposition.get("state") or ""),
         "case_id": str(preflight_case.get("case_id") or report.get("run_id") or ""),
         "claim": (
             "fixed_cutoff_stock_closed"

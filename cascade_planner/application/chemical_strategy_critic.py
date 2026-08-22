@@ -24,6 +24,9 @@ from cascade_planner.application.strategy_contract import (
     normalize_strategy_card,
     reaction_edit_digest,
 )
+from cascade_planner.routes.admission import (
+    replayed_external_atom_deficit_is_bound,
+)
 
 
 CHEMICAL_STRATEGY_CRITIC_SCHEMA = "chemical_strategy_critic.v1"
@@ -35,6 +38,7 @@ def critique_strategy_candidate(
     precursor_smiles: Iterable[Any],
     strategy_card: Mapping[str, Any] | None = None,
     reaction_operations: Iterable[Mapping[str, Any]] = (),
+    reactionjson_audit: Mapping[str, Any] | None = None,
     reaction_family: str = "",
     conditions: Iterable[Any] = (),
     catalyst: str = "",
@@ -62,14 +66,47 @@ def critique_strategy_candidate(
         blocking.append("critic_product_identity_invalid")
     if not precursors:
         blocking.append("critic_precursor_identity_invalid")
-    if product and precursors and _atom_inventory_deficit(product, precursors):
-        blocking.append("critic_atom_provenance_deficit")
+    atom_inventory_deficit = bool(
+        product and precursors and _atom_inventory_deficit(product, precursors)
+    )
 
     replay_audit: dict[str, Any] = {}
     if product and operations:
+        supplied_replay = dict(reactionjson_audit or {})
+        supplied_mapped_product = str(
+            supplied_replay.get("mapped_product_smiles") or ""
+        ).strip()
+        replay_product = _mapped_smiles(product)
+        if supplied_mapped_product:
+            # Reaction operations are expressed in the atom-map namespace of
+            # the RouteJSON compiler output.  Canonicalizing and assigning a
+            # fresh 1..N map sequence changes that namespace and creates false
+            # map_not_found/bond_missing failures.  Reuse the host-bound
+            # mapped product only after independently binding it to the same
+            # canonical product structure; replay below remains authoritative.
+            if _canonical_unmapped_smiles(supplied_mapped_product) == product:
+                replay_product = supplied_mapped_product
+                observations.append("reactionjson_host_map_namespace_reused")
+            elif (
+                supplied_replay.get("mapped_product_stereo_normalized") is True
+                and _canonical_constitution_smiles(supplied_mapped_product)
+                == _canonical_constitution_smiles(product)
+            ):
+                # RouteJSONCompiler may deliberately normalize a stale local
+                # stereo label after the graph edit has changed symmetry.  In
+                # that case the mapped graph is still the host-bound map
+                # namespace and must be replayed as supplied.  Falling back to
+                # a freshly numbered product here creates a false map_not_found
+                # and quarantines an otherwise replayable candidate.
+                replay_product = supplied_mapped_product
+                observations.append(
+                    "reactionjson_host_map_namespace_reused_stereo_normalized"
+                )
+            else:
+                blocking.append("critic_reactionjson_product_binding_mismatch")
         try:
             replay_audit = replay_reactionjson(
-                mapped_product_smiles=_mapped_smiles(product),
+                mapped_product_smiles=replay_product,
                 operations=operations,
                 expected_precursor_smiles=precursors,
             )
@@ -81,6 +118,19 @@ def critique_strategy_candidate(
         blocking.append("critic_strategy_edit_missing_from_step")
     else:
         uncertainties.append("critic_reaction_operations_not_supplied")
+
+    if atom_inventory_deficit:
+        if _external_atom_source_is_bound(
+            product=product,
+            precursors=precursors,
+            operations=operations,
+            supplied_audit=dict(reactionjson_audit or {}),
+            replay_audit=replay_audit,
+        ):
+            observations.append("critic_external_atom_source_bound_by_reactionjson")
+            uncertainties.append("critic_external_atom_source_requires_validation")
+        else:
+            blocking.append("critic_atom_provenance_deficit")
 
     supplied_card = dict(strategy_card or {})
     expected_edit = str(supplied_card.get("reaction_edit_digest") or "")
@@ -156,6 +206,7 @@ def critique_strategy_candidate(
             "grants_no_reaction_proof": True,
             "grants_no_source_authority": True,
             "unknown_reaction_class_remains_exploration_visible": True,
+            "routejson_atom_map_namespace_is_preserved": True,
         },
     }
     result["content_sha256"] = _digest(result)
@@ -180,12 +231,60 @@ def _mapped_smiles(smiles: str) -> str:
     return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 
+def _canonical_unmapped_smiles(value: Any) -> str:
+    molecule = Chem.MolFromSmiles(str(value or "").strip())
+    if molecule is None:
+        return ""
+    for atom in molecule.GetAtoms():
+        atom.SetAtomMapNum(0)
+    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+
+
+def _canonical_constitution_smiles(value: Any) -> str:
+    """Canonical constitution identity used only for stereo-normalized replay."""
+
+    molecule = Chem.MolFromSmiles(str(value or "").strip())
+    if molecule is None:
+        return ""
+    for atom in molecule.GetAtoms():
+        atom.SetAtomMapNum(0)
+        atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+    for bond in molecule.GetBonds():
+        bond.SetStereo(Chem.BondStereo.STEREONONE)
+    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=False)
+
+
 def _atom_inventory_deficit(product: str, precursors: Iterable[str]) -> bool:
     required = _inventory(product)
     available: Counter[int] = Counter()
     for precursor in precursors:
         available.update(_inventory(precursor))
     return any(available[number] < count for number, count in required.items())
+
+
+def _external_atom_source_is_bound(
+    *,
+    product: str,
+    precursors: Iterable[str],
+    operations: Iterable[Mapping[str, Any]],
+    supplied_audit: Mapping[str, Any],
+    replay_audit: Mapping[str, Any],
+) -> bool:
+    """Accept only deficits named by a replayed external-atom graph edit."""
+
+    if (
+        supplied_audit.get("external_atom_source_required") is not True
+        or supplied_audit.get("external_atom_source_grants_reaction_proof") is not False
+        or replay_audit.get("accepted") is not True
+    ):
+        return False
+    mapped_product = str(supplied_audit.get("mapped_product_smiles") or "")
+    return replayed_external_atom_deficit_is_bound(
+        product,
+        precursors,
+        mapped_product_smiles=mapped_product,
+        reaction_operations=operations,
+    )
 
 
 def _inventory(smiles: str) -> Counter[int]:

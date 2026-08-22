@@ -24,6 +24,7 @@ from cascade_planner.application.campaign_actions import (
     CampaignActionKind,
     action_task_kind,
     bind_scheduled_action,
+    campaign_action_execution_id,
     legacy_campaign_action_sha256,
 )
 from cascade_planner.application.run_kernel import RunKernel, RunKernelBudgetError
@@ -1865,6 +1866,16 @@ class CampaignActionRuntime:
             )
 
     def _load_cached(self, action: CampaignAction) -> dict[str, Any] | None:
+        expected_execution_id = campaign_action_execution_id(
+            action_id=action.action_id,
+            input_revision=action.input_revision,
+            opportunity_sha256=action.opportunity_sha256,
+            opportunity_set_sha256=action.opportunity_set_sha256,
+        )
+        if action.execution_id != expected_execution_id:
+            raise CampaignActionRuntimeError(
+                "campaign_action_execution_identity_invalid"
+            )
         action_sha256 = action.to_dict()["content_sha256"]
         try:
             return self._load_bound_outcome(
@@ -1873,6 +1884,7 @@ class CampaignActionRuntime:
                     action_sha256,
                     legacy_campaign_action_sha256(action),
                 },
+                accept_execution_identity_binding=True,
             )
         except ArtifactReferenceError:
             return None
@@ -1882,14 +1894,23 @@ class CampaignActionRuntime:
         *,
         execution_id: str,
         accepted_action_sha256: set[str],
+        accept_execution_identity_binding: bool = False,
     ) -> dict[str, Any]:
         ref, pointer = self.kernel.artifacts.load_pointer(
             self._pointer_name_for_execution(execution_id)
         )
         metadata = dict(pointer.get("metadata") or {})
+        if metadata.get("action_execution_id") != execution_id:
+            raise CampaignActionRuntimeError("campaign_action_pointer_binding_invalid")
+        # The execution id already binds the canonical opportunity, its set,
+        # and the input graph revision. A later scheduling pass can reproduce
+        # that same semantic execution while changing only diagnostic envelope
+        # fields (round-robin cursor, scheduler label, or score components).
+        # Reuse the internally digest-checked receipt in that case. Recovery
+        # and history readers remain hash-strict by using the default False.
         if (
-            metadata.get("action_execution_id") != execution_id
-            or metadata.get("action_sha256") not in accepted_action_sha256
+            metadata.get("action_sha256") not in accepted_action_sha256
+            and not accept_execution_identity_binding
         ):
             raise CampaignActionRuntimeError("campaign_action_pointer_binding_invalid")
         cached_action_sha256 = str(metadata.get("action_sha256") or "")
@@ -2340,6 +2361,14 @@ def _execution_failed_or_rejected(execution: Mapping[str, Any]) -> bool:
 
     outcome = dict(execution.get("outcome") or {})
     handler_result = dict(outcome.get("handler_result") or {})
+    # Canonical ingestion reports may settle the Action wrapper as completed
+    # while rejecting every proposed fact at the graph boundary.  Treat that
+    # as a rejected execution, not as reusable no-gain evidence.  This lets a
+    # run created before graph-aware materialization rejection was persisted
+    # replay the deterministic command once on resume and retire the stale
+    # frontier candidate without repeating any provider/model call.
+    if handler_result.get("rejected"):
+        return True
     statuses = {
         str(execution.get("status") or "").casefold(),
         str(outcome.get("status") or "").casefold(),
