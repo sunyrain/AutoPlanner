@@ -574,14 +574,14 @@ def test_routejson_draft_still_rejects_raw_reaction_injection() -> None:
     assert "proposal_report_candidate:0:raw_reaction_payload" in validate_retrosynthesis_report_payload(payload)
 
 
-def test_paper_route_builder_stop_is_a_valid_blind_draft_not_a_solved_claim() -> None:
+def test_paper_route_builder_fail_branch_is_not_a_valid_draft() -> None:
     payload = {
         "schema_version": "retrosynthesis_proposal_report.v1",
         "case_id": "case",
         "agent_role": "paper Route Builder",
         "target_smiles": "CCO",
-        "stop_signal": True,
-        "stop_reason": "simple_for_explorative_search",
+        "builder_action": "fail_branch",
+        "builder_reason": "no_reasonable_disconnection",
         "candidates": [],
         "evidence_refs": [],
         "limitations": [],
@@ -589,7 +589,7 @@ def test_paper_route_builder_stop_is_a_valid_blind_draft_not_a_solved_claim() ->
     }
     artifact = {
         "schema_version": "retrosynthesis_proposal_report_artifact.v1",
-        "artifact_id": "paper-builder-stop",
+        "artifact_id": "paper-builder-failure",
         "artifact_type": "RetrosynthesisProposalReport",
         "case_id": "case",
         "source": "codex_cli",
@@ -599,6 +599,65 @@ def test_paper_route_builder_stop_is_a_valid_blind_draft_not_a_solved_claim() ->
         "payload": payload,
     }
 
-    assert validate_retrosynthesis_report_payload(payload) == []
+    assert "paper_route_step_legacy_builder_control_forbidden" in (
+        validate_retrosynthesis_report_payload(payload)
+    )
     validation = validate_typed_artifact(artifact)
-    assert validation["accepted"] is True, validation
+    assert validation["accepted"] is False, validation
+
+
+def test_paper_route_builder_handoff_is_not_a_valid_draft() -> None:
+    payload = {
+        "schema_version": "retrosynthesis_proposal_report.v1",
+        "case_id": "case",
+        "agent_role": "paper Route Builder",
+        "target_smiles": "CCO",
+        "builder_action": "handoff",
+        "builder_reason": "simple_for_explorative_search",
+        "candidates": [],
+        "evidence_refs": [],
+        "limitations": [],
+        "no_solved_claim": True,
+    }
+
+    assert "paper_route_step_legacy_builder_control_forbidden" in (
+        validate_retrosynthesis_report_payload(payload)
+    )
+
+
+def test_paper_route_builder_reason_cannot_restore_handoff_authority() -> None:
+    payload = {
+        "schema_version": "retrosynthesis_proposal_report.v1",
+        "case_id": "case",
+        "agent_role": "paper Route Builder",
+        "target_smiles": "CCO",
+        "builder_action": "handoff",
+        "builder_reason": "no_beneficial_strategic_move",
+        "candidates": [],
+        "evidence_refs": [],
+        "limitations": [],
+        "no_solved_claim": True,
+    }
+
+    assert "paper_route_step_legacy_builder_control_forbidden" in (
+        validate_retrosynthesis_report_payload(payload)
+    )
+
+
+def test_legacy_builder_stop_contract_is_rejected() -> None:
+    payload = {
+        "schema_version": "retrosynthesis_proposal_report.v1",
+        "case_id": "case",
+        "agent_role": "paper Route Builder",
+        "target_smiles": "CCO",
+        "stop_signal": True,
+        "stop_reason": "no_beneficial_strategic_move",
+        "candidates": [],
+        "evidence_refs": [],
+        "limitations": [],
+        "no_solved_claim": True,
+    }
+
+    assert "paper_route_step_legacy_stop_contract_forbidden" in (
+        validate_retrosynthesis_report_payload(payload)
+    )

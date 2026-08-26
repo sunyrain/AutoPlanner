@@ -32,6 +32,7 @@ from cascade_planner.application.reaction_proof_versions import (
     CURRENT_REACTION_VALIDATOR_VERSION,
 )
 from cascade_planner.application.reactionjson_replay import replay_reactionjson
+from cascade_planner.application.routejson_compiler import RouteJSONCompiler
 from cascade_planner.application.retrosynthesis_workers import (
     build_retrosynthesis_worker_handlers,
     materialization_commands_for_global_plan,
@@ -997,6 +998,84 @@ def test_guided_frontier_materialization_preserves_canonical_parent_family(
     assert guided_edge["edge_id"] in parent["edge_ids"]
 
 
+def test_aiz_mapped_atom_contributor_survives_admission_and_materialization(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    planned = store.apply(
+        CanonicalIngestionBatch(global_plans=(_plan(),)),
+        idempotency_key="mapped-aiz-parent-plan",
+    )["graph"]
+    parent_id = next(iter(planned["route_families"]))
+    product = "C=C[C@H](C)CCC=C(C)C"
+    precursors = [
+        "CC(C)=CCC[C@@H](C)C=O",
+        "C[P+](c1ccccc1)(c1ccccc1)c1ccccc1",
+    ]
+    mapped_reaction = (
+        r"[CH2:1]=[CH:2][C@H:3]([CH3:4])[CH2:5][CH2:6]/[CH:7]="
+        r"[C:8](\[CH3:9])[CH3:10]>>[CH3:1][P+:11]([c:12]1[cH:13]"
+        r"[cH:14][cH:15][cH:16][cH:17]1)([c:18]1[cH:19][cH:20]"
+        r"[cH:21][cH:22][cH:23]1)[c:24]1[cH:25][cH:26][cH:27]"
+        r"[cH:28][cH:29]1.[CH:2]([C@H:3]([CH3:4])[CH2:5][CH2:6]/"
+        r"[CH:7]=[C:8](\[CH3:9])[CH3:10])=[O:30]"
+    )
+    proposed = store.apply(
+        CanonicalIngestionBatch(
+            hypotheses=(
+                {
+                    "step_id": "aizynthfinder:guided-test:route:1:step:1",
+                    "proposal_id": "aizynthfinder:guided-test:route:1:step:1",
+                    "route_family_id": "aizynthfinder:guided-test:route:1",
+                    "canonical_route_family_id": parent_id,
+                    "product_smiles": product,
+                    "precursor_smiles": precursors,
+                    "origin_kind": "aizynthfinder",
+                    "origin_ref": "aizynthfinder:mapped-test",
+                    "transformation_hypothesis": "mapped Wittig disconnection",
+                    "provider_reaction_metadata": {
+                        "provider": "aizynthfinder",
+                        "mapped_reaction_smiles": mapped_reaction,
+                    },
+                },
+            )
+        ),
+        idempotency_key="mapped-aiz-hypothesis",
+    )
+    assert proposed["rejected"] == []
+    hypothesis = next(
+        row
+        for row in proposed["graph"]["hypotheses"].values()
+        if row["product_smiles"] == product
+    )
+
+    commands = store.frontier_materialization_commands(
+        [hypothesis["hypothesis_id"]]
+    )
+    assert len(commands) == 1
+    worker_result = runtime.execute(commands[0])
+    assert worker_result.status == "completed"
+    assert worker_result.payload["mapped_reaction_smiles"] == mapped_reaction
+
+    materialized = store.apply(
+        CanonicalIngestionBatch(worker_results=(worker_result,)),
+        worker_runtime=runtime,
+        idempotency_key="mapped-aiz-materialized",
+    )
+    assert materialized["rejected"] == []
+    edge = next(
+        row
+        for row in materialized["graph"]["edges"].values()
+        if row["product_smiles"] == product
+    )
+    assert edge["precursor_smiles"] == sorted(precursors)
+    assert edge["edge_id"] in materialized["graph"]["route_families"][
+        parent_id
+    ]["edge_ids"]
+
+
 def test_v36_provider_template_topology_stitches_while_critic_risk_stays_separate(
     tmp_path: Path,
 ) -> None:
@@ -1183,34 +1262,29 @@ def test_admission_rejected_director_step_is_retained_as_l0_without_work(
     assert retained["retained_as_l0"] is True
 
 
-def test_replayed_mesylate_removal_is_admitted_with_external_source_open(
+def test_compiled_external_atom_step_materializes_from_the_target_root(
     tmp_path: Path,
 ) -> None:
     kernel = _kernel(tmp_path)
     store = CanonicalHypergraphStore(kernel)
-    product = "CCOS(C)(=O)=O"
+    product = "CCOC(C)=O"
     precursor = "CCO"
-    mapped_product = "[CH3:1][CH2:2][O:3][S:4]([CH3:7])(=[O:5])=[O:6]"
-    operations = [{"op": "remove_group", "map_indices": [4, 5, 6, 7]}]
-    replay = replay_reactionjson(
+    mapped_product = "[CH3:1][CH2:2][O:3][C:4](=[O:5])[CH3:6]"
+    operations = [{"op": "remove_group", "map_indices": [4, 5, 6]}]
+    materialized = RouteJSONCompiler().compile_step(
         mapped_product_smiles=mapped_product,
         operations=operations,
-        expected_precursor_smiles=[precursor],
+        expected_product_smiles=product,
     )
-    reactionjson_audit = {
-        **replay,
-        "external_atom_source_required": True,
-        "external_atom_source_status": "declared_graph_edit_requires_validation",
-        "external_atom_source_grants_reaction_proof": False,
-    }
+    reactionjson_audit = dict(materialized.audit)
     row = {
-        "step_id": "step:mesylation",
+        "step_id": "step:acetylation",
         "product_smiles": product,
         "mapped_product_smiles": mapped_product,
         "precursor_smiles": [precursor],
         "reaction_operations": operations,
         "reactionjson_audit": reactionjson_audit,
-        "transformation_hypothesis": "alcohol mesylation",
+        "transformation_hypothesis": "alcohol acetylation",
     }
     _hypothesis_id, admission = hypothesis_identity(
         product,
@@ -1222,7 +1296,7 @@ def test_replayed_mesylate_removal_is_admitted_with_external_source_open(
 
     graph = store.apply(
         CanonicalIngestionBatch(hypotheses=(row,)),
-        idempotency_key="replayed-mesylation-external-source",
+        idempotency_key="compiled-acetylation-external-source",
     )["graph"]
     hypothesis = next(iter(graph["hypotheses"].values()))
 
@@ -1230,6 +1304,21 @@ def test_replayed_mesylate_removal_is_admitted_with_external_source_open(
     assert hypothesis["admission_reasons"] == []
     assert admission["replayed_external_atom_deficit_bound"] is True
     assert hypothesis["status"] == "frontier_candidate"
+
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    commands = store.frontier_materialization_commands()
+    assert len(commands) == 1
+    results = tuple(runtime.execute(command) for command in commands)
+    applied = store.apply(
+        CanonicalIngestionBatch(worker_results=results),
+        worker_runtime=runtime,
+        idempotency_key="materialize-compiled-acetylation-external-source",
+    )
+    materialized_graph = applied["graph"]
+    assert materialized_graph["edges"], applied["rejected"]
+    edge = next(iter(materialized_graph["edges"].values()))
+    assert edge["product_smiles"] == product
+    assert edge["precursor_smiles"] == [precursor]
 
 
 def test_codex_provider_delegation_becomes_one_canonical_expansion_deficit(

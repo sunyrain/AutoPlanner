@@ -91,10 +91,9 @@ ReactionJsonCandidateProvider = Callable[
 
 @dataclass(frozen=True, slots=True)
 class ReactionJsonPolicyResponse:
-    """Policy output plus leaves deliberately handed off by Route Builder."""
+    """One policy response; only Host/MCTS owns terminal decisions."""
 
     candidates: tuple[ReactionJsonExpansionCandidate, ...] = ()
-    stopped_product_smiles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,8 +141,6 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
         self.accepted_actions = 0
         self.duplicate_actions = 0
         self.rejected_candidates: list[dict[str, str]] = []
-        self.deferred_molecule_inchikeys: set[str] = set()
-        self.deferred_product_smiles: set[str] = set()
         self._node: MctsNode | None = None
 
     @property
@@ -161,11 +158,7 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
         cache_molecules: Sequence[TreeMolecule] | None = None,
     ) -> tuple[list[Any], list[float]]:
         del cache_molecules  # AiZ cache hints must never create paid calls.
-        active = [
-            mol
-            for mol in molecules or ()
-            if mol.inchi_key not in self.deferred_molecule_inchikeys
-        ]
+        active = list(molecules or ())
         if not active or self.calls_exhausted:
             return [], []
         if self._node is None:
@@ -182,24 +175,10 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
 
         if isinstance(raw_response, ReactionJsonPolicyResponse):
             proposed = list(raw_response.candidates)
-            active_inchikeys = {mol.inchi_key for mol in active}
-            for smiles in raw_response.stopped_product_smiles:
-                value = str(smiles or "").strip()
-                try:
-                    inchikey = _molecule_inchikey(value)
-                except Exception:
-                    continue
-                if inchikey in active_inchikeys:
-                    self.deferred_molecule_inchikeys.add(inchikey)
-                    self.deferred_product_smiles.add(value)
         else:
             proposed = list(raw_response or ())
 
-        mol_by_inchikey = {
-            mol.inchi_key: mol
-            for mol in active
-            if mol.inchi_key not in self.deferred_molecule_inchikeys
-        }
+        mol_by_inchikey = {mol.inchi_key: mol for mol in active}
         actions: list[Any] = []
         priors: list[float] = []
         seen: set[tuple[str, tuple[str, ...]]] = set()
@@ -253,12 +232,6 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
     def reset_cache(self) -> None:
         """There is no prediction cache; preserve the scientific call ledger."""
 
-    def all_molecules_deferred(self, molecules: Sequence[TreeMolecule]) -> bool:
-        active = list(molecules or ())
-        return bool(active) and all(
-            mol.inchi_key in self.deferred_molecule_inchikeys for mol in active
-        )
-
     def diagnostics(self) -> dict[str, Any]:
         return {
             "engine": "AiZynthFinder.MctsSearchTree",
@@ -270,8 +243,6 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
             "accepted_actions": self.accepted_actions,
             "duplicate_actions": self.duplicate_actions,
             "rejected_candidates": list(self.rejected_candidates),
-            "builder_deferred_leaf_count": len(self.deferred_molecule_inchikeys),
-            "builder_deferred_product_smiles": sorted(self.deferred_product_smiles),
             "calls_exhausted": self.calls_exhausted,
         }
 
@@ -462,14 +433,6 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
                     return True
             return False
 
-        def builder_deferred_all(node: MctsNode) -> bool:
-            for key in self.config.expansion_policy.selection or ():
-                policy = self.config.expansion_policy[key]
-                checker = getattr(policy, "all_molecules_deferred", None)
-                if callable(checker) and checker(node.state.expandable_mols):
-                    return True
-            return False
-
         # ``MctsNode.expand`` reverses an empty expansion by clearing both
         # flags.  Re-open only unsolved states and only while another LLM call
         # is available; a genuinely terminal stock state remains terminal.
@@ -477,7 +440,6 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
             if (
                 not leaf.state.is_terminal
                 and not policy_exhausted()
-                and not builder_deferred_all(leaf)
             ):
                 leaf.is_expandable = True
                 leaf.is_expanded = False
@@ -493,7 +455,6 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
                     if (
                         not child.state.is_terminal
                         and not policy_exhausted()
-                        and not builder_deferred_all(child)
                     ):
                         child.is_expandable = True
                         child.is_expanded = False
@@ -506,7 +467,6 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
                 if (
                     not leaf.state.is_terminal
                     and not policy_exhausted()
-                    and not builder_deferred_all(leaf)
                 ):
                     leaf.is_expandable = True
                     leaf.is_expanded = False
@@ -867,15 +827,12 @@ def _realized_strategy_milestone_count(node: MctsNode) -> int:
     for steps in grouped.values():
         required: set[tuple[int, int]] = set()
         realized: set[tuple[int, int]] = set()
-        has_anchor = False
         for step in steps:
             card = step.get("strategy_card")
             if isinstance(card, Mapping):
                 required.update(_strategy_map_pairs(card))
-            if step.get("strategy_anchor") is True:
-                has_anchor = True
             realized.update(_step_changed_map_pairs(step))
-        if (required and required.issubset(realized)) or (not required and has_anchor):
+        if required and required.issubset(realized):
             complete += 1
     return complete
 
@@ -913,8 +870,6 @@ def _node_satisfies_strategy_execution_contract(
                 realized_pairs.update(_step_changed_map_pairs(step))
         if not required_pairs.issubset(realized_pairs):
             return False
-    if _strategy_requires_chemical_anchor(strategy_text):
-        return _node_has_chemical_strategy_anchor(node)
     return True
 
 
@@ -960,36 +915,6 @@ def _strategy_required_execution_domains(strategy_text: str) -> frozenset[str]:
     if execution_domain in {"hybrid", "chemoenzymatic", "chemo-enzymatic"}:
         return frozenset({"chemical", "biological"})
     return frozenset()
-
-
-def _strategy_requires_chemical_anchor(strategy_text: str) -> bool:
-    try:
-        strategy = json.loads(str(strategy_text or ""))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return False
-    if not isinstance(strategy, Mapping):
-        return False
-    execution_domain = str(strategy.get("execution_domain") or "").strip().lower()
-    return execution_domain in {
-        "hybrid",
-        "chemoenzymatic",
-        "chemo-enzymatic",
-    } and any(
-        str(value or "").startswith("map_pair:")
-        for value in strategy.get("key_bond_signature") or ()
-    )
-
-
-def _node_has_chemical_strategy_anchor(node: MctsNode) -> bool:
-    actions, _nodes = node.path_to()
-    for action in actions:
-        step = action.metadata.get("autoplanner_route_step")
-        if not isinstance(step, Mapping) or step.get("strategy_anchor") is not True:
-            continue
-        domain = str(step.get("execution_domain") or "").strip().lower()
-        if domain == "chemical":
-            return True
-    return False
 
 
 def _node_route_execution_domains(node: MctsNode) -> frozenset[str]:

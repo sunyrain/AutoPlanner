@@ -189,6 +189,35 @@ if TYPE_CHECKING:
     from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 
 
+class TargetSolveCancelled(RuntimeError):
+    """Raised when a caller requests cooperative cancellation of a target solve."""
+
+
+class _CombinedCancelSignal:
+    """Expose the Event subset used by workers while keeping causes separate."""
+
+    def __init__(self, *events: Event | None) -> None:
+        self._events = tuple(event for event in events if event is not None)
+
+    def is_set(self) -> bool:
+        return any(event.is_set() for event in self._events)
+
+    def wait(self, timeout: float | None = None) -> bool:
+        if self.is_set():
+            return True
+        deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
+        while not self.is_set():
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            interval = 0.05 if remaining is None else min(0.05, remaining)
+            if self._events:
+                self._events[0].wait(interval)
+            else:
+                time.sleep(interval)
+        return True
+
+
 TARGET_SOLVE_REPORT_SCHEMA = "target_only_retrosynthesis_solve_report.v1"
 DEFAULT_TARGET_DIRECTOR_MODEL = str(SYNTHEX_MATCHED_PROFILE_DEFAULTS["model"])
 _DIRECTOR_TOPOLOGY_REASONS = frozenset(
@@ -217,6 +246,9 @@ def _is_isolated_paper_matched_profile(profile: str) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class TargetSolveConfig:
+    # Interactive Strategy Builder runs accept ordinary repository targets.
+    # Formal benchmark and CLI callers retain the fail-closed blind default.
+    run_scope: str = "blind"
     model: str = DEFAULT_TARGET_DIRECTOR_MODEL
     reasoning_effort: str = str(SYNTHEX_MATCHED_PROFILE_DEFAULTS["reasoning_effort"])
     execution_profile: str = "standard"
@@ -290,6 +322,7 @@ class TargetSolveConfig:
     enable_aizynthfinder_short_tail: bool = True
     aizynthfinder_python_executable: str = ""
     aizynthfinder_config_path: str = ""
+    aizynthfinder_runtime_root: str = ""
     aizynthfinder_short_tail_mode: str = "short_tail"
     native_short_tail_engine: str = "auto"
     enable_guided_chemenzy: bool = True
@@ -361,6 +394,8 @@ class TargetSolveConfig:
     schema_version: str = "target_solve_config.v1"
 
     def __post_init__(self) -> None:
+        if self.run_scope not in {"blind", "interactive"}:
+            raise ValueError("target solver run scope is invalid")
         if self.reasoning_effort not in {"low", "medium", "high"}:
             raise ValueError("target solver reasoning effort is invalid")
         if self.execution_profile not in {
@@ -566,7 +601,7 @@ def _resolve_execution_config(config: TargetSolveConfig) -> TargetSolveConfig:
     """
 
     if not _is_paper_reach_profile(config.execution_profile):
-        return config
+        return _bind_aizynthfinder_runtime(config)
     matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
     strict_matched = _is_isolated_paper_matched_profile(config.execution_profile)
     # The strict named profile cannot be turned into an enzyme/hybrid arm by a
@@ -587,7 +622,7 @@ def _resolve_execution_config(config: TargetSolveConfig) -> TargetSolveConfig:
         # maximum) instead of silently restoring 25. The formal panel protocol
         # separately requires the frozen 25-call value.
         route_builder_call_ceiling = int(config.max_node_expansions_per_branch)
-    return replace(
+    resolved = replace(
         config,
         strategy_search_profile="synthex_matched",
         strategy_tree_engine=str(matched["strategy_tree_engine"]),
@@ -642,6 +677,26 @@ def _resolve_execution_config(config: TargetSolveConfig) -> TargetSolveConfig:
         max_guided_chemenzy_iterations=int(matched["short_tail_iterations"]),
         guided_chemenzy_timeout_s=float(matched["short_tail_timeout_s"]),
     )
+    return _bind_aizynthfinder_runtime(resolved)
+
+
+def _bind_aizynthfinder_runtime(config: TargetSolveConfig) -> TargetSolveConfig:
+    """Resolve one durable AiZ runtime authority before scheduling work."""
+
+    if _native_short_tail_engine(config) != "aizynthfinder":
+        return config
+    binding = AiZynthFinderSidecarConfig(
+        python_executable=config.aizynthfinder_python_executable,
+        config_path=config.aizynthfinder_config_path,
+        runtime_root=config.aizynthfinder_runtime_root,
+        mode=config.aizynthfinder_short_tail_mode,
+    )
+    return replace(
+        config,
+        aizynthfinder_python_executable=str(binding.resolved_python()),
+        aizynthfinder_config_path=str(binding.resolved_config()),
+        aizynthfinder_runtime_root=str(binding.resolved_runtime_root()),
+    )
 
 
 def _frontier_native_search_enabled(config: TargetSolveConfig) -> bool:
@@ -667,6 +722,39 @@ def _strategy_tree_engine(config: TargetSolveConfig) -> str:
         if _is_paper_reach_profile(config.execution_profile)
         else "chemenzy_best_first"
     )
+
+
+def _interactive_target_preflight(
+    case: BlindCase,
+    *,
+    run_dir: str | Path,
+) -> dict[str, Any]:
+    """Bind an interactive target without asserting repository absence."""
+
+    destination = Path(run_dir).resolve()
+    fresh = not destination.exists() or (
+        destination.is_dir() and not any(destination.iterdir())
+    )
+    reasons = [] if fresh else ["interactive_run_directory_not_fresh"]
+    payload: dict[str, Any] = {
+        "schema_version": "interactive_target_preflight.v1",
+        "execution_scope": "interactive",
+        "case": case.to_dict(),
+        "run_dir": str(destination),
+        "fresh_run_directory": fresh,
+        "repository_absence_attested": False,
+        "repository_matches": [],
+        "accepted": not reasons,
+        "reasons": reasons,
+        "semantics": {
+            "target_only_input": True,
+            "repository_targets_are_allowed": True,
+            "repository_absence_is_not_a_requirement": True,
+            "preflight_grants_no_chemistry_authority": True,
+        },
+    }
+    payload["content_sha256"] = _digest(payload)
+    return payload
 
 
 def solve_target(
@@ -695,8 +783,15 @@ def solve_target(
     program_capabilities: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None = None,
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
     program_validation_feedback: Iterable[Mapping[str, Any]] = (),
+    cancel_event: Event | None = None,
 ) -> dict[str, Any]:
     """Run or resume the real SMILES-only campaign path through one V4 kernel."""
+
+    def raise_if_user_cancelled() -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise TargetSolveCancelled("target_solve_cancelled_by_user")
+
+    raise_if_user_cancelled()
 
     active = _resolve_execution_config(config or TargetSolveConfig())
     if _is_paper_reach_profile(active.execution_profile):
@@ -800,7 +895,11 @@ def solve_target(
         }
     )
     checkpoint_path = directory / ".autoplanner" / "target-solver-checkpoint.json"
-    preflight_path = directory / ".autoplanner" / "blind-preflight.json"
+    preflight_path = directory / ".autoplanner" / (
+        "blind-preflight.json"
+        if active.run_scope == "blind"
+        else "interactive-preflight.json"
+    )
     target_report_path = directory / "target-only-solve-report.json"
     existing = (directory / ".autoplanner" / "kernel" / "run_spec.json").is_file()
     prior_saved_report: dict[str, Any] = {}
@@ -808,7 +907,14 @@ def solve_target(
         raise BlindBenchmarkError("blind_run_exists_use_resume")
     if existing:
         checkpoint = _read_checkpoint(checkpoint_path)
-        preflight = _read_json_object(preflight_path, "blind_preflight_missing_on_resume")
+        preflight = _read_json_object(
+            preflight_path,
+            (
+                "blind_preflight_missing_on_resume"
+                if active.run_scope == "blind"
+                else "interactive_preflight_missing_on_resume"
+            ),
+        )
         if target_report_path.is_file():
             prior_saved_report = _read_json_object(
                 target_report_path,
@@ -818,20 +924,27 @@ def solve_target(
             dict(preflight.get("case") or {}).get("target_smiles") != canonical
             or preflight.get("accepted") is not True
         ):
-            raise BlindBenchmarkError("blind_resume_preflight_binding_invalid")
+            raise BlindBenchmarkError(
+                "blind_resume_preflight_binding_invalid"
+                if active.run_scope == "blind"
+                else "interactive_resume_preflight_binding_invalid"
+            )
     else:
         checkpoint = _empty_checkpoint(identity)
-        preflight = audit_blind_preflight(
-            case,
-            repository_root=(
-                Path(active.blind_audit_root).expanduser().resolve()
-                if active.blind_audit_root
-                else gateway.paths.repository_root
-            ),
-            run_dir=directory,
-            manifest_path=manifest_path,
-            additional_allowed_paths=active.blind_audit_allowed_paths,
-        )
+        if active.run_scope == "blind":
+            preflight = audit_blind_preflight(
+                case,
+                repository_root=(
+                    Path(active.blind_audit_root).expanduser().resolve()
+                    if active.blind_audit_root
+                    else gateway.paths.repository_root
+                ),
+                run_dir=directory,
+                manifest_path=manifest_path,
+                additional_allowed_paths=active.blind_audit_allowed_paths,
+            )
+        else:
+            preflight = _interactive_target_preflight(case, run_dir=directory)
         if preflight.get("accepted") is not True:
             raise BlindBenchmarkError(";".join(preflight.get("reasons") or []))
         gateway.create_run(
@@ -899,6 +1012,10 @@ def solve_target(
     if active.minimum_planning_route_steps > director_profile["max_steps_per_skeleton"]:
         raise ValueError("minimum planning route depth exceeds execution profile capacity")
     result_delivery_cancel_event = Event()
+    worker_cancel_signal = _CombinedCancelSignal(
+        cancel_event,
+        result_delivery_cancel_event,
+    )
     # A caller-supplied runner is an explicit implementation override.  Only
     # grant the matched profile's six host-validated local-repair rounds when
     # the actual runner implements the compact sequential policy; legacy or
@@ -1050,7 +1167,7 @@ def solve_target(
                 worker_record_seed_recovery_mode=os.environ.get(
                     "AUTOPLANNER_SEQUENTIAL_WORKER_JOURNAL_RECOVERY_MODE", ""
                 ),
-                cancel_event=result_delivery_cancel_event,
+                cancel_event=worker_cancel_signal,
             )
         else:
             def resolved_director_runner(
@@ -1064,7 +1181,7 @@ def solve_target(
                     context,
                     mode,
                     config,
-                    cancel_event=result_delivery_cancel_event,
+                    cancel_event=worker_cancel_signal,
                 )
 
     service = gateway._open(
@@ -1551,8 +1668,10 @@ def solve_target(
                 sidecar_config=AiZynthFinderSidecarConfig(
                     python_executable=active.aizynthfinder_python_executable,
                     config_path=active.aizynthfinder_config_path,
+                    runtime_root=active.aizynthfinder_runtime_root,
                     mode=active.aizynthfinder_short_tail_mode,
                 ),
+                cancel_event=worker_cancel_signal,
                 # SynthEx scores only a complete AiZ route whose every leaf
                 # reaches the frozen stock.  Importing the best partial tail
                 # is an AutoPlanner repair enhancement and would otherwise
@@ -3482,6 +3601,7 @@ def solve_target(
         ),
         on_execution=observe_unified_core_execution,
     )
+    raise_if_user_cancelled()
     anytime_budget_exhausted = bool(
         unified_core_loop.get("termination") == "budget_exhausted"
         or service.kernel.state.status == "budget_exhausted"
@@ -3680,6 +3800,7 @@ def solve_target(
         stages.append(_stage("global_campaign", initial["status"], initial))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
 
+    raise_if_user_cancelled()
     post_director_materialization_executions = project_action_results(
         "post_director_materialize",
         (CampaignActionKind.MATERIALIZE,),
@@ -3962,6 +4083,7 @@ def solve_target(
             _stage("guided_reaction_validation", guided_validation["status"], guided_validation)
         )
 
+    raise_if_user_cancelled()
     # Evidence discovery and leaf stock audit deliberately precede the only
     # optional replan.  Their host-owned observations therefore enter the next
     # CampaignContext instead of making the director repeat a blind first pass.
@@ -4322,6 +4444,7 @@ def solve_target(
         "prompt_context_bytes": replan_prompt_context_bytes,
         "trigger_reasons": list(replan_reasons),
     }
+    raise_if_user_cancelled()
     replan_executed = False
     model_cost_before_replan: dict[str, Any] = {}
     if needs_replan:
@@ -4690,6 +4813,7 @@ def solve_target(
                 program_admission,
             )
         )
+    raise_if_user_cancelled()
     _mark_stage_running(
         checkpoint_path,
         identity,
@@ -4927,6 +5051,7 @@ def solve_target(
             idempotency_key=f"solve-target:bounded-pass:{service.kernel.state.revision}",
             reasons=("bounded_pass_complete_requires_resume",),
         )
+    raise_if_user_cancelled()
     stop = service.kernel.apply_stop_decision(
         idempotency_key=f"solve-target:stop:{service.kernel.state.revision}"
     ).to_dict()
@@ -8248,9 +8373,7 @@ def _paper_matched_primary_projection(
                 "strategy_calls": int(family.get("strategy_call_count") or 0),
                 "actual_policy_calls": actual_calls,
                 "provider_callback_count": int(
-                    search.get("provider_callback_count")
-                    or search.get("reported_policy_calls")
-                    or 0
+                    search.get("provider_callback_count") or 0
                 ),
                 "maximum_policy_calls": maximum_calls,
                 "stock_closed_before_short_tail": stock_closed,
@@ -9267,5 +9390,6 @@ __all__ = [
     "TARGET_SOLVE_CHECKPOINT_SCHEMA",
     "TARGET_SOLVE_REPORT_SCHEMA",
     "TargetSolveConfig",
+    "TargetSolveCancelled",
     "solve_target",
 ]

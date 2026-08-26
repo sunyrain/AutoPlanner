@@ -25,6 +25,8 @@ RDLogger.DisableLog("rdApp.*")
 REACTIONJSON_PROFILE = "reactionjson_public_profile.2026-08-17.v1"
 REACTIONJSON_REPLAY_AUDIT_SCHEMA = "reactionjson_replay_audit.v1"
 UPSTREAM_PUBLIC_COMMIT = "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f"
+
+
 def replay_reactionjson(
     *,
     mapped_product_smiles: str,
@@ -47,10 +49,24 @@ def replay_reactionjson(
         for row in rows
         if row["op"] == "set_explicit_h"
     }
-    try:
-        for row in rows:
+    for operation_index, row in enumerate(rows):
+        try:
             valence_completion_maps.update(valence_affected_maps(editable, row))
             editable = apply_operation(editable, row)
+        except ReactionJsonReplayError as exc:
+            raise ReactionJsonReplayError(
+                str(exc),
+                operation_index=operation_index,
+                failed_operation=row,
+                failure_context=_operation_failure_context(editable, row, exc),
+            ) from exc
+        except Exception as exc:
+            raise ReactionJsonReplayError(
+                "reactionjson_replay_failed",
+                operation_index=operation_index,
+                failed_operation=row,
+            ) from exc
+    try:
         completed_maps = complete_edited_atom_valences(
             editable,
             map_indices=valence_completion_maps - explicit_h_maps,
@@ -138,6 +154,7 @@ def diagnose_reactionjson(
             "schema_version": "reactionjson_replay_diagnostic.v1",
             "replay_succeeded": False,
             "reason": str(exc),
+            **reactionjson_failure_focus(exc),
             "declared_precursor_smiles": declared,
             "replayed_precursor_smiles": [],
             "declared_precursors_match": False,
@@ -154,6 +171,66 @@ def diagnose_reactionjson(
         ),
         "declared_precursors_match": bool(declared and declared == replayed),
     }
+
+
+def reactionjson_failure_focus(exc: ReactionJsonReplayError) -> dict[str, Any]:
+    """Return only the operation-local fields needed for a causal retry."""
+
+    focus: dict[str, Any] = {}
+    operation_index = getattr(exc, "operation_index", None)
+    if isinstance(operation_index, int):
+        focus["operation_index"] = operation_index
+    failed_operation = getattr(exc, "failed_operation", None)
+    if isinstance(failed_operation, Mapping):
+        focus["failed_operation"] = dict(failed_operation)
+    failure_context = getattr(exc, "failure_context", None)
+    if isinstance(failure_context, Mapping):
+        focus.update(dict(failure_context))
+    return focus
+
+
+def _operation_failure_context(
+    molecule: Chem.RWMol,
+    row: Mapping[str, Any],
+    exc: ReactionJsonReplayError,
+) -> dict[str, Any]:
+    if str(exc) != "reactionjson_aromatic_bond_requires_aromatic_atoms":
+        return {}
+    endpoint_aromaticity: dict[str, bool] = {}
+    if row.get("op") == "add_bond":
+        for key in ("map_a", "map_b"):
+            aromatic = _mapped_atom_aromaticity(molecule, row.get(key))
+            if aromatic is not None:
+                endpoint_aromaticity[key] = aromatic
+    elif row.get("op") == "add_group":
+        anchor_aromatic = _mapped_atom_aromaticity(molecule, row.get("map_idx"))
+        if anchor_aromatic is not None:
+            endpoint_aromaticity["anchor"] = anchor_aromatic
+        fragment = Chem.MolFromSmiles(str(row.get("fragment_smiles") or "").strip())
+        if fragment is not None:
+            dummies = [atom for atom in fragment.GetAtoms() if atom.GetAtomicNum() == 0]
+            if len(dummies) == 1 and dummies[0].GetDegree() == 1:
+                endpoint_aromaticity["fragment_attachment"] = bool(
+                    dummies[0].GetNeighbors()[0].GetIsAromatic()
+                )
+    return {
+        "endpoint_aromaticity": endpoint_aromaticity,
+        "allowed_orders": [1, 2, 3],
+    }
+
+
+def _mapped_atom_aromaticity(
+    molecule: Chem.RWMol,
+    map_value: Any,
+) -> bool | None:
+    try:
+        map_idx = int(map_value)
+    except (TypeError, ValueError):
+        return None
+    for atom in molecule.GetAtoms():
+        if int(atom.GetAtomMapNum()) == map_idx:
+            return bool(atom.GetIsAromatic())
+    return None
 
 
 def _require_complete_unique_maps(molecule: Chem.Mol, *, reason: str) -> None:

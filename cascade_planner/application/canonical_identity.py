@@ -25,6 +25,7 @@ def reaction_edge_identity(
     product_smiles: Any,
     precursor_smiles: Iterable[Any],
     *,
+    mapped_reaction_smiles: Any = "",
     mapped_product_smiles: Any = "",
     reaction_operations: Iterable[Mapping[str, Any]] = (),
     reactionjson_audit: Mapping[str, Any] | None = None,
@@ -32,6 +33,7 @@ def reaction_edge_identity(
     audit = audit_retrosynthetic_candidate(
         product_smiles,
         precursor_smiles,
+        mapped_reaction_smiles=mapped_reaction_smiles,
         mapped_product_smiles=mapped_product_smiles,
         reaction_operations=reaction_operations,
         reactionjson_audit=reactionjson_audit,
@@ -112,6 +114,7 @@ def hypothesis_identity(
     product_smiles: Any,
     precursor_smiles: Iterable[Any],
     *,
+    mapped_reaction_smiles: Any = "",
     mapped_product_smiles: Any = "",
     reaction_operations: Iterable[Mapping[str, Any]] = (),
     reactionjson_audit: Mapping[str, Any] | None = None,
@@ -119,6 +122,7 @@ def hypothesis_identity(
     edge_id, audit = reaction_edge_identity(
         product_smiles,
         precursor_smiles,
+        mapped_reaction_smiles=mapped_reaction_smiles,
         mapped_product_smiles=mapped_product_smiles,
         reaction_operations=reaction_operations,
         reactionjson_audit=reactionjson_audit,

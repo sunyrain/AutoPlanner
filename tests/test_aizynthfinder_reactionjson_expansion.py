@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 
 import pytest
 
@@ -9,6 +10,50 @@ pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("aizynthfinder") is None,
     reason="runs in the isolated requirements_aizynth.txt environment",
 )
+
+
+def test_paper_strategy_query_does_not_turn_builder_role_into_search_control() -> None:
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        _node_satisfies_strategy_execution_contract,
+    )
+
+    class Action:
+        def __init__(self, step):
+            self.metadata = {"autoplanner_route_step": step}
+
+    class Node:
+        def __init__(self, steps):
+            self._actions = [Action(step) for step in steps]
+
+        def path_to(self):
+            return self._actions, []
+
+    strategy_text = json.dumps(
+        {
+            "strategy_query": "Construct the decalin through an IMDA.",
+            "strategy_signature": "IMDA-decalin",
+        }
+    )
+    enabling = Node(
+        [{"step_role": "enabling", "strategy_anchor": False}]
+    )
+    key = Node(
+        [
+            {"step_role": "enabling", "strategy_anchor": False},
+            {"step_role": "key", "strategy_anchor": True},
+        ]
+    )
+
+    assert (
+        _node_satisfies_strategy_execution_contract(
+            enabling, strategy_text=strategy_text
+        )
+        is True
+    )
+    assert (
+        _node_satisfies_strategy_execution_contract(key, strategy_text=strategy_text)
+        is True
+    )
 
 
 def _imports():
@@ -356,7 +401,7 @@ def test_unsolved_branch_projects_best_replayed_descendant_not_empty_root() -> N
     assert result.diagnostics["selected_depth"] == 1
 
 
-def test_builder_stop_defers_each_leaf_without_repeating_provider_call() -> None:
+def test_empty_builder_responses_leave_termination_to_mcts_budget() -> None:
     from aizynthfinder.context.stock.queries import StockQueryMixin
     from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
         ReactionJsonExpansionCandidate,
@@ -392,28 +437,25 @@ def test_builder_stop_defers_each_leaf_without_repeating_provider_call() -> None
                     ),
                 )
             )
-        return ReactionJsonPolicyResponse(
-            stopped_product_smiles=(request.expandable_smiles[0],)
-        )
+        return ReactionJsonPolicyResponse()
 
     result = run_reactionjson_branch(
         target_smiles="CCO",
-        strategy_id="builder-stop",
-        strategy_text="defer simple leaves",
+        strategy_id="host-termination",
+        strategy_text="retain unresolved leaves until the Host budget ends",
         candidate_provider=candidate_provider,
         stock_query=EmptyStock(),
-        max_policy_calls=10,
+        max_policy_calls=4,
         max_candidates_per_call=1,
         max_transforms=3,
     )
 
     assert requests[0] == ("CCO",)
-    assert len(requests) == 3
-    assert len(requests[1]) == 2
-    assert len(requests[2]) == 1
-    assert set(requests[2]).issubset(set(requests[1]))
-    assert result.policy_calls == 3
-    assert result.diagnostics["builder_deferred_leaf_count"] == 2
+    assert len(requests) == 4
+    assert all(len(request) == 2 for request in requests[1:])
+    assert result.policy_calls == 4
+    assert result.diagnostics["calls_exhausted"] is True
+    assert not any("handoff" in key for key in result.diagnostics)
 
 
 def test_unsolved_projection_prefers_deepest_connected_route_over_shallow_reward() -> None:
@@ -564,7 +606,7 @@ def test_hybrid_branch_projection_preserves_materialized_chemical_and_biological
     assert result.diagnostics["selected_strategy_execution_contract_satisfied"] is True
 
 
-def test_partial_projection_retains_deepest_realized_strategy_milestone() -> None:
+def test_unmapped_role_labels_do_not_count_as_realized_strategy_milestones() -> None:
     from aizynthfinder.context.stock.queries import StockQueryMixin
     from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
         ReactionJsonExpansionCandidate,
@@ -633,8 +675,8 @@ def test_partial_projection_retains_deepest_realized_strategy_milestone() -> Non
         "upstream-milestone",
     ]
     assert result.diagnostics["selected_depth"] == 2
-    assert result.diagnostics["selected_realized_strategic_milestones"] == 2
-    assert result.diagnostics["maximum_realized_strategic_milestones_in_tree"] == 2
+    assert result.diagnostics["selected_realized_strategic_milestones"] == 0
+    assert result.diagnostics["maximum_realized_strategic_milestones_in_tree"] == 0
 
 
 def test_director_worker_record_is_host_replayed_before_aiz_action() -> None:

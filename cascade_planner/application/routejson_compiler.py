@@ -17,6 +17,9 @@ from .reactionjson_replay import (
     replay_reactionjson,
 )
 from .strategy_contract import normalize_reaction_operations
+from cascade_planner.routes.admission import (
+    replayed_external_atom_deficit_is_bound,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +32,22 @@ class MaterializedReaction:
     mapped_precursor_smiles: tuple[str, ...]
     reaction_operations: tuple[Mapping[str, Any], ...]
     audit: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class MappedOpenPrecursor:
+    """One host-owned open RouteJSON frontier boundary."""
+
+    product_smiles: str
+    mapped_product_smiles: str
+
+
+@dataclass(frozen=True, slots=True)
+class RouteGraphReplayState:
+    """Compiled reactions plus the exact mapped frontier left open by replay."""
+
+    reactions: tuple[MaterializedReaction, ...]
+    open_precursors: tuple[MappedOpenPrecursor, ...]
 
 
 class RouteJSONCompiler:
@@ -89,6 +108,25 @@ class RouteJSONCompiler:
         )
         if not precursors or len(precursors) != len(mapped_precursors):
             raise ReactionJsonReplayError("routejson_compiler_precursor_output_invalid")
+        if replayed_external_atom_deficit_is_bound(
+            canonical_product,
+            precursors,
+            mapped_product_smiles=product,
+            reaction_operations=normalized,
+        ):
+            # This is the single host-owned binding for product atoms supplied
+            # by an omitted forward reagent or donor.  Every RouteJSON path
+            # (Builder, Editor, linear, or DAG) consumes this compiler audit,
+            # so canonical admission never depends on a caller copying the
+            # same derived status fields correctly.
+            audit = {
+                **dict(audit),
+                "external_atom_source_required": True,
+                "external_atom_source_status": (
+                    "declared_graph_edit_requires_validation"
+                ),
+                "external_atom_source_grants_reaction_proof": False,
+            }
         return MaterializedReaction(
             product_smiles=canonical_product,
             mapped_product_smiles=product,
@@ -195,13 +233,30 @@ class RouteJSONCompiler:
         steps: Iterable[Mapping[str, Any]],
         minimum_depth: int = 1,
     ) -> tuple[MaterializedReaction, ...]:
+        """Replay a target-rooted RouteJSON DAG and return its reactions."""
+
+        return self.compile_route_graph_state(
+            mapped_target_smiles=mapped_target_smiles,
+            steps=steps,
+            minimum_depth=minimum_depth,
+        ).reactions
+
+    def compile_route_graph_state(
+        self,
+        *,
+        mapped_target_smiles: str,
+        steps: Iterable[Mapping[str, Any]],
+        minimum_depth: int = 1,
+    ) -> RouteGraphReplayState:
         """Replay a topologically ordered RouteJSON DAG.
 
         A linear validator only carries the immediately previous precursor
         set. Real retrosyntheses branch, so sibling precursors exposed by an
         earlier step must remain available while another branch is expanded.
         Every non-root row is bound to one host-derived open structure before
-        its ReactionJSON edit is applied.
+        its ReactionJSON edit is applied. The returned frontier is the same
+        host-owned mapped state used for that binding; callers must never
+        reconstruct it from model-declared ``mapped_product_smiles`` fields.
         """
 
         rows = [dict(value) for value in steps if isinstance(value, Mapping)]
@@ -246,6 +301,11 @@ class RouteJSONCompiler:
                         "routejson_compiler_product_not_open_precursor"
                     )
                 current_product, current_mapped = match
+                # The matched boundary is no longer open after this row is
+                # expanded. Keeping consumed pairs in the frontier made it
+                # impossible to return a truthful mapped open-precursor state
+                # to an Editor retry.
+                available.remove(match)
                 declaration_mismatch = declared_product != current_product
             if current_product in seen_products:
                 raise ReactionJsonReplayError("routejson_compiler_product_cycle")
@@ -279,7 +339,16 @@ class RouteJSONCompiler:
                     strict=True,
                 )
             )
-        return tuple(compiled)
+        return RouteGraphReplayState(
+            reactions=tuple(compiled),
+            open_precursors=tuple(
+                MappedOpenPrecursor(
+                    product_smiles=product,
+                    mapped_product_smiles=mapped,
+                )
+                for product, mapped in available
+            ),
+        )
 
     @staticmethod
     def assemble_route(
@@ -472,4 +541,9 @@ def _align_mapped_precursors(
     return tuple(aligned)
 
 
-__all__ = ["MaterializedReaction", "RouteJSONCompiler"]
+__all__ = [
+    "MappedOpenPrecursor",
+    "MaterializedReaction",
+    "RouteGraphReplayState",
+    "RouteJSONCompiler",
+]

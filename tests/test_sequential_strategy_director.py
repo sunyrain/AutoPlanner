@@ -136,13 +136,14 @@ def test_paper_matched_strategy_prompt_builds_a_diverse_four_point_portfolio() -
     assert "exactly three independent high-level strategies" in prompt
     assert "single call" in prompt
     assert "paper's four dimensions" in prompt
-    assert "strategy_query is the one-sentence steering query" in prompt
-    assert "one short sentence or a short list" in prompt
+    assert "one strategy_query sentence" in prompt
+    assert "one short strategy_signature" in prompt
     assert "skeletal construction or reorganization" in prompt
-    assert "reactive-handle logic" in prompt
-    assert "suggested target-rooted anchors only" in prompt
-    assert "Do not draw precursors" in prompt
+    assert "reactive-handle motif" in prompt
+    assert "stereochemical or functional-group control" in prompt
+    assert "Do not output atom-map pairs" in prompt
     assert "mechanistic essay" in prompt
+    assert "campaign_target_mapped" not in prompt
     assert "execution_domain=chemical" not in prompt
     assert "ketyl" not in prompt.lower()
     assert "grob" not in prompt.lower()
@@ -176,23 +177,180 @@ def test_paper_matched_node_prompt_is_compact_single_reactionjson_policy() -> No
         paper_matched=True,
     )
 
-    assert "Route Builder for one MCTS node" in prompt
-    assert "strategy.strategy_query as the primary steering prior" in prompt
-    assert "not a graph-completion checklist" in prompt
-    assert "step as key, enabling, or supporting" in prompt
-    assert "atom/H/charge/redox accounting" in prompt
-    assert "feasibility_check" in prompt
+    assert "next-step expansion policy for one selected MCTS node" in prompt
+    assert "steering hypothesis" in prompt
+    assert "guides the whole pathway" in prompt
+    assert "work out a complete chemically coherent pathway" in prompt
+    assert "one-object output boundary does not limit route-level reasoning" in prompt
+    assert "do not generate the remaining route" not in prompt
+    assert "future steps" not in prompt
+    assert "Do not plan" not in prompt
+    assert "strategy_relation" not in prompt
+    assert "complete connected bond-change pattern" in prompt
+    assert "do not split one reaction into fictitious intermediate steps" in prompt
+    assert "actual net graph edit, not the reaction name" in prompt
+    assert "cannot substitute for missing topology or stereochemical information" in prompt
+    assert "feasibility_check" not in prompt
+    assert "reaction_intent" in prompt
+    assert "move_role" in prompt
+    assert "Host-replayable precursor-to-product transformation" in prompt
+    assert "unverified Builder claim" in prompt
+    assert "never infer completion from claimed_move_role=key" in prompt
+    assert "include any catalyst there" in prompt
     assert "mentally replay it" in prompt
+    assert "change_bond_order uses signed delta" in prompt
+    assert "change_atom changes formal_charge or isotope only" in prompt
+    assert "exactly one [*] attachment atom" in prompt
+    assert "add_bond always creates a single bond and has no order field" in prompt
+    assert "follow add_bond with change_bond_order delta 1 or 2" in prompt
+    assert "[*]=O" in prompt
+    assert "do not output order" in prompt
+    assert "1.5" not in prompt
+    assert "stereo_atom_maps only for E/Z/CIS/TRANS" in prompt
     assert "Return no complete RouteJSON" in prompt
     assert '"strategy_anchor_progress"' not in prompt
     assert '"remaining_map_pairs"' not in prompt
-    assert "simple_for_explorative_search" in prompt
-    assert "A stop is never a stock or solved claim" in prompt
+    assert "handoff" in prompt
+    assert "has no handoff, fail, stop, or solved action" in prompt
+    assert "fail_branch" not in prompt
+    assert "route_complete" not in prompt
+    assert "strategy_progress" not in prompt
+    assert "key_step_seen" not in prompt
+    assert "The Host/MCTS alone decides termination" in prompt
     assert "Expand exactly one retrosynthetic node" not in prompt
-    assert '"schema_version":"paper_matched_route_builder_context.v1"' in prompt
+    assert '"schema_version":"paper_matched_route_builder_context.v5"' in prompt
     assert "forbidden_root_strategies" not in prompt
     assert "campaign_target_profile" not in prompt
     assert "biocatalytic_intent" not in prompt
+    context = json.loads(prompt.split("PaperMatchedRouteBuilderContext:\n", 1)[1])
+    assert set(context["strategy"]) == {"strategy_query", "strategy_signature"}
+    assert "key_bond_changes" not in context["strategy"]
+    assert "accepted_strategy_spine" not in context
+    assert "strategy_progress" not in context
+    assert "accepted_path" not in context
+    assert "open_leaves" not in context
+    assert context["connected_path_reactions"] == []
+    assert context["ancestor_smiles"] == []
+    assert context["last_rejection_for_this_leaf"] == {}
+
+
+def test_paper_builder_context_keeps_reaction_spine_roles_without_conditions() -> None:
+    prompt = _node_prompt(
+        target="CCO",
+        branch_index=0,
+        lens="neutral",
+        selected_product="CO",
+        selected_product_mapped="[CH3:2][OH:3]",
+        steps=(
+            {
+                "step_id": "route:1",
+                "product_smiles": "CCO",
+                "precursor_smiles": ["C", "CO"],
+                "transformation_hypothesis": "downstream ring opening",
+                "strategic_role": "Expose the diene needed for the planned IMDA.",
+                "step_role": "enabling",
+                "condition_predictions": [
+                    {"reagents": ["bulky base"], "catalyst": "Pd complex"}
+                ],
+            },
+        ),
+        open_leaves=("C", "CO", "unrelated-open-leaf"),
+        prior_rejections=(),
+        repair=False,
+        strategy_card={
+            "strategy_query": "Construct the decalin through an IMDA.",
+            "strategy_signature": "IMDA-decalin",
+        },
+        forbidden_strategy_cards=(),
+        host_failure_feedback={},
+        paper_matched=True,
+    )
+
+    context = json.loads(prompt.split("PaperMatchedRouteBuilderContext:\n", 1)[1])
+    assert "accepted_strategy_spine" not in context
+    assert "strategy_progress" not in context
+    serialized = json.dumps(context, ensure_ascii=False)
+    assert "downstream ring opening" in serialized
+    assert '"claimed_move_role": "enabling"' in serialized
+    assert "Expose the diene" not in serialized
+    assert "bulky base" not in serialized
+    assert "Pd complex" not in serialized
+    assert "unrelated-open-leaf" not in serialized
+    assert '"precursor_smiles"' not in serialized
+
+
+def test_paper_builder_context_keeps_only_connected_structural_ancestors() -> None:
+    prompt = _node_prompt(
+        target="CCCO",
+        branch_index=0,
+        lens="neutral",
+        selected_product="C",
+        selected_product_mapped="[CH4:1]",
+        steps=(
+            {
+                "product_smiles": "CCCO",
+                "precursor_smiles": ["CC", "O"],
+                "step_role": "key",
+                "transformation_hypothesis": "root split",
+            },
+            {
+                "product_smiles": "CC",
+                "precursor_smiles": ["C"],
+                "step_role": "enabling",
+                "transformation_hypothesis": "connected edit",
+            },
+            {
+                "product_smiles": "O",
+                "precursor_smiles": ["[H][H]"],
+                "step_role": "supporting",
+                "transformation_hypothesis": "unrelated sibling edit",
+            },
+        ),
+        open_leaves=("C",),
+        prior_rejections=(
+            {
+                "reason": "candidate_returns_to_ancestor",
+                "product_smiles": "C",
+                "ancestor_smiles": ["CC"],
+            },
+            {
+                "reason": "failure_from_other_leaf_must_not_leak",
+                "product_smiles": "O",
+            },
+        ),
+        repair=False,
+        strategy_card={
+            "strategy_query": "Disconnect the carbon chain.",
+            "strategy_signature": "chain disconnection",
+        },
+        forbidden_strategy_cards=(),
+        host_failure_feedback={},
+        paper_matched=True,
+    )
+
+    context = json.loads(prompt.split("PaperMatchedRouteBuilderContext:\n", 1)[1])
+    assert context["ancestor_smiles"] == ["CC", "CCCO"]
+    assert [row["reaction_family"] for row in context["connected_path_reactions"]] == [
+        "root split",
+        "connected edit",
+    ]
+    assert context["last_rejection_for_this_leaf"] == {
+        "ancestor_smiles": ["CC"],
+        "product_smiles": "C",
+        "reason": "candidate_returns_to_ancestor",
+        "replay_diagnostic": {"reason": "candidate_returns_to_ancestor"},
+    }
+    serialized = json.dumps(context, ensure_ascii=False)
+    assert "unrelated sibling edit" not in serialized
+    assert "failure_from_other_leaf_must_not_leak" not in serialized
+    assert [
+        row["claimed_move_role"]
+        for row in context["connected_path_reactions"]
+    ] == [
+        "key",
+        "enabling",
+    ]
+    assert '"step_role"' not in serialized
 
 
 def test_editor_prompt_allows_paper_level_route_repair_without_truncation() -> None:
@@ -218,6 +376,7 @@ def test_editor_prompt_allows_paper_level_route_repair_without_truncation() -> N
                 "reaction_operations": [
                     {"op": "break_bond", "map_a": 2, "map_b": 3}
                 ],
+                "strategy_anchor": True,
             },
             {
                 "step_id": "route:2",
@@ -241,17 +400,45 @@ def test_editor_prompt_allows_paper_level_route_repair_without_truncation() -> N
         paper_matched=True,
     )
 
-    assert "Repair every concrete Critic blocker" in prompt
-    assert "one coordinated route_patch" in prompt
-    assert "compare at least two repair architectures" in prompt
-    assert "output only the chosen patch" in prompt
-    assert "impossible named mechanism or exact bond cut is not sacred" in prompt
-    assert "update every affected dependency in the same patch" in prompt
-    assert "set_conditions changes only conditions/catalyst" in prompt
-    assert "Uncertainty alone is not grounds for abstention" in prompt
-    assert "repair_status=unrepairable" in prompt
-    assert "Do not output route_json" in prompt
-    assert "Never truncate an unresolved suffix" in prompt
+    assert "complete Host-replayed route" in prompt
+    assert "smallest dependency-closed replace_span" in prompt
+    assert "one row, several rows, or the whole route" in prompt
+    assert "Choose the target-side steps" in prompt
+    assert "directly generate every retained boundary" in prompt
+    assert "include the incompatible retained step" in prompt
+    assert "unsupported intermediate transformation" in prompt
+    assert "rejected_net_edit_signatures" in prompt
+    assert "Host preserves every unlisted row" in prompt
+    assert "every later product_smiles must be emitted by an earlier row" in prompt
+    assert "Never put a newly exposed precursor into the replacing row's product_smiles" in prompt
+    assert "route_patch" not in prompt
+    assert "do not repeat the failed edit unchanged" in prompt
+    assert "every field change claimed in repair_summary" in prompt
+    assert "add_bond always creates a single bond and has no order field" in prompt
+    assert "follow add_bond with change_bond_order delta 1 or 2" in prompt
+    assert "do not output order" in prompt
+    assert "1.5" not in prompt
+    assert "change_bond_order uses signed delta" in prompt
+    assert "exactly one [*] attachment atom" in prompt
+    assert "introduce or remove atoms explicitly through add_group/remove_group" in prompt
+    assert "Do not output mapped_product_smiles" in prompt
+    assert "step_role" not in prompt
+    assert "New structures are allowed only when introduced through explicit" in prompt
+    assert "repair_status=unrepairable" not in prompt
+    assert "Do not output route_json" not in prompt
+    assert "fewest rows" in prompt
+    assert "supplied structures" not in prompt
+    editor_context = json.loads(
+        prompt.split("PaperMatchedRouteEditorContext:\n", 1)[1]
+    )
+    assert set(editor_context["strategy"]) == {
+        "strategy_query",
+        "strategy_signature",
+    }
+    assert "route_json" in editor_context
+    assert "critic_annotations" in editor_context
+    assert "frozen_route" not in editor_context
+    assert "critic_feedback" not in editor_context
 
 
 def test_critic_prompt_separates_uncertainty_from_reject_and_keeps_full_route() -> None:
@@ -272,6 +459,7 @@ def test_critic_prompt_separates_uncertainty_from_reject_and_keeps_full_route() 
                 "reaction_operations": [
                     {"op": "break_bond", "map_a": 2, "map_b": 3}
                 ],
+                "strategy_anchor": True,
             },
         ),
         paper_matched=True,
@@ -280,10 +468,21 @@ def test_critic_prompt_separates_uncertainty_from_reject_and_keeps_full_route() 
     assert "pass means executable as written" in prompt
     assert "merely underspecified conditions are not blockers" in prompt
     assert "exact host-derived mapped products" in prompt
+    assert "net structural/H/charge/redox plausibility" in prompt
+    assert "preserve mapped element identity" in prompt
+    assert "change_atom may change formal charge or isotope only" in prompt
+    assert "non-route reagents" in prompt
     assert "at most two concrete reasons" in prompt
-    assert "strategy_adherence is advisory" in prompt
+    assert "Builder key label or host anchor claim is not evidence" in prompt
+    assert "is intentionally absent from this input" in prompt
+    assert "strategy_adherence=false" in prompt
+    assert "blocking_type=sequence_dependency" in prompt
+    assert "route-contract contradiction, not a score penalty" in prompt
     assert "without complementary handles" in prompt
-    assert "never improve the score by truncating" in prompt
+    assert "changed reaction label" in prompt
+    assert "direct C-H/C-H bond formation" in prompt
+    assert "site activation, redox balance, ring geometry" in prompt
+    assert "target-to-current-frontier boundary" in prompt
     assert "long mechanistic analysis" in prompt
     context = json.loads(prompt.split("PaperMatchedRouteCriticInput:\n", 1)[1])
     assert context["steps"][0]["mapped_product_smiles"] == (
@@ -293,9 +492,9 @@ def test_critic_prompt_separates_uncertainty_from_reject_and_keeps_full_route() 
         "[CH3:1][CH3:2]",
         "[OH2:3]",
     ]
-    assert context["steps"][0]["condition_predictions"][0]["catalyst"] == (
-        "Pd catalyst"
-    )
+    assert context["steps"][0]["conditions"] == ["base"]
+    assert context["steps"][0]["catalyst"] == "Pd catalyst"
+    assert "strategy_anchor" not in context["steps"][0]
 
 
 def test_editor_feedback_includes_every_concrete_critic_blocker() -> None:
@@ -359,8 +558,38 @@ def test_editor_feedback_includes_every_concrete_critic_blocker() -> None:
         "protection must precede coupling",
     ]
 
+    paper_feedback = sequential_module._compact_critic_feedback(
+        critique,
+        blockers,
+        paper_matched=True,
+    )
+    assert [
+        row["step_id"]
+        for row in paper_feedback["blocking_steps"]
+    ] == ["route:1", "route:2"]
+    assert set(paper_feedback) == {
+        "overall_assessment",
+        "strategy_adherence",
+        "step_annotations",
+        "blocking_steps",
+        "rejected_net_edit_signatures",
+        "route_level_risks",
+    }
+    assert [
+        row["step_id"]
+        for row in paper_feedback["rejected_net_edit_signatures"]
+    ] == ["route:1", "route:2"]
+    assert paper_feedback["step_annotations"] == []
+    assert all(
+        "route_step" not in row for row in paper_feedback["blocking_steps"]
+    )
+    assert "failure_reasons" not in paper_feedback
+    assert "repair_actions" not in paper_feedback
+    assert "blocking_step" not in paper_feedback
+    assert "step_assessment" not in paper_feedback
 
-def test_worker_output_contract_uses_one_compact_editor_patch_channel() -> None:
+
+def test_worker_output_contract_uses_dependency_closed_editor_span() -> None:
     task = type(
         "PaperEditorTask",
         (),
@@ -374,31 +603,76 @@ def test_worker_output_contract_uses_one_compact_editor_patch_channel() -> None:
         task=task,
     )
 
-    assert "coordinated route_patch repair" in instruction
-    assert "host applies and replays the patch" in instruction
-    assert "complete revised route_json" not in instruction
+    assert "dependency-closed replace_span" in instruction
+    assert "preserves all unlisted rows" in instruction
+    assert "route_patch" not in instruction
 
     schema = codex_worker_module._retrosynthesis_proposal_report_payload_json_schema(
         task
     )
     candidate = schema["properties"]["candidates"]["items"]
     assert "route_json" not in candidate["properties"]
-    assert candidate["properties"]["route_patch"]["type"] == "array"
-    assert "repair_status" in candidate["properties"]
+    span = candidate["properties"]["replace_span"]
+    assert set(span["properties"]) == {"remove_step_ids", "revised_steps"}
+    assert "route_patch" not in candidate["properties"]
+    assert "repair_status" not in candidate["properties"]
     assert "repair_summary" in candidate["properties"]
-    assert "unrepairable_reason" in candidate["properties"]
-    assert "minItems" not in candidate["properties"]["route_patch"]
+    assert "unrepairable_reason" not in candidate["properties"]
+    assert span["properties"]["remove_step_ids"]["minItems"] == 1
+    assert "uniqueItems" not in span["properties"]["remove_step_ids"]
+    assert span["properties"]["revised_steps"]["minItems"] == 1
+    assert span["properties"]["revised_steps"]["maxItems"] == 25
     assert "product_smiles" not in candidate["properties"]
-    patch_item = candidate["properties"]["route_patch"]["items"]
-    route_step = patch_item["properties"]["step"]
-    assert "mapped_product_smiles" in route_step["properties"]
+    route_step = span["properties"]["revised_steps"]["items"]
+    assert "mapped_product_smiles" not in route_step["properties"]
     assert "conditions" in route_step["properties"]
-    assert "set_conditions" in patch_item["properties"]["op"]["enum"]
+    assert "step_role" not in route_step["properties"]
+
+
+def test_paper_strategy_schema_is_only_three_one_sentence_queries() -> None:
+    task = type(
+        "PaperStrategyTask",
+        (),
+        {
+            "task_type": "paper_matched_strategy_generator",
+            "case_id": "paper-strategy-case",
+        },
+    )()
+
+    card_schema = codex_worker_module._paper_strategy_card_json_schema()
+    assert set(card_schema["properties"]) == {
+        "strategy_query",
+        "strategy_signature",
+    }
+
+    portfolio_schema = (
+        codex_worker_module._strategy_portfolio_report_payload_json_schema(task)
+    )
+    assert set(portfolio_schema["properties"]) == {
+        "schema_version",
+        "case_id",
+        "target_smiles",
+        "strategy_cards",
+        "no_route_or_solved_claim",
+    }
+    assert portfolio_schema["properties"]["strategy_cards"]["minItems"] == 3
+    assert "selection_rationale" not in portfolio_schema["properties"]
+    assert "limitations" not in portfolio_schema["properties"]
 
 
 def test_paper_critic_editor_output_windows_fit_complete_route_documents() -> None:
     context = _context()
     spec = _spec(context)
+    builder_task = sequential_module._node_task(
+        spec,
+        prompt="paper builder",
+        branch_index=0,
+        node_index=0,
+        model="gpt-5.6-sol",
+        reasoning_effort="medium",
+        timeout_s=600,
+        paper_matched=True,
+    )
     editor_task = sequential_module._node_task(
         spec,
         prompt="paper editor",
@@ -418,9 +692,82 @@ def test_paper_critic_editor_output_windows_fit_complete_route_documents() -> No
         timeout_s=600,
         paper_matched=True,
     )
+    strategy_task = sequential_module._strategy_portfolio_task(
+        spec,
+        prompt="paper strategy",
+        model="gpt-5.6-sol",
+        reasoning_effort="medium",
+        timeout_s=600,
+    )
 
     assert editor_task.budget.max_output_bytes == 40_000
     assert critic_task.budget.max_output_bytes == 32_000
+    assert builder_task.budget.max_tool_calls is None
+    assert editor_task.budget.max_tool_calls is None
+    assert critic_task.budget.max_tool_calls is None
+    assert strategy_task.budget.max_tool_calls is None
+
+
+def test_paper_worker_response_schema_preflight_accepts_all_reachable_schemas() -> None:
+    context = _context()
+
+    sequential_module._preflight_paper_matched_worker_schemas(
+        _spec(context),
+        target="CCO",
+    )
+
+
+def test_paper_schema_preflight_rejects_editor_keyword_before_any_executor(
+    monkeypatch,
+) -> None:
+    context = _context()
+    original = codex_worker_module._worker_model_output_json_schema
+
+    def schema_with_unsupported_editor_keyword(task: WorkerTask) -> dict:
+        schema = original(task)
+        if task.task_type == "paper_matched_route_editor":
+            schema = json.loads(json.dumps(schema))
+            schema["properties"]["replace_span"]["properties"][
+                "remove_step_ids"
+            ]["uniqueItems"] = True
+        return schema
+
+    monkeypatch.setattr(
+        codex_worker_module,
+        "_worker_model_output_json_schema",
+        schema_with_unsupported_editor_keyword,
+    )
+    executor_calls = 0
+
+    def executor(task: WorkerTask) -> WorkerRunRecord:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError(f"executor must not run during preflight: {task.task_id}")
+
+    runner = SequentialStrategyDirectorRunner(
+        node_executor=executor,
+        critic_executor=executor,
+        editor_executor=executor,
+    )
+    try:
+        runner(
+            _spec(context),
+            context,
+            "initial_architecture",
+            DirectorConfig(paper_matched_reach_profile=True),
+        )
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("unsupported provider schema was not rejected")
+
+    assert executor_calls == 0
+    assert message == (
+        "provider_response_schema_unsupported_keyword:"
+        "paper_matched_route_editor/RetrosynthesisProposalReport:"
+        "$.properties.replace_span.properties.remove_step_ids.uniqueItems:"
+        "uniqueItems"
+    )
 
 
 def test_paper_editor_compacts_25_steps_without_losing_topology_or_replay() -> None:
@@ -464,19 +811,20 @@ def test_paper_editor_compacts_25_steps_without_losing_topology_or_replay() -> N
 
     assert len(prompt.encode("utf-8")) <= 96_000
     context = json.loads(prompt.split("PaperMatchedRouteEditorContext:\n", 1)[1])
-    assert context["schema_version"] == "paper_matched_route_editor_context.v2"
-    assert len(context["frozen_route"]) == 25
-    assert [row["step_id"] for row in context["frozen_route"]] == [
+    assert context["schema_version"] == "paper_matched_route_editor_context.v4"
+    assert len(context["route_json"]) == 25
+    assert [row["step_id"] for row in context["route_json"]] == [
         f"route:{index}" for index in range(1, 26)
     ]
-    assert all(row["product_smiles"] for row in context["frozen_route"])
-    assert all(row["precursor_smiles"] for row in context["frozen_route"])
-    assert all(row["reaction_operations"] for row in context["frozen_route"])
-    assert all("mapped_product_smiles" in row for row in context["frozen_route"])
-    assert all("conditions" in row for row in context["frozen_route"])
-    assert all("parent_step_ids" in row for row in context["frozen_route"])
-    assert "transformation_rationale" not in context["frozen_route"][0]
-    assert context["frozen_route"][0]["strategy_anchor"] is True
+    assert all(row["product_smiles"] for row in context["route_json"])
+    assert all(row["precursor_smiles"] for row in context["route_json"])
+    assert all(row["reaction_operations"] for row in context["route_json"])
+    assert all("mapped_product_smiles" in row for row in context["route_json"])
+    assert all("conditions" in row for row in context["route_json"])
+    assert all("parent_step_ids" in row for row in context["route_json"])
+    assert "transformation_rationale" not in context["route_json"][0]
+    assert "strategy_anchor" not in context["route_json"][0]
+    assert context["repair_history"] == {}
 
 
 def test_bounded_critic_prompt_keeps_all_route_structures_under_byte_cap() -> None:
@@ -714,17 +1062,7 @@ def _strategy_record(task) -> WorkerRunRecord:
 
 
 def _strategy_portfolio_record(task) -> WorkerRunRecord:
-    paper_fields = {
-        "strategy_query",
-        "scaffold_motif",
-        "key_forward_transformation",
-        "key_bond_changes",
-        "functional_group_conflicts",
-        "protection_policy",
-        "stereochemical_plan",
-        "strategic_step_count",
-        "strategy_signature",
-    }
+    paper_fields = {"strategy_query", "strategy_signature"}
     cards = [
         {
             key: value
@@ -753,8 +1091,6 @@ def _strategy_portfolio_record(task) -> WorkerRunRecord:
                 "case_id": task.case_id,
                 "target_smiles": "CCO",
                 "strategy_cards": cards,
-                "selection_rationale": "pairwise distinct strategic constructions",
-                "limitations": ["hypotheses only"],
                 "no_route_or_solved_claim": True,
             },
         },
@@ -1018,6 +1354,69 @@ def test_complete_route_json_replays_as_a_contiguous_linear_chain() -> None:
     assert expansions[1].conditions == ("aqueous workup",)
 
 
+def test_step_role_survives_replay_but_never_drives_strategy_completion() -> None:
+    candidate = _complete_route_candidate()
+    candidate["route_json"][0]["step_role"] = "enabling"
+    candidate["route_json"][1]["step_role"] = "key"
+    expansions = _expansions_from_record(
+        _proposal_record(candidate),
+        expected_product="CCO",
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        require_reaction_operations=True,
+        require_complete_route_json=True,
+    )
+
+    assert expansions is not None
+    assert [row.step_role for row in expansions] == ["enabling", "key"]
+    paper_card = {
+        "strategy_query": "Construct the key scaffold through cycloaddition.",
+        "strategy_signature": "key-cycloaddition",
+    }
+    assert (
+        sequential_module._expansion_executes_strategy_anchor(
+            expansions[0], paper_card, fallback=True
+        )
+        is False
+    )
+    assert (
+        sequential_module._expansion_executes_strategy_anchor(
+            expansions[1], paper_card, fallback=False
+        )
+        is False
+    )
+    row = sequential_module._step_row(
+        replace(expansions[0], strategy_card=paper_card),
+        step_id="route:1",
+        strategy_anchor=False,
+    )
+    assert row["step_role"] == "enabling"
+    corrupted_legacy_first_row = {
+        **row,
+        "step_role": "",
+        "strategy_anchor": True,
+    }
+    assert (
+        sequential_module._strategy_anchor_fulfilled_for_card(
+            [corrupted_legacy_first_row], paper_card
+        )
+        is False
+    )
+    key_row = sequential_module._step_row(
+        replace(expansions[1], strategy_card=paper_card),
+        step_id="route:2",
+        strategy_anchor=True,
+    )
+    assert (
+        sequential_module._strategy_anchor_fulfilled_for_card(
+            [row, key_row], paper_card
+        )
+        is False
+    )
+    assert sequential_module._strategy_anchor_progress(
+        [row, key_row], paper_card
+    )["fulfilled"] is False
+
+
 def test_rejected_worker_envelope_with_safe_routejson_still_reaches_host_compiler() -> None:
     record = replace(
         _proposal_record(_complete_route_candidate()),
@@ -1126,6 +1525,144 @@ def test_complete_route_json_rejects_internal_cycle() -> None:
         require_complete_route_json=True,
     )
     assert expansions is None
+
+
+def _three_step_editor_route() -> list[dict]:
+    return [
+        {
+            "step_id": "route:1",
+            "product_smiles": "CCCO",
+            "reaction_family": "C-O disconnection",
+            "conditions": [],
+            "catalyst": "",
+            "reaction_operations": [
+                {"op": "break_bond", "map_a": 3, "map_b": 4}
+            ],
+        },
+        {
+            "step_id": "route:2",
+            "product_smiles": "CCC",
+            "reaction_family": "C-C disconnection",
+            "conditions": [],
+            "catalyst": "",
+            "reaction_operations": [
+                {"op": "break_bond", "map_a": 2, "map_b": 3}
+            ],
+        },
+        {
+            "step_id": "route:3",
+            "product_smiles": "CC",
+            "reaction_family": "C-C disconnection",
+            "conditions": [],
+            "catalyst": "",
+            "reaction_operations": [
+                {"op": "break_bond", "map_a": 1, "map_b": 2}
+            ],
+        },
+    ]
+
+
+def test_editor_replace_span_preserves_prefix_and_reconnects_suffix() -> None:
+    current = _three_step_editor_route()
+    revised = {
+        **current[1],
+        "reaction_family": "revised C-C disconnection",
+    }
+    candidate = {
+        "no_solved_claim": True,
+        "not_parent_route_proof": True,
+        "replace_span": {
+            "remove_step_ids": ["route:2"],
+            "revised_steps": [revised],
+        },
+    }
+
+    expansions, diagnostic, mode = _editor_route_expansions_from_record(
+        _proposal_record(candidate, target="CCCO"),
+        current_steps=current,
+        mapped_target_smiles="[CH3:1][CH2:2][CH2:3][OH:4]",
+        expected_target_smiles="CCCO",
+    )
+
+    assert diagnostic == {}
+    assert mode == "replace_span"
+    assert expansions is not None
+    assert [row.step_id for row in expansions] == [
+        "route:1",
+        "route:2",
+        "route:3",
+    ]
+    assert expansions[1].reaction_family == "revised C-C disconnection"
+    assert expansions[2].product_smiles == "CC"
+
+
+def test_editor_replace_span_rejects_unreconnected_suffix() -> None:
+    current = _three_step_editor_route()
+    revised = {
+        **current[1],
+        "reaction_operations": [
+            {"op": "change_bond_order", "map_a": 1, "map_b": 2, "delta": 1}
+        ],
+    }
+    candidate = {
+        "no_solved_claim": True,
+        "not_parent_route_proof": True,
+        "replace_span": {
+            "remove_step_ids": ["route:2"],
+            "revised_steps": [revised],
+        },
+    }
+
+    expansions, diagnostic, mode = _editor_route_expansions_from_record(
+        _proposal_record(candidate, target="CCCO"),
+        current_steps=current,
+        mapped_target_smiles="[CH3:1][CH2:2][CH2:3][OH:4]",
+        expected_target_smiles="CCCO",
+    )
+
+    assert expansions is None
+    assert mode == "replace_span"
+    assert diagnostic["reason"] == "route_json_chain_invalid"
+    assert diagnostic["step_index"] == 2
+    assert diagnostic["editor_mutation_mode"] == "replace_span"
+
+
+def test_editor_replace_span_can_cover_multiple_rows_or_whole_route() -> None:
+    current = _three_step_editor_route()
+    for remove_ids, revised in (
+        (["route:2", "route:3"], current[1:]),
+        (["route:1", "route:2", "route:3"], current),
+    ):
+        merged, reason = sequential_module._apply_replace_span(
+            current,
+            {
+                "remove_step_ids": remove_ids,
+                "revised_steps": revised,
+            },
+        )
+
+        assert reason == ""
+        assert merged is not None
+        assert [row["step_id"] for row in merged] == [
+            "route:1",
+            "route:2",
+            "route:3",
+        ]
+
+
+def test_editor_replace_span_host_rejects_duplicate_remove_step_ids() -> None:
+    current = _three_step_editor_route()
+
+    merged, reason = sequential_module._apply_replace_span(
+        current,
+        {
+            "remove_step_ids": ["route:2", "route:2"],
+            "revised_steps": [current[1]],
+        },
+    )
+
+    assert merged is None
+    assert reason == "editor_replace_span_remove_step_ids_duplicate"
 
 
 def test_editor_route_patch_is_recompiled_from_target_and_preserves_host_maps() -> None:
@@ -1388,6 +1925,51 @@ def test_editor_route_failure_returns_exact_host_chain_diagnostic() -> None:
     assert diagnostic["editor_mutation_mode"] == "full_route_json"
 
 
+def test_editor_map_failure_returns_real_mapped_open_precursor_and_retry_draft() -> None:
+    candidate = _complete_route_candidate()
+    candidate["route_json"][1]["mapped_product_smiles"] = (
+        "[CH3:18][CH3:19]"
+    )
+    candidate["route_json"][1]["reaction_operations"] = [
+        {"op": "break_bond", "map_a": 18, "map_b": 19}
+    ]
+    record = _proposal_record(candidate)
+
+    expansions, diagnostic, mode = _editor_route_expansions_from_record(
+        record,
+        current_steps=_complete_route_candidate()["route_json"],
+        mapped_target_smiles="[CH3:1][CH2:2][OH:3]",
+        expected_target_smiles="CCO",
+    )
+
+    assert expansions is None
+    assert mode == "full_route_json"
+    assert diagnostic["step_index"] == 1
+    assert "reactionjson_map_not_found" in diagnostic["compiler_error"]
+    assert diagnostic["host_replayed_prefix_step_count"] == 1
+    assert diagnostic["host_selected_open_precursor"] == {
+        "product_smiles": "CC",
+        "mapped_product_smiles": "[CH3:1][CH3:2]",
+    }
+    assert diagnostic["mapped_open_precursor_authority"] == (
+        "host_routejson_dag_compiler"
+    )
+
+    retry = sequential_module._editor_retry_route_rows(
+        record,
+        diagnostic=diagnostic,
+        mapped_target_smiles="[CH3:1][CH2:2][OH:3]",
+    )
+    assert retry is not None
+    assert retry[0]["mapped_precursor_smiles"] == [
+        "[CH3:1][CH3:2]",
+        "[OH2:3]",
+    ]
+    assert retry[1]["mapped_product_smiles"] == "[CH3:1][CH3:2]"
+    assert retry[1]["precursor_smiles"] == []
+    assert retry[1]["mapped_precursor_smiles"] == []
+
+
 def test_routejson_admission_rejects_cross_step_atom_map_namespace_break() -> None:
     steps = [
         {
@@ -1429,6 +2011,40 @@ def test_routejson_admission_rejects_cross_step_atom_map_namespace_break() -> No
     assert "reactionjson_map_not_found" in invalid["compiler_error"]
     assert valid["complete"] is True
     assert valid["compiled_step_count"] == 2
+
+
+def test_routejson_failure_reports_nonaromatic_aromatic_bond_exactly() -> None:
+    invalid = sequential_module._route_steps_host_replay_validation(
+        [
+            {
+                "product_smiles": "CCC",
+                "reaction_operations": [
+                    {
+                        "op": "add_bond",
+                        "map_a": 1,
+                        "map_b": 3,
+                        "order": 1.5,
+                    }
+                ],
+            }
+        ],
+        mapped_target_smiles="[CH3:1][CH2:2][CH3:3]",
+    )
+
+    assert invalid["complete"] is False
+    assert invalid["step_index"] == 0
+    assert invalid["compiler_error"] == (
+        "reactionjson_aromatic_bond_requires_aromatic_atoms"
+    )
+    assert invalid["operation_index"] == 0
+    assert invalid["failed_operation"] == {
+        "op": "add_bond",
+        "map_a": 1,
+        "map_b": 3,
+        "order": 1.5,
+    }
+    assert invalid["endpoint_aromaticity"] == {"map_a": False, "map_b": False}
+    assert invalid["allowed_orders"] == [1, 2, 3]
 
 
 def test_rejected_routejson_metadata_draft_still_reaches_host_diagnostic() -> None:
@@ -1627,7 +2243,8 @@ def test_paper_strategy_branch_is_executed_inside_aiz_mcts_sidecar() -> None:
     search = dict(family["aizynthfinder_strategy_search"])
     assert search["engine"] == "AiZynthFinder.MctsSearchTree"
     assert search["selected_solved"] is True
-    assert search["reported_policy_calls"] == 1
+    assert search["provider_callback_count"] == 1
+    assert "reported_policy_calls" not in search
     assert plan.multi_step_skeletons[0]["routejson_replay_complete"] is True
 
 
@@ -2040,6 +2657,111 @@ def test_editor_retries_after_routejson_materialization_failure() -> None:
     family = GlobalCampaignPlan.from_dict(result.output).route_families[0]
     assert family["editor_attempt_count"] == 2
     assert family["editor_applied_count"] == 1
+
+
+def test_editor_retry_prompt_keeps_only_failure_focus_and_host_boundary() -> None:
+    context = _context()
+    config = DirectorConfig(
+        minimum_route_families=1,
+        max_route_families=3,
+        max_skeletons=3,
+        max_steps_per_skeleton=25,
+        planning_mode="sequential_branches",
+        strategy_branch_count=1,
+        max_node_expansions_per_branch=1,
+        max_route_local_repair_rounds=2,
+        require_strategy_graph_edits=True,
+        require_complete_route_json=True,
+        allow_editor_route_mutations=True,
+        paper_matched_reach_profile=True,
+        critic_call_timeout_s=1.0,
+        max_node_call_timeout_s=1.0,
+    )
+    editor_attempts = 0
+    critic_attempts = 0
+    retry_context = None
+
+    def executor(task):
+        nonlocal editor_attempts, critic_attempts, retry_context
+        if task.required_artifact_type == "StrategyCardReport":
+            return _strategy_record(task)
+        if task.required_artifact_type == "ChemicalStrategyCritique":
+            critic_attempts += 1
+            if critic_attempts == 1:
+                return _blocking_critic_record(task, step_id="route:2")
+            return _critic_record(task)
+        candidate = _complete_route_candidate()
+        if task.task_type in {
+            "route_chemistry_edit",
+            "paper_matched_route_editor",
+        }:
+            editor_attempts += 1
+            revised_step = dict(candidate["route_json"][1])
+            candidate = {
+                "repair_summary": "replace the blocked upstream disconnection",
+                "no_solved_claim": True,
+                "not_parent_route_proof": True,
+                "replace_span": {
+                    "remove_step_ids": ["route:2"],
+                    "revised_steps": [revised_step],
+                },
+            }
+            if editor_attempts == 1:
+                revised_step["reaction_operations"] = [
+                    {"op": "break_bond", "map_a": 18, "map_b": 19}
+                ]
+            else:
+                retry_context = json.loads(
+                    task.objective.split(
+                        "PaperMatchedRouteEditorContext:\n", 1
+                    )[1]
+                )
+        return _proposal_record(candidate)
+
+    base_spec = _spec(context)
+    spec = replace(
+        base_spec,
+        metadata={
+            **dict(base_spec.metadata),
+            "remaining_model_budget": {"model_invocations": 10},
+        },
+    )
+    result = SequentialStrategyDirectorRunner(
+        node_executor=executor,
+        critic_executor=executor,
+        editor_executor=executor,
+        stock_membership=lambda values: {
+            value: value in {"C", "CC", "O"} for value in values
+        },
+    )(spec, context, "initial_architecture", config)
+
+    assert result.state is AgentState.SUCCEEDED
+    assert editor_attempts == 2
+    assert retry_context is not None
+    assert retry_context["schema_version"] == (
+        "paper_matched_route_editor_context.v4"
+    )
+    assert retry_context["route_replay"] == {
+        "route_json_source": "current_host_replayed_route",
+        "host_replayed_prefix_step_count": 1,
+        "mapped_open_precursor_authority": "host_routejson_dag_compiler",
+    }
+    assert retry_context["route_json"][1]["mapped_product_smiles"] == (
+        "[CH3:1][CH3:2]"
+    )
+    assert "previous_failed_replace_span" not in retry_context["repair_history"]
+    failure = retry_context["repair_history"]["last_host_replay_failure"]
+    assert "replace_span" not in failure
+    assert failure["operation_index"] == 0
+    assert failure["failed_operation"] == {
+        "op": "break_bond",
+        "map_a": 18,
+        "map_b": 19,
+    }
+    assert failure["host_selected_open_precursor"] == {
+        "product_smiles": "CC",
+        "mapped_product_smiles": "[CH3:1][CH3:2]",
+    }
 
 
 def test_initial_routejson_failure_enters_editor_before_branch_blocking() -> None:
@@ -2853,8 +3575,11 @@ def test_paper_node_prompt_does_not_expose_anchor_progress_as_authority() -> Non
 
     assert '"strategy_anchor_progress"' not in prompt
     assert '"remaining_map_pairs"' not in prompt
-    assert "strategy.strategy_query as the primary steering prior" in prompt
-    assert "graph-completion checklist" in prompt
+    assert "steering hypothesis" in prompt
+    assert "guides the whole pathway" in prompt
+    assert "work out a complete chemically coherent pathway" in prompt
+    assert "accepted_strategy_spine" not in prompt
+    assert "key_step_seen" not in prompt
     assert "skip an unreasonable planned step" not in prompt
 
 
@@ -2873,12 +3598,12 @@ def test_strategy_card_requires_all_replayed_anchor_pairs() -> None:
     )
     first = {
         "strategy_card": card,
-        "strategy_anchor": True,
+        "strategy_anchor": False,
         "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
     }
     second = {
         "strategy_card": card,
-        "strategy_anchor": True,
+        "strategy_anchor": False,
         "reaction_operations": [{"op": "break_bond", "map_a": 3, "map_b": 4}],
     }
 
@@ -2895,31 +3620,40 @@ def test_strategy_card_requires_all_replayed_anchor_pairs() -> None:
     )
 
 
-def test_paper_route_builder_stop_signal_is_not_a_solved_claim() -> None:
-    record = WorkerRunRecord(
-        run_id="paper-stop:run",
-        task_id="paper-stop",
-        case_id="paper-stop:case",
-        status="accepted_draft",
-        output_artifact={
-            "artifact_type": "RetrosynthesisProposalReport",
-            "payload": {
-                "stop_signal": True,
-                "stop_reason": "simple_for_explorative_search",
-                "candidates": [],
-            },
-        },
-        output_validation={"accepted": True, "reasons": []},
-    )
+def test_paper_route_builder_has_no_terminal_decision_surface() -> None:
+    assert not hasattr(sequential_module, "_route_builder_decision")
+    assert not hasattr(sequential_module, "_route_builder_handoff_admission")
 
-    stop = sequential_module._route_builder_stop_signal(record)
 
-    assert stop == {
-        "stop_signal": True,
-        "stop_reason": "simple_for_explorative_search",
-        "grants_stock_closure": False,
-        "grants_solved": False,
-    }
+def _builder_history_path() -> list[dict]:
+    return [
+        {
+            "step_id": "step-1",
+            "product_smiles": "CCO",
+            "mapped_product_smiles": "[CH3:1][CH2:2][OH:3]",
+            "precursor_smiles": ["CC", "O"],
+            "mapped_precursor_smiles": ["[CH3:1][CH3:2]", "[OH2:3]"],
+            "reaction_operations": [
+                {"op": "break_bond", "map_a": 2, "map_b": 3}
+            ],
+            "transformation_hypothesis": "C-O disconnection",
+        }
+    ]
+
+
+def test_connected_builder_history_keeps_non_authoritative_move_role() -> None:
+    steps = _builder_history_path()
+    steps[0]["step_role"] = "enabling"
+    assert sequential_module._connected_path_reactions(
+        steps, "CC"
+    ) == [
+        {
+            "step_id": "step-1",
+            "claimed_move_role": "enabling",
+            "reaction_family": "C-O disconnection",
+            "edit_summary": "break bond maps 2-3",
+        }
+    ]
 
 
 def test_durable_worker_journal_replays_only_identical_task_contracts(tmp_path) -> None:
@@ -3119,6 +3853,68 @@ def test_worker_journal_seed_replays_into_a_fresh_run_journal(tmp_path) -> None:
     assert (fresh_dir / "sequential-director-worker-records.jsonl").is_file()
 
 
+def test_worker_journal_resume_reruns_cancelled_worker_record(tmp_path) -> None:
+    context = _context()
+    spec = replace(
+        _spec(context),
+        metadata={
+            **dict(_spec(context).metadata),
+            "allowed_workdir": str(tmp_path),
+            "durable_worker_journal": True,
+        },
+    )
+    task = WorkerTask(
+        task_id="director:resume:branch:2:editor:1",
+        case_id="case",
+        task_type="paper_matched_route_editor",
+        required_artifact_type="RouteJSONDraft",
+        input_refs=[],
+        allowed_tools=[],
+        budget=WorkerBudget(reasoning_effort="medium"),
+        objective="repair the interrupted route",
+        allowed_workdir=str(tmp_path),
+    )
+    calls: list[str] = []
+
+    def cancelled_executor(value: WorkerTask) -> WorkerRunRecord:
+        calls.append("cancelled")
+        return WorkerRunRecord(
+            run_id=f"{value.task_id}:cancelled",
+            task_id=value.task_id,
+            case_id=value.case_id,
+            status="cancelled",
+        )
+
+    interrupted = SequentialStrategyDirectorRunner(
+        node_executor=cancelled_executor
+    )
+    interrupted._prepare_worker_record_journal(spec)
+    interrupted._run_journaled_worker(cancelled_executor, task)
+
+    def completed_executor(value: WorkerTask) -> WorkerRunRecord:
+        calls.append("completed")
+        return WorkerRunRecord(
+            run_id=f"{value.task_id}:completed",
+            task_id=value.task_id,
+            case_id=value.case_id,
+            status="accepted_draft",
+            output_artifact={"artifact_type": "RouteJSONDraft"},
+        )
+
+    resumed = SequentialStrategyDirectorRunner(node_executor=completed_executor)
+    resumed._prepare_worker_record_journal(spec)
+    result = resumed._run_journaled_worker(completed_executor, task)
+
+    assert calls == ["cancelled", "completed"]
+    assert result.status == "accepted_draft"
+    assert resumed._replayed_worker_record_count == 0
+    assert len(
+        (tmp_path / "sequential-director-worker-records.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ) == 2
+
+
 def test_reactionjson_failure_returns_causal_replay_diagnostic() -> None:
     task = type(
         "RouteTask",
@@ -3155,9 +3951,114 @@ def test_reactionjson_failure_returns_causal_replay_diagnostic() -> None:
 
     assert diagnostic["reason"] == "strategy_graph_edit_replay_failed"
     assert "bond_missing" in diagnostic["replay_error"]
-    assert diagnostic["attempted_operations"] == [
-        {"op": "break_bond", "map_a": 1, "map_b": 3}
+    assert diagnostic["operation_index"] == 0
+    assert diagnostic["failed_operation"] == {
+        "op": "break_bond",
+        "map_a": 1,
+        "map_b": 3,
+    }
+    assert "attempted_operations" not in diagnostic
+
+
+def test_add_group_aromatic_failure_reaches_builder_as_typed_error() -> None:
+    task = type(
+        "RouteTask",
+        (),
+        {
+            "required_artifact_type": "RetrosynthesisProposalReport",
+            "objective": (
+                'CompactBranchContext:{"branch_id":1,'
+                '"selected_open_leaf":"CCO"}'
+            ),
+            "task_id": "add-group-diagnostic",
+            "case_id": "case",
+            "input_refs": [],
+        },
+    )()
+    record = _fake_executor(task)
+    artifact = dict(record.output_artifact or {})
+    payload = dict(artifact.get("payload") or {})
+    candidate = dict(payload["candidates"][0])
+    candidate["precursor_smiles"] = []
+    candidate["reaction_operations"] = [
+        {
+            "op": "add_group",
+            "map_idx": 2,
+            "fragment_smiles": "[*]O",
+            "order": 1.5,
+        }
     ]
+    payload["candidates"] = [candidate]
+    artifact["payload"] = payload
+    record = replace(record, output_artifact=artifact)
+
+    diagnostic = _expansion_rejection_diagnostic(
+        record,
+        expected_product="CCO",
+        mapped_product_smiles="[CH3:1][CH2:2][OH:3]",
+        require_reaction_operations=True,
+    )
+
+    assert diagnostic["reason"] == "strategy_graph_edit_replay_failed"
+    assert diagnostic["replay_error"] == (
+        "reactionjson_aromatic_bond_requires_aromatic_atoms"
+    )
+    assert diagnostic["operation_index"] == 0
+    assert diagnostic["failed_operation"] == {
+        "op": "add_group",
+        "map_idx": 2,
+        "fragment_smiles": "[*]O",
+        "order": 1.5,
+    }
+    assert diagnostic["endpoint_aromaticity"] == {
+        "anchor": False,
+        "fragment_attachment": False,
+    }
+    assert diagnostic["allowed_orders"] == [1, 2, 3]
+
+
+def test_paper_builder_receives_top_level_replay_failure_causally() -> None:
+    prompt = _node_prompt(
+        target="CCO",
+        branch_index=0,
+        lens="paper builder retry",
+        selected_product="CCO",
+        selected_product_mapped="[CH3:1][CH2:2][OH:3]",
+        steps=(),
+        open_leaves=("CCO",),
+        prior_rejections=(
+            {
+                "reason": "strategy_graph_edit_replay_failed",
+                "product_smiles": "CCO",
+                "replay_error": "bond_missing: map 1-map 3",
+                "operation_index": 0,
+                "failed_operation": {
+                    "op": "break_bond",
+                    "map_a": 1,
+                    "map_b": 3,
+                },
+            },
+        ),
+        repair=False,
+        strategy_card=_strategy_card(1),
+        forbidden_strategy_cards=(),
+        host_failure_feedback={},
+        paper_matched=True,
+    )
+
+    context = json.loads(prompt.split("PaperMatchedRouteBuilderContext:\n", 1)[1])
+    rejection = context["last_rejection_for_this_leaf"]
+    assert rejection["reason"] == "strategy_graph_edit_replay_failed"
+    assert rejection["replay_diagnostic"]["replay_error"] == (
+        "bond_missing: map 1-map 3"
+    )
+    assert rejection["replay_diagnostic"]["operation_index"] == 0
+    assert rejection["replay_diagnostic"]["failed_operation"] == {
+        "op": "break_bond",
+        "map_a": 1,
+        "map_b": 3,
+    }
+    assert "attempted_operations" not in rejection["replay_diagnostic"]
 
 
 def test_strategy_card_survives_three_route_materialization_failures() -> None:
@@ -3622,6 +4523,8 @@ def test_paper_strategy_portfolio_seeds_three_branches_with_one_worker_call() ->
 
     assert len(observed) == 1
     assert observed[0].required_artifact_type == "StrategyPortfolioReport"
+    assert observed[0].budget.reasoning_effort == "high"
+    assert observed[0].budget.max_output_bytes == 6_000
     assert len(records) == 1
     assert all(branch["strategy_card"] for branch in branches)
 

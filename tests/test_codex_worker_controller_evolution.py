@@ -41,10 +41,12 @@ from cascade_planner.agent.codex_worker import (
     _codex_cli_command,
     _codex_worker_prompt,
     _run_worker_command,
+    _worker_model_output_json_schema,
     _worker_output_json_schema,
     _task_allows_cli_search,
     _task_reasoning_effort,
     run_codex_worker,
+    worker_task_from_dict,
 )
 from cascade_planner.agent.evolution_manager import (
     EvolutionCandidate,
@@ -103,17 +105,12 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             set(strategy_card["properties"]),
             {
                 "strategy_query",
-                "scaffold_motif",
-                "key_forward_transformation",
-                "key_bond_changes",
-                "functional_group_conflicts",
-                "protection_policy",
-                "stereochemical_plan",
-                "strategic_step_count",
                 "strategy_signature",
             },
         )
         self.assertNotIn("strategy_card", strategy_payload["properties"])
+        self.assertNotIn("selection_rationale", strategy_payload["properties"])
+        self.assertNotIn("limitations", strategy_payload["properties"])
 
         route_payload = _worker_output_json_schema(route_task)["properties"][
             "payload"
@@ -132,13 +129,17 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             & set(route_candidate["properties"])
         )
         self.assertIn("conditions", route_candidate["properties"])
-        self.assertIn("catalyst", route_candidate["properties"])
-        self.assertIn("step_role", route_candidate["properties"])
-        self.assertIn("feasibility_check", route_candidate["properties"])
+        self.assertNotIn("catalyst", route_candidate["properties"])
+        self.assertEqual(
+            route_candidate["properties"]["step_role"]["enum"],
+            ["key", "enabling", "supporting"],
+        )
+        self.assertNotIn("feasibility_check", route_candidate["properties"])
+        self.assertNotIn("transformation_rationale", route_candidate["properties"])
         self.assertEqual(route_candidate["properties"]["precursor_smiles"]["maxItems"], 0)
-        self.assertIn("stop_signal", route_payload["properties"])
-        self.assertIn("stop_reason", route_payload["properties"])
-        self.assertEqual(route_payload["properties"]["candidates"]["minItems"], 0)
+        self.assertNotIn("builder_action", route_payload["properties"])
+        self.assertNotIn("builder_reason", route_payload["properties"])
+        self.assertEqual(route_payload["properties"]["candidates"]["minItems"], 1)
         self.assertEqual(route_payload["properties"]["candidates"]["maxItems"], 1)
 
         critic_payload = _worker_output_json_schema(critic_task)["properties"][
@@ -156,11 +157,95 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             "payload"
         ]
         editor_candidate = editor_payload["properties"]["candidates"]["items"]
-        self.assertIn("repair_status", editor_candidate["properties"])
+        self.assertNotIn("repair_status", editor_candidate["properties"])
         self.assertIn("repair_summary", editor_candidate["properties"])
-        self.assertIn("route_patch", editor_candidate["properties"])
+        self.assertNotIn("route_patch", editor_candidate["properties"])
         self.assertNotIn("route_json", editor_candidate["properties"])
+        self.assertIn("replace_span", editor_candidate["properties"])
         self.assertNotIn("product_smiles", editor_candidate["properties"])
+        span = editor_candidate["properties"]["replace_span"]
+        self.assertEqual(
+            set(span["properties"]),
+            {"remove_step_ids", "revised_steps"},
+        )
+        editor_route_step = span["properties"]["revised_steps"]["items"]
+        self.assertNotIn("step_role", editor_route_step["properties"])
+        self.assertNotIn("mapped_product_smiles", editor_route_step["properties"])
+
+        route_wire = _worker_model_output_json_schema(route_task)
+        self.assertEqual(
+            set(route_wire["properties"]),
+            {"reaction_intent", "move_role", "reaction_operations", "conditions"},
+        )
+        self.assertEqual(set(route_wire["required"]), set(route_wire["properties"]))
+        self.assertNotIn("maxItems", route_wire["properties"]["reaction_operations"])
+        operation_union = route_wire["properties"]["reaction_operations"][
+            "items"
+        ]["anyOf"]
+        self.assertTrue(
+            all(
+                set(variant["required"]) == set(variant["properties"])
+                for variant in operation_union
+            )
+        )
+        self.assertTrue(
+            all("atomic_num" not in variant["properties"] for variant in operation_union)
+        )
+        add_group_variants = [
+            variant
+            for variant in operation_union
+            if variant["properties"]["op"]["enum"] == ["add_group"]
+        ]
+        self.assertEqual(len(add_group_variants), 1)
+        self.assertEqual(
+            {frozenset(variant["properties"]) for variant in add_group_variants},
+            {
+                frozenset({"op", "map_idx", "fragment_smiles"}),
+            },
+        )
+        add_bond_variants = [
+            variant
+            for variant in operation_union
+            if variant["properties"]["op"]["enum"] == ["add_bond"]
+        ]
+        self.assertEqual(len(add_bond_variants), 1)
+        self.assertEqual(
+            set(add_bond_variants[0]["properties"]),
+            {"op", "map_a", "map_b"},
+        )
+        self.assertTrue(
+            all("order" not in variant["properties"] for variant in operation_union)
+        )
+        stereo_variants = [
+            variant
+            for variant in operation_union
+            if variant["properties"]["op"]["enum"] == ["set_bond_stereo"]
+        ]
+        self.assertEqual(len(stereo_variants), 2)
+        nongeometric = next(
+            variant
+            for variant in stereo_variants
+            if variant["properties"]["stereo"]["enum"] == ["NONE", "ANY"]
+        )
+        geometric = next(
+            variant
+            for variant in stereo_variants
+            if variant["properties"]["stereo"]["enum"]
+            == ["Z", "E", "CIS", "TRANS"]
+        )
+        self.assertNotIn("stereo_atom_maps", nongeometric["properties"])
+        self.assertEqual(
+            geometric["properties"]["stereo_atom_maps"]["minItems"], 2
+        )
+        self.assertEqual(
+            geometric["properties"]["stereo_atom_maps"]["maxItems"], 2
+        )
+
+        editor_wire = _worker_model_output_json_schema(editor_task)
+        editor_operations = editor_wire["properties"]["replace_span"][
+            "properties"
+        ]["revised_steps"]["items"]["properties"]["reaction_operations"]
+        self.assertNotIn("maxItems", editor_operations)
 
     def test_paper_matched_worker_prompt_uses_lean_role_envelope(self):
         task = WorkerTask(
@@ -181,6 +266,225 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertNotIn("Required artifact wrapper", prompt)
         self.assertNotIn("WorkerTask:", prompt)
         self.assertNotIn("artifact_payload_instruction", prompt)
+
+    def test_paper_builder_wire_output_is_wrapped_with_host_owned_fields(self):
+        task = WorkerTask(
+            task_id="paper-route",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+            host_context={
+                "target_smiles": "CCO",
+                "selected_product": "CCO",
+            },
+        )
+        wire = {
+            "reaction_intent": "C-O disconnection exposing two simple fragments.",
+            "move_role": "enabling",
+            "reaction_operations": [
+                {"op": "break_bond", "map_a": 2, "map_b": 3}
+            ],
+            "conditions": [],
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(wire), exit_code=0, backend="runner"
+            ),
+        )
+
+        self.assertEqual(record.status, "accepted_draft")
+        artifact = record.output_artifact
+        self.assertEqual(artifact["case_id"], "opaque-case")
+        self.assertEqual(artifact["source"], "codex_cli")
+        payload = artifact["payload"]
+        self.assertEqual(payload["target_smiles"], "CCO")
+        self.assertNotIn("builder_action", payload)
+        self.assertNotIn("builder_reason", payload)
+        candidate = payload["candidates"][0]
+        self.assertEqual(candidate["product_smiles"], "CCO")
+        self.assertEqual(candidate["precursor_smiles"], [])
+        self.assertEqual(
+            candidate["reaction_family"],
+            "C-O disconnection exposing two simple fragments.",
+        )
+        self.assertEqual(candidate["step_role"], "enabling")
+        self.assertNotIn("feasibility_check", candidate)
+        self.assertNotIn("transformation_rationale", candidate)
+        self.assertTrue(candidate["no_solved_claim"])
+
+    def test_paper_builder_handoff_wire_is_rejected(self):
+        task = WorkerTask(
+            task_id="paper-route-handoff",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            budget=WorkerBudget(max_tool_calls=0),
+            host_context={
+                "target_smiles": "CCO",
+                "selected_product": "CCO",
+            },
+        )
+        wire = {
+            "decision": {
+                "action": "handoff",
+                "reason": "simple_for_explorative_search",
+            }
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(wire), exit_code=0, backend="runner"
+            ),
+        )
+
+        self.assertEqual(record.status, "rejected_output")
+        self.assertIn(
+            "paper_route_step_reaction_operations_missing",
+            record.output_validation["reasons"],
+        )
+
+    def test_paper_builder_cannot_choose_fail_branch(self):
+        task = WorkerTask(
+            task_id="paper-route-failure",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            budget=WorkerBudget(max_tool_calls=0),
+            host_context={"target_smiles": "CCO", "selected_product": "CCO"},
+        )
+        wire = {
+            "decision": {
+                "action": "fail_branch",
+                "reason": "no_beneficial_strategic_move",
+            }
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(wire), exit_code=0, backend="runner"
+            ),
+        )
+
+        self.assertEqual(record.status, "rejected_output")
+        self.assertIn(
+            "paper_route_step_reaction_operations_missing",
+            record.output_validation["reasons"],
+        )
+
+    def test_other_paper_wire_outputs_receive_only_host_owned_envelopes(self):
+        cases = [
+            (
+                WorkerTask(
+                    task_id="paper-strategies",
+                    case_id="opaque-case",
+                    task_type="paper_matched_strategy_generator",
+                    required_artifact_type="StrategyPortfolioReport",
+                    budget=WorkerBudget(max_tool_calls=0),
+                    host_context={"target_smiles": "CCO"},
+                ),
+                {
+                    "strategy_cards": [
+                        {
+                            "strategy_query": f"strategy {index}",
+                            "strategy_signature": f"s{index}",
+                        }
+                        for index in range(3)
+                    ]
+                },
+            ),
+            (
+                WorkerTask(
+                    task_id="paper-editor",
+                    case_id="opaque-case",
+                    task_type="paper_matched_route_editor",
+                    required_artifact_type="RetrosynthesisProposalReport",
+                    budget=WorkerBudget(max_tool_calls=0),
+                    host_context={"target_smiles": "CCO"},
+                ),
+                {
+                    "repair_summary": "replace the blocked disconnection",
+                    "replace_span": {
+                        "remove_step_ids": ["route:1"],
+                        "revised_steps": [
+                            {
+                                "step_id": "route:1",
+                                "product_smiles": "CCO",
+                                "reaction_family": "C-O cleavage",
+                                "conditions": [],
+                                "catalyst": "",
+                                "reaction_operations": [
+                                    {"op": "break_bond", "map_a": 2, "map_b": 3}
+                                ],
+                            }
+                        ],
+                    },
+                },
+            ),
+            (
+                WorkerTask(
+                    task_id="paper-critic",
+                    case_id="opaque-case",
+                    task_type="paper_matched_route_critic",
+                    required_artifact_type="ChemicalStrategyCritique",
+                    budget=WorkerBudget(max_tool_calls=0),
+                    host_context={"target_smiles": "CCO"},
+                ),
+                {
+                    "overall_assessment": "viable",
+                    "strategy_adherence": True,
+                    "step_assessments": [
+                        {
+                            "step_id": "route:1",
+                            "verdict": "pass",
+                            "blocking": False,
+                            "blocking_type": "none",
+                            "reasons": [],
+                            "condition_assessment": "plausible",
+                            "suggested_revision": "",
+                        }
+                    ],
+                    "route_level_risks": [],
+                    "repair_actions": [],
+                    "limitations": [],
+                },
+            ),
+        ]
+
+        for task, wire in cases:
+            with self.subTest(task_type=task.task_type):
+                self.assertNotIn("host_context", task.to_dict())
+                record = run_codex_worker(
+                    task,
+                    runner=lambda _, wire=wire: WorkerProcessResult(
+                        stdout=json.dumps(wire), exit_code=0, backend="runner"
+                    ),
+                )
+                self.assertEqual(record.status, "accepted_draft")
+                artifact = record.output_artifact
+                self.assertEqual(artifact["case_id"], "opaque-case")
+                self.assertEqual(artifact["input_refs"], [])
+                self.assertEqual(artifact["evidence_refs"], [])
+                self.assertEqual(artifact["validation_status"], "draft")
+                if task.task_type == "paper_matched_route_editor":
+                    candidate = artifact["payload"]["candidates"][0]
+                    self.assertEqual(
+                        candidate["replace_span"]["remove_step_ids"],
+                        ["route:1"],
+                    )
+                    row = candidate["replace_span"]["revised_steps"][0]
+                    self.assertEqual(row["precursor_smiles"], [])
+                    self.assertTrue(row["no_solved_claim"])
+                    self.assertTrue(row["not_parent_route_proof"])
+                if task.task_type == "paper_matched_route_critic":
+                    self.assertTrue(artifact["payload"]["no_reaction_proof"])
+                    self.assertTrue(artifact["payload"]["no_source_authority"])
 
     def test_strategy_worker_schema_excludes_evidence_metadata(self):
         task = WorkerTask(
@@ -433,6 +737,53 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertEqual(record.status, "accepted_draft")
         self.assertNotIn("tool_not_allowed", record.output_validation["reasons"])
 
+    def test_worker_with_unlimited_tool_calls_never_rejects_for_call_count(self):
+        task = WorkerTask(
+            task_id="unlimited_tool_worker",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+            budget=WorkerBudget(max_tool_calls=None),
+        )
+        artifact = {
+            "schema_version": "research_report.draft.v1",
+            "artifact_id": "unlimited_tools",
+            "artifact_type": "ResearchReport",
+            "case_id": "case",
+            "source": "codex_cli",
+            "input_refs": ["target_profile"],
+            "evidence_refs": [],
+            "validation_status": "draft",
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(artifact),
+                exit_code=0,
+                tool_calls=[{"tool": "shell"} for _ in range(50)],
+            ),
+        )
+
+        self.assertEqual(record.status, "accepted_draft")
+        self.assertNotIn(
+            "tool_call_budget_exceeded", record.output_validation["reasons"]
+        )
+
+    def test_worker_task_round_trip_preserves_unlimited_tool_calls(self):
+        task = WorkerTask(
+            task_id="unlimited_tool_round_trip",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            budget=WorkerBudget(max_tool_calls=None),
+        )
+
+        restored = worker_task_from_dict(task.to_dict())
+
+        self.assertIsNone(restored.budget.max_tool_calls)
+
     def test_worker_accepts_valid_codex_output_after_recovered_transport_error(self):
         task = WorkerTask(
             task_id="recovered_codex_worker",
@@ -482,6 +833,7 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             required_artifact_type="ResearchReport",
             input_refs=["target_profile"],
             allowed_tools=["web_search"],
+            budget=WorkerBudget(max_tool_calls=0),
         )
         artifact = {
             "schema_version": "research_report.draft.v1",
@@ -540,9 +892,18 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertNotIn(
             "tool_not_allowed", rejected_before_launch.output_validation["reasons"]
         )
+        self.assertNotIn(
+            "tool_call_budget_exceeded",
+            rejected_before_launch.output_validation["reasons"],
+        )
+        self.assertEqual(len(rejected_before_launch.tool_calls), 1)
         self.assertEqual(command_ran_and_failed.status, "rejected_output")
         self.assertIn(
             "tool_not_allowed", command_ran_and_failed.output_validation["reasons"]
+        )
+        self.assertIn(
+            "tool_call_budget_exceeded",
+            command_ran_and_failed.output_validation["reasons"],
         )
 
     def test_worker_command_timeout_does_not_hang_when_descendant_keeps_pipe_open(self):

@@ -36,6 +36,7 @@ def audit_retrosynthetic_candidate(
     *,
     forbidden_return_smiles: Iterable[Any] = (),
     policy: RetrosyntheticAdmissionPolicy | None = None,
+    mapped_reaction_smiles: Any = "",
     mapped_product_smiles: Any = "",
     reaction_operations: Iterable[Mapping[str, Any]] = (),
     reactionjson_audit: Mapping[str, Any] | None = None,
@@ -90,6 +91,13 @@ def audit_retrosynthetic_candidate(
     missing_heavy_atoms = sum(deficits.values())
     product_heavy_atoms = sum(product_counts.values())
     precursor_heavy_atoms = sum(precursor_counts.values())
+    mapped_contributing_precursor_indices = (
+        _mapped_atom_contributing_precursor_indices(
+            product,
+            precursors,
+            mapped_reaction_smiles=mapped_reaction_smiles,
+        )
+    )
     surplus_advanced_fragments: list[str] = []
     if (
         active.hard_filter_surplus_advanced_fragment
@@ -98,6 +106,11 @@ def audit_retrosynthetic_candidate(
     ):
         component_counts = [_element_counts(precursor) for precursor in precursors]
         for index, counts in enumerate(component_counts):
+            if (
+                mapped_contributing_precursor_indices is not None
+                and index in mapped_contributing_precursor_indices
+            ):
+                continue
             component_heavy_atoms = sum(counts.values())
             if (
                 component_heavy_atoms
@@ -170,6 +183,12 @@ def audit_retrosynthetic_candidate(
         ),
         "product_heavy_atom_count": product_heavy_atoms,
         "precursor_heavy_atom_count": precursor_heavy_atoms,
+        "mapped_reaction_atom_mapping_used": (
+            mapped_contributing_precursor_indices is not None
+        ),
+        "mapped_atom_contributing_precursor_indices": sorted(
+            mapped_contributing_precursor_indices or ()
+        ),
         "surplus_advanced_precursor_fragments": surplus_advanced_fragments,
         "reasons": sorted(set(reasons)),
         "semantics": {
@@ -177,10 +196,101 @@ def audit_retrosynthetic_candidate(
             "not_reaction_proof": True,
             "precursor_multiplicity_preserved": True,
             "large_inventory_redundancy_is_not_joint_participation": True,
+            "mapped_atom_contribution_overrides_inventory_redundancy": True,
             "small_salts_and_leaving_groups_are_exempt": True,
             "replayed_external_atom_edits_grant_no_reaction_proof": True,
         },
     }
+
+
+def _mapped_atom_contributing_precursor_indices(
+    product_smiles: str,
+    precursor_smiles: Iterable[str],
+    *,
+    mapped_reaction_smiles: Any,
+) -> frozenset[int] | None:
+    """Bind mapped precursor atoms to the product without trusting labels.
+
+    AiZynthFinder preserves atom maps for its selected template route.  Those
+    maps are stronger than the inventory-only surplus heuristic: a large
+    precursor that contributes even one mapped product atom is a real route
+    input, not a disconnected distractor.  Invalid, forward-oriented, or
+    incomplete mapping falls back to the existing fail-closed heuristic.
+    """
+
+    raw = str(mapped_reaction_smiles or "").strip()
+    if raw.count(">>") != 1:
+        return None
+    mapped_product_text, mapped_precursors_text = raw.split(">>", 1)
+    mapped_product = Chem.MolFromSmiles(mapped_product_text)
+    mapped_precursors = Chem.MolFromSmiles(mapped_precursors_text)
+    if mapped_product is None or mapped_precursors is None:
+        return None
+    expected_product = Chem.MolFromSmiles(product_smiles)
+    if expected_product is None or _canonical_unmapped_molecule(
+        mapped_product,
+        isomeric_smiles=False,
+    ) != _canonical_unmapped_molecule(
+        expected_product,
+        isomeric_smiles=False,
+    ):
+        return None
+    product_maps = {
+        int(atom.GetAtomMapNum())
+        for atom in mapped_product.GetAtoms()
+        if int(atom.GetAtomMapNum()) > 0
+    }
+    if not product_maps:
+        return None
+
+    mapped_components: dict[str, list[bool]] = {}
+    for component in Chem.GetMolFrags(mapped_precursors, asMols=True):
+        canonical = _canonical_unmapped_molecule(component)
+        if not canonical:
+            return None
+        component_maps = {
+            int(atom.GetAtomMapNum())
+            for atom in component.GetAtoms()
+            if int(atom.GetAtomMapNum()) > 0
+        }
+        mapped_components.setdefault(canonical, []).append(
+            bool(product_maps.intersection(component_maps))
+        )
+
+    precursor_rows = list(precursor_smiles)
+    expected_counts = Counter(precursor_rows)
+    observed_counts = Counter(
+        {
+            canonical: len(values)
+            for canonical, values in mapped_components.items()
+        }
+    )
+    if expected_counts != observed_counts:
+        return None
+
+    consumed: Counter[str] = Counter()
+    contributing: set[int] = set()
+    for index, canonical in enumerate(precursor_rows):
+        occurrence = consumed[canonical]
+        consumed[canonical] += 1
+        if mapped_components[canonical][occurrence]:
+            contributing.add(index)
+    return frozenset(contributing)
+
+
+def _canonical_unmapped_molecule(
+    molecule: Chem.Mol,
+    *,
+    isomeric_smiles: bool = True,
+) -> str:
+    copy = Chem.Mol(molecule)
+    for atom in copy.GetAtoms():
+        atom.SetAtomMapNum(0)
+    return Chem.MolToSmiles(
+        copy,
+        canonical=True,
+        isomericSmiles=isomeric_smiles,
+    )
 
 
 def replayed_external_atom_deficit_is_bound(

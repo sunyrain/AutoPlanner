@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock
 import time
 from typing import Any, Callable, Mapping
 
@@ -25,6 +25,7 @@ from cascade_planner.interfaces.target_solve_request import (
     _bool,
     solve_target_request,
 )
+from cascade_planner.interfaces.target_solver import TargetSolveCancelled
 
 
 GatewayFactory = Callable[[], CampaignGateway]
@@ -36,21 +37,41 @@ def run_target_job(
     job_id: str,
     jobs: dict[str, dict[str, Any]],
     lock: RLock,
+    cancel_event: Event | None = None,
 ) -> None:
     started = time.monotonic()
     continuation_pass_count = 0
+    compact: dict[str, Any] = {}
     with lock:
-        jobs[job_id].update(
-            status="running",
-            phase="initializing_campaign",
-            started_at=utc_now(),
-            updated_at=utc_now(),
-        )
+        if (
+            cancel_event is not None
+            and cancel_event.is_set()
+        ) or str(jobs[job_id].get("status") or "") == "cancelling":
+            jobs[job_id].update(updated_at=utc_now())
+        else:
+            jobs[job_id].update(
+                status="running",
+                phase="initializing_campaign",
+                started_at=utc_now(),
+                updated_at=utc_now(),
+            )
     try:
+        if cancel_event is not None and cancel_event.is_set():
+            raise TargetSolveCancelled("target_solve_cancelled_by_user")
         request_payload = dict(payload)
         while True:
-            result = solve_target_request(factory(), request_payload)
+            result = (
+                solve_target_request(
+                    factory(),
+                    request_payload,
+                    cancel_event=cancel_event,
+                )
+                if cancel_event is not None
+                else solve_target_request(factory(), request_payload)
+            )
             compact = _compact_solve_result(result)
+            if cancel_event is not None and cancel_event.is_set():
+                raise TargetSolveCancelled("target_solve_cancelled_by_user")
             accepted = compact.get("accepted") is True
             objective_achieved = bool(
                 compact.get("objective_achieved") is True or accepted
@@ -64,6 +85,8 @@ def run_target_job(
             )
             if not should_continue:
                 break
+            if cancel_event is not None and cancel_event.is_set():
+                raise TargetSolveCancelled("target_solve_cancelled_by_user")
             continuation_pass_count += 1
             with lock:
                 jobs[job_id].update(
@@ -75,11 +98,22 @@ def run_target_job(
             request_payload = {**payload, "resume": True}
         status, error = ("complete" if objective_achieved else "unresolved"), ""
         phase = "complete" if objective_achieved else "unresolved"
+    except TargetSolveCancelled:
+        status, phase, error = "cancelled", "cancelled", ""
     except Exception as exc:  # pragma: no cover - integration failure boundary
-        compact, status, phase = {}, "failed", "failed"
-        error = f"{type(exc).__name__}: {exc}"[:4_000]
+        if cancel_event is not None and cancel_event.is_set():
+            status, phase, error = "cancelled", "cancelled", ""
+        else:
+            compact, status, phase = {}, "failed", "failed"
+            error = f"{type(exc).__name__}: {exc}"[:4_000]
     elapsed = round(time.monotonic() - started, 3)
     with lock:
+        terminal_fields = {
+            "cancelled_at": utc_now(),
+            "cancellation_reason": str(
+                jobs[job_id].get("cancellation_reason") or "user_requested"
+            ),
+        } if status == "cancelled" else {}
         jobs[job_id].update(
             status=status,
             phase=phase,
@@ -89,6 +123,7 @@ def run_target_job(
             error=error,
             result=compact,
             continuation_pass_count=continuation_pass_count,
+            **terminal_fields,
         )
 
 
@@ -103,7 +138,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         "action_timeline": compile_campaign_action_timeline(()),
         "delivery": _delivery_projection([], job_status=str(job.get("status") or "")),
     }
-    if job.get("status") == "running" and job.get("started_at"):
+    if job.get("status") in {"running", "cancelling"} and job.get("started_at"):
         try:
             started = datetime.fromisoformat(str(job["started_at"]).replace("Z", "+00:00"))
             result["elapsed_s"] = round(
@@ -203,7 +238,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         ),
     )
     job_status = str(job.get("status") or "")
-    final_projection = job_status not in {"queued", "running"}
+    final_projection = job_status not in {"queued", "running", "cancelling"}
     if final_projection:
         accepted = dict(result.get("portfolio") or {}).get("accepted") is True
         result["scientific_status"] = "accepted" if accepted else "unresolved"

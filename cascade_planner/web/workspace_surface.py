@@ -896,8 +896,9 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
             },
         },
         "entrypoints": {
-            "primary_page": "/v4",
-            "launch": "/v4#new-task",
+            "primary_page": "/",
+            "launch": "/",
+            "workspace": "/v4",
             "routes": "/v4#routes",
             "runs": "/v4#runs",
             "audits": "/v4#audits",
@@ -923,7 +924,8 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
         "self_evolution": self_evolution_catalog(gateway),
         "semantics": {
             "canonical_backend_is_the_only_run_authority": True,
-            "one_user_facing_page": True,
+            "one_retrosynthesis_launch_entrypoint": True,
+            "workspace_is_read_only_for_launch": True,
             "showcase_artifacts_are_read_only": True,
             "workbench_is_rendered_from_the_same_gateway_read_model": True,
         },
@@ -956,7 +958,7 @@ def register_workspace_routes(blueprint: Blueprint, gateway_factory: Any) -> Non
 
     @blueprint.get("/v4/console")
     def v4_console() -> Response:
-        return redirect("/v4#new-task", code=302)
+        return redirect("/", code=302)
 
     @blueprint.get("/v4/showcase")
     def v4_showcase() -> Response:

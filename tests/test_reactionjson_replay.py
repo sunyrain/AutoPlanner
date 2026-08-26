@@ -9,6 +9,7 @@ from cascade_planner.application.reactionjson_replay import (
     PRIMITIVES,
     REACTIONJSON_PROFILE,
     ReactionJsonReplayError,
+    diagnose_reactionjson,
     replay_reactionjson,
 )
 from cascade_planner.application.routejson_compiler import RouteJSONCompiler
@@ -138,7 +139,7 @@ def test_critic_accepts_only_replayed_external_oxygen_provenance() -> None:
         ),
         (
             "[CH3:1].[CH3:2]",
-            {"op": "add_bond", "map_a": 1, "map_b": 2, "order": 1},
+            {"op": "add_bond", "map_a": 1, "map_b": 2},
             ["CC"],
         ),
         (
@@ -147,8 +148,8 @@ def test_critic_accepts_only_replayed_external_oxygen_provenance() -> None:
             ["CC"],
         ),
         (
-            "[CH3:1]",
-            {"op": "change_atom", "map_idx": 1, "element": "N"},
+            "[NH4+:1]",
+            {"op": "change_atom", "map_idx": 1, "formal_charge": 0},
             ["N"],
         ),
         (
@@ -205,6 +206,35 @@ def test_public_profile_replays_all_ten_primitives(
     assert audit["semantics"]["replay_grants_no_reaction_proof"] is True
 
 
+def test_add_bond_then_change_bond_order_creates_a_double_bond() -> None:
+    audit = replay_reactionjson(
+        mapped_product_smiles="[CH2:1].[CH2:2]",
+        operations=[
+            {"op": "add_bond", "map_a": 1, "map_b": 2},
+            {"op": "change_bond_order", "map_a": 1, "map_b": 2, "delta": 1},
+        ],
+        expected_precursor_smiles=["C=C"],
+    )
+
+    assert audit["accepted"] is True
+    assert audit["expected_precursors_match"] is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    [{"element": "N"}, {"atomic_num": 7}],
+)
+def test_change_atom_rejects_element_transmutation(field: dict) -> None:
+    with pytest.raises(
+        ReactionJsonReplayError,
+        match="reactionjson_change_atom_transmutation_forbidden",
+    ):
+        replay_reactionjson(
+            mapped_product_smiles="[CH3:1]",
+            operations=[{"op": "change_atom", "map_idx": 1, **field}],
+        )
+
+
 def test_public_profile_preserves_order_and_is_deterministic() -> None:
     operations = [
         {"op": "change_bond_order", "map_a": 1, "map_b": 2, "delta": -1},
@@ -252,6 +282,41 @@ def test_add_group_assigns_deterministic_fresh_maps_to_unmapped_atoms() -> None:
     assert ":9]" in first["mapped_precursor_smiles"][0]
 
 
+def test_add_group_order_overrides_dummy_attachment_bond() -> None:
+    audit = replay_reactionjson(
+        mapped_product_smiles="[CH2:1]",
+        operations=[
+            {
+                "op": "add_group",
+                "map_idx": 1,
+                "fragment_smiles": "[*]O",
+                "order": 2,
+            }
+        ],
+        expected_precursor_smiles=["C=O"],
+    )
+
+    assert audit["accepted"] is True
+    assert audit["expected_precursors_match"] is True
+
+
+def test_add_group_without_order_uses_dummy_attachment_bond() -> None:
+    audit = replay_reactionjson(
+        mapped_product_smiles="[CH2:1]",
+        operations=[
+            {
+                "op": "add_group",
+                "map_idx": 1,
+                "fragment_smiles": "[*]=O",
+            }
+        ],
+        expected_precursor_smiles=["C=O"],
+    )
+
+    assert audit["accepted"] is True
+    assert audit["expected_precursors_match"] is True
+
+
 @pytest.mark.parametrize(
     ("product", "operations", "reason"),
     [
@@ -286,6 +351,23 @@ def test_add_group_assigns_deterministic_fresh_maps_to_unmapped_atoms() -> None:
             [{"op": "add_bond", "map_a": 1, "map_b": 2}],
             "bond_already_exists",
         ),
+        (
+            "[CH3:1].[OH:2]",
+            [{"op": "add_bond", "map_a": 1, "map_b": 2, "order": 1.5}],
+            "aromatic_bond_requires_aromatic_atoms",
+        ),
+        (
+            "[CH3:1]",
+            [
+                {
+                    "op": "add_group",
+                    "map_idx": 1,
+                    "fragment_smiles": "[*]O",
+                    "order": 1.5,
+                }
+            ],
+            "aromatic_bond_requires_aromatic_atoms",
+        ),
     ],
 )
 def test_public_profile_fails_closed(
@@ -293,6 +375,43 @@ def test_public_profile_fails_closed(
 ) -> None:
     with pytest.raises(ReactionJsonReplayError, match=reason):
         replay_reactionjson(mapped_product_smiles=product, operations=operations)
+
+
+@pytest.mark.parametrize(
+    ("product", "operation", "endpoint_aromaticity"),
+    [
+        (
+            "[CH3:1].[OH:2]",
+            {"op": "add_bond", "map_a": 1, "map_b": 2, "order": 1.5},
+            {"map_a": False, "map_b": False},
+        ),
+        (
+            "[CH3:1]",
+            {
+                "op": "add_group",
+                "map_idx": 1,
+                "fragment_smiles": "[*]O",
+                "order": 1.5,
+            },
+            {"anchor": False, "fragment_attachment": False},
+        ),
+    ],
+)
+def test_aromatic_order_diagnostic_identifies_only_the_failed_operation(
+    product: str,
+    operation: dict,
+    endpoint_aromaticity: dict[str, bool],
+) -> None:
+    diagnostic = diagnose_reactionjson(
+        mapped_product_smiles=product,
+        operations=[operation],
+    )
+
+    assert diagnostic["replay_succeeded"] is False
+    assert diagnostic["operation_index"] == 0
+    assert diagnostic["failed_operation"] == operation
+    assert diagnostic["endpoint_aromaticity"] == endpoint_aromaticity
+    assert diagnostic["allowed_orders"] == [1, 2, 3]
 
 
 def test_expected_precursors_are_a_required_conformance_oracle_when_supplied() -> None:

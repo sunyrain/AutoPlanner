@@ -248,8 +248,13 @@ def _deterministic_target_identity(monkeypatch: Any) -> None:
 
 
 def test_target_solver_keeps_whole_target_chemenzy_as_a_separate_arm() -> None:
+    assert TargetSolveConfig().run_scope == "blind"
+    assert TargetSolveConfig(run_scope="interactive").run_scope == "interactive"
     assert TargetSolveConfig().enable_target_chemenzy_baseline is False
     assert TargetSolveConfig().chemenzy_seed == 0
+
+    with pytest.raises(ValueError, match="run scope"):
+        TargetSolveConfig(run_scope="unknown")
 
 
 def test_target_solver_rejects_invalid_chemenzy_seed() -> None:
@@ -304,6 +309,28 @@ def test_paper_synthex_profile_keeps_route_depth_and_repair_rounds_fixed() -> No
             execution_profile="paper_synthex",
             stop_on_first_stock_closed_branch=True,
         )
+
+
+def test_paper_synthex_resolver_binds_one_explicit_aiz_runtime(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runtime_root = tmp_path / "shared-aiz-runtime"
+    python_executable = runtime_root / ".venv_aizynth" / "Scripts" / "python.exe"
+    config_path = runtime_root / "config" / "aizynthfinder.paper.yml"
+    monkeypatch.setenv("AUTOPLANNER_AIZYNTH_PYTHON", str(python_executable))
+    monkeypatch.setenv("AUTOPLANNER_AIZYNTH_CONFIG", str(config_path))
+    monkeypatch.setenv("AUTOPLANNER_AIZYNTH_RUNTIME_ROOT", str(runtime_root))
+
+    resolved = _resolve_execution_config(
+        TargetSolveConfig(execution_profile="paper_synthex")
+    )
+
+    assert resolved.aizynthfinder_python_executable == str(
+        python_executable.resolve()
+    )
+    assert resolved.aizynthfinder_config_path == str(config_path.resolve())
+    assert resolved.aizynthfinder_runtime_root == str(runtime_root.resolve())
 
 
 def test_paper_synthex_resolver_disables_non_reach_work_and_keeps_stock_validation() -> None:
@@ -1404,6 +1431,73 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
     assert (
         resumed["trajectory"]["time_to_first"]["B4"] == result["trajectory"]["time_to_first"]["B4"]
     )
+
+
+def test_interactive_solver_allows_a_target_already_present_in_repository(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    (gateway.paths.repository_root / "known-targets.txt").write_text(
+        TARGET,
+        encoding="utf-8",
+    )
+    acceptance = RetrosynthesisAcceptanceSpec(
+        minimum_complete_routes=2,
+        minimum_edge_proof_level=2,
+        stock_boundary="benchmark_search",
+        minimum_independent_source_groups=2,
+    )
+    budget = RetrosynthesisRunBudget(
+        max_model_invocations=2,
+        max_total_input_tokens=10_000,
+        max_total_output_tokens=5_000,
+        max_total_wall_time_s=60,
+        max_visual_invocations=0,
+        max_accepted_expansions=8,
+        max_attempt_runs=16,
+    )
+
+    with pytest.raises(ValueError, match="target_material_already_present"):
+        gateway.solve_target(
+            target_name="known blind molecule",
+            target_smiles=TARGET,
+            run_id="blind-known-target-e2e",
+            acceptance=acceptance,
+            budget=budget,
+            config=TargetSolveConfig(
+                use_coordinator=False,
+                enable_web_search=False,
+                enable_replan=False,
+            ),
+            director_runner=_runner,
+            atom_mapper=_mapper,
+            stock_catalog_builder=_catalog,
+        )
+
+    result = gateway.solve_target(
+        target_name="known interactive molecule",
+        target_smiles=TARGET,
+        run_id="interactive-target-e2e",
+        acceptance=acceptance,
+        budget=budget,
+        config=TargetSolveConfig(
+            run_scope="interactive",
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+    )
+
+    assert result["preflight"]["schema_version"] == "interactive_target_preflight.v1"
+    assert result["preflight"]["execution_scope"] == "interactive"
+    assert result["preflight"]["repository_absence_attested"] is False
+    assert result["preflight"]["accepted"] is True
+    run_dir = Path(result["report_path"]).parent
+    assert (run_dir / ".autoplanner" / "interactive-preflight.json").is_file()
+    assert not (run_dir / ".autoplanner" / "blind-preflight.json").exists()
 
 
 def test_current_disposition_does_not_treat_stale_terminal_as_scientific_success() -> None:

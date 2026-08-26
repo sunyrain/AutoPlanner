@@ -11,8 +11,14 @@ import threading
 import time
 from typing import Any, Callable, Mapping
 
+from cascade_planner.agent.codex_worker import (
+    _close_windows_job,
+    _create_windows_kill_job,
+    _terminate_worker_process_group,
+)
 
-SCHEMA = "aizynthfinder_reactionjson_branch_sidecar.v1"
+
+SCHEMA = "aizynthfinder_reactionjson_branch_sidecar.v2"
 ExpansionRequestHandler = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 
 
@@ -31,6 +37,7 @@ def run_aizynthfinder_strategy_branch_sidecar(
     exploration_constant: float = 1.4,
     max_mcts_iterations: int = 0,
     timeout_s: float = 18_000.0,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Run one AiZ MCTS branch while model/replay calls stay in the host."""
 
@@ -48,6 +55,9 @@ def run_aizynthfinder_strategy_branch_sidecar(
     if not inline_stock_smiles and not Path(stock_index_path).is_file():
         raise RuntimeError("aizynthfinder strategy stock index missing")
 
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("aizynthfinder_strategy_sidecar_cancelled")
+
     process = subprocess.Popen(
         [str(python_path), str(script)],
         cwd=str(root),
@@ -61,7 +71,9 @@ def run_aizynthfinder_strategy_branch_sidecar(
         creationflags=(
             subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         ),
+        start_new_session=(os.name != "nt"),
     )
+    windows_job = _create_windows_kill_job(process)
     if process.stdin is None or process.stdout is None or process.stderr is None:
         process.kill()
         raise RuntimeError("aizynthfinder strategy sidecar pipes unavailable")
@@ -102,11 +114,13 @@ def run_aizynthfinder_strategy_branch_sidecar(
     try:
         _send(process, launch)
         while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("aizynthfinder_strategy_sidecar_cancelled")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("aizynthfinder strategy sidecar timed out")
             try:
-                line = stdout_queue.get(timeout=min(1.0, remaining))
+                line = stdout_queue.get(timeout=min(0.1, remaining))
             except queue.Empty:
                 if process.poll() is not None:
                     raise RuntimeError(
@@ -136,9 +150,6 @@ def run_aizynthfinder_strategy_branch_sidecar(
                         {
                             "type": "expansion_response",
                             "candidates": list(response.get("candidates") or []),
-                            "stopped_product_smiles": list(
-                                response.get("stopped_product_smiles") or []
-                            ),
                             "error": str(response.get("error") or ""),
                         },
                     )
@@ -168,13 +179,16 @@ def run_aizynthfinder_strategy_branch_sidecar(
                     str(message.get("error") or "aizynthfinder strategy error")
                 )
     finally:
+        if windows_job is not None:
+            _close_windows_job(windows_job)
+            windows_job = None
+        elif process.poll() is None:
+            _terminate_worker_process_group(process)
         if process.poll() is None:
-            process.terminate()
             try:
                 process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5.0)
+                _terminate_worker_process_group(process)
 
 
 def _send(process: subprocess.Popen[str], payload: Mapping[str, Any]) -> None:

@@ -1,0 +1,42 @@
+# Portable AiZynthFinder 4.4.1 configuration for the SynthEx-matched arms.
+# Paths are resolved from the explicitly bound AiZynthFinder runtime root,
+# which may differ from the source worktree running the host planner.
+search:
+  max_transforms: 25
+  iteration_limit: 1500
+  time_limit: 1800
+  return_first: true
+  exclude_target_from_stock: true
+  algorithm_config:
+    C: 1.4
+    use_prior: true
+    prune_cycles_in_search: true
+    search_rewards: ["state score"]
+    search_rewards_weights: []
+
+expansion:
+  uspto:
+    type: template-based
+    model: workspace/aizdata/uspto_model.onnx
+    template: workspace/aizdata/uspto_templates.csv.gz
+    cutoff_number: 50
+    cutoff_cumulative: 0.995
+  ringbreaker:
+    type: template-based
+    model: workspace/aizdata/uspto_ringbreaker_model.onnx
+    template: workspace/aizdata/uspto_ringbreaker_templates.csv.gz
+    cutoff_number: 50
+    cutoff_cumulative: 0.995
+
+filter:
+  uspto: workspace/aizdata/uspto_filter_model.onnx
+
+stock:
+  paper_zinc_emolecules:
+    type: cascade_planner.interfaces.aizynthfinder_reactionjson_expansion.FullInchiKeySqliteStockQuery
+    path: data_external/synthatlas/zinc_synthelite_20260223_full_inchikey.sqlite3
+
+post_processing:
+  min_routes: 1
+  max_routes: 25
+  all_routes: false

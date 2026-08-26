@@ -52,18 +52,19 @@ _LIST_FIELDS = (
     "functional_group_conflicts",
 )
 
-# The worker schema keeps every possible ReactionJSON field nullable because
-# strict structured outputs require one fixed object shape.  Normalize each
-# primitive back to its semantic field set before computing a digest or
-# replaying it; otherwise harmless ``null``-schema filler (for example
-# ``order`` on ``break_bond``) is rejected as an unknown replay field.
+# ReactionJSON uses a strict ``anyOf`` union: each primitive has only its
+# semantic fields.  This normalizer remains the single compatibility boundary
+# for historical artifacts that may still contain null filler fields.
 _REACTION_OPERATION_FIELDS = {
     "break_bond": {"op", "map_a", "map_b"},
     "add_bond": {"op", "map_a", "map_b", "order"},
     "change_bond_order": {"op", "map_a", "map_b", "delta"},
+    # Keep historical element fields long enough for the replay boundary to
+    # reject them with the specific transmutation error; new model schemas do
+    # not expose either field.
     "change_atom": {"op", "map_idx", "atomic_num", "element", "formal_charge", "isotope"},
     "set_explicit_h": {"op", "map_idx", "count", "no_implicit"},
-    "add_group": {"op", "map_idx", "fragment_smiles"},
+    "add_group": {"op", "map_idx", "fragment_smiles", "order"},
     "remove_group": {"op", "map_indices"},
     "invert_stereocenter": {"op", "map_idx"},
     "clear_stereocenter": {"op", "map_idx"},

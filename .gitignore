@@ -39,6 +39,7 @@ config/
 !config/
 config/*
 !config/trusted_stock_catalogs.json
+!config/aizynthfinder.paper.yml
 !config/examples/
 config/examples/*
 !config/examples/nirmatrelvir_source_route_candidates.json

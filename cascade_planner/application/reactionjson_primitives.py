@@ -29,7 +29,7 @@ _FIELDS = {
     "change_atom": _COMMON
     | {"map_idx", "atomic_num", "element", "formal_charge", "isotope"},
     "set_explicit_h": _COMMON | {"map_idx", "count", "no_implicit"},
-    "add_group": _COMMON | {"map_idx", "fragment_smiles"},
+    "add_group": _COMMON | {"map_idx", "fragment_smiles", "order"},
     "remove_group": _COMMON | {"map_indices"},
     "invert_stereocenter": _COMMON | {"map_idx"},
     "clear_stereocenter": _COMMON | {"map_idx"},
@@ -54,6 +54,21 @@ _STEREO = {
 
 class ReactionJsonReplayError(ValueError):
     """The edit program is outside the profile or cannot be replayed safely."""
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        operation_index: int | None = None,
+        failed_operation: Mapping[str, Any] | None = None,
+        failure_context: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.operation_index = operation_index
+        self.failed_operation = (
+            dict(failed_operation) if failed_operation is not None else None
+        )
+        self.failure_context = dict(failure_context or {})
 
 
 def normalize_operation(value: Any) -> dict[str, Any]:
@@ -83,7 +98,15 @@ def apply_operation(molecule: Chem.RWMol, row: Mapping[str, Any]) -> Chem.RWMol:
         a, b = _bond_atoms(molecule, row)
         if molecule.GetBondBetweenAtoms(a, b) is not None:
             raise ReactionJsonReplayError("reactionjson_bond_already_exists")
-        molecule.AddBond(a, b, _bond_type(row.get("order", 1)))
+        bond_type = _bond_type(row.get("order", 1))
+        if bond_type == Chem.BondType.AROMATIC and not (
+            molecule.GetAtomWithIdx(a).GetIsAromatic()
+            and molecule.GetAtomWithIdx(b).GetIsAromatic()
+        ):
+            raise ReactionJsonReplayError(
+                "reactionjson_aromatic_bond_requires_aromatic_atoms"
+            )
+        molecule.AddBond(a, b, bond_type)
     elif kind == "change_bond_order":
         a, b = _bond_atoms(molecule, row)
         bond = molecule.GetBondBetweenAtoms(a, b)
@@ -188,23 +211,19 @@ def complete_edited_atom_valences(
 
 def _change_atom(molecule: Chem.RWMol, row: Mapping[str, Any]) -> None:
     atom = molecule.GetAtomWithIdx(_map_index(molecule, row.get("map_idx")))
+    if "atomic_num" in row or "element" in row:
+        raise ReactionJsonReplayError(
+            "reactionjson_change_atom_transmutation_forbidden"
+        )
     fields = {
         key
-        for key in ("atomic_num", "element", "formal_charge", "isotope")
+        for key in ("formal_charge", "isotope")
         if key in row
     }
     if not fields:
         raise ReactionJsonReplayError("reactionjson_change_atom_field_required")
-    atomic_num = row.get("atomic_num")
-    element = str(row.get("element") or "").strip()
-    if atomic_num is not None and element:
-        raise ReactionJsonReplayError("reactionjson_change_atom_element_conflict")
-    if element:
-        atomic_num = Chem.GetPeriodicTable().GetAtomicNumber(element)
-    if atomic_num is not None:
-        atom.SetAtomicNum(
-            _integer(atomic_num, "reactionjson_atomic_num_invalid", minimum=1)
-        )
+    if len(fields) != 1:
+        raise ReactionJsonReplayError("reactionjson_change_atom_field_ambiguous")
     if "formal_charge" in row:
         atom.SetFormalCharge(_integer(row["formal_charge"], "reactionjson_charge_invalid"))
     if "isotope" in row:
@@ -250,9 +269,21 @@ def _add_group(molecule: Chem.RWMol, row: Mapping[str, Any]) -> Chem.RWMol:
     dummy = dummies[0]
     neighbor = dummy.GetNeighbors()[0]
     attachment_bond = fragment.GetBondBetweenAtoms(dummy.GetIdx(), neighbor.GetIdx())
+    attachment_bond_type = (
+        _bond_type(_finite_number(row.get("order"), "reactionjson_bond_order_invalid"))
+        if row.get("order") is not None
+        else attachment_bond.GetBondType()
+    )
+    anchor_atom = molecule.GetAtomWithIdx(anchor_index)
+    if attachment_bond_type == Chem.BondType.AROMATIC and not (
+        anchor_atom.GetIsAromatic() and neighbor.GetIsAromatic()
+    ):
+        raise ReactionJsonReplayError(
+            "reactionjson_aromatic_bond_requires_aromatic_atoms"
+        )
     offset = molecule.GetNumAtoms()
     combined = Chem.RWMol(Chem.CombineMols(molecule.GetMol(), fragment))
-    combined.AddBond(anchor_index, offset + neighbor.GetIdx(), attachment_bond.GetBondType())
+    combined.AddBond(anchor_index, offset + neighbor.GetIdx(), attachment_bond_type)
     combined.RemoveAtom(offset + dummy.GetIdx())
     return combined
 

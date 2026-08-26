@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from threading import Event
+
+import pytest
+
 from cascade_planner.interfaces.aizynthfinder_strategy_sidecar import (
     run_aizynthfinder_strategy_branch_sidecar,
 )
@@ -95,3 +99,18 @@ def test_strategy_sidecar_executes_real_aiz_mcts_and_backtracks() -> None:
     assert diagnostics["maximum_tree_depth"] >= diagnostics["selected_depth"]
     assert result["mcts_iterations"] > 1
     assert any(row["depth"] > 0 and row["route_steps"] for row in requests)
+
+
+def test_strategy_sidecar_honors_a_pre_requested_cancellation() -> None:
+    cancel_event = Event()
+    cancel_event.set()
+
+    with pytest.raises(RuntimeError, match="strategy_sidecar_cancelled"):
+        run_aizynthfinder_strategy_branch_sidecar(
+            target_smiles="CCO",
+            strategy_id="strategy-cancelled",
+            strategy_text="cancel before launch",
+            request_handler=lambda _request: {"candidates": []},
+            inline_stock_smiles=("C",),
+            cancel_event=cancel_event,
+        )
