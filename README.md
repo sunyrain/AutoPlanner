@@ -159,6 +159,7 @@ proof，不能赋予 proof。
 本仓库不使用 GitHub Actions 或 CI。提交前在本地运行完整测试、Ruff、仓库审计和
 `git diff --check`。
 
-进一步阅读：[主线架构](docs/MAINLINE.md)、[操作手册](docs/RUNBOOK.md)、
+进一步阅读：[架构总览](docs/architecture/AUTOPLANNER_ARCHITECTURE.md)、
+[主线架构](docs/MAINLINE.md)、[操作手册](docs/RUNBOOK.md)、
 [Schema 索引](docs/SCHEMAS.md)、[展示案例](docs/SHOWCASE_CASES.md) 和
-[V4 实施清单](docs/architecture/RETROSYNTHESIS_V4_IMPLEMENTATION_TODO.md)。
+[V4 实施历史](docs/architecture/RETROSYNTHESIS_V4_IMPLEMENTATION_TODO.md)。

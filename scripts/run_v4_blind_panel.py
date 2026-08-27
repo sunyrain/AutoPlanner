@@ -38,6 +38,12 @@ from cascade_planner.interfaces.target_runtime_dependencies import (  # noqa: E4
     TARGET_PROFILE_DEFAULTS,
 )
 from cascade_planner.interfaces.target_solver import _is_paper_reach_profile  # noqa: E402
+from cascade_planner.runtime.paths import RuntimePaths  # noqa: E402
+from cascade_planner.runtime.run_registry_catalog import (  # noqa: E402
+    RunRegistryCatalog,
+    binding_from_registry_root,
+    registry_catalog_path,
+)
 from cascade_planner.eval.synthex_protocol_preflight import (  # noqa: E402
     validate_synthex_head_to_head_protocol,
 )
@@ -66,6 +72,23 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--output-root", required=True)
+    parser.add_argument(
+        "--publish-registry",
+        action="store_true",
+        help=(
+            "Explicitly publish this isolated panel registry to the Web catalog; "
+            "no results-directory scan is performed."
+        ),
+    )
+    parser.add_argument(
+        "--registry-catalog-path",
+        default="",
+        help="Optional catalog SQLite path; defaults to the main runtime catalog.",
+    )
+    parser.add_argument("--registry-id", default="")
+    parser.add_argument("--registry-label", default="")
+    parser.add_argument("--registry-project-id", default="")
+    parser.add_argument("--registry-project-label", default="")
     parser.add_argument(
         "--paper-protocol",
         help=(
@@ -375,6 +398,19 @@ def main(argv: list[str] | None = None) -> int:
 
     for name in ("audit", "runtime", "runs", "artifacts", "external", "logs"):
         (output_root / name).mkdir(parents=True, exist_ok=True)
+    registry_publication = (
+        _publish_run_registry(
+            output_root=output_root,
+            cases=cases,
+            catalog_path=args.registry_catalog_path,
+            registry_id=args.registry_id,
+            registry_label=args.registry_label,
+            project_id=args.registry_project_id,
+            project_label=args.registry_project_label,
+        )
+        if args.publish_registry
+        else {}
+    )
     snapshot = _prepare_panel_snapshot(
         output_root=output_root,
         manifest=manifest,
@@ -406,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema_version": "v4_blind_panel_status.v1",
         "manifest_path": str(manifest),
         "output_root": str(output_root),
+        "registry_publication": registry_publication,
         "started_at": _utc_now(),
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
@@ -711,6 +748,63 @@ def main(argv: list[str] | None = None) -> int:
     _write_json(status_path, state)
     print(json.dumps(state, ensure_ascii=False, indent=2))
     return 0 if state["completed_count"] == len(cases) else 2
+
+
+def _publish_run_registry(
+    *,
+    output_root: Path,
+    cases: list[BlindCase],
+    catalog_path: str = "",
+    registry_id: str = "",
+    registry_label: str = "",
+    project_id: str = "",
+    project_label: str = "",
+) -> dict[str, Any]:
+    """Publish registry location only; the owning RunIndex retains all state."""
+
+    primary_paths = RuntimePaths.discover(repository_root=ROOT)
+    resolved_catalog_path = (
+        Path(catalog_path).expanduser().resolve()
+        if str(catalog_path or "").strip()
+        else registry_catalog_path(primary_paths)
+    )
+    default_project_label = output_root.parent.name or output_root.name
+    resolved_project_label = str(project_label or "").strip() or default_project_label
+    resolved_project_id = str(project_id or "").strip() or _catalog_slug(
+        default_project_label, prefix="panel"
+    )
+    case_id = cases[0].case_id if len(cases) == 1 else ""
+    result = RunRegistryCatalog(resolved_catalog_path).register(
+        binding_from_registry_root(
+            output_root,
+            registry_id=str(registry_id or "").strip(),
+            registry_label=(str(registry_label or "").strip() or output_root.name),
+            project_id=resolved_project_id,
+            project_label=resolved_project_label,
+            case_id=case_id,
+            repository_root=ROOT,
+            source="blind_panel",
+        )
+    )
+    return {
+        "catalog_path": str(resolved_catalog_path),
+        "registry": dict(result.get("registry") or {}),
+        "semantics": {
+            "catalog_is_discovery_only": True,
+            "run_state_remains_in_owning_registry": True,
+        },
+    }
+
+
+def _catalog_slug(value: str, *, prefix: str) -> str:
+    normalized = "".join(
+        char if char.isascii() and char.isalnum() else "-"
+        for char in str(value or "").casefold()
+    ).strip("-")
+    normalized = "-".join(part for part in normalized.split("-") if part)
+    if not normalized:
+        normalized = hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}-{normalized}"[:96].rstrip("-")
 
 
 def _load_resume_panel_state(path: Path) -> dict[str, Any]:

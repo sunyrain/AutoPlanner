@@ -8,6 +8,14 @@ from pathlib import Path
 from flask import Flask
 from PIL import Image, ImageChops
 
+from cascade_planner.interfaces.campaign_gateway import CampaignGateway
+from cascade_planner.runtime.paths import RuntimePaths
+from cascade_planner.runtime.run_index import RUN_MANIFEST_SCHEMA, RunIndex
+from cascade_planner.runtime.run_registry_catalog import (
+    RunRegistryCatalog,
+    binding_from_registry_root,
+    registry_catalog_path,
+)
 from cascade_planner.web.v4_api import create_v4_blueprint
 from cascade_planner.web.v4_live_synthesis import (
     project_live_synthesis,
@@ -40,7 +48,10 @@ def test_live_projection_replaces_model_candidate_with_host_replayed_path(
             "payload": {
                 "target_smiles": target,
                 "strategy_cards": [
-                    {"strategy_signature": f"Strategy {index}", "strategy_query": f"Query {index}"}
+                    {
+                        "strategy_signature": f"Strategy {index}",
+                        "strategy_query": f"Query {index}",
+                    }
                     for index in range(1, 4)
                 ],
             },
@@ -81,8 +92,7 @@ def test_live_projection_replaces_model_candidate_with_host_replayed_path(
         event="model_input",
         artifact_type="RetrosynthesisProposalReport",
         task_id="director:test:branch:1:node:3",
-        prompt="instructions\nPaperMatchedRouteBuilderContext:\n"
-        + json.dumps(context),
+        prompt="instructions\nPaperMatchedRouteBuilderContext:\n" + json.dumps(context),
     )
     path = tmp_path / "model-io.jsonl"
     path.write_text(
@@ -101,7 +111,7 @@ def test_live_projection_replaces_model_candidate_with_host_replayed_path(
     projection = project_live_synthesis(
         model_io_path=path,
         job={
-            "job_id": "solve:live",
+            "job_id": "solve:@main:live",
             "run_id": "live",
             "target_name": "target",
             "status": "running",
@@ -159,7 +169,7 @@ def test_live_projection_exposes_pending_output_before_host_replay(
 
     projection = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:pending", "run_id": "pending", "status": "running"},
+        job={"job_id": "solve:@main:pending", "run_id": "pending", "status": "running"},
     )
 
     pending = projection["branches"][1]["pending_step"]
@@ -204,8 +214,7 @@ def test_live_projection_recovers_paper_matched_selected_leaf(
         event="model_input",
         artifact_type="RetrosynthesisProposalReport",
         task_id="director:test:branch:2:node:3",
-        prompt="instructions\nPaperMatchedRouteBuilderContext:\n"
-        + json.dumps(context),
+        prompt="instructions\nPaperMatchedRouteBuilderContext:\n" + json.dumps(context),
     )
     path = tmp_path / "model-io.jsonl"
     path.write_text(
@@ -215,7 +224,7 @@ def test_live_projection_recovers_paper_matched_selected_leaf(
 
     projection = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:paper", "run_id": "paper", "status": "running"},
+        job={"job_id": "solve:@main:paper", "run_id": "paper", "status": "running"},
     )
 
     branch = projection["branches"][1]
@@ -232,7 +241,7 @@ def test_historical_running_kernel_is_projected_as_interrupted() -> None:
     projection = project_live_synthesis(
         model_io_path=None,
         job={
-            "job_id": "solve:orphaned",
+            "job_id": "solve:@main:orphaned",
             "run_id": "orphaned",
             "status": "historical",
             "campaign_status": "running",
@@ -243,16 +252,32 @@ def test_historical_running_kernel_is_projected_as_interrupted() -> None:
     assert projection["status"] == "interrupted"
     assert projection["phase"] == "interrupted"
     assert projection["progress"] < 100
-    assert {branch["status"] for branch in projection["branches"]} == {
-        "interrupted"
-    }
+    assert {branch["status"] for branch in projection["branches"]} == {"interrupted"}
+
+
+def test_paused_projection_is_settled_without_claiming_completion() -> None:
+    projection = project_live_synthesis(
+        model_io_path=None,
+        job={
+            "job_id": "solve:@main:paused",
+            "run_id": "paused",
+            "status": "paused",
+            "cancellation_available": False,
+        },
+    )
+
+    assert projection["status"] == "paused"
+    assert projection["phase"] == "paused"
+    assert projection["progress"] < 100
+    assert projection["cancellation_available"] is False
+    assert {branch["status"] for branch in projection["branches"]} == {"paused"}
 
 
 def test_historical_terminal_decision_overrides_stale_running_status() -> None:
     projection = project_live_synthesis(
         model_io_path=None,
         job={
-            "job_id": "solve:settled",
+            "job_id": "solve:@main:settled",
             "run_id": "settled",
             "status": "historical",
             "campaign_status": "running",
@@ -293,7 +318,7 @@ def test_legacy_stop_signal_does_not_settle_route_builder_branch(
 
     projection = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:stopped", "run_id": "stopped", "status": "running"},
+        job={"job_id": "solve:@main:stopped", "run_id": "stopped", "status": "running"},
     )
 
     assert projection["branches"][0]["status"] == "reviewing"
@@ -360,7 +385,7 @@ def test_live_projection_uses_compact_and_critic_host_replay_contexts(
 
     pending_projection = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:compact", "run_id": "compact", "status": "running"},
+        job={"job_id": "solve:@main:compact", "run_id": "compact", "status": "running"},
     )
     branch = pending_projection["branches"][1]
     assert [row["step_id"] for row in branch["steps"]] == ["host-step-1"]
@@ -405,7 +430,7 @@ def test_live_projection_uses_compact_and_critic_host_replay_contexts(
 
     replayed_projection = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:compact", "run_id": "compact", "status": "running"},
+        job={"job_id": "solve:@main:compact", "run_id": "compact", "status": "running"},
     )
     branch = replayed_projection["branches"][1]
     assert branch["pending_step"] is None
@@ -423,16 +448,10 @@ def test_live_projection_uses_compact_and_critic_host_replay_contexts(
     assert branch["steps"][1]["topology_status"] == "linked"
     assert branch["steps"][1]["parent_step_index"] == 0
     assert branch["steps"][0]["continuation_precursor_indices"] == [0, 1]
-    assert branch["steps"][0]["display_precursors"][0][
-        "continues_to_next_step"
-    ] is True
+    assert branch["steps"][0]["display_precursors"][0]["continues_to_next_step"] is True
     assert branch["steps"][0]["display_precursors"][0]["count"] == 2
-    assert branch["steps"][0]["display_precursors"][0][
-        "child_step_indices"
-    ] == [1]
-    assert branch["steps"][0]["display_precursors"][1][
-        "child_step_indices"
-    ] == [2]
+    assert branch["steps"][0]["display_precursors"][0]["child_step_indices"] == [1]
+    assert branch["steps"][0]["display_precursors"][1]["child_step_indices"] == [2]
     assert branch["steps"][2]["parent_step_index"] == 0
 
 
@@ -506,7 +525,7 @@ def test_paper_matched_review_transition_settles_prior_branches(
 
     projection = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:review", "run_id": "review", "status": "running"},
+        job={"job_id": "solve:@main:review", "run_id": "review", "status": "running"},
     )
 
     assert [branch["status"] for branch in projection["branches"]] == [
@@ -550,7 +569,7 @@ def test_paper_matched_critic_mapped_structures_remain_renderable(
 
     projection = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:mapped", "run_id": "mapped", "status": "running"},
+        job={"job_id": "solve:@main:mapped", "run_id": "mapped", "status": "running"},
     )
 
     branch = projection["branches"][0]
@@ -591,7 +610,7 @@ def test_terminal_projection_marks_unreplayed_model_output_as_settled(
 
     projection = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:ended", "run_id": "ended", "status": "historical"},
+        job={"job_id": "solve:@main:ended", "run_id": "ended", "status": "historical"},
     )
 
     assert projection["branches"][0]["pending_step"]["status"] == (
@@ -631,11 +650,11 @@ def test_live_projection_supports_independent_strategy_cards_and_cancellation(
 
     cancelling = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:cards", "run_id": "cards", "status": "cancelling"},
+        job={"job_id": "solve:@main:cards", "run_id": "cards", "status": "cancelling"},
     )
     cancelled = project_live_synthesis(
         model_io_path=path,
-        job={"job_id": "solve:cards", "run_id": "cards", "status": "cancelled"},
+        job={"job_id": "solve:@main:cards", "run_id": "cards", "status": "cancelled"},
     )
 
     assert [row["signature"] for row in cancelling["strategies"]] == [
@@ -659,12 +678,11 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
     app.register_blueprint(create_v4_blueprint(UnusedGateway))
     client = app.test_client()
     page = client.get("/")
-    legacy = client.get("/synthesis", query_string={"job": "solve:example"})
+    retired = client.get("/synthesis")
 
     assert page.status_code == 200
     assert page.headers["Cache-Control"] == "no-store"
-    assert legacy.status_code == 302
-    assert legacy.headers["Location"] == "/?job=solve:example"
+    assert retired.status_code == 404
     page_html = page.get_data(as_text=True)
     assert "Strategy-first synthesis" in page_html
     assert "EventSource" in page_html
@@ -673,7 +691,11 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
     assert "value.status==='repository_hit'" in page_html
     assert 'id="repositoryHitPanel"' in page_html
     assert "目标已在仓库中" in page_html
-    assert "3 秒自动刷新" in page_html
+    assert "活跃任务由实时流更新" in page_html
+    assert "localJobsRefreshMs=60000" in page_html
+    assert "setInterval(()=>refreshLocalJobs" not in page_html
+    assert "status==='paused'?'PAUSED'" in page_html
+    assert "当前没有执行中的 Builder" in page_html
     assert "DOMParser" not in page_html
     assert "getBBox()" not in page_html
     assert "moleculeRenderVersion='rdkit-png-v6'" in page_html
@@ -709,10 +731,7 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
             )
         ]
         assert label_origins
-        assert all(
-            24.0 <= x <= 296.0 and 24.0 <= y <= 170.0
-            for x, y in label_origins
-        )
+        assert all(24.0 <= x <= 296.0 and 24.0 <= y <= 170.0 for x, y in label_origins)
         png, png_valid = render_molecule_png(smiles)
         assert png_valid is True
         assert png.startswith(b"\x89PNG\r\n\x1a\n")
@@ -773,7 +792,7 @@ def test_live_sse_route_emits_the_durable_projection(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    class HistoricalGateway:
+    class ExternalLiveGateway:
         def list_runs(self, *, limit):
             return {
                 "runs": [
@@ -796,9 +815,9 @@ def test_live_sse_route_emits_the_durable_projection(tmp_path: Path) -> None:
             }
 
     app = Flask(__name__)
-    app.register_blueprint(create_v4_blueprint(HistoricalGateway))
+    app.register_blueprint(create_v4_blueprint(ExternalLiveGateway))
     response = app.test_client().get(
-        "/api/v4/live/solve:historical-live/events",
+        "/api/v4/live/solve:@main:historical-live/events",
         buffered=False,
     )
     first_chunk = next(iter(response.response)).decode("utf-8")
@@ -808,5 +827,131 @@ def test_live_sse_route_emits_the_durable_projection(tmp_path: Path) -> None:
     assert response.mimetype == "text/event-stream"
     assert "event: snapshot" in first_chunk
     assert '"target_smiles":"CCO"' in first_chunk
-    assert '"status":"interrupted"' in first_chunk
+    assert '"status":"running"' in first_chunk
+    assert '"cancellation_available":false' in first_chunk
     assert '"strategies":[{' in first_chunk
+
+
+def test_paused_live_sse_emits_one_snapshot_and_closes(tmp_path: Path) -> None:
+    class PausedGateway:
+        def list_runs(self, *, limit):
+            return {
+                "runs": [
+                    {
+                        "run_id": "paused-live",
+                        "target_name": "paused target",
+                        "status": "paused",
+                        "updated_at": "2026-08-27T08:00:00Z",
+                        "run_dir": str(tmp_path),
+                    }
+                ]
+            }
+
+        def status(self, run_id):
+            assert run_id == "paused-live"
+            return {
+                "run_dir": str(tmp_path),
+                "campaign_spec": {"target": {"canonical_smiles": "CCO"}},
+                "status": {
+                    "status": "paused",
+                    "stop_decision": {"decision": "paused", "terminal": False},
+                },
+            }
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(PausedGateway))
+    response = app.test_client().get(
+        "/api/v4/live/solve:@main:paused-live/events",
+    )
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert '"status":"paused"' in body
+    assert '"phase":"paused"' in body
+    assert "event: complete" in body
+
+
+def test_live_sse_resolves_external_registry_by_composite_job_id(
+    tmp_path: Path,
+) -> None:
+    primary_paths = RuntimePaths.discover(
+        repository_root=tmp_path,
+        environ={
+            "AUTOPLANNER_RUNTIME_ROOT": str(tmp_path / "primary" / "runtime"),
+            "AUTOPLANNER_RUNS_ROOT": str(tmp_path / "primary" / "runs"),
+            "AUTOPLANNER_ARTIFACT_STORE_ROOT": str(tmp_path / "primary" / "artifacts"),
+            "AUTOPLANNER_RUN_INDEX_PATH": str(
+                tmp_path / "primary" / "runtime" / "run_index.sqlite3"
+            ),
+        },
+    )
+    gateway = CampaignGateway(primary_paths)
+    external_root = tmp_path / "paper25" / "case1"
+    run_dir = external_root / "runs" / "target"
+    director = run_dir / ".autoplanner" / "director-workspace"
+    director.mkdir(parents=True)
+    (director / "model-io.jsonl").write_text(
+        json.dumps(
+            _event(
+                event="model_output",
+                artifact_type="StrategyPortfolioReport",
+                task_id="director:external:strategy-portfolio:1",
+                status="accepted_draft",
+                output_artifact={
+                    "payload": {
+                        "target_smiles": "CCO",
+                        "strategy_cards": [
+                            {
+                                "strategy_signature": f"External strategy {index}",
+                                "strategy_query": f"Query {index}",
+                            }
+                            for index in range(1, 4)
+                        ],
+                    }
+                },
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    RunIndex(external_root / "runtime" / "run_index.sqlite3").upsert_run(
+        {
+            "schema_version": RUN_MANIFEST_SCHEMA,
+            "run_id": "paper-case1-run",
+            "case_id": "case1",
+            "target_name": "paper case 1",
+            "status": "completed",
+            "revision": 1,
+            "updated_at": "2026-08-27T09:00:00Z",
+            "run_dir": str(run_dir),
+            "accepted": False,
+            "cost_totals": {},
+            "graph": {},
+            "deficits": {},
+        }
+    )
+    RunRegistryCatalog(registry_catalog_path(primary_paths)).register(
+        binding_from_registry_root(
+            external_root,
+            registry_id="paper-case1",
+            registry_label="Paper case 1",
+            project_id="paper25",
+            project_label="Paper 25-step panel",
+            case_id="case1",
+            repository_root=tmp_path,
+        )
+    )
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+
+    response = app.test_client().get(
+        "/api/v4/live/solve:@paper-case1:paper-case1-run/events",
+        buffered=False,
+    )
+    first_chunk = next(iter(response.response)).decode("utf-8")
+    response.close()
+
+    assert response.status_code == 200
+    assert '"job_id":"solve:@paper-case1:paper-case1-run"' in first_chunk
+    assert '"strategies":[{' in first_chunk
+    assert '"workbench_url":""' in first_chunk

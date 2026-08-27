@@ -19,9 +19,10 @@ from threading import RLock
 import time
 from typing import Any, Callable, Mapping
 
-from flask import Blueprint, Response, jsonify, redirect, request, stream_with_context
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
+from cascade_planner.web.v4_run_catalog import resolve_catalog_job
 from cascade_planner.web.workspace_surface import static_html
 
 
@@ -35,7 +36,7 @@ _CRITIC_CONTEXT_MARKERS = (
     "BlindRouteCriticInput:",
     "PaperMatchedRouteCriticInput:",
 )
-_TERMINAL_JOB_STATES = frozenset(
+_STREAM_SETTLED_JOB_STATES = frozenset(
     {
         "complete",
         "unresolved",
@@ -43,9 +44,12 @@ _TERMINAL_JOB_STATES = frozenset(
         "cancelled",
         "historical",
         "interrupted",
+        "paused",
     }
 )
-_FULL_PROGRESS_JOB_STATES = _TERMINAL_JOB_STATES - {"interrupted"}
+_FULL_PROGRESS_JOB_STATES = frozenset(
+    {"complete", "unresolved", "failed", "cancelled", "historical"}
+)
 
 
 def register_live_synthesis_routes(
@@ -62,11 +66,6 @@ def register_live_synthesis_routes(
         response = static_html("live_synthesis.html")
         response.headers["Cache-Control"] = "no-store"
         return response
-
-    @blueprint.get("/synthesis")
-    def legacy_live_synthesis_page() -> Response:
-        query = request.query_string.decode("ascii", errors="ignore")
-        return redirect("/" + (f"?{query}" if query else ""), code=302)
 
     @blueprint.get("/api/v4/live/<path:job_id>/events")
     def live_synthesis_events(job_id: str) -> Response:
@@ -105,7 +104,7 @@ def register_live_synthesis_routes(
                     yield ": keepalive\n\n"
                     last_keepalive = time.monotonic()
 
-                if str(current.get("status") or "") in _TERMINAL_JOB_STATES:
+                if str(current.get("status") or "") in _STREAM_SETTLED_JOB_STATES:
                     terminal_observations += 1
                     if terminal_observations >= 2:
                         yield "event: complete\ndata: {}\n\n"
@@ -374,6 +373,14 @@ def project_live_synthesis(
                 branch["status"] = "interrupted"
         for index, strategy in enumerate(strategies[:3], start=1):
             strategy["status"] = branches[index]["status"]
+    elif job_status == "paused":
+        for branch in branches.values():
+            if branch["pending_step"]:
+                branch["pending_step"]["status"] = "replay_record_unavailable"
+            if branch["status"] not in {"built", "complete", "failed", "rejected"}:
+                branch["status"] = "paused"
+        for index, strategy in enumerate(strategies[:3], start=1):
+            strategy["status"] = branches[index]["status"]
     elif job_status in {"cancelling", "cancelled"}:
         for branch in branches.values():
             branch["pending_step"] = None
@@ -413,6 +420,10 @@ def project_live_synthesis(
         "status": job_status,
         "phase": phase,
         "progress": progress,
+        "cancellation_available": job.get("cancellation_available") is not False,
+        "execution_source": str(job.get("execution_source") or "web"),
+        "activity_observed_at": str(job.get("activity_observed_at") or ""),
+        "activity_stale": job.get("activity_stale") is True,
         "strategies": strategies[:3],
         "branches": [branches[index] for index in range(1, 4)],
         "activities": activities[-80:],
@@ -422,6 +433,7 @@ def project_live_synthesis(
         "workbench_url": (
             f"/api/v4/runs/{str(job.get('run_id') or '')}/workbench.html"
             if job.get("run_id")
+            and str(job.get("registry_id") or "main") == "main"
             else ""
         ),
         "semantics": {
@@ -440,48 +452,19 @@ def _job_row(
 ) -> dict[str, Any] | None:
     with jobs_lock:
         row = dict(jobs.get(job_id) or {})
+        active_rows = [dict(value) for value in jobs.values()]
     if row:
         return row
-    run_id = str(job_id).removeprefix("solve:")
     try:
-        runs = factory().list_runs(limit=200).get("runs") or []
+        gateway = factory()
     except Exception:
         return None
-    run = next(
-        (
-            dict(value)
-            for value in runs
-            if isinstance(value, Mapping)
-            and str(value.get("run_id") or "") == run_id
-        ),
-        None,
+    resolved, _owning_gateway = resolve_catalog_job(
+        gateway,
+        job_id,
+        active_rows=active_rows,
     )
-    if run is None:
-        return None
-    try:
-        status_result = dict(factory().status(run_id) or {})
-    except Exception:
-        status_result = {}
-    campaign = dict(status_result.get("status") or {})
-    campaign_spec = dict(
-        status_result.get("campaign_spec")
-        or campaign.get("campaign_spec")
-        or {}
-    )
-    target = dict(campaign_spec.get("target") or {})
-    stop_decision = dict(campaign.get("stop_decision") or {})
-    return {
-        "job_id": f"solve:{run_id}",
-        "run_id": run_id,
-        "target_name": str(run.get("target_name") or "historical target"),
-        "target_smiles": str(target.get("canonical_smiles") or ""),
-        "status": "historical",
-        "phase": "historical",
-        "campaign_status": str(campaign.get("status") or ""),
-        "campaign_terminal": stop_decision.get("terminal") is True,
-        "campaign_decision": str(stop_decision.get("decision") or ""),
-        "run_dir": str(status_result.get("run_dir") or ""),
-    }
+    return resolved
 
 
 def _model_io_path(factory: GatewayFactory, job: Mapping[str, Any]) -> Path | None:
@@ -910,6 +893,8 @@ def _phase(
         return job_status
     if job_status == "interrupted":
         return "interrupted"
+    if job_status == "paused":
+        return "paused"
     if job_status in {"complete", "unresolved", "historical"}:
         return "complete" if job_status == "complete" else job_status
     if strategy_count < 3:

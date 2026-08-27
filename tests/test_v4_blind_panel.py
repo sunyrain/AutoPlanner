@@ -22,6 +22,7 @@ from scripts.run_v4_blind_panel import (
     _guided_chemenzy_cli_args,
     _prior_target_manifest_files,
     _prepare_panel_snapshot,
+    _publish_run_registry,
     _resolve_panel_chemenzy_stock_binding,
     _resolve_panel_fixed_cutoff_wall_time_s,
     _resolved_model_wall_time_s,
@@ -34,6 +35,7 @@ from scripts.run_v4_blind_panel import (
     _write_matched_comparison,
     _write_result_summary,
 )
+from cascade_planner.runtime.run_registry_catalog import RunRegistryCatalog
 
 
 def test_v9_high_effort_panel_contract_reaches_target_command(
@@ -110,6 +112,37 @@ def test_blind_panel_run_id_uses_manifest_identity_without_statin_hardcoding() -
     assert "statin" not in _run_id_for_case(case)
 
 
+def test_panel_publication_registers_location_without_copying_run_state(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "paper25" / "case1"
+    output_root.mkdir(parents=True)
+    catalog_path = tmp_path / "catalog.sqlite3"
+    case = BlindCase(
+        case_id="synthexfig1-001",
+        target_name="case1",
+        target_smiles="CCO",
+    )
+
+    result = _publish_run_registry(
+        output_root=output_root,
+        cases=[case],
+        catalog_path=str(catalog_path),
+        registry_id="paper-case1",
+        registry_label="Paper case 1",
+        project_id="paper25",
+        project_label="Paper 25-step panel",
+    )
+
+    assert result["catalog_path"] == str(catalog_path.resolve())
+    row = RunRegistryCatalog(catalog_path).get("paper-case1")
+    assert row is not None
+    assert row.project_id == "paper25"
+    assert row.case_id == "synthexfig1-001"
+    assert row.run_index_path == output_root / "runtime" / "run_index.sqlite3"
+    assert "status" not in result["registry"]
+
+
 def test_blind_panel_passes_manifest_acceptance_without_target_hardcoding() -> None:
     case = BlindCase(
         case_id="complex-target-v4-blind-02",
@@ -183,12 +216,14 @@ def test_guided_chemenzy_uses_the_same_matched_short_tail_for_every_profile() ->
     assert "--guided-chemenzy-frontiers" not in standard
 
 
-
 def test_paper_synthex_defaults_to_the_operational_target_cutoff() -> None:
-    assert _resolve_panel_fixed_cutoff_wall_time_s(
-        execution_profile="paper_synthex",
-        requested=None,
-    ) == 86_400.0
+    assert (
+        _resolve_panel_fixed_cutoff_wall_time_s(
+            execution_profile="paper_synthex",
+            requested=None,
+        )
+        == 86_400.0
+    )
 
 
 def test_paper_synthex_rejects_short_tail_timeout_as_total_cutoff() -> None:
@@ -200,23 +235,33 @@ def test_paper_synthex_rejects_short_tail_timeout_as_total_cutoff() -> None:
 
 
 def test_non_paper_panel_cutoff_keeps_legacy_default() -> None:
-    assert _resolve_panel_fixed_cutoff_wall_time_s(
-        execution_profile="standard",
-        requested=None,
-    ) == 7_200.0
+    assert (
+        _resolve_panel_fixed_cutoff_wall_time_s(
+            execution_profile="standard",
+            requested=None,
+        )
+        == 7_200.0
+    )
+
 
 def test_fixed_cutoff_caps_an_older_larger_manifest_model_budget() -> None:
-    assert _resolved_model_wall_time_s(
-        case_budget={"max_total_wall_time_s": 90_000},
-        fixed_cutoff_wall_time_s=86_400,
-    ) == 86_400
+    assert (
+        _resolved_model_wall_time_s(
+            case_budget={"max_total_wall_time_s": 90_000},
+            fixed_cutoff_wall_time_s=86_400,
+        )
+        == 86_400
+    )
 
 
 def test_larger_cutoff_preserves_the_matched_model_budget_floor() -> None:
-    assert _resolved_model_wall_time_s(
-        case_budget={"max_total_wall_time_s": 1_800},
-        fixed_cutoff_wall_time_s=86_400,
-    ) == 70_200
+    assert (
+        _resolved_model_wall_time_s(
+            case_budget={"max_total_wall_time_s": 1_800},
+            fixed_cutoff_wall_time_s=86_400,
+        )
+        == 70_200
+    )
 
 
 def test_panel_binds_benchmark_stock_into_chemenzy_by_default(tmp_path: Path) -> None:
@@ -401,9 +446,7 @@ def test_panel_validates_and_publishes_matched_comparison(tmp_path: Path) -> Non
     result = json.loads(path.read_text(encoding="utf-8"))
     assert result["b4"]["count_delta"] == 1
     assert result["performance_claim_eligible"] is True
-    assert "Root B4: 0 -> 1" in path.with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
+    assert "Root B4: 0 -> 1" in path.with_suffix(".md").read_text(encoding="utf-8")
 
 
 def test_panel_rejects_a_tampered_v3_matched_baseline() -> None:
@@ -425,7 +468,9 @@ def test_panel_rejects_a_tampered_v3_matched_baseline() -> None:
 
 def test_resume_reuses_only_completed_report_backed_targets(tmp_path: Path) -> None:
     cases = [
-        BlindCase(case_id=f"case-{index}", target_name=f"target-{index}", target_smiles="CCO")
+        BlindCase(
+            case_id=f"case-{index}", target_name=f"target-{index}", target_smiles="CCO"
+        )
         for index in range(2)
     ]
     snapshot = {"content_sha256": "a" * 64}
@@ -475,9 +520,7 @@ def test_resume_does_not_skip_stale_completed_row_with_paused_kernel(
         "ablation": "baseline",
         "selection": {"selected_case_ids": [case.case_id]},
         "frozen_snapshot": {"content_sha256": "a" * 64},
-        "targets": {
-            case.target_name: {"status": "completed", "case_id": case.case_id}
-        },
+        "targets": {case.target_name: {"status": "completed", "case_id": case.case_id}},
     }
 
     resumed = _resume_completed_targets(
@@ -527,8 +570,7 @@ def test_panel_snapshot_keeps_ablation_out_of_base_environment_but_binds_workers
     assert baseline["content_sha256"] != no_replan["content_sha256"]
     assert baseline["base_environment_sha256"] != two_workers["base_environment_sha256"]
     assert (
-        baseline["provider_snapshot"]["strategy_portfolio_mode"]
-        == "enzyme_advantage"
+        baseline["provider_snapshot"]["strategy_portfolio_mode"] == "enzyme_advantage"
     )
 
 

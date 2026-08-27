@@ -29,6 +29,8 @@ from cascade_planner.interfaces.target_solver import TargetSolveCancelled
 
 
 GatewayFactory = Callable[[], CampaignGateway]
+_NONTERMINAL_CAMPAIGN_STATES = frozenset({"created", "running", "paused"})
+_RUN_ACTIVITY_STALE_AFTER_S = 2 * 60 * 60
 
 
 def run_target_job(
@@ -129,15 +131,32 @@ def run_target_job(
 
 def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[str, Any]:
     run_id = str(job.get("run_id") or "")
+    job_status = str(job.get("status") or "")
+    execution_active = job_status in {"queued", "running", "cancelling"}
     result: dict[str, Any] = {
         "phase": str(job.get("phase") or job.get("status") or "unknown"),
         "elapsed_s": float(job.get("elapsed_s") or 0.0),
+        "execution_active": execution_active,
+        "cancellation_available": job.get("cancellation_available") is not False,
         "model_cost": {},
         "frontier_counts": {},
         "stages": [],
         "action_timeline": compile_campaign_action_timeline(()),
         "delivery": _delivery_projection([], job_status=str(job.get("status") or "")),
     }
+    if job_status in {"paused", "historical"}:
+        persisted_progress = job.get("progress")
+        if isinstance(persisted_progress, Mapping):
+            result.update(dict(persisted_progress))
+        result.update(
+            phase=str(job.get("phase") or job_status),
+            execution_active=False,
+            cancellation_available=False,
+        )
+        delivery = dict(result.get("delivery") or {})
+        delivery.update(execution_active=False, cancellation_available=False)
+        result["delivery"] = delivery
+        return result
     if job.get("status") in {"running", "cancelling"} and job.get("started_at"):
         try:
             started = datetime.fromisoformat(str(job["started_at"]).replace("Z", "+00:00"))
@@ -146,10 +165,13 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
             )
         except ValueError:
             pass
-    try:
-        status_result = factory().status(run_id)
-    except Exception:
-        return result
+    status_result = job.get("_status_result")
+    if not isinstance(status_result, Mapping):
+        try:
+            status_result = factory().status(run_id)
+        except Exception:
+            return result
+    status_result = dict(status_result)
     status = dict(status_result.get("status") or {})
     portfolio = dict(status.get("portfolio") or {})
     frontier = [
@@ -237,8 +259,12 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
             if isinstance(row, Mapping)
         ),
     )
-    job_status = str(job.get("status") or "")
-    final_projection = job_status not in {"queued", "running", "cancelling"}
+    final_projection = job_status not in {
+        "queued",
+        "running",
+        "cancelling",
+        "paused",
+    }
     if final_projection:
         accepted = dict(result.get("portfolio") or {}).get("accepted") is True
         result["scientific_status"] = "accepted" if accepted else "unresolved"
@@ -285,6 +311,8 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
             proof_closure_complete=accepted,
         )
     delivery.update(
+        execution_active=execution_active,
+        cancellation_available=job.get("cancellation_available") is not False,
         scientific_status=str(result.get("scientific_status") or ""),
         achieved_profile=str(result.get("achieved_profile") or ""),
         condition_complete_route_count=int(
@@ -399,7 +427,7 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
         },
     }
     return {
-        "job_id": f"solve:{run_id}",
+        "job_id": f"solve:@main:{run_id}",
         "run_id": run_id,
         "target_name": str(run.get("target_name") or run_id),
         "status": "historical",
@@ -412,7 +440,173 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
         "error": "",
         "result": {},
         "progress": progress,
+        "execution_source": "registry_snapshot",
+        "cancellation_available": False,
     }
+
+
+def run_may_be_live(run: Mapping[str, Any]) -> bool:
+    """Return whether an index row requires a canonical Kernel status read."""
+
+    return str(run.get("status") or "").casefold() in _NONTERMINAL_CAMPAIGN_STATES
+
+
+def registry_job(
+    gateway: CampaignGateway,
+    run: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project a persisted run from the canonical Kernel lifecycle state.
+
+    The run index is discovery-only.  In particular, a run discovered outside
+    the Web process is not necessarily historical: CLI and batch launchers own
+    valid live Kernel executions that never enter the Web ``jobs`` dictionary.
+    """
+
+    fallback = historical_job(run)
+    run_id = str(run.get("run_id") or "")
+    if not run_id:
+        return fallback
+    run_status = str(run.get("status") or "").casefold()
+    if run_status == "paused":
+        activity_observed_at, activity_stale = _run_activity_observation(run, run)
+        fallback.update(
+            target_smiles=str(run.get("target_smiles") or ""),
+            status="paused",
+            phase="paused",
+            finished_at="",
+            run_dir=str(run.get("run_dir") or ""),
+            execution_source="registry_snapshot",
+            activity_observed_at=activity_observed_at,
+            activity_stale=activity_stale,
+            campaign_status="paused",
+            campaign_terminal=False,
+            campaign_decision="paused",
+            cancellation_available=False,
+        )
+        progress = dict(fallback.get("progress") or {})
+        progress.update(
+            phase="paused",
+            campaign_status="paused",
+            execution_active=False,
+            cancellation_available=False,
+        )
+        fallback["progress"] = progress
+        return fallback
+    try:
+        status_result = dict(gateway.status(run_id) or {})
+    except Exception:
+        return fallback
+    campaign = dict(status_result.get("status") or {})
+    campaign_spec = dict(
+        status_result.get("campaign_spec")
+        or campaign.get("campaign_spec")
+        or {}
+    )
+    target = dict(campaign_spec.get("target") or {})
+    stop_decision = dict(campaign.get("stop_decision") or {})
+    campaign_status = str(
+        campaign.get("status") or run.get("status") or "unknown"
+    ).casefold()
+    campaign_terminal = stop_decision.get("terminal") is True
+    campaign_decision = str(stop_decision.get("decision") or "")
+    activity_observed_at, activity_stale = _run_activity_observation(
+        run,
+        status_result,
+    )
+    reported_activity_stale = (
+        activity_stale
+        if not campaign_terminal
+        and campaign_status in _NONTERMINAL_CAMPAIGN_STATES
+        else False
+    )
+    common = {
+        "target_smiles": str(target.get("canonical_smiles") or ""),
+        "campaign_status": campaign_status,
+        "campaign_terminal": campaign_terminal,
+        "campaign_decision": campaign_decision,
+        "run_dir": str(status_result.get("run_dir") or run.get("run_dir") or ""),
+        "execution_source": "kernel_registry",
+        "activity_observed_at": activity_observed_at,
+        "activity_stale": reported_activity_stale,
+        "cancellation_available": False,
+        "_status_result": status_result,
+    }
+    active_state_is_stale = (
+        campaign_status in {"created", "running"} and activity_stale
+    )
+    if (
+        campaign_terminal
+        or campaign_status not in _NONTERMINAL_CAMPAIGN_STATES
+        or active_state_is_stale
+    ):
+        fallback.update(common)
+        progress = dict(fallback.get("progress") or {})
+        progress.update(
+            campaign_status=campaign_status,
+            execution_active=False,
+            cancellation_available=False,
+        )
+        fallback["progress"] = progress
+        return fallback
+
+    status = {
+        "created": "queued",
+        "paused": "paused",
+    }.get(campaign_status, "running")
+    costs = dict(run.get("cost_totals") or {})
+    updated_at = str(run.get("updated_at") or "")
+    return {
+        "job_id": f"solve:@main:{run_id}",
+        "run_id": run_id,
+        "target_name": str(run.get("target_name") or run_id),
+        "target_smiles": common["target_smiles"],
+        "status": status,
+        "phase": status,
+        "created_at": updated_at,
+        "started_at": "",
+        "finished_at": "",
+        "updated_at": updated_at,
+        "elapsed_s": float(costs.get("task_wall_time_s") or 0.0),
+        "error": "",
+        "result": {},
+        **common,
+    }
+
+
+def _run_activity_observation(
+    run: Mapping[str, Any],
+    status_result: Mapping[str, Any],
+) -> tuple[str, bool]:
+    """Read fixed durable progress markers without inventing another writer."""
+
+    timestamps: list[float] = []
+    updated_at = str(run.get("updated_at") or "")
+    if updated_at:
+        try:
+            timestamps.append(
+                datetime.fromisoformat(updated_at.replace("Z", "+00:00")).timestamp()
+            )
+        except ValueError:
+            pass
+    raw_run_dir = str(status_result.get("run_dir") or run.get("run_dir") or "")
+    if raw_run_dir:
+        run_dir = Path(raw_run_dir)
+        for marker in (
+            run_dir / ".autoplanner" / "target-solver-checkpoint.json",
+            run_dir / ".autoplanner" / "director-workspace" / "model-io.jsonl",
+            run_dir / ".autoplanner" / "kernel" / "events.jsonl",
+        ):
+            try:
+                timestamps.append(marker.stat().st_mtime)
+            except OSError:
+                continue
+    if not timestamps:
+        return "", True
+    observed = max(timestamps)
+    observed_at = datetime.fromtimestamp(observed, timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )
+    return observed_at, (time.time() - observed) > _RUN_ACTIVITY_STALE_AFTER_S
 
 
 __all__ = [
@@ -420,6 +614,8 @@ __all__ = [
     "job_projection",
     "live_job_progress",
     "new_run_id",
+    "registry_job",
+    "run_may_be_live",
     "run_target_job",
     "solve_target_request",
     "utc_now",

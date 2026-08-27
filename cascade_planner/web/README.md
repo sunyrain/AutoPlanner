@@ -14,32 +14,53 @@ job, shows the three Strategy Generator cards, and consumes an SSE projection
 of the append-only director `model-io.jsonl`: every structured model output
 refreshes the Route Builder canvas, while pending steps remain visually distinct
 until the next host graph replay supplies canonical precursors. The landing page
-also reads the same-origin `/api/v4/jobs` queue every three seconds, so existing
-local jobs can be opened directly (or deep-linked with `/?job=...`) and
-then followed through the same SSE stream. Molecule depictions are fetched from
-the local RDKit endpoint, validated as SVG, and inserted inline rather than
-loaded as external images.
+also reads the same-origin `/api/v4/jobs` queue, so existing local jobs can be
+opened directly (or deep-linked with `/?job=...`) and then followed through the
+same SSE stream. Active jobs use their own detail/SSE projection; the federated
+catalog refreshes at a lower cadence and never overlaps an unfinished refresh.
+Paused runs are non-executing snapshots: they render as paused, their SSE stream
+closes after the saved snapshot, and they are never presented as live model
+activity. Molecule depictions are fetched from the local RDKit endpoint,
+validated as SVG, and inserted inline rather than loaded as external images.
 
-The job queue is scoped to this Web gateway. A CLI experiment that creates its
-own `run_index.sqlite3` under an isolated output directory is a separate run
-registry and is not auto-imported by scanning `results/**`. Launch any smoke
-that must appear in the live page through `POST /api/v4/jobs` (or explicitly
-register it with the same gateway); its append-only `model-io.jsonl` remains
-the sole live progress source.
+The Web queue is a paginated federation of explicitly registered run indexes.
+It never scans `results/**`: ordinary Web/CLI runs use the main registry, while
+an isolated panel becomes visible only after its registry location is published
+to `RunRegistryCatalog`. The catalog stores project/case labels and filesystem
+boundaries only; lifecycle and scientific state are always read from the owning
+`RunIndex`/`RunKernel`. The stable identity is `(registry_id, run_id)`, exposed
+as `solve:@<registry_id>:<run_id>`. Bare `solve:<run_id>` identities are no
+longer accepted.
 
-The mutable job row and its background worker are process-local. Restarting the
-Web gateway does not resume that thread: the durable run is shown as a
-`historical_snapshot`, and its existing `model-io.jsonl` can still be replayed
-for inspection. Restart continuity requires an explicit durable executor or
-checkpoint contract; it must not be inferred from a results-directory scan.
+Publish a new blind panel deliberately with `--publish-registry`, optionally
+supplying `--registry-id`, `--registry-label`, `--registry-project-id` and
+`--registry-project-label`. Existing panel directories can be registered without
+rerunning them:
 
-The `/v4` surface is now a results-only operations workspace: it lists live and
+```bash
+python -m cascade_planner.runtime.run_registry_catalog register \
+  --registry-root results/.autoplanner/example-panel/case1 \
+  --registry-id example-case1 \
+  --project-id example-panel \
+  --project-label "Example panel"
+```
+
+`GET /api/v4/jobs` accepts `limit`, `offset`, `project_id` and `registry_id`,
+and returns `total_count`, `has_more`, project summaries and registry diagnostics.
+An unavailable explicit registry is reported without blocking the others.
+
+The mutable Web job row and its background worker are process-local. Restarting
+the Web gateway does not resume that thread: durable registry state and existing
+`model-io.jsonl` remain inspectable through the catalog. Restart continuity
+still requires an explicit durable executor or checkpoint contract; discovery
+must not be mistaken for execution ownership.
+
+The `/v4` surface is a results-only operations workspace: it lists live and
 historical runs, opens route workbenches, and presents showcase and benchmark
-artifacts. It no longer owns a ChemEnzy-first launch form. `/synthesis` and
-`/v4/console` redirect to the homepage; `/agent`, `/statins`, `/showcase`, and
-`/v4/showcase` remain compatibility redirects to result sections of `/v4`. Legacy
-APIs remain available during replay migration but do not own V4 graph,
-frontier, proof, budget, or completion state.
+artifacts. New synthesis starts only at `/`. Retired page aliases (`/synthesis`,
+`/v4/console`, `/v4/showcase`, `/agent`, `/statins`, and `/showcase`) are no
+longer routed. Saved-run replay compatibility remains separate and does not own
+V4 graph, frontier, proof, budget, or completion state.
 
 There is no built-in user login. Keep the service on loopback or place it
 behind an authenticated reverse proxy. Mutation requests require JSON and may

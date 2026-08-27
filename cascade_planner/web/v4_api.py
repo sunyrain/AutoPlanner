@@ -19,7 +19,9 @@ from cascade_planner.interfaces.campaign_gateway import (
     CampaignGatewayError,
 )
 from cascade_planner.web.v4_target_runtime import (
+    registry_job as _registry_job,
     run_target_job as _run_target_job,
+    run_may_be_live as _run_may_be_live,
     solve_target_request as _solve_target_request,
 )
 from cascade_planner.interfaces.target_solve_request import _target_constraints
@@ -182,7 +184,27 @@ def create_v4_blueprint(
                 for job_id, value in jobs.items()
                 if str(value.get("run_id") or "") == run_id
             ]
-        result = factory().remove_run_from_history(run_id)
+        gateway = factory()
+        persisted = next(
+            (
+                value
+                for value in gateway.list_runs(limit=1_000).get("runs") or []
+                if isinstance(value, Mapping)
+                and str(value.get("run_id") or "") == run_id
+            ),
+            None,
+        )
+        if persisted is not None and _run_may_be_live(persisted):
+            status = str(_registry_job(gateway, persisted).get("status") or "")
+            if status in {"queued", "running", "paused"}:
+                return jsonify(
+                    {
+                        "error": "run_history_removal_conflict",
+                        "reason": "active_run_cannot_be_removed_from_history",
+                        "run_id": run_id,
+                    }
+                ), 409
+        result = gateway.remove_run_from_history(run_id)
         with jobs_lock:
             for job_id in stale_job_ids:
                 jobs.pop(job_id, None)

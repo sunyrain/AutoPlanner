@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, Response, abort, jsonify, redirect, request
+from flask import Blueprint, Response, abort, jsonify, request
 
 from cascade_planner.application.program_experience_store import (
     DEFAULT_PROGRAM_EXPERIENCE_LIBRARY_NAME,
@@ -934,7 +934,7 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
 
 def _workspace_route_ids(gateway: Any) -> set[str]:
     identities = {
-        f"run:{str(row.get('run_id') or '')}"
+        f"run:main:{str(row.get('run_id') or '')}"
         for row in gateway.list_runs(limit=1_000).get("runs") or []
         if isinstance(row, dict) and str(row.get("run_id") or "")
     }
@@ -955,26 +955,6 @@ def register_workspace_routes(blueprint: Blueprint, gateway_factory: Any) -> Non
     @blueprint.get("/v4")
     def v4_index() -> Response:
         return static_html("workspace.html")
-
-    @blueprint.get("/v4/console")
-    def v4_console() -> Response:
-        return redirect("/", code=302)
-
-    @blueprint.get("/v4/showcase")
-    def v4_showcase() -> Response:
-        return redirect("/v4#routes", code=302)
-
-    @blueprint.get("/agent")
-    def legacy_agent_workbench() -> Response:
-        return redirect("/v4#routes", code=302)
-
-    @blueprint.get("/statins")
-    def legacy_statin_showcase() -> Response:
-        return redirect("/v4#audits", code=302)
-
-    @blueprint.get("/showcase")
-    def legacy_presentation_showcase() -> Response:
-        return redirect("/v4#routes", code=302)
 
     @blueprint.get("/api/v4/workspace")
     def v4_workspace():
