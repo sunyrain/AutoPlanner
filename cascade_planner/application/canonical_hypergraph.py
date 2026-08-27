@@ -894,9 +894,17 @@ def _ingest_hypothesis(
         )
         return
     precursors = row.get("precursor_smiles") or row.get("reactant_smiles") or []
+    provider_reaction_metadata = dict(
+        row.get("provider_reaction_metadata") or {}
+    )
     hypothesis_id, audit = hypothesis_identity(
         row.get("product_smiles"),
         precursors,
+        mapped_reaction_smiles=(
+            row.get("mapped_reaction_smiles")
+            or provider_reaction_metadata.get("mapped_reaction_smiles")
+            or ""
+        ),
         mapped_product_smiles=row.get("mapped_product_smiles"),
         reaction_operations=operations,
         reactionjson_audit=(
@@ -1214,7 +1222,19 @@ def _ingest_candidate(
         return ""
     product = row.get("product_smiles")
     precursors = row.get("precursor_smiles") or row.get("reactant_smiles") or []
-    edge_id, audit = reaction_edge_identity(product, precursors)
+    reactionjson_audit = (
+        dict(row.get("reactionjson_audit") or {})
+        if isinstance(row.get("reactionjson_audit"), Mapping)
+        else {}
+    )
+    edge_id, audit = reaction_edge_identity(
+        product,
+        precursors,
+        mapped_reaction_smiles=row.get("mapped_reaction_smiles") or "",
+        mapped_product_smiles=reactionjson_audit.get("mapped_product_smiles"),
+        reaction_operations=operations,
+        reactionjson_audit=reactionjson_audit,
+    )
     if not edge_id or audit.get("accepted") is not True:
         rejected.append(
             {

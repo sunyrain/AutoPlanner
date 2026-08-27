@@ -51,6 +51,16 @@ from scripts.summarize_v4_blind_panel import (  # noqa: E402
     summarize_panel,
 )
 
+PANEL_REASONING_EFFORTS = ("low", "medium", "high")
+PANEL_EXECUTION_PROFILES = (
+    "fast",
+    "standard",
+    "proof",
+    "paper_synthex",
+    "paper_matched_reach",
+    "v9_smoke",
+)
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -69,22 +79,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--reasoning-effort",
-        choices=("low", "medium"),
+        choices=PANEL_REASONING_EFFORTS,
         default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["reasoning_effort"],
     )
     parser.add_argument(
         "--execution-profile",
-        choices=(
-            "fast",
-            "standard",
-            "proof",
-            "paper_synthex",
-            "paper_matched_reach",
-        ),
+        choices=PANEL_EXECUTION_PROFILES,
         default="paper_matched_reach",
         help=(
-            "execution contract; the matched panel defaults to paper_synthex "
-            "(use standard/proof only for explicitly non-paper arms)"
+            "execution contract; paper_matched_reach is the frozen paper-control "
+            "arm, while v9_smoke keeps the same reach budgets with online V9 critics"
         ),
     )
     parser.add_argument(

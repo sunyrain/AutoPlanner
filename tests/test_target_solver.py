@@ -44,6 +44,7 @@ from cascade_planner.interfaces.target_solver import (
     _director_depth_replan_events,
     _director_topology_replan_events,
     _evidence_observations,
+    _execute_action_kind_until_quiescent,
     _material_replan_events,
     _planning_depth_requirement,
     _pending_guided_progress_from_action_history,
@@ -53,6 +54,7 @@ from cascade_planner.interfaces.target_solver import (
     _replan_retention_audit,
     _replan_reasons,
     _replan_signal_gate,
+    _search_method_projection,
     _should_retry_chemenzy_timeout,
 )
 from cascade_planner.interfaces.validation_fork import ValidationForkConfig
@@ -67,6 +69,98 @@ from cascade_planner.runtime.paths import RuntimePaths
 
 
 TARGET = "CCOC(C)=O"
+
+
+def test_post_anytime_action_slice_refreshes_materialization_before_stock() -> None:
+    state: dict[str, Any] = {
+        "actions": [
+            {
+                "action_id": "materialize:1",
+                "kind": CampaignActionKind.MATERIALIZE.value,
+            },
+            {
+                "action_id": "stock:1",
+                "kind": CampaignActionKind.STOCK_AUDIT.value,
+            },
+        ]
+    }
+    executed: list[str] = []
+    observed: list[str] = []
+
+    class Runtime:
+        def schedule_and_execute(
+            self,
+            opportunity_set: dict[str, Any],
+            *,
+            available_action_kinds: tuple[CampaignActionKind, ...],
+            **_kwargs: Any,
+        ) -> dict[str, Any]:
+            allowed = {kind.value for kind in available_action_kinds}
+            action = next(
+                row
+                for row in opportunity_set["actions"]
+                if row["kind"] in allowed
+            )
+            action_id = str(action["action_id"])
+            executed.append(action_id)
+            if action_id == "materialize:1":
+                state["actions"] = [
+                    {
+                        "action_id": "materialize:2",
+                        "kind": CampaignActionKind.MATERIALIZE.value,
+                    },
+                    {
+                        "action_id": "stock:1",
+                        "kind": CampaignActionKind.STOCK_AUDIT.value,
+                    },
+                ]
+            else:
+                state["actions"] = [
+                    row
+                    for row in state["actions"]
+                    if row["action_id"] != action_id
+                ]
+            return {
+                "status": "completed",
+                "action": {
+                    **action,
+                    "execution_id": f"execution:{action_id}",
+                },
+                "outcome": {"handler_result": {"changed": True}},
+            }
+
+    runtime = Runtime()
+    materialized = _execute_action_kind_until_quiescent(
+        runtime,  # type: ignore[arg-type]
+        action_kind=CampaignActionKind.MATERIALIZE,
+        max_actions=4,
+        opportunity_provider=lambda: {"actions": list(state["actions"])},
+        milestones_provider=lambda: {"B4_stock_boundary": True},
+        resource_availability_provider=lambda: {"materialization": True},
+        on_execution=lambda _index, row: observed.append(
+            str(dict(row.get("action") or {}).get("action_id") or "")
+        ),
+    )
+    stocked = _execute_action_kind_until_quiescent(
+        runtime,  # type: ignore[arg-type]
+        action_kind=CampaignActionKind.STOCK_AUDIT,
+        max_actions=2,
+        opportunity_provider=lambda: {"actions": list(state["actions"])},
+        milestones_provider=lambda: {"B4_stock_boundary": True},
+        resource_availability_provider=lambda: {"stock": True},
+        on_execution=lambda _index, row: observed.append(
+            str(dict(row.get("action") or {}).get("action_id") or "")
+        ),
+    )
+
+    assert [row["action"]["action_id"] for row in materialized] == [
+        "materialize:1",
+        "materialize:2",
+    ]
+    assert [row["action"]["action_id"] for row in stocked] == ["stock:1"]
+    assert executed == ["materialize:1", "materialize:2", "stock:1"]
+    assert observed == executed
+    assert state["actions"] == []
 
 
 def test_guided_progress_rebuilds_from_durable_action_history() -> None:
@@ -248,8 +342,13 @@ def _deterministic_target_identity(monkeypatch: Any) -> None:
 
 
 def test_target_solver_keeps_whole_target_chemenzy_as_a_separate_arm() -> None:
+    assert TargetSolveConfig().run_scope == "blind"
+    assert TargetSolveConfig(run_scope="interactive").run_scope == "interactive"
     assert TargetSolveConfig().enable_target_chemenzy_baseline is False
     assert TargetSolveConfig().chemenzy_seed == 0
+
+    with pytest.raises(ValueError, match="run scope"):
+        TargetSolveConfig(run_scope="unknown")
 
 
 def test_target_solver_rejects_invalid_chemenzy_seed() -> None:
@@ -304,6 +403,73 @@ def test_paper_synthex_profile_keeps_route_depth_and_repair_rounds_fixed() -> No
             execution_profile="paper_synthex",
             stop_on_first_stock_closed_branch=True,
         )
+
+
+def test_v9_smoke_profile_keeps_five_step_hot_path_and_final_editor_loop() -> None:
+    config = TargetSolveConfig(
+        execution_profile="v9_smoke",
+        max_node_expansions_per_branch=5,
+        max_route_local_repair_rounds=6,
+        aizynthfinder_short_tail_mode="canary",
+    )
+    resolved = _resolve_execution_config(config)
+
+    assert resolved.strategy_search_profile == "synthex_matched"
+    assert resolved.strategy_tree_engine == "aizynthfinder_mcts"
+    assert resolved.max_node_expansions_per_branch == 5
+    assert resolved.max_route_local_repair_rounds == 6
+    assert resolved.allow_editor_route_mutations is True
+    assert resolved.execution_profile == "v9_smoke"
+    assert resolved.enable_chemenzy is False
+    assert resolved.aizynthfinder_short_tail_mode == "canary"
+    search_method = _search_method_projection(resolved)
+    assert search_method["native_short_tail_mode"] == "canary"
+    assert search_method["paper_algorithm_equivalent"] is False
+    assert search_method["paper_parameter_alignment"][
+        "policy_call_ceiling_per_branch"
+    ] is False
+    assert search_method["paper_parameter_alignment"]["short_tail_depth"] is False
+    assert "development canary" in search_method["non_equivalence_reason"]
+
+    full_tail = _resolve_execution_config(
+        TargetSolveConfig(
+            execution_profile="v9_smoke",
+            max_node_expansions_per_branch=25,
+            max_route_local_repair_rounds=6,
+            aizynthfinder_short_tail_mode="short_tail",
+        )
+    )
+    assert full_tail.aizynthfinder_short_tail_mode == "short_tail"
+    assert full_tail.max_node_expansions_per_branch == 25
+
+    with pytest.raises(ValueError, match="six Critic/Editor"):
+        TargetSolveConfig(
+            execution_profile="v9_smoke",
+            max_node_expansions_per_branch=5,
+            max_route_local_repair_rounds=0,
+        )
+
+
+def test_paper_synthex_resolver_binds_one_explicit_aiz_runtime(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runtime_root = tmp_path / "shared-aiz-runtime"
+    python_executable = runtime_root / ".venv_aizynth" / "Scripts" / "python.exe"
+    config_path = runtime_root / "config" / "aizynthfinder.paper.yml"
+    monkeypatch.setenv("AUTOPLANNER_AIZYNTH_PYTHON", str(python_executable))
+    monkeypatch.setenv("AUTOPLANNER_AIZYNTH_CONFIG", str(config_path))
+    monkeypatch.setenv("AUTOPLANNER_AIZYNTH_RUNTIME_ROOT", str(runtime_root))
+
+    resolved = _resolve_execution_config(
+        TargetSolveConfig(execution_profile="paper_synthex")
+    )
+
+    assert resolved.aizynthfinder_python_executable == str(
+        python_executable.resolve()
+    )
+    assert resolved.aizynthfinder_config_path == str(config_path.resolve())
+    assert resolved.aizynthfinder_runtime_root == str(runtime_root.resolve())
 
 
 def test_paper_synthex_resolver_disables_non_reach_work_and_keeps_stock_validation() -> None:
@@ -457,10 +623,10 @@ def test_paper_matched_primary_projection_foregrounds_reach_and_real_calls() -> 
             "editor_call_count": 0,
             "paper_policy_call_budget": {
                 "actual_calls": 25,
-                "stock_closed_observed": False,
             },
             "aizynthfinder_strategy_search": {
                 "provider_callback_count": 25,
+                "selected_solved": False,
             },
             "critic_editor_history": [],
         }
@@ -485,6 +651,11 @@ def test_paper_matched_primary_projection_foregrounds_reach_and_real_calls() -> 
         },
         outcomes=[
             {
+                "resource_usage": {
+                    "actual_route_builder_policy_calls": 75,
+                    "actual_critic_calls": 5,
+                    "actual_editor_calls": 0,
+                },
                 "plan": {
                     "route_families": route_families,
                     "multi_step_skeletons": skeletons,
@@ -503,6 +674,12 @@ def test_paper_matched_primary_projection_foregrounds_reach_and_real_calls() -> 
                             "status": "unresolved",
                             "provider_solved": False,
                             "provider_invocation_count": 1,
+                            "provider_mode": "short_tail",
+                            "provider_budget": {
+                                "max_transforms": 6,
+                                "iterations": 500,
+                                "timeout_s": 1200,
+                            },
                             "partial_route_ingestion_allowed": False,
                             "statistics": {"iterations": 500},
                         }
@@ -514,12 +691,18 @@ def test_paper_matched_primary_projection_foregrounds_reach_and_real_calls() -> 
 
     assert result["paper_reach"] is True
     assert result["paper_equivalent_solved"] is False
-    assert result["actual_route_builder_policy_calls"] == 75
+    assert result["worker_ledger_available"] is True
+    assert result["total_route_builder_policy_invocations"] == 75
+    assert result["retained_route_builder_policy_calls"] == 75
+    assert result["total_critic_invocations"] == 5
+    assert result["retained_critic_calls"] == 3
     assert result["policy_cap_respected"] is True
     assert result["maximum_route_builder_policy_calls"] == 75
     assert result["complete_routejson_branch_count"] == 3
     assert result["partial_route_ingestion_allowed"] is False
     assert result["short_tail"]["provider_invocation_count"] == 3
+    assert result["short_tail"]["mode"] == "short_tail"
+    assert result["short_tail"]["depth"] == 6
 
 
 def test_action_handler_projection_preserves_failed_outcome_status_and_reasons() -> None:
@@ -1406,6 +1589,73 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
     )
 
 
+def test_interactive_solver_allows_a_target_already_present_in_repository(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    (gateway.paths.repository_root / "known-targets.txt").write_text(
+        TARGET,
+        encoding="utf-8",
+    )
+    acceptance = RetrosynthesisAcceptanceSpec(
+        minimum_complete_routes=2,
+        minimum_edge_proof_level=2,
+        stock_boundary="benchmark_search",
+        minimum_independent_source_groups=2,
+    )
+    budget = RetrosynthesisRunBudget(
+        max_model_invocations=2,
+        max_total_input_tokens=10_000,
+        max_total_output_tokens=5_000,
+        max_total_wall_time_s=60,
+        max_visual_invocations=0,
+        max_accepted_expansions=8,
+        max_attempt_runs=16,
+    )
+
+    with pytest.raises(ValueError, match="target_material_already_present"):
+        gateway.solve_target(
+            target_name="known blind molecule",
+            target_smiles=TARGET,
+            run_id="blind-known-target-e2e",
+            acceptance=acceptance,
+            budget=budget,
+            config=TargetSolveConfig(
+                use_coordinator=False,
+                enable_web_search=False,
+                enable_replan=False,
+            ),
+            director_runner=_runner,
+            atom_mapper=_mapper,
+            stock_catalog_builder=_catalog,
+        )
+
+    result = gateway.solve_target(
+        target_name="known interactive molecule",
+        target_smiles=TARGET,
+        run_id="interactive-target-e2e",
+        acceptance=acceptance,
+        budget=budget,
+        config=TargetSolveConfig(
+            run_scope="interactive",
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+    )
+
+    assert result["preflight"]["schema_version"] == "interactive_target_preflight.v1"
+    assert result["preflight"]["execution_scope"] == "interactive"
+    assert result["preflight"]["repository_absence_attested"] is False
+    assert result["preflight"]["accepted"] is True
+    run_dir = Path(result["report_path"]).parent
+    assert (run_dir / ".autoplanner" / "interactive-preflight.json").is_file()
+    assert not (run_dir / ".autoplanner" / "blind-preflight.json").exists()
+
+
 def test_current_disposition_does_not_treat_stale_terminal_as_scientific_success() -> None:
     disposition = _current_disposition(
         kernel_status="completed",
@@ -1537,6 +1787,7 @@ def test_target_solver_reports_provider_failure_without_replan_or_false_closure(
             ],
             "artifact_sha256": "",
             "task_id": "",
+            "resource_usage": {},
         }
     ]
     assert result["model_cost"]["model_invocations"] == 1

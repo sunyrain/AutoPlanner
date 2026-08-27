@@ -92,6 +92,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
             "proof",
             "paper_synthex",
             "paper_matched_reach",
+            "v9_smoke",
         ),
         default="standard",
         help=(
@@ -205,7 +206,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument(
         "--route-local-repair-rounds",
         type=int,
-        choices=range(1, 13),
+        choices=range(0, 13),
         default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["route_local_repair_rounds"],
     )
     solve.add_argument(
@@ -390,6 +391,21 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         choices=("canary", "short_tail"),
         default="short_tail",
         help="use canary only for workflow smoke tests; paper runs require short_tail",
+    )
+    solve.add_argument(
+        "--aizynthfinder-python-executable",
+        default="",
+        help="explicit Python executable for the isolated AiZynthFinder runtime",
+    )
+    solve.add_argument(
+        "--aizynthfinder-config-path",
+        default="",
+        help="explicit portable AiZynthFinder search configuration",
+    )
+    solve.add_argument(
+        "--aizynthfinder-runtime-root",
+        default="",
+        help="root used to resolve AiZynthFinder model and stock asset paths",
     )
     solve.add_argument(
         "--guided-chemenzy-frontiers",
@@ -1022,6 +1038,11 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             enable_target_chemenzy_baseline=args.target_chemenzy_baseline,
             enable_guided_chemenzy=not args.no_guided_chemenzy,
             native_short_tail_engine=args.native_short_tail_engine,
+            aizynthfinder_python_executable=(
+                args.aizynthfinder_python_executable
+            ),
+            aizynthfinder_config_path=args.aizynthfinder_config_path,
+            aizynthfinder_runtime_root=args.aizynthfinder_runtime_root,
             aizynthfinder_short_tail_mode=args.aizynthfinder_short_tail_mode,
             chemenzy_env_prefix=args.chemenzy_env_prefix,
             chemenzy_stock_names=chemenzy_stock_names,

@@ -1,11 +1,19 @@
 """Register target solve and background-job HTTP routes."""
 from __future__ import annotations
 
-from threading import RLock, Thread
+import hashlib
+from pathlib import Path
+from threading import Event, RLock, Thread
 from typing import Any, Callable, Mapping
 
 from flask import Blueprint, Response, jsonify
 
+from cascade_planner.application.blind_benchmark_contract import (
+    BLIND_CASE_SCHEMA,
+    BlindCase,
+    audit_blind_preflight,
+    canonical_smiles,
+)
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.web.v4_target_runtime import (
     historical_job as _historical_job,
@@ -51,8 +59,57 @@ def register_target_routes(
     @blueprint.post("/api/v4/jobs")
     def start_target_job():
         payload = _payload()
-        if not str(payload.get("target_smiles") or "").strip():
+        submitted_smiles = str(payload.get("target_smiles") or "").strip()
+        if not submitted_smiles:
             raise ValueError("target_smiles_is_required")
+        canonical = canonical_smiles(submitted_smiles)
+        if not canonical:
+            return jsonify(
+                {
+                    "error": "invalid_target_smiles",
+                    "reason": "invalid_target_smiles",
+                }
+            ), 400
+        run_scope = str(payload.get("run_scope") or "blind")
+        if run_scope not in {"blind", "interactive"}:
+            raise ValueError("target_run_scope_invalid")
+        payload = {
+            **payload,
+            "run_scope": run_scope,
+            "target_smiles": canonical,
+        }
+        if run_scope == "interactive":
+            repository_matches = _interactive_repository_matches(
+                factory(),
+                canonical,
+            )
+            if repository_matches:
+                repository_paths = sorted(
+                    {
+                        str(row.get("path") or "")
+                        for row in repository_matches
+                        if str(row.get("path") or "")
+                    }
+                )
+                response = _with_objective_mode_deprecation(
+                    jsonify(
+                        {
+                            "status": "repository_hit",
+                            "phase": "repository_hit",
+                            "target_name": str(
+                                payload.get("target_name") or "interactive target"
+                            ),
+                            "target_smiles": canonical,
+                            "repository_match_count": len(repository_matches),
+                            "repository_path_count": len(repository_paths),
+                            "repository_matches": repository_matches,
+                            "repository_paths": repository_paths,
+                            "workspace_url": "/v4#routes",
+                        }
+                    ),
+                    payload,
+                )
+                return response, 200
         run_id = str(payload.get("run_id") or "") or _new_run_id(
             str(payload.get("target_name") or "target")
         )
@@ -62,15 +119,17 @@ def register_target_routes(
         now = _utc_now()
         with jobs_lock:
             existing = jobs.get(job_id)
-            if existing and existing.get("status") in {"queued", "running"}:
+            if existing and existing.get("status") in {"queued", "running", "cancelling"}:
                 response = _with_objective_mode_deprecation(
                     jsonify(_job_projection(existing)), payload
                 )
                 return response, 200
+            cancel_event = Event()
             jobs[job_id] = {
                 "job_id": job_id,
                 "run_id": run_id,
                 "target_name": str(payload.get("target_name") or "blind target"),
+                "target_smiles": str(payload.get("target_smiles") or ""),
                 "status": "queued",
                 "phase": "queued",
                 "created_at": now,
@@ -81,11 +140,15 @@ def register_target_routes(
                 "request_warnings": request_warnings,
                 "error": "",
                 "result": {},
+                "cancel_requested_at": "",
+                "cancelled_at": "",
+                "cancellation_reason": "",
+                "_cancel_event": cancel_event,
             }
             row = dict(jobs[job_id])
         Thread(
             target=_run_target_job,
-            args=(factory, payload, job_id, jobs, jobs_lock),
+            args=(factory, payload, job_id, jobs, jobs_lock, cancel_event),
             daemon=True,
             name=f"autoplanner-{run_id[:32]}",
         ).start()
@@ -131,6 +194,72 @@ def register_target_routes(
         _apply_workspace_visibility(factory(), [projected])
         return jsonify(projected)
 
+    @blueprint.post("/api/v4/jobs/<path:job_id>/cancel")
+    def cancel_target_job(job_id: str):
+        payload = _payload()
+        requested_reason = str(payload.get("reason") or "user_requested").strip()
+        reason = requested_reason[:200] or "user_requested"
+        with jobs_lock:
+            job = jobs.get(job_id)
+            if job is not None:
+                status = str(job.get("status") or "")
+                if status == "cancelled":
+                    return jsonify(_job_projection(job)), 200
+                if status == "cancelling":
+                    event = job.get("_cancel_event")
+                    if isinstance(event, Event):
+                        event.set()
+                    return jsonify(_job_projection(job)), 200
+                if status not in {"queued", "running"}:
+                    return jsonify(
+                        {
+                            "error": "job_cancel_conflict",
+                            "reason": "job_is_not_active",
+                            "job_id": job_id,
+                            "status": status,
+                        }
+                    ), 409
+                event = job.get("_cancel_event")
+                if not isinstance(event, Event):
+                    return jsonify(
+                        {
+                            "error": "job_cancel_unavailable",
+                            "reason": "job_cancel_signal_missing",
+                            "job_id": job_id,
+                        }
+                    ), 409
+                requested_at = _utc_now()
+                event.set()
+                job.update(
+                    status="cancelling",
+                    phase="cancelling",
+                    updated_at=requested_at,
+                    cancel_requested_at=requested_at,
+                    cancellation_reason=reason,
+                )
+                projected = _job_projection(job)
+            else:
+                projected = None
+        if projected is not None:
+            return jsonify(projected), 202
+
+        run_id = str(job_id or "").removeprefix("solve:")
+        historical = any(
+            isinstance(value, Mapping)
+            and str(value.get("run_id") or "") == run_id
+            for value in factory().list_runs(limit=1_000).get("runs") or []
+        )
+        if historical:
+            return jsonify(
+                {
+                    "error": "job_cancel_conflict",
+                    "reason": "job_is_not_active",
+                    "job_id": job_id,
+                    "status": "historical",
+                }
+            ), 409
+        return jsonify({"error": "job_not_found", "job_id": job_id}), 404
+
     @blueprint.delete("/api/v4/jobs/<path:job_id>")
     def delete_target_job(job_id: str):
         run_id = str(job_id or "").removeprefix("solve:").strip()
@@ -145,7 +274,7 @@ def register_target_routes(
                 if str(value.get("run_id") or "") == run_id
             ]
             active = any(
-                str(value.get("status") or "") in {"queued", "running"}
+                str(value.get("status") or "") in {"queued", "running", "cancelling"}
                 for value in matching
             )
         if active:
@@ -183,6 +312,47 @@ def _compatibility_warnings(payload: Mapping[str, Any]) -> list[str]:
     )
 
 
+def _interactive_repository_matches(
+    gateway: CampaignGateway,
+    target_smiles: str,
+) -> list[dict[str, Any]]:
+    """Return source-tree identity matches without applying blind rejection."""
+
+    paths = getattr(gateway, "paths", None)
+    repository_root = getattr(paths, "repository_root", None)
+    if repository_root is None:
+        return []
+    root = Path(repository_root).expanduser().resolve()
+    identity = hashlib.sha256(target_smiles.encode("utf-8")).hexdigest()
+    case = BlindCase.from_dict(
+        {
+            "schema_version": BLIND_CASE_SCHEMA,
+            "case_id": f"repository-lookup-{identity[:16]}",
+            # This opaque label deliberately limits lookup to molecular
+            # identity; a generic UI target name must not create false hits.
+            "target_name": "target",
+            "target_smiles": target_smiles,
+            "acceptance": {},
+            "budget": {},
+        }
+    )
+    report = audit_blind_preflight(
+        case,
+        repository_root=root,
+        run_dir=(
+            root
+            / ".autoplanner"
+            / "interactive-repository-lookups"
+            / identity[:16]
+        ),
+    )
+    return [
+        dict(row)
+        for row in report.get("repository_matches") or []
+        if isinstance(row, Mapping)
+    ]
+
+
 def _with_objective_mode_deprecation(
     response: Response,
     payload: Mapping[str, Any],
@@ -203,7 +373,7 @@ def _job_with_live_progress(
     row = _job_projection(job)
     progress = _live_job_progress(factory, job)
     row["progress"] = progress
-    if str(job.get("status") or "") in {"queued", "running"}:
+    if str(job.get("status") or "") in {"queued", "running", "cancelling"}:
         row["phase"] = str(progress.get("phase") or row["phase"])
     return row
 

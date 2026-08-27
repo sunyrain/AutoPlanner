@@ -40,6 +40,37 @@ def _route_ids(rows: Iterable[Mapping[str, Any]]) -> set[str]:
     }
 
 
+def _canonical_route_ids(
+    records: Iterable[Mapping[str, Any]],
+    projected_route_id: str,
+) -> set[str]:
+    """Resolve one Director alias to lifecycle-owned canonical family ids."""
+
+    canonical: set[str] = set()
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        matched = False
+        for origin in record.get("origin_records") or []:
+            if not isinstance(origin, Mapping):
+                continue
+            if str(origin.get("route_family_id") or "") != projected_route_id:
+                continue
+            matched = True
+            canonical.update(
+                str(value)
+                for value in origin.get("canonical_route_family_ids") or []
+                if str(value)
+            )
+        if matched:
+            canonical.update(
+                str(value)
+                for value in record.get("route_family_ids") or []
+                if str(value)
+            )
+    return canonical
+
+
 def compile_route_reconciliation(
     outcomes: Iterable[Mapping[str, Any]],
     lifecycle: Mapping[str, Any],
@@ -78,6 +109,7 @@ def compile_route_reconciliation(
             continue
         search = dict(family.get("aizynthfinder_strategy_search") or {})
         records = _route_records(lifecycle_records, route_id)
+        canonical_route_ids = _canonical_route_ids(lifecycle_records, route_id)
         materialized_records = [
             record
             for record in records
@@ -111,8 +143,9 @@ def compile_route_reconciliation(
             or 0
         )
         materialized = len(materialized_records)
-        reached = route_id in reached_ids
-        solved = route_id in solved_ids
+        comparison_ids = {route_id, *canonical_route_ids}
+        reached = bool(comparison_ids.intersection(reached_ids))
+        solved = bool(comparison_ids.intersection(solved_ids))
         if quarantined_records:
             classification = "materialization_admission_gap"
         elif solved:
@@ -126,6 +159,7 @@ def compile_route_reconciliation(
         routes.append(
             {
                 "route_family_id": route_id,
+                "canonical_route_family_ids": sorted(canonical_route_ids),
                 "title": str(family.get("title") or ""),
                 "projected_step_count": projected,
                 "admitted_step_count": len(admitted_records),

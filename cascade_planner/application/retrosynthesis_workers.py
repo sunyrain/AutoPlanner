@@ -652,12 +652,37 @@ def materialize_candidate_worker(
     precursors = _string_list(
         payload.get("precursor_smiles") or payload.get("reactant_smiles")
     )
+    mapped_reaction_smiles = next(
+        (
+            str(
+                dict(proposal_ref.get("provider_reaction_metadata") or {}).get(
+                    "mapped_reaction_smiles"
+                )
+                or ""
+            )
+            for proposal_ref in payload.get("proposal_refs") or []
+            if isinstance(proposal_ref, Mapping)
+            and str(
+                dict(proposal_ref.get("provider_reaction_metadata") or {}).get(
+                    "mapped_reaction_smiles"
+                )
+                or ""
+            )
+        ),
+        "",
+    )
     audit = audit_retrosynthetic_candidate(
         product,
         precursors,
         forbidden_return_smiles=_string_list(
             payload.get("ancestor_smiles") or payload.get("forbidden_return_smiles")
         ),
+        mapped_reaction_smiles=mapped_reaction_smiles,
+        mapped_product_smiles=dict(payload.get("reactionjson_audit") or {}).get(
+            "mapped_product_smiles"
+        ),
+        reaction_operations=payload.get("reaction_operations") or (),
+        reactionjson_audit=dict(payload.get("reactionjson_audit") or {}),
     )
     reasons = list(audit.get("reasons") or [])
     reasons.extend(payload.get("route_innovation_reject_reasons") or [])
@@ -790,6 +815,7 @@ def materialize_candidate_worker(
             payload.get("reaction_operations") or ()
         ),
         "reactionjson_audit": dict(payload.get("reactionjson_audit") or {}),
+        "mapped_reaction_smiles": mapped_reaction_smiles,
         "chemical_strategy_critic": critic,
         "admission_semantics": {
             "provider_template_topology": provider_template_topology,

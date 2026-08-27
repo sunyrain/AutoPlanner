@@ -486,8 +486,10 @@ target solve report，或 report/trajectory 摘要无效，文件仍会写出但
 不会用最终状态猜测缺失历史。
 
 默认启动隔离的 Canonical V4 surface，不装载旧 Blackboard compiler 或旧 campaign。
-统一工作区为 `/v4`，SMILES 运行控制台为 `/v4/console`，集中展示页为 `/v4/showcase`；三者
-共用 `/api/v4/workspace`、`/api/v4/showcase`、`/api/v4/runs` 和同一 Workbench read model。
+唯一首页和唯一 Web 逆合成启动入口为 `/`。它运行 Strategy Generator + 三分支 Route Builder，
+并通过 SSE 逐次展示模型输出和 host replay。统一结果工作区为 `/v4`，集中展示兼容入口为
+`/v4/showcase`；它们共用 `/api/v4/workspace`、`/api/v4/showcase`、`/api/v4/runs` 和同一
+Workbench read model。旧 `/synthesis` 与 `/v4/console` 仅重定向到 `/`，不再拥有独立启动表单。
 Program 迁移盘点为
 `/api/v4/program-migration`，单运行影子投影为 `/api/v4/runs/<run_id>/programs`。默认仅绑定
 `127.0.0.1`。CLI 不提供隐式删除模式；
@@ -499,13 +501,21 @@ GC 只生成 dry-run 计划。
 python -m cascade_planner serve --server flask --host 127.0.0.1 --port 8878
 ```
 
-浏览器打开 `http://127.0.0.1:8878/v4`，再从右上角进入“启动新任务”；控制台表单会
-`POST /api/v4/jobs`，页面每 2 秒轮询
-`/api/v4/jobs` 与单任务进度；首次路线、ChemEnzy provider 调用、来源数、exact rows、视觉
+浏览器打开 `http://127.0.0.1:8878/`，输入目标 SMILES 后由唯一 Strategy Builder 表单
+`POST /api/v4/jobs`；首页通过 SSE 投影每次模型输出，同时每 3 秒同步本地任务。
+`/v4` 结果工作区每 2.5 秒轮询 `/api/v4/jobs` 与单任务进度；首次路线、底层 provider 调用、来源数、exact rows、视觉
 调用和 token 分开显示。运行详情的“统一 Action 时间线”每 2.5 秒从同一 checkpoint/RunKernel 状态更新，
 把 ChemEnzy、Codex、证据、验证、条件、库存及 Program/实验显示为已完成、执行中、部分完成或失败；
 它不是第二个任务队列。历史卡片是停止执行的不可变快照，内核原始状态只作审计，不能被
 理解为仍有后台线程或已经达到 B3/L4。
+
+网站任务队列只覆盖当前 Web gateway 注册的运行。若直接使用 CLI 并通过 `--run-dir`/独立输出目录创建另一份
+`run_index.sqlite3`，该运行不会因位于仓库 `results/**` 下而自动进入网站；这是两个运行注册域，不是 SSE 丢失。
+需要网页实时监控的 smoke 必须通过同一服务的 `POST /api/v4/jobs` 启动，随后使用返回的 `job_id` 连接
+`/api/v4/live/<job_id>/events`。不要增加扫描任意结果目录的隐式导入器来制造第二个任务状态权威。
+已知目标的 blind/benchmark HTTP 重现实验不能依赖 interactive 自动库存解析，必须在 JSON 请求中同时提供
+`benchmark_stock_index`、`benchmark_stock_index_sha256` 和 `benchmark_stock_name`；缺少路径或哈希时会在任何
+付费模型调用之前 fail closed。
 
 Canonical Web 不发送 `objective_mode`。旧 API 客户端仍可暂时传入该字段，但
 `POST /api/v4/solve-target` 和 `POST /api/v4/jobs` 会返回 `Deprecation: true`、HTTP

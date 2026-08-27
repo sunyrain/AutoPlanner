@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from threading import Event
+
+import pytest
+
 from cascade_planner.interfaces.aizynthfinder_strategy_sidecar import (
     run_aizynthfinder_strategy_branch_sidecar,
 )
@@ -95,3 +99,63 @@ def test_strategy_sidecar_executes_real_aiz_mcts_and_backtracks() -> None:
     assert diagnostics["maximum_tree_depth"] >= diagnostics["selected_depth"]
     assert result["mcts_iterations"] > 1
     assert any(row["depth"] > 0 and row["route_steps"] for row in requests)
+
+
+def test_strategy_sidecar_honors_a_pre_requested_cancellation() -> None:
+    cancel_event = Event()
+    cancel_event.set()
+
+    with pytest.raises(RuntimeError, match="strategy_sidecar_cancelled"):
+        run_aizynthfinder_strategy_branch_sidecar(
+            target_smiles="CCO",
+            strategy_id="strategy-cancelled",
+            strategy_text="cancel before launch",
+            request_handler=lambda _request: {"candidates": []},
+            inline_stock_smiles=("C",),
+            cancel_event=cancel_event,
+        )
+
+
+def test_strategy_sidecar_preserves_unbilled_callback_semantics() -> None:
+    callbacks = 0
+
+    def handler(request):
+        nonlocal callbacks
+        callbacks += 1
+        if callbacks == 1:
+            return {"candidates": [], "model_call_consumed": False}
+        return {
+            "model_call_consumed": True,
+            "candidates": [
+                {
+                    "candidate_id": "one-paid-call",
+                    "product_smiles": request["expandable_smiles"][0],
+                    "mapped_product_smiles": request[
+                        "expandable_mapped_smiles"
+                    ][0],
+                    "precursor_smiles": ["C", "O"],
+                    "mapped_precursor_smiles": ["[CH4:1]", "[OH2:2]"],
+                    "route_step": {
+                        "step_id": "one-paid-call",
+                        "product_smiles": request["expandable_smiles"][0],
+                    },
+                }
+            ],
+        }
+
+    result = run_aizynthfinder_strategy_branch_sidecar(
+        target_smiles="CO",
+        strategy_id="unbilled-callback",
+        strategy_text="callback and model call are distinct",
+        request_handler=handler,
+        inline_stock_smiles=("C", "O"),
+        max_policy_calls=1,
+        max_candidates_per_call=1,
+        max_transforms=2,
+        max_mcts_iterations=5,
+        timeout_s=60,
+    )
+
+    assert result["solved"] is True
+    assert result["policy_calls"] == 1
+    assert result["diagnostics"]["provider_callback_count"] == 2

@@ -17,6 +17,9 @@ from .reactionjson_replay import (
     replay_reactionjson,
 )
 from .strategy_contract import normalize_reaction_operations
+from cascade_planner.routes.admission import (
+    replayed_external_atom_deficit_is_bound,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +34,22 @@ class MaterializedReaction:
     audit: Mapping[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class MappedOpenPrecursor:
+    """One host-owned open RouteJSON frontier boundary."""
+
+    product_smiles: str
+    mapped_product_smiles: str
+
+
+@dataclass(frozen=True, slots=True)
+class RouteGraphReplayState:
+    """Compiled reactions plus the exact mapped frontier left open by replay."""
+
+    reactions: tuple[MaterializedReaction, ...]
+    open_precursors: tuple[MappedOpenPrecursor, ...]
+
+
 class RouteJSONCompiler:
     """Compile model edit programs into deterministic route graph states."""
 
@@ -40,6 +59,7 @@ class RouteJSONCompiler:
         mapped_product_smiles: str,
         operations: Iterable[Mapping[str, Any]],
         expected_product_smiles: str = "",
+        reserved_atom_maps: Iterable[int] = (),
     ) -> MaterializedReaction:
         mapped_product = str(mapped_product_smiles or "").strip()
         normalized = normalize_reaction_operations(operations)
@@ -49,9 +69,25 @@ class RouteJSONCompiler:
             mapped_product_smiles=mapped_product,
             operations=normalized,
             expected_precursor_smiles=None,
+            reserved_atom_maps=reserved_atom_maps,
         )
         product = str(audit.get("mapped_product_smiles") or "")
+        declared_canonical_product = _canonical_smiles_preserving_declared_stereo(
+            product
+        )
         canonical_product = _canonical_smiles(product)
+        if (
+            declared_canonical_product
+            and declared_canonical_product != canonical_product
+            and _constitution_smiles(declared_canonical_product)
+            == _constitution_smiles(canonical_product)
+        ):
+            audit = {
+                **dict(audit),
+                "mapped_product_stereo_normalized": True,
+                "mapped_product_declared_smiles": declared_canonical_product,
+                "canonical_product_smiles": canonical_product,
+            }
         if expected_product_smiles:
             expected_product = _canonical_smiles(expected_product_smiles)
             if canonical_product != expected_product:
@@ -70,7 +106,7 @@ class RouteJSONCompiler:
                 audit = {
                     **dict(audit),
                     "mapped_product_stereo_normalized": True,
-                    "mapped_product_declared_smiles": _canonical_smiles(product),
+                    "mapped_product_declared_smiles": declared_canonical_product,
                     "canonical_product_smiles": expected_product,
                 }
         precursors = tuple(
@@ -89,12 +125,36 @@ class RouteJSONCompiler:
         )
         if not precursors or len(precursors) != len(mapped_precursors):
             raise ReactionJsonReplayError("routejson_compiler_precursor_output_invalid")
+        resolved_operations = tuple(
+            dict(row)
+            for row in audit.get("resolved_operations") or normalized
+            if isinstance(row, Mapping)
+        )
+        if replayed_external_atom_deficit_is_bound(
+            canonical_product,
+            precursors,
+            mapped_product_smiles=product,
+            reaction_operations=resolved_operations,
+        ):
+            # This is the single host-owned binding for product atoms supplied
+            # by an omitted forward reagent or donor.  Every RouteJSON path
+            # (Builder, Editor, linear, or DAG) consumes this compiler audit,
+            # so canonical admission never depends on a caller copying the
+            # same derived status fields correctly.
+            audit = {
+                **dict(audit),
+                "external_atom_source_required": True,
+                "external_atom_source_status": (
+                    "declared_graph_edit_requires_validation"
+                ),
+                "external_atom_source_grants_reaction_proof": False,
+            }
         return MaterializedReaction(
             product_smiles=canonical_product,
             mapped_product_smiles=product,
             precursor_smiles=precursors,
             mapped_precursor_smiles=mapped_precursors,
-            reaction_operations=tuple(dict(row) for row in normalized),
+            reaction_operations=resolved_operations,
             audit=audit,
         )
 
@@ -118,6 +178,7 @@ class RouteJSONCompiler:
         seen_products: set[str] = set()
         previous_precursors: tuple[str, ...] = ()
         previous_mapped_precursors: tuple[str, ...] = ()
+        reserved_atom_maps = _mapped_atom_maps(current_mapped)
         for index, row in enumerate(rows):
             declared_product = _canonical_smiles(row.get("product_smiles"))
             declaration_mismatch = False
@@ -154,6 +215,7 @@ class RouteJSONCompiler:
                 mapped_product_smiles=current_mapped,
                 operations=row.get("reaction_operations") or (),
                 expected_product_smiles=current_product,
+                reserved_atom_maps=reserved_atom_maps,
             )
             if declaration_mismatch:
                 materialized = replace(
@@ -169,6 +231,11 @@ class RouteJSONCompiler:
             seen_products.add(declared_product)
             previous_precursors = materialized.precursor_smiles
             previous_mapped_precursors = materialized.mapped_precursor_smiles
+            reserved_atom_maps.update(
+                _mapped_atom_maps(materialized.mapped_product_smiles)
+            )
+            for mapped_precursor in materialized.mapped_precursor_smiles:
+                reserved_atom_maps.update(_mapped_atom_maps(mapped_precursor))
             if index + 1 < len(rows):
                 next_product = _canonical_smiles(rows[index + 1].get("product_smiles"))
                 match = _match_precursor_identity(
@@ -195,13 +262,30 @@ class RouteJSONCompiler:
         steps: Iterable[Mapping[str, Any]],
         minimum_depth: int = 1,
     ) -> tuple[MaterializedReaction, ...]:
+        """Replay a target-rooted RouteJSON DAG and return its reactions."""
+
+        return self.compile_route_graph_state(
+            mapped_target_smiles=mapped_target_smiles,
+            steps=steps,
+            minimum_depth=minimum_depth,
+        ).reactions
+
+    def compile_route_graph_state(
+        self,
+        *,
+        mapped_target_smiles: str,
+        steps: Iterable[Mapping[str, Any]],
+        minimum_depth: int = 1,
+    ) -> RouteGraphReplayState:
         """Replay a topologically ordered RouteJSON DAG.
 
         A linear validator only carries the immediately previous precursor
         set. Real retrosyntheses branch, so sibling precursors exposed by an
         earlier step must remain available while another branch is expanded.
         Every non-root row is bound to one host-derived open structure before
-        its ReactionJSON edit is applied.
+        its ReactionJSON edit is applied. The returned frontier is the same
+        host-owned mapped state used for that binding; callers must never
+        reconstruct it from model-declared ``mapped_product_smiles`` fields.
         """
 
         rows = [dict(value) for value in steps if isinstance(value, Mapping)]
@@ -215,6 +299,7 @@ class RouteJSONCompiler:
         compiled: list[MaterializedReaction] = []
         seen_products: set[str] = set()
         available: list[tuple[str, str]] = []
+        reserved_atom_maps = _mapped_atom_maps(target_mapped)
         for index, row in enumerate(rows):
             declared_product = _canonical_smiles(row.get("product_smiles"))
             if not declared_product:
@@ -246,6 +331,11 @@ class RouteJSONCompiler:
                         "routejson_compiler_product_not_open_precursor"
                     )
                 current_product, current_mapped = match
+                # The matched boundary is no longer open after this row is
+                # expanded. Keeping consumed pairs in the frontier made it
+                # impossible to return a truthful mapped open-precursor state
+                # to an Editor retry.
+                available.remove(match)
                 declaration_mismatch = declared_product != current_product
             if current_product in seen_products:
                 raise ReactionJsonReplayError("routejson_compiler_product_cycle")
@@ -254,6 +344,7 @@ class RouteJSONCompiler:
                 mapped_product_smiles=current_mapped,
                 operations=row.get("reaction_operations") or (),
                 expected_product_smiles=current_product,
+                reserved_atom_maps=reserved_atom_maps,
             )
             if declaration_mismatch:
                 materialized = replace(
@@ -272,6 +363,11 @@ class RouteJSONCompiler:
                 raise ReactionJsonReplayError("routejson_compiler_product_cycle")
             compiled.append(materialized)
             seen_products.add(current_product)
+            reserved_atom_maps.update(
+                _mapped_atom_maps(materialized.mapped_product_smiles)
+            )
+            for mapped_precursor in materialized.mapped_precursor_smiles:
+                reserved_atom_maps.update(_mapped_atom_maps(mapped_precursor))
             available.extend(
                 zip(
                     materialized.precursor_smiles,
@@ -279,7 +375,16 @@ class RouteJSONCompiler:
                     strict=True,
                 )
             )
-        return tuple(compiled)
+        return RouteGraphReplayState(
+            reactions=tuple(compiled),
+            open_precursors=tuple(
+                MappedOpenPrecursor(
+                    product_smiles=product,
+                    mapped_product_smiles=mapped,
+                )
+                for product, mapped in available
+            ),
+        )
 
     @staticmethod
     def assemble_route(
@@ -318,7 +423,34 @@ def _canonical_smiles(value: Any) -> str:
         return ""
     for atom in molecule.GetAtoms():
         atom.SetAtomMapNum(0)
+    Chem.AssignStereochemistry(molecule, cleanIt=True, force=True)
     return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+
+
+def _canonical_smiles_preserving_declared_stereo(value: Any) -> str:
+    """Remove maps without silently hiding a stale mapped stereo declaration."""
+
+    from rdkit import Chem
+
+    molecule = Chem.MolFromSmiles(str(value or "").strip())
+    if molecule is None:
+        return ""
+    for atom in molecule.GetAtoms():
+        atom.SetAtomMapNum(0)
+    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+
+
+def _mapped_atom_maps(value: Any) -> set[int]:
+    from rdkit import Chem
+
+    molecule = Chem.MolFromSmiles(str(value or "").strip())
+    if molecule is None:
+        return set()
+    return {
+        int(atom.GetAtomMapNum())
+        for atom in molecule.GetAtoms()
+        if int(atom.GetAtomMapNum()) > 0
+    }
 
 
 def _constitution_smiles(value: Any) -> str:
@@ -472,4 +604,9 @@ def _align_mapped_precursors(
     return tuple(aligned)
 
 
-__all__ = ["MaterializedReaction", "RouteJSONCompiler"]
+__all__ = [
+    "MappedOpenPrecursor",
+    "MaterializedReaction",
+    "RouteGraphReplayState",
+    "RouteJSONCompiler",
+]

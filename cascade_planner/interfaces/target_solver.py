@@ -189,6 +189,35 @@ if TYPE_CHECKING:
     from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 
 
+class TargetSolveCancelled(RuntimeError):
+    """Raised when a caller requests cooperative cancellation of a target solve."""
+
+
+class _CombinedCancelSignal:
+    """Expose the Event subset used by workers while keeping causes separate."""
+
+    def __init__(self, *events: Event | None) -> None:
+        self._events = tuple(event for event in events if event is not None)
+
+    def is_set(self) -> bool:
+        return any(event.is_set() for event in self._events)
+
+    def wait(self, timeout: float | None = None) -> bool:
+        if self.is_set():
+            return True
+        deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
+        while not self.is_set():
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            interval = 0.05 if remaining is None else min(0.05, remaining)
+            if self._events:
+                self._events[0].wait(interval)
+            else:
+                time.sleep(interval)
+        return True
+
+
 TARGET_SOLVE_REPORT_SCHEMA = "target_only_retrosynthesis_solve_report.v1"
 DEFAULT_TARGET_DIRECTOR_MODEL = str(SYNTHEX_MATCHED_PROFILE_DEFAULTS["model"])
 _DIRECTOR_TOPOLOGY_REASONS = frozenset(
@@ -200,7 +229,9 @@ _DIRECTOR_TOPOLOGY_REASONS = frozenset(
     }
 )
 _MAX_DIRECTOR_OUTCOMES = 10
-_PAPER_REACH_PROFILES = frozenset({"paper_synthex", "paper_matched_reach"})
+_PAPER_REACH_PROFILES = frozenset(
+    {"paper_synthex", "paper_matched_reach", "v9_smoke"}
+)
 
 
 def _is_paper_reach_profile(profile: str) -> bool:
@@ -212,11 +243,18 @@ def _is_paper_reach_profile(profile: str) -> bool:
 def _is_isolated_paper_matched_profile(profile: str) -> bool:
     """Return whether the strict, non-extensible paper reach arm is active."""
 
-    return str(profile or "") == "paper_matched_reach"
+    return str(profile or "") in {"paper_matched_reach", "v9_smoke"}
+
+
+def _is_v9_self_correcting_profile(profile: str) -> bool:
+    return str(profile or "") == "v9_smoke"
 
 
 @dataclass(frozen=True, slots=True)
 class TargetSolveConfig:
+    # Interactive Strategy Builder runs accept ordinary repository targets.
+    # Formal benchmark and CLI callers retain the fail-closed blind default.
+    run_scope: str = "blind"
     model: str = DEFAULT_TARGET_DIRECTOR_MODEL
     reasoning_effort: str = str(SYNTHEX_MATCHED_PROFILE_DEFAULTS["reasoning_effort"])
     execution_profile: str = "standard"
@@ -290,6 +328,7 @@ class TargetSolveConfig:
     enable_aizynthfinder_short_tail: bool = True
     aizynthfinder_python_executable: str = ""
     aizynthfinder_config_path: str = ""
+    aizynthfinder_runtime_root: str = ""
     aizynthfinder_short_tail_mode: str = "short_tail"
     native_short_tail_engine: str = "auto"
     enable_guided_chemenzy: bool = True
@@ -361,6 +400,8 @@ class TargetSolveConfig:
     schema_version: str = "target_solve_config.v1"
 
     def __post_init__(self) -> None:
+        if self.run_scope not in {"blind", "interactive"}:
+            raise ValueError("target solver run scope is invalid")
         if self.reasoning_effort not in {"low", "medium", "high"}:
             raise ValueError("target solver reasoning effort is invalid")
         if self.execution_profile not in {
@@ -369,6 +410,7 @@ class TargetSolveConfig:
             "proof",
             "paper_synthex",
             "paper_matched_reach",
+            "v9_smoke",
         }:
             raise ValueError("target solver execution profile is invalid")
         if self.strategy_search_profile not in {"legacy_global", "synthex_matched"}:
@@ -406,7 +448,7 @@ class TargetSolveConfig:
             raise ValueError("target solver strategic milestone limit is invalid")
         if not 1 <= self.max_reactionjson_candidates_per_node <= 8:
             raise ValueError("target solver ReactionJSON candidate limit is invalid")
-        if not 1 <= self.max_route_local_repair_rounds <= 12:
+        if not 0 <= self.max_route_local_repair_rounds <= 12:
             raise ValueError("target solver route-local repair limit is invalid")
         if _is_paper_reach_profile(self.execution_profile):
             if self.stop_on_first_stock_closed_branch:
@@ -566,7 +608,7 @@ def _resolve_execution_config(config: TargetSolveConfig) -> TargetSolveConfig:
     """
 
     if not _is_paper_reach_profile(config.execution_profile):
-        return config
+        return _bind_aizynthfinder_runtime(config)
     matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
     strict_matched = _is_isolated_paper_matched_profile(config.execution_profile)
     # The strict named profile cannot be turned into an enzyme/hybrid arm by a
@@ -581,13 +623,16 @@ def _resolve_execution_config(config: TargetSolveConfig) -> TargetSolveConfig:
     }:
         portfolio_mode = config.strategy_portfolio_mode
     route_builder_call_ceiling = int(matched["node_expansions_per_branch"])
-    if config.execution_profile == "paper_matched_reach":
+    if config.execution_profile in {"paper_matched_reach", "v9_smoke"}:
         # ``paper_matched_reach`` also backs reduced-call smoke runs. Preserve
         # the explicitly requested ceiling (already validated as <= the paper
         # maximum) instead of silently restoring 25. The formal panel protocol
         # separately requires the frozen 25-call value.
         route_builder_call_ceiling = int(config.max_node_expansions_per_branch)
-    return replace(
+    v9_self_correcting = _is_v9_self_correcting_profile(
+        config.execution_profile
+    )
+    resolved = replace(
         config,
         strategy_search_profile="synthex_matched",
         strategy_tree_engine=str(matched["strategy_tree_engine"]),
@@ -618,7 +663,11 @@ def _resolve_execution_config(config: TargetSolveConfig) -> TargetSolveConfig:
             False if strict_matched else config.enable_guided_chemenzy
         ),
         enable_aizynthfinder_short_tail=True,
-        aizynthfinder_short_tail_mode="short_tail",
+        aizynthfinder_short_tail_mode=(
+            str(config.aizynthfinder_short_tail_mode)
+            if v9_self_correcting
+            else "short_tail"
+        ),
         native_short_tail_engine="aizynthfinder",
         enable_builtin_patent_evidence=False,
         enable_patent_self_evolution=False,
@@ -641,6 +690,26 @@ def _resolve_execution_config(config: TargetSolveConfig) -> TargetSolveConfig:
         chemenzy_timeout_s=float(matched["short_tail_timeout_s"]),
         max_guided_chemenzy_iterations=int(matched["short_tail_iterations"]),
         guided_chemenzy_timeout_s=float(matched["short_tail_timeout_s"]),
+    )
+    return _bind_aizynthfinder_runtime(resolved)
+
+
+def _bind_aizynthfinder_runtime(config: TargetSolveConfig) -> TargetSolveConfig:
+    """Resolve one durable AiZ runtime authority before scheduling work."""
+
+    if _native_short_tail_engine(config) != "aizynthfinder":
+        return config
+    binding = AiZynthFinderSidecarConfig(
+        python_executable=config.aizynthfinder_python_executable,
+        config_path=config.aizynthfinder_config_path,
+        runtime_root=config.aizynthfinder_runtime_root,
+        mode=config.aizynthfinder_short_tail_mode,
+    )
+    return replace(
+        config,
+        aizynthfinder_python_executable=str(binding.resolved_python()),
+        aizynthfinder_config_path=str(binding.resolved_config()),
+        aizynthfinder_runtime_root=str(binding.resolved_runtime_root()),
     )
 
 
@@ -669,6 +738,39 @@ def _strategy_tree_engine(config: TargetSolveConfig) -> str:
     )
 
 
+def _interactive_target_preflight(
+    case: BlindCase,
+    *,
+    run_dir: str | Path,
+) -> dict[str, Any]:
+    """Bind an interactive target without asserting repository absence."""
+
+    destination = Path(run_dir).resolve()
+    fresh = not destination.exists() or (
+        destination.is_dir() and not any(destination.iterdir())
+    )
+    reasons = [] if fresh else ["interactive_run_directory_not_fresh"]
+    payload: dict[str, Any] = {
+        "schema_version": "interactive_target_preflight.v1",
+        "execution_scope": "interactive",
+        "case": case.to_dict(),
+        "run_dir": str(destination),
+        "fresh_run_directory": fresh,
+        "repository_absence_attested": False,
+        "repository_matches": [],
+        "accepted": not reasons,
+        "reasons": reasons,
+        "semantics": {
+            "target_only_input": True,
+            "repository_targets_are_allowed": True,
+            "repository_absence_is_not_a_requirement": True,
+            "preflight_grants_no_chemistry_authority": True,
+        },
+    }
+    payload["content_sha256"] = _digest(payload)
+    return payload
+
+
 def solve_target(
     gateway: "CampaignGateway",
     *,
@@ -695,8 +797,15 @@ def solve_target(
     program_capabilities: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None = None,
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
     program_validation_feedback: Iterable[Mapping[str, Any]] = (),
+    cancel_event: Event | None = None,
 ) -> dict[str, Any]:
     """Run or resume the real SMILES-only campaign path through one V4 kernel."""
+
+    def raise_if_user_cancelled() -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise TargetSolveCancelled("target_solve_cancelled_by_user")
+
+    raise_if_user_cancelled()
 
     active = _resolve_execution_config(config or TargetSolveConfig())
     if _is_paper_reach_profile(active.execution_profile):
@@ -800,7 +909,11 @@ def solve_target(
         }
     )
     checkpoint_path = directory / ".autoplanner" / "target-solver-checkpoint.json"
-    preflight_path = directory / ".autoplanner" / "blind-preflight.json"
+    preflight_path = directory / ".autoplanner" / (
+        "blind-preflight.json"
+        if active.run_scope == "blind"
+        else "interactive-preflight.json"
+    )
     target_report_path = directory / "target-only-solve-report.json"
     existing = (directory / ".autoplanner" / "kernel" / "run_spec.json").is_file()
     prior_saved_report: dict[str, Any] = {}
@@ -808,7 +921,14 @@ def solve_target(
         raise BlindBenchmarkError("blind_run_exists_use_resume")
     if existing:
         checkpoint = _read_checkpoint(checkpoint_path)
-        preflight = _read_json_object(preflight_path, "blind_preflight_missing_on_resume")
+        preflight = _read_json_object(
+            preflight_path,
+            (
+                "blind_preflight_missing_on_resume"
+                if active.run_scope == "blind"
+                else "interactive_preflight_missing_on_resume"
+            ),
+        )
         if target_report_path.is_file():
             prior_saved_report = _read_json_object(
                 target_report_path,
@@ -818,20 +938,27 @@ def solve_target(
             dict(preflight.get("case") or {}).get("target_smiles") != canonical
             or preflight.get("accepted") is not True
         ):
-            raise BlindBenchmarkError("blind_resume_preflight_binding_invalid")
+            raise BlindBenchmarkError(
+                "blind_resume_preflight_binding_invalid"
+                if active.run_scope == "blind"
+                else "interactive_resume_preflight_binding_invalid"
+            )
     else:
         checkpoint = _empty_checkpoint(identity)
-        preflight = audit_blind_preflight(
-            case,
-            repository_root=(
-                Path(active.blind_audit_root).expanduser().resolve()
-                if active.blind_audit_root
-                else gateway.paths.repository_root
-            ),
-            run_dir=directory,
-            manifest_path=manifest_path,
-            additional_allowed_paths=active.blind_audit_allowed_paths,
-        )
+        if active.run_scope == "blind":
+            preflight = audit_blind_preflight(
+                case,
+                repository_root=(
+                    Path(active.blind_audit_root).expanduser().resolve()
+                    if active.blind_audit_root
+                    else gateway.paths.repository_root
+                ),
+                run_dir=directory,
+                manifest_path=manifest_path,
+                additional_allowed_paths=active.blind_audit_allowed_paths,
+            )
+        else:
+            preflight = _interactive_target_preflight(case, run_dir=directory)
         if preflight.get("accepted") is not True:
             raise BlindBenchmarkError(";".join(preflight.get("reasons") or []))
         gateway.create_run(
@@ -887,6 +1014,14 @@ def solve_target(
             "max_output_tokens": 18_000,
             "max_tool_calls": 16,
         },
+        "v9_smoke": {
+            "minimum_route_families": 3,
+            "max_route_families": 3,
+            "max_skeletons": 3,
+            "max_steps_per_skeleton": 5,
+            "max_output_tokens": 18_000,
+            "max_tool_calls": 16,
+        },
     }[active.execution_profile]
     minimum_director_families = (
         int(active.strategy_branch_count)
@@ -899,6 +1034,10 @@ def solve_target(
     if active.minimum_planning_route_steps > director_profile["max_steps_per_skeleton"]:
         raise ValueError("minimum planning route depth exceeds execution profile capacity")
     result_delivery_cancel_event = Event()
+    worker_cancel_signal = _CombinedCancelSignal(
+        cancel_event,
+        result_delivery_cancel_event,
+    )
     # A caller-supplied runner is an explicit implementation override.  Only
     # grant the matched profile's six host-validated local-repair rounds when
     # the actual runner implements the compact sequential policy; legacy or
@@ -963,6 +1102,12 @@ def solve_target(
         planning_mode=("sequential_branches" if sequential_strategy else "global_skeleton"),
         paper_matched_reach_profile=_is_isolated_paper_matched_profile(
             active.execution_profile
+        ),
+        enable_strategy_portfolio_critic=(
+            _is_v9_self_correcting_profile(active.execution_profile)
+        ),
+        enable_key_event_critic=(
+            _is_v9_self_correcting_profile(active.execution_profile)
         ),
         strategy_tree_engine=_strategy_tree_engine(active),
         strategy_portfolio_mode=(
@@ -1050,7 +1195,7 @@ def solve_target(
                 worker_record_seed_recovery_mode=os.environ.get(
                     "AUTOPLANNER_SEQUENTIAL_WORKER_JOURNAL_RECOVERY_MODE", ""
                 ),
-                cancel_event=result_delivery_cancel_event,
+                cancel_event=worker_cancel_signal,
             )
         else:
             def resolved_director_runner(
@@ -1064,7 +1209,7 @@ def solve_target(
                     context,
                     mode,
                     config,
-                    cancel_event=result_delivery_cancel_event,
+                    cancel_event=worker_cancel_signal,
                 )
 
     service = gateway._open(
@@ -1551,8 +1696,10 @@ def solve_target(
                 sidecar_config=AiZynthFinderSidecarConfig(
                     python_executable=active.aizynthfinder_python_executable,
                     config_path=active.aizynthfinder_config_path,
+                    runtime_root=active.aizynthfinder_runtime_root,
                     mode=active.aizynthfinder_short_tail_mode,
                 ),
+                cancel_event=worker_cancel_signal,
                 # SynthEx scores only a complete AiZ route whose every leaf
                 # reaches the frozen stock.  Importing the best partial tail
                 # is an AutoPlanner repair enhancement and would otherwise
@@ -1957,6 +2104,27 @@ def solve_target(
             ]
             return [dict(execution) for execution in preexecuted]
         return []
+
+    def consume_observed_action_results(
+        executions: Iterable[Mapping[str, Any]],
+    ) -> None:
+        execution_ids = {
+            str(dict(execution.get("action") or {}).get("execution_id") or "")
+            for execution in executions
+            if str(
+                dict(execution.get("action") or {}).get("execution_id") or ""
+            )
+        }
+        if not execution_ids:
+            return
+        preexecuted_action_backlog[:] = [
+            execution
+            for execution in preexecuted_action_backlog
+            if str(
+                dict(execution.get("action") or {}).get("execution_id") or ""
+            )
+            not in execution_ids
+        ]
 
     program_action_handlers = {
         **(
@@ -3482,6 +3650,7 @@ def solve_target(
         ),
         on_execution=observe_unified_core_execution,
     )
+    raise_if_user_cancelled()
     anytime_budget_exhausted = bool(
         unified_core_loop.get("termination") == "budget_exhausted"
         or service.kernel.state.status == "budget_exhausted"
@@ -3680,6 +3849,7 @@ def solve_target(
         stages.append(_stage("global_campaign", initial["status"], initial))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
 
+    raise_if_user_cancelled()
     post_director_materialization_executions = project_action_results(
         "post_director_materialize",
         (CampaignActionKind.MATERIALIZE,),
@@ -3962,6 +4132,7 @@ def solve_target(
             _stage("guided_reaction_validation", guided_validation["status"], guided_validation)
         )
 
+    raise_if_user_cancelled()
     # Evidence discovery and leaf stock audit deliberately precede the only
     # optional replan.  Their host-owned observations therefore enter the next
     # CampaignContext instead of making the director repeat a blind first pass.
@@ -4064,6 +4235,8 @@ def solve_target(
     # those actions directly, with the same canonical ActionRuntime, so they
     # consume the normal native-search budget and remain in the event journal.
     direct_recovery_executions: list[dict[str, Any]] = []
+    direct_recovery_materialization_executions: list[dict[str, Any]] = []
+    direct_recovery_stock_executions: list[dict[str, Any]] = []
     if (
         remaining_guided
         and _is_isolated_paper_matched_profile(active.execution_profile)
@@ -4111,6 +4284,63 @@ def solve_target(
                 len(unified_core_runtime.action_execution_history()),
                 execution,
             )
+            handler_result = dict(
+                dict(execution.get("outcome") or {}).get("handler_result")
+                or {}
+            )
+            if int(handler_result.get("proposal_count") or 0) <= 0:
+                continue
+            # The post-B4 short-tail search runs after the main anytime loop.
+            # Its accepted hypotheses therefore create *new* materialization
+            # and stock deficits that cannot be satisfied by projecting old
+            # anytime-loop executions. Replay them immediately through the
+            # same canonical ActionRuntime before selecting another leaf.
+            direct_recovery_materialization_executions.extend(
+                _execute_action_kind_until_quiescent(
+                    unified_core_runtime,
+                    action_kind=CampaignActionKind.MATERIALIZE,
+                    max_actions=active.effective_provider_route_reserve + 2,
+                    opportunity_provider=lambda: compile_action_opportunities(
+                        dict(
+                            service.graph_store.load().get("deficit_frontier")
+                            or {}
+                        )
+                    ),
+                    milestones_provider=lambda: _campaign_milestones(
+                        current_campaign_gates()
+                    ),
+                    resource_availability_provider=scheduler_resources,
+                    on_execution=lambda _index, value: (
+                        observe_unified_core_execution(
+                            len(unified_core_runtime.action_execution_history()),
+                            value,
+                        )
+                    ),
+                )
+            )
+            direct_recovery_stock_executions.extend(
+                _execute_action_kind_until_quiescent(
+                    unified_core_runtime,
+                    action_kind=CampaignActionKind.STOCK_AUDIT,
+                    max_actions=4,
+                    opportunity_provider=lambda: compile_action_opportunities(
+                        dict(
+                            service.graph_store.load().get("deficit_frontier")
+                            or {}
+                        )
+                    ),
+                    milestones_provider=lambda: _campaign_milestones(
+                        current_campaign_gates()
+                    ),
+                    resource_availability_provider=scheduler_resources,
+                    on_execution=lambda _index, value: (
+                        observe_unified_core_execution(
+                            len(unified_core_runtime.action_execution_history()),
+                            value,
+                        )
+                    ),
+                )
+            )
     if remaining_guided:
         recovery_action_executions = project_action_results(
             f"{native_provider_id}_stock_recovery_expand",
@@ -4141,11 +4371,21 @@ def solve_target(
             )
         stages.append(_stage(recovery_stage_name, recovery_stage["status"], recovery_stage))
     if int(recovery_stage.get("proposal_count") or 0) > 0:
-        recovery_materialization_executions = project_action_results(
-            "recovery_materialize",
-            (CampaignActionKind.MATERIALIZE,),
-            max_actions=active.effective_provider_route_reserve + 2,
+        recovery_materialization_executions = (
+            [
+                dict(value)
+                for value in direct_recovery_materialization_executions
+            ]
+            or project_action_results(
+                "recovery_materialize",
+                (CampaignActionKind.MATERIALIZE,),
+                max_actions=active.effective_provider_route_reserve + 2,
+            )
         )
+        if direct_recovery_materialization_executions:
+            consume_observed_action_results(
+                direct_recovery_materialization_executions
+            )
         recovery_materialization = _aggregate_materialization_action_results(
             recovery_materialization_executions
         )
@@ -4169,11 +4409,16 @@ def solve_target(
                 recovery_validation,
             )
         )
-        recovery_stock_executions = project_action_results(
-            "recovery_stock",
-            (CampaignActionKind.STOCK_AUDIT,),
-            max_actions=4,
+        recovery_stock_executions = (
+            [dict(value) for value in direct_recovery_stock_executions]
+            or project_action_results(
+                "recovery_stock",
+                (CampaignActionKind.STOCK_AUDIT,),
+                max_actions=4,
+            )
         )
+        if direct_recovery_stock_executions:
+            consume_observed_action_results(direct_recovery_stock_executions)
         recovery_stock = _aggregate_stock_action_results(
             recovery_stock_executions,
             graph=service.graph_store.load(),
@@ -4322,6 +4567,7 @@ def solve_target(
         "prompt_context_bytes": replan_prompt_context_bytes,
         "trigger_reasons": list(replan_reasons),
     }
+    raise_if_user_cancelled()
     replan_executed = False
     model_cost_before_replan: dict[str, Any] = {}
     if needs_replan:
@@ -4690,6 +4936,7 @@ def solve_target(
                 program_admission,
             )
         )
+    raise_if_user_cancelled()
     _mark_stage_running(
         checkpoint_path,
         identity,
@@ -4927,6 +5174,7 @@ def solve_target(
             idempotency_key=f"solve-target:bounded-pass:{service.kernel.state.revision}",
             reasons=("bounded_pass_complete_requires_resume",),
         )
+    raise_if_user_cancelled()
     stop = service.kernel.apply_stop_decision(
         idempotency_key=f"solve-target:stop:{service.kernel.state.revision}"
     ).to_dict()
@@ -5141,6 +5389,61 @@ def _campaign_action_handler_results(
             result["reasons"] = failure_reasons
         results.append(result)
     return results
+
+
+def _execute_action_kind_until_quiescent(
+    runtime: CampaignActionRuntime,
+    *,
+    action_kind: CampaignActionKind,
+    max_actions: int,
+    opportunity_provider: Callable[[], Mapping[str, Any]],
+    milestones_provider: Callable[[], Mapping[str, Any]],
+    resource_availability_provider: Callable[[], Mapping[str, Any]],
+    on_execution: Callable[[int, Mapping[str, Any]], None] | None = None,
+) -> list[dict[str, Any]]:
+    """Execute one canonical action kind against each refreshed graph revision.
+
+    This is a bounded continuation of the existing ActionRuntime, not a
+    second queue. It is used when a post-anytime provider call creates fresh
+    materialization or stock deficits after the main anytime loop has already
+    stopped at B4.
+    """
+
+    executions: list[dict[str, Any]] = []
+    excluded_action_ids: set[str] = set()
+    for index in range(max(0, int(max_actions))):
+        opportunity_set = dict(opportunity_provider())
+        eligible = [
+            row
+            for row in opportunity_set.get("actions") or []
+            if isinstance(row, Mapping)
+            and str(row.get("kind") or "") == action_kind.value
+        ]
+        if not eligible:
+            break
+        execution = runtime.schedule_and_execute(
+            opportunity_set,
+            milestones=dict(milestones_provider()),
+            resource_availability=dict(resource_availability_provider()),
+            excluded_action_ids=tuple(sorted(excluded_action_ids)),
+            round_robin_cursor=index,
+            available_action_kinds=(action_kind,),
+        )
+        if str(execution.get("status") or "") in {
+            "no_action",
+            "budget_exhausted",
+        }:
+            break
+        execution_row = dict(execution)
+        executions.append(execution_row)
+        action_id = str(
+            dict(execution_row.get("action") or {}).get("action_id") or ""
+        )
+        if action_id:
+            excluded_action_ids.add(action_id)
+        if on_execution is not None:
+            on_execution(len(executions), execution_row)
+    return executions
 
 
 def _aggregate_materialization_action_results(
@@ -8112,6 +8415,32 @@ def _search_method_projection(config: TargetSolveConfig) -> dict[str, Any]:
     aizynthfinder_strategy = bool(
         compiler_first and strategy_tree_engine == "aizynthfinder_mcts"
     )
+    paper_parameter_alignment = {
+        "strategy_branches": int(config.strategy_branch_count) == 3,
+        "one_strategy_card_per_branch": int(
+            config.max_strategic_milestones_per_branch
+        )
+        == 1,
+        "policy_call_ceiling_per_branch": int(
+            config.max_node_expansions_per_branch
+        )
+        == 25,
+        "short_tail_depth": bool(
+            config.aizynthfinder_short_tail_mode == "short_tail"
+            and int(config.max_chemenzy_steps) == 6
+        ),
+        "short_tail_iterations": bool(
+            config.aizynthfinder_short_tail_mode == "short_tail"
+            and int(config.max_guided_chemenzy_iterations) == 500
+        ),
+        "short_tail_timeout_s": bool(
+            config.aizynthfinder_short_tail_mode == "short_tail"
+            and float(config.guided_chemenzy_timeout_s) == 1_200.0
+        ),
+    }
+    paper_algorithm_equivalent = bool(
+        aizynthfinder_strategy and all(paper_parameter_alignment.values())
+    )
     return {
         "schema_version": "target_search_method_projection.v1",
         "strategy_tree_engine": strategy_tree_engine,
@@ -8141,36 +8470,17 @@ def _search_method_projection(config: TargetSolveConfig) -> dict[str, Any]:
         "strategy_ucb_active": aizynthfinder_strategy,
         "strategy_progressive_widening_active": False,
         "native_short_tail_engine": short_tail_engine,
+        "native_short_tail_mode": str(config.aizynthfinder_short_tail_mode),
         "llm_expansion_policy_inside_aizynthfinder_mcts": (
             aizynthfinder_strategy
         ),
-        "paper_parameter_alignment": {
-            "strategy_branches": int(config.strategy_branch_count) == 3,
-            "one_strategy_card_per_branch": int(
-                config.max_strategic_milestones_per_branch
-            )
-            == 1,
-            "policy_call_ceiling_per_branch": int(
-                config.max_node_expansions_per_branch
-            )
-            == 25,
-            "short_tail_depth": int(config.max_chemenzy_steps) == 6,
-            "short_tail_iterations": int(
-                config.max_guided_chemenzy_iterations
-            )
-            == 500,
-            "short_tail_timeout_s": float(
-                config.guided_chemenzy_timeout_s
-            )
-            == 1_200.0,
-        },
-        "paper_algorithm_equivalent": bool(
-            aizynthfinder_strategy
-            and int(config.max_strategic_milestones_per_branch) == 1
-        ),
+        "paper_parameter_alignment": paper_parameter_alignment,
+        "paper_algorithm_equivalent": paper_algorithm_equivalent,
         "paper_source_implementation_identical": False,
         "non_equivalence_reason": (
             ""
+            if paper_algorithm_equivalent
+            else "development canary uses reduced policy and/or short-tail limits"
             if aizynthfinder_strategy
             and int(config.max_strategic_milestones_per_branch) == 1
             else "route-internal strategy refresh is an AutoPlanner enhancement"
@@ -8200,8 +8510,11 @@ def _paper_matched_primary_projection(
     provider route look solved.
     """
 
+    outcome_rows = [
+        dict(outcome) for outcome in outcomes if isinstance(outcome, Mapping)
+    ]
     plan: dict[str, Any] = {}
-    for outcome in outcomes:
+    for outcome in outcome_rows:
         if not isinstance(outcome, Mapping):
             continue
         candidate = outcome.get("plan")
@@ -8229,12 +8542,7 @@ def _paper_matched_primary_projection(
             else family.get("route_call_count")
             or 0
         )
-        stock_closed = bool(
-            budget.get("stock_closed_observed")
-            if budget.get("stock_closed_observed") is not None
-            else budget.get("stock_closed")
-            or search.get("selected_solved")
-        )
+        stock_closed = bool(search.get("selected_solved"))
         family_id = str(family.get("route_family_id") or "")
         skeleton = skeletons.get(family_id, {})
         replay_complete = bool(
@@ -8248,9 +8556,7 @@ def _paper_matched_primary_projection(
                 "strategy_calls": int(family.get("strategy_call_count") or 0),
                 "actual_policy_calls": actual_calls,
                 "provider_callback_count": int(
-                    search.get("provider_callback_count")
-                    or search.get("reported_policy_calls")
-                    or 0
+                    search.get("provider_callback_count") or 0
                 ),
                 "maximum_policy_calls": maximum_calls,
                 "stock_closed_before_short_tail": stock_closed,
@@ -8274,6 +8580,12 @@ def _paper_matched_primary_projection(
                     for row in family.get("editor_rejection_diagnostics") or []
                     if isinstance(row, Mapping)
                 ],
+                "paper_policy_budget_failure": dict(
+                    family.get("paper_policy_budget_failure") or {}
+                ),
+                "sidecar_recovered_prefix": bool(
+                    family.get("sidecar_recovered_prefix")
+                ),
             }
         )
 
@@ -8292,6 +8604,8 @@ def _paper_matched_primary_projection(
             "provider_invocation_count": int(
                 row.get("provider_invocation_count") or 0
             ),
+            "provider_mode": str(row.get("provider_mode") or ""),
+            "provider_budget": dict(row.get("provider_budget") or {}),
             "partial_route_ingestion_allowed": bool(
                 row.get("partial_route_ingestion_allowed")
             ),
@@ -8300,9 +8614,40 @@ def _paper_matched_primary_projection(
         for row in short_tail_detail.get("results") or []
         if isinstance(row, Mapping)
     ]
+    reported_short_tail_budgets = [
+        dict(row.get("provider_budget") or {})
+        for row in short_tail_rows
+        if row.get("provider_budget")
+    ]
+    effective_short_tail_budget = (
+        reported_short_tail_budgets[0]
+        if reported_short_tail_budgets
+        and all(
+            row == reported_short_tail_budgets[0]
+            for row in reported_short_tail_budgets
+        )
+        else {}
+    )
     policy_cap_respected = bool(
         len(branch_rows) == int(config.strategy_branch_count)
         and all(row["policy_cap_respected"] for row in branch_rows)
+    )
+    worker_ledgers = [
+        dict(row.get("resource_usage") or {})
+        for row in outcome_rows
+        if isinstance(row.get("resource_usage"), Mapping)
+    ]
+    raw_ledger_available = any(
+        "actual_route_builder_policy_calls" in row for row in worker_ledgers
+    )
+    retained_builder_calls = sum(
+        int(row["actual_policy_calls"]) for row in branch_rows
+    )
+    retained_critic_calls = sum(
+        int(row["critic_calls"]) for row in branch_rows
+    )
+    retained_editor_calls = sum(
+        int(row["editor_calls"]) for row in branch_rows
     )
     result = {
         "schema_version": "paper_matched_primary_result.v1",
@@ -8321,26 +8666,64 @@ def _paper_matched_primary_projection(
             paper_equivalent.get("stock_comparable_to_synthex")
         ),
         "strategy_branch_count": len(branch_rows),
-        "actual_route_builder_policy_calls": sum(
-            int(row["actual_policy_calls"]) for row in branch_rows
+        "worker_ledger_available": raw_ledger_available,
+        "total_route_builder_policy_invocations": (
+            sum(
+                int(row.get("actual_route_builder_policy_calls") or 0)
+                for row in worker_ledgers
+            )
+            if raw_ledger_available
+            else None
         ),
+        "retained_route_builder_policy_calls": retained_builder_calls,
         "maximum_route_builder_policy_calls": int(
             config.strategy_branch_count
         )
         * maximum_calls,
         "policy_cap_respected": policy_cap_respected,
         "branches": branch_rows,
-        "actual_critic_calls": sum(int(row["critic_calls"]) for row in branch_rows),
-        "actual_editor_calls": sum(int(row["editor_calls"]) for row in branch_rows),
+        "total_critic_invocations": (
+            sum(
+                int(row.get("actual_critic_calls") or 0)
+                for row in worker_ledgers
+            )
+            if raw_ledger_available
+            else None
+        ),
+        "retained_critic_calls": retained_critic_calls,
+        "total_editor_invocations": (
+            sum(
+                int(row.get("actual_editor_calls") or 0)
+                for row in worker_ledgers
+            )
+            if raw_ledger_available
+            else None
+        ),
+        "retained_editor_calls": retained_editor_calls,
         "complete_routejson_branch_count": sum(
             bool(row["routejson_host_replay_complete"]) for row in branch_rows
         ),
         "partial_route_ingestion_allowed": False,
         "short_tail": {
             "engine": "AiZynthFinder",
-            "depth": int(config.max_chemenzy_steps),
-            "iterations": int(config.max_guided_chemenzy_iterations),
-            "timeout_s": float(config.guided_chemenzy_timeout_s),
+            "mode": str(config.aizynthfinder_short_tail_mode),
+            "depth": int(
+                effective_short_tail_budget.get("max_transforms")
+                or config.max_chemenzy_steps
+            ),
+            "iterations": int(
+                effective_short_tail_budget.get("iterations")
+                or config.max_guided_chemenzy_iterations
+            ),
+            "timeout_s": float(
+                effective_short_tail_budget.get("timeout_s")
+                or config.guided_chemenzy_timeout_s
+            ),
+            "requested_paper_short_tail_budget": {
+                "max_transforms": int(config.max_chemenzy_steps),
+                "iterations": int(config.max_guided_chemenzy_iterations),
+                "timeout_s": float(config.guided_chemenzy_timeout_s),
+            },
             "runs_after_complete_routejson_and_stock_rejection": True,
             "provider_invocation_count": int(
                 short_tail_detail.get("provider_invocation_count") or 0
@@ -9267,5 +9650,6 @@ __all__ = [
     "TARGET_SOLVE_CHECKPOINT_SCHEMA",
     "TARGET_SOLVE_REPORT_SCHEMA",
     "TargetSolveConfig",
+    "TargetSolveCancelled",
     "solve_target",
 ]

@@ -16,7 +16,10 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 from typing import Any, Callable, Mapping, TYPE_CHECKING
+
+from cascade_planner.agent.codex_worker import _run_worker_command
 
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalIngestionBatch,
@@ -39,6 +42,7 @@ AiZynthFinderProvider = Callable[..., Mapping[str, Any]]
 class AiZynthFinderSidecarConfig:
     python_executable: str = ""
     config_path: str = ""
+    runtime_root: str = ""
     mode: str = "short_tail"
 
     @property
@@ -55,13 +59,35 @@ class AiZynthFinderSidecarConfig:
         executable = "python.exe" if os.name == "nt" else "python"
         return (self.repo_root / ".venv_aizynth" / scripts / executable).resolve()
 
+    def resolved_runtime_root(self) -> Path:
+        explicit = self.runtime_root or os.environ.get(
+            "AUTOPLANNER_AIZYNTH_RUNTIME_ROOT", ""
+        )
+        if explicit:
+            return Path(explicit).expanduser().resolve()
+        python_executable = self.resolved_python()
+        environment = python_executable.parent.parent
+        if (
+            python_executable.parent.name.lower() in {"scripts", "bin"}
+            and environment.name.lower().startswith((".venv", "venv"))
+        ):
+            # Worktrees junction ``.venv_aizynth`` to one shared installation.
+            # Resolve that junction and bind model/config/stock paths to the
+            # installation's owning root, not to the source worktree.
+            return environment.parent.resolve()
+        return self.repo_root
+
     def resolved_config(self) -> Path:
         explicit = self.config_path or os.environ.get(
             "AUTOPLANNER_AIZYNTH_CONFIG", ""
         )
         if explicit:
             return Path(explicit).expanduser().resolve()
-        return (self.repo_root / "config" / "aizynthfinder.paper.yml").resolve()
+        return (
+            self.resolved_runtime_root()
+            / "config"
+            / "aizynthfinder.paper.yml"
+        ).resolve()
 
 
 def run_aizynthfinder_sidecar(
@@ -69,24 +95,36 @@ def run_aizynthfinder_sidecar(
     target_smiles: str,
     timeout_s: float,
     sidecar_config: AiZynthFinderSidecarConfig | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Run native AiZynthFinder and return a validated JSON envelope."""
 
     config = sidecar_config or AiZynthFinderSidecarConfig()
     python_executable = config.resolved_python()
+    runtime_root = config.resolved_runtime_root()
     aizynth_config = config.resolved_config()
     script = config.repo_root / "scripts" / "run_aizynthfinder_paper_search.py"
+    runtime_binding = {
+        "python_executable": str(python_executable),
+        "config_path": str(aizynth_config),
+        "runtime_root": str(runtime_root),
+        "source_root": str(config.repo_root),
+        "script_path": str(script),
+    }
     missing = [
         str(path)
         for path in (python_executable, aizynth_config, script)
         if not path.is_file()
     ]
+    if not runtime_root.is_dir():
+        missing.append(str(runtime_root))
     if missing:
         return {
             "schema_version": "aizynthfinder_sidecar_result.v1",
             "status": "failed",
             "reason": "aizynthfinder_runtime_missing",
             "missing_paths": missing,
+            "runtime_binding": runtime_binding,
             "search_executed": False,
             "provider_invocation_count": 0,
             "proposal_routes": [],
@@ -97,7 +135,6 @@ def run_aizynthfinder_sidecar(
         with tempfile.NamedTemporaryFile(
             prefix="autoplanner-aizynth-",
             suffix=".json",
-            dir=str(config.repo_root / "workspace"),
             delete=False,
         ) as handle:
             output_path = handle.name
@@ -113,21 +150,34 @@ def run_aizynthfinder_sidecar(
             "--output",
             output_path,
         ]
-        completed = subprocess.run(
-            command,
-            cwd=str(config.repo_root),
-            capture_output=True,
-            text=True,
-            timeout=max(1.0, float(timeout_s)) + 30.0,
-            check=False,
-        )
-        if completed.returncode != 0:
+        if cancel_event is None:
+            completed = subprocess.run(
+                command,
+                # AiZynthFinder resolves the portable config's model and stock
+                # paths relative to this explicitly bound runtime root.
+                cwd=str(runtime_root),
+                capture_output=True,
+                text=True,
+                timeout=max(1.0, float(timeout_s)) + 30.0,
+                check=False,
+            )
+            returncode, stderr = completed.returncode, completed.stderr
+        else:
+            returncode, _stdout, stderr = _run_worker_command(
+                command,
+                cwd=runtime_root,
+                timeout_s=max(1.0, float(timeout_s)) + 30.0,
+                cancel_event=cancel_event,
+                cancel_backend="aizynthfinder_sidecar",
+            )
+        if returncode != 0:
             return {
                 "schema_version": "aizynthfinder_sidecar_result.v1",
                 "status": "failed",
                 "reason": "aizynthfinder_process_failed",
-                "returncode": completed.returncode,
-                "stderr_tail": completed.stderr[-4000:],
+                "returncode": returncode,
+                "stderr_tail": stderr[-4000:],
+                "runtime_binding": runtime_binding,
                 "search_executed": True,
                 "provider_invocation_count": 1,
                 "proposal_routes": [],
@@ -138,6 +188,7 @@ def run_aizynthfinder_sidecar(
             "schema_version": "aizynthfinder_sidecar_result.v1",
             "status": "failed",
             "reason": "aizynthfinder_process_timeout",
+            "runtime_binding": runtime_binding,
             "search_executed": True,
             "provider_invocation_count": 1,
             "proposal_routes": [],
@@ -148,6 +199,7 @@ def run_aizynthfinder_sidecar(
             "status": "failed",
             "reason": "aizynthfinder_result_invalid",
             "error": str(exc),
+            "runtime_binding": runtime_binding,
             "search_executed": True,
             "provider_invocation_count": 1,
             "proposal_routes": [],
@@ -164,6 +216,7 @@ def run_aizynthfinder_sidecar(
             "schema_version": "aizynthfinder_sidecar_result.v1",
             "status": "failed",
             "reason": "aizynthfinder_schema_mismatch",
+            "runtime_binding": runtime_binding,
             "search_executed": True,
             "provider_invocation_count": 1,
             "proposal_routes": [],
@@ -177,6 +230,7 @@ def run_aizynthfinder_sidecar(
             "reason": "aizynthfinder_target_mismatch",
             "expected_target_smiles": expected,
             "actual_target_smiles": actual,
+            "runtime_binding": runtime_binding,
             "search_executed": True,
             "provider_invocation_count": 1,
             "proposal_routes": [],
@@ -184,6 +238,7 @@ def run_aizynthfinder_sidecar(
     return {
         **dict(payload),
         "status": "completed",
+        "runtime_binding": runtime_binding,
         "search_executed": True,
         "provider_invocation_count": 1,
     }
@@ -198,6 +253,7 @@ def run_aizynthfinder_guided_frontier_stage(
     provider: AiZynthFinderProvider | None = None,
     sidecar_config: AiZynthFinderSidecarConfig | None = None,
     accept_partial_routes: bool = True,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Search one target-reachable leaf and ingest valid template routes.
 
@@ -219,8 +275,11 @@ def run_aizynthfinder_guided_frontier_stage(
             target_smiles=frontier_smiles,
             timeout_s=timeout_s,
             sidecar_config=sidecar_config,
+            cancel_event=cancel_event,
         )
     )
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("aizynthfinder_sidecar_cancelled")
     provider_invocation_count = int(
         raw.get("provider_invocation_count")
         or raw.get("search_executed") is True
@@ -421,10 +480,13 @@ def run_aizynthfinder_guided_frontier_stage(
         "route_lineage": route_lineage,
         "provider_invocation_count": provider_invocation_count,
         "provider_solved": raw.get("solved") is True,
+        "provider_mode": str(raw.get("mode") or ""),
+        "provider_budget": dict(raw.get("budget") or {}),
         "complete_provider_route_count": len(solved_routes),
         "partial_route_ingestion_allowed": bool(accept_partial_routes),
         "changed": applied.get("changed") is True,
         "statistics": dict(raw.get("statistics") or {}),
+        "runtime_binding": dict(raw.get("runtime_binding") or {}),
         "reason": reason,
         "material_events": (
             ["guided_provider_proposals_added"]

@@ -194,6 +194,62 @@ def test_manifest_is_the_only_allowed_target_occurrence(tmp_path: Path) -> None:
     assert report["repository_matches"] == []
 
 
+def test_valid_prior_manifest_authorizes_known_target_reproduction(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    prior = repository / "prior-targets.json"
+    prior.write_text(
+        json.dumps(
+            {"schema_version": BLIND_MANIFEST_SCHEMA, "cases": [_case()]}
+        ),
+        encoding="utf-8",
+    )
+    (repository / "historical-target-note.txt").write_text(
+        TARGET,
+        encoding="utf-8",
+    )
+
+    report = audit_blind_preflight(
+        BlindCase.from_dict(_case()),
+        repository_root=repository,
+        run_dir=tmp_path / "known-target-run",
+        additional_allowed_paths=(prior,),
+    )
+
+    assert report["accepted"] is True
+    assert report["known_target_reproduction_authorized"] is True
+    assert report["repository_absence_attested"] is False
+    assert report["repository_matches"][0]["path"] == (
+        "historical-target-note.txt"
+    )
+
+
+def test_non_manifest_allowed_path_cannot_authorize_known_target_reproduction(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    alleged_prior = repository / "not-a-manifest.txt"
+    alleged_prior.write_text(TARGET, encoding="utf-8")
+    (repository / "historical-target-note.txt").write_text(
+        TARGET,
+        encoding="utf-8",
+    )
+
+    report = audit_blind_preflight(
+        BlindCase.from_dict(_case()),
+        repository_root=repository,
+        run_dir=tmp_path / "invalid-known-target-run",
+        additional_allowed_paths=(alleged_prior,),
+    )
+
+    assert report["accepted"] is False
+    assert report["known_target_reproduction_authorized"] is False
+    assert "target_material_already_present_in_repository" in report["reasons"]
+
+
 def test_preflight_scans_evaluator_only_synonyms_and_intermediates_without_emitting_values(
     tmp_path: Path,
 ) -> None:

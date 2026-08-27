@@ -47,6 +47,12 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
     completed = {
         name: row for name, row in target_rows.items() if row.get("status") == "completed"
     }
+    observed = {
+        name: row
+        for name, row in target_rows.items()
+        if row.get("status") == "completed"
+        or dict(row.get("fixed_cutoff_projection") or {}).get("available") is True
+    }
     status_counts = Counter(
         str(row.get("status") or "unknown") for row in target_rows.values()
     )
@@ -58,29 +64,62 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
         "official_benchmark_stock_closed": "stock_closed_skeletons",
         "exact_source_grade": "evidence_closed_skeletons",
     }
+    # Fixed-cutoff scientific outcomes belong to the frozen target row, not
+    # to the kernel lifecycle status. A bounded run may finish with
+    # ``status=paused`` because proof/condition work remains resumable while
+    # already containing a target-rooted stock-closed route. Suppressing that
+    # route from the full-panel metric would contradict the same row's
+    # paper-equivalent projection.
+    metric_rows = tuple(observed.values())
+    completed_metric_rows = tuple(completed.values())
     metric_counts = {
         metric: sum(
             int(dict(row.get("route_counts") or {}).get(field) or 0) > 0
-            for row in completed.values()
+            for row in metric_rows
+        )
+        for metric, field in metric_fields.items()
+    }
+    completed_metric_counts = {
+        metric: sum(
+            int(dict(row.get("route_counts") or {}).get(field) or 0) > 0
+            for row in completed_metric_rows
         )
         for metric, field in metric_fields.items()
     }
     metric_counts["configured_proof_policy_accepted"] = sum(
         row.get("accepted_under_configured_policy") is True
-        for row in completed.values()
+        for row in metric_rows
+    )
+    completed_metric_counts["configured_proof_policy_accepted"] = sum(
+        row.get("accepted_under_configured_policy") is True
+        for row in completed_metric_rows
     )
     metric_counts["paper_equivalent_solved"] = sum(
         dict(row.get("paper_equivalent") or {}).get("paper_equivalent_solved")
         is True
-        for row in completed.values()
+        for row in metric_rows
+    )
+    completed_metric_counts["paper_equivalent_solved"] = sum(
+        dict(row.get("paper_equivalent") or {}).get("paper_equivalent_solved")
+        is True
+        for row in completed_metric_rows
     )
     metric_counts["paper_stock_comparable"] = sum(
         dict(row.get("paper_equivalent") or {}).get("stock_comparable_to_synthex")
         is True
-        for row in completed.values()
+        for row in metric_rows
+    )
+    completed_metric_counts["paper_stock_comparable"] = sum(
+        dict(row.get("paper_equivalent") or {}).get("stock_comparable_to_synthex")
+        is True
+        for row in completed_metric_rows
     )
     metric_counts["within_resource_budget"] = sum(
-        row.get("within_resource_budget") is True for row in completed.values()
+        row.get("within_resource_budget") is True for row in metric_rows
+    )
+    completed_metric_counts["within_resource_budget"] = sum(
+        row.get("within_resource_budget") is True
+        for row in completed_metric_rows
     )
     denominator = total if total > 0 else 1
     completed_denominator = len(completed) if completed else 1
@@ -88,13 +127,18 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
         metric: {
             "count": count,
             "rate_over_full_panel": round(count / denominator, 6),
-            "rate_over_completed": round(count / completed_denominator, 6),
+            "rate_over_completed": (
+                round(completed_metric_counts[metric] / len(completed), 6)
+                if completed
+                else 0.0
+            ),
         }
         for metric, count in metric_counts.items()
     }
     costs = Counter()
     elapsed: list[float] = []
     milestone_counts = Counter()
+    completed_milestone_counts = Counter()
     time_to_first: dict[str, list[float]] = {
         "first_route": [],
         "first_host_valid_route": [],
@@ -144,7 +188,11 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
         "experiment_feedback",
         "resolve_conflict",
     }
-    for target_name, row in completed.items():
+    for row in completed.values():
+        completed_gates = _gate_summary(row)
+        for gate in ("B1", "B2", "B4", "B5"):
+            completed_milestone_counts[gate] += completed_gates.get(gate) is True
+    for target_name, row in observed.items():
         case_id = str(row.get("case_id") or target_name)
         for key, value in dict(row.get("model_cost") or {}).items():
             if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -442,9 +490,13 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
         projection = dict(row.get("fixed_cutoff_projection") or {})
         first = dict(projection.get("time_to_first") or {})
         for milestone in time_to_first:
-            observed = dict(first.get(milestone) or {}).get("elapsed_wall_time_s")
-            if isinstance(observed, (int, float)) and math.isfinite(float(observed)):
-                time_to_first[milestone].append(float(observed))
+            observed_value = dict(first.get(milestone) or {}).get(
+                "elapsed_wall_time_s"
+            )
+            if isinstance(observed_value, (int, float)) and math.isfinite(
+                float(observed_value)
+            ):
+                time_to_first[milestone].append(float(observed_value))
         actions = dict(projection.get("action_counts") or {})
         kinds = Counter(
             {
@@ -504,23 +556,19 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
             ),
             "route_counts": dict(row.get("route_counts") or {}),
             "anytime_route_counts": dict(row.get("anytime_route_counts") or {}),
-            "gate_summary": (
-                _gate_summary(row) if row.get("status") == "completed" else {}
-            ),
+            "gate_summary": _gate_summary(row) if name in observed else {},
             "result_first_outcome": (
                 _b4_outcome(row)
-                if row.get("status") == "completed"
+                if name in observed
                 else str(row.get("status") or "unknown")
             ),
             "independent_axis_outcome": (
                 _independent_axis_outcome(row)
-                if row.get("status") == "completed"
+                if name in observed
                 else str(row.get("status") or "unknown")
             ),
             "open_result_axes": (
-                _open_result_axes(_gate_summary(row))
-                if row.get("status") == "completed"
-                else []
+                _open_result_axes(_gate_summary(row)) if name in observed else []
             ),
             "time_to_first_s": {
                 milestone: dict(raw or {}).get("elapsed_wall_time_s")
@@ -607,11 +655,13 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
                 for gate in ("B1", "B2", "B4", "B5")
             },
             "milestone_rates": {
-                gate: {
-                    "over_full_panel": round(milestone_counts[gate] / denominator, 6),
-                    "over_completed": round(
-                        milestone_counts[gate] / completed_denominator, 6
-                    ),
+                    gate: {
+                        "over_full_panel": round(milestone_counts[gate] / denominator, 6),
+                        "over_completed": round(
+                            completed_milestone_counts[gate]
+                            / completed_denominator,
+                            6,
+                        ),
                 }
                 for gate in ("B1", "B2", "B4", "B5")
             },

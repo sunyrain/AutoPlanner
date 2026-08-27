@@ -9,7 +9,7 @@ stock, and completion transition.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 import math
@@ -221,6 +221,11 @@ class DirectorConfig:
     # profile.  Inferring this from a loose combination of strategy settings
     # allowed legacy/global runners to masquerade as a matched experiment.
     paper_matched_reach_profile: bool = False
+    # V9-only sparse review interrupts.  They are explicit profile semantics,
+    # not inferred from the paper-matched flag, so the frozen paper arm keeps
+    # its original Strategy -> Builder -> final Critic call topology.
+    enable_strategy_portfolio_critic: bool = False
+    enable_key_event_critic: bool = False
     # Owns node selection, alternative-action retention, cycle pruning, and
     # back-propagation for sequential StrategyCard branches.  The paper arm
     # uses AiZynthFinder's MCTS/UCB tree; the ChemEnzy best-first tree remains
@@ -275,18 +280,24 @@ class DirectorConfig:
             self.max_output_tokens,
             self.max_tool_calls,
             self.max_initial_architecture_calls,
-            self.max_event_replan_calls,
             self.max_final_portfolio_synthesis_calls,
             self.strategy_branch_count,
             self.strategy_branch_workers,
             self.max_node_expansions_per_branch,
             self.max_strategic_milestones_per_branch,
             self.max_reactionjson_candidates_per_node,
-            self.max_route_local_repair_rounds,
             self.max_node_prompt_bytes,
         ):
             if int(value) <= 0:
                 raise ValueError("director integer limits must be positive")
+        for value in (
+            self.max_event_replan_calls,
+            self.max_route_local_repair_rounds,
+        ):
+            if int(value) < 0:
+                raise ValueError(
+                    "director optional iteration limits must be non-negative"
+                )
         if self.max_reactionjson_candidates_per_node > 8:
             raise ValueError("director ReactionJSON candidate limit is invalid")
         if int(self.max_provider_requests) < 0:
@@ -348,6 +359,7 @@ class DirectorOutcome:
     reasons: tuple[str, ...] = ()
     artifact_sha256: str = ""
     task_id: str = ""
+    resource_usage: Mapping[str, Any] = field(default_factory=dict)
     schema_version: str = GLOBAL_CAMPAIGN_DIRECTOR_OUTCOME_SCHEMA
 
     def to_dict(self) -> dict[str, Any]:
@@ -364,6 +376,7 @@ class DirectorOutcome:
             "reasons": list(self.reasons),
             "artifact_sha256": self.artifact_sha256,
             "task_id": self.task_id,
+            "resource_usage": dict(self.resource_usage),
         }
 
 
@@ -518,6 +531,11 @@ class GlobalCampaignDirector:
                 ),
                 artifact_sha256=artifact_sha256,
                 task_id=task_id,
+                resource_usage=dict(
+                    cache_metadata.get("resource_usage")
+                    or cache_metadata.get("model_usage")
+                    or {}
+                ),
             )
         if task_id in self.kernel.state.in_flight_tasks:
             return DirectorOutcome(
@@ -612,9 +630,10 @@ class GlobalCampaignDirector:
             result = self.runner(spec, context, mode, self.config)
             if not isinstance(result, AgentResult):
                 raise GlobalCampaignDirectorError("director_runner_result_invalid")
-            usage = normalize_director_usage(result.usage)
+            raw_usage = dict(result.usage or {})
+            usage = normalize_director_usage(raw_usage)
+            resource_usage = {**raw_usage, **usage}
             if result.state is AgentState.CANCELLED:
-                usage = normalize_director_usage(result.usage)
                 elapsed_s = max(0.0, time.monotonic() - started)
                 self.kernel.settle_task(
                     task_id=task_id,
@@ -634,6 +653,7 @@ class GlobalCampaignDirector:
                     context_sha256=context.content_sha256,
                     reasons=("delivery_milestone_reached",),
                     task_id=task_id,
+                    resource_usage=resource_usage,
                 )
             if result.state is not AgentState.SUCCEEDED:
                 raise GlobalCampaignDirectorError(
@@ -697,6 +717,10 @@ class GlobalCampaignDirector:
                     "authority_scope": "hypothesis_only",
                     "task_id": task_id,
                     "model_usage": usage,
+                    # Keep the complete worker ledger for reporting and cache
+                    # replay. Kernel settlement continues to consume only the
+                    # normalized model accounting fields above.
+                    "resource_usage": resource_usage,
                     "elapsed_s": elapsed_s,
                     "contract_repairs": [dict(row) for row in contract_repairs],
                 },
@@ -720,6 +744,7 @@ class GlobalCampaignDirector:
                 contract_repairs=contract_repairs,
                 artifact_sha256=plan_ref.sha256,
                 task_id=task_id,
+                resource_usage=resource_usage,
             )
         except BaseException as exc:
             usage = normalize_director_usage(result.usage if result else {})
@@ -1508,14 +1533,14 @@ def director_plan_provenance_sha256(plan: GlobalCampaignPlan) -> str:
     """Bind canonical proposal origins to plan content, not runtime receipts."""
 
     payload = plan.to_dict()
-    for field in (
+    for provenance_field in (
         "content_sha256",
         "plan_id",
         "run_id",
         "context_sha256",
         "graph_revision",
     ):
-        payload.pop(field, None)
+        payload.pop(provenance_field, None)
     return _digest(payload)
 
 

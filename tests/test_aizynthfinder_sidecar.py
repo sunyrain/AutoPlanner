@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from cascade_planner.interfaces.aizynthfinder_sidecar import (
+    AiZynthFinderSidecarConfig,
+    run_aizynthfinder_sidecar,
     run_aizynthfinder_guided_frontier_stage,
 )
 from cascade_planner.application.route_edge_scope import guided_provider_group_ids
@@ -17,12 +22,66 @@ class _Service:
         return {"changed": True}
 
 
+def test_sidecar_uses_explicit_runtime_root_for_relative_assets(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runtime_root = tmp_path / "aiz-runtime"
+    python_executable = runtime_root / ".venv_aizynth" / "Scripts" / "python.exe"
+    config_path = runtime_root / "config" / "aizynthfinder.paper.yml"
+    python_executable.parent.mkdir(parents=True)
+    config_path.parent.mkdir(parents=True)
+    python_executable.write_bytes(b"test interpreter placeholder")
+    config_path.write_text("search: {}\n", encoding="utf-8")
+    observed: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **kwargs: Any) -> SimpleNamespace:
+        observed["command"] = command
+        observed["cwd"] = kwargs["cwd"]
+        output_path = Path(command[command.index("--output") + 1])
+        output_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "aizynthfinder_paper_search.v1",
+                    "target_smiles": "CCO",
+                    "solved": False,
+                    "proposal_routes": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.aizynthfinder_sidecar.subprocess.run",
+        fake_run,
+    )
+    result = run_aizynthfinder_sidecar(
+        target_smiles="CCO",
+        timeout_s=1.0,
+        sidecar_config=AiZynthFinderSidecarConfig(
+            python_executable=str(python_executable),
+            config_path=str(config_path),
+            runtime_root=str(runtime_root),
+            mode="canary",
+        ),
+    )
+
+    assert result["status"] == "completed"
+    assert observed["cwd"] == str(runtime_root.resolve())
+    assert result["runtime_binding"]["runtime_root"] == str(
+        runtime_root.resolve()
+    )
+    assert result["runtime_binding"]["config_path"] == str(config_path.resolve())
+
+
 def _provider(**_kwargs: Any) -> dict[str, Any]:
     return {
         "schema_version": "aizynthfinder_paper_search.v1",
         "status": "completed",
         "engine": "AiZynthFinder 4.4.1",
         "mode": "short_tail",
+        "budget": {"max_transforms": 6, "iterations": 500, "timeout_s": 1200},
         "solved": True,
         "search_executed": True,
         "provider_invocation_count": 1,
@@ -56,6 +115,8 @@ def test_guided_frontier_ingests_aizynthfinder_provenance() -> None:
 
     assert result["status"] == "completed"
     assert result["provider_id"] == "aizynthfinder"
+    assert result["provider_mode"] == "short_tail"
+    assert result["provider_budget"]["max_transforms"] == 6
     assert result["proposal_count"] == 1
     assert result["selected_proposal_route_count"] == 1
     assert result["budget_truncated_route_count"] == 0

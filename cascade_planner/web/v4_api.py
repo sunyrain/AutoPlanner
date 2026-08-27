@@ -26,6 +26,7 @@ from cascade_planner.interfaces.target_solve_request import _target_constraints
 from cascade_planner.web.v4_target_routes import register_target_routes
 from cascade_planner.web.v4_experiment_api import register_experiment_routes
 from cascade_planner.web.v4_milestone_api import register_milestone_routes
+from cascade_planner.web.v4_live_synthesis import register_live_synthesis_routes
 from cascade_planner.web.v4_program_innovation_api import (
     register_program_innovation_routes,
 )
@@ -66,6 +67,12 @@ def create_v4_blueprint(
         payload_reader=_payload,
         solve_target_request=_solve_target_request,
         run_target_job=_run_target_job,
+    )
+    register_live_synthesis_routes(
+        blueprint,
+        factory,
+        jobs=jobs,
+        jobs_lock=jobs_lock,
     )
 
     @blueprint.errorhandler(CampaignGatewayError)

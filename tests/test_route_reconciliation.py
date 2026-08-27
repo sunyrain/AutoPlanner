@@ -80,3 +80,45 @@ def test_reconciliation_is_diagnostic_only() -> None:
     result = compile_route_reconciliation([], {"records": []}, {})
     assert result["routes"] == []
     assert result["semantics"]["does_not_change_paper_equivalent_metric"] is True
+
+
+def test_reconciliation_joins_director_alias_to_canonical_family_id() -> None:
+    result = compile_route_reconciliation(
+        [
+            {
+                "status": "accepted",
+                "plan": {
+                    "route_families": [_family("codex:family:1", 1, 1)]
+                },
+            }
+        ],
+        lifecycle={
+            "records": [
+                {
+                    "materialization": {"materialized": True},
+                    "admission": {"accepted": True, "reasons": []},
+                    "validation": {"accepted": False, "reasons": []},
+                    "route_family_ids": ["route-family:canonical-1"],
+                    "origin_records": [
+                        {
+                            "route_family_id": "codex:family:1",
+                            "canonical_route_family_ids": [
+                                "route-family:canonical-1"
+                            ],
+                        }
+                    ],
+                }
+            ]
+        },
+        paper_equivalent={
+            "reached_routes": [
+                {"route_family_id": "route-family:canonical-1"}
+            ],
+            "solved_routes": [],
+        },
+    )
+
+    row = result["routes"][0]
+    assert row["canonical_route_family_ids"] == ["route-family:canonical-1"]
+    assert row["paper_reached"] is True
+    assert row["classification"] == "stock_closure_open"

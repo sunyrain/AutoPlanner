@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+import sqlite3
 from threading import Event, RLock
 import time
 from unittest.mock import Mock
 
 from flask import Flask
+import pytest
 
 from cascade_planner.application.biocatalytic_programs import (
     BIOCATALYSIS_PROGRAM_VALIDATION_SCHEMA,
@@ -21,6 +24,8 @@ from cascade_planner.application.experiment_external_jobs import (
     build_experiment_operator_identity,
 )
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
+from cascade_planner.interfaces.target_solve_request import solve_target_request
+from cascade_planner.interfaces.target_solver import TargetSolveCancelled
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.web.v4_api import create_v4_blueprint
 from cascade_planner.web.v4_app import create_v4_app
@@ -40,6 +45,38 @@ def _gateway(tmp_path: Path) -> CampaignGateway:
         },
     )
     return CampaignGateway(paths)
+
+
+def _strategy_stock_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    stock_path = tmp_path / "strategy-stock.sqlite3"
+    with sqlite3.connect(stock_path) as connection:
+        connection.execute(
+            "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE stock (canonical_smiles TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.executemany(
+            "INSERT INTO metadata (key, value) VALUES (?, ?)",
+            (
+                ("schema_version", "frozen_benchmark_stock_index.v1"),
+                ("source_sha256", "a" * 64),
+                ("complete", "true"),
+                ("member_count", "1"),
+                ("catalog_name", "paper fixture"),
+                ("identity_key", "canonical_smiles"),
+            ),
+        )
+        connection.execute("INSERT INTO stock VALUES ('CCO')")
+    config_path = tmp_path / "aizynthfinder.paper.yml"
+    config_path.write_text(
+        "stock:\n"
+        "  paper_zinc_emolecules:\n"
+        "    type: fixture\n"
+        f"    path: {stock_path.name}\n",
+        encoding="utf-8",
+    )
+    return config_path, stock_path
 
 
 def _web_reduction_capability() -> dict:
@@ -144,6 +181,111 @@ def test_background_job_finishes_on_the_unified_acceptance_projection(
     assert jobs["job-1"]["result"]["objective_achieved"] is True
 
 
+def test_v4_active_job_can_be_cancelled_idempotently() -> None:
+    entered = Event()
+
+    class CancellableGateway:
+        def solve_target(self, **kwargs):
+            cancel_event = kwargs["cancel_event"]
+            entered.set()
+            cancel_event.wait(timeout=5.0)
+            raise TargetSolveCancelled("target_solve_cancelled_by_user")
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+        def list_runs(self, **_kwargs):
+            return {"runs": []}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(CancellableGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "cancel me", "target_smiles": "CCO"},
+    ).get_json()
+    assert entered.wait(timeout=2.0)
+
+    requested = client.post(
+        f"/api/v4/jobs/{started['job_id']}/cancel",
+        json={"reason": "operator_requested"},
+    )
+    assert requested.status_code == 202
+    assert requested.get_json()["status"] == "cancelling"
+
+    for _ in range(100):
+        value = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+        if value["status"] == "cancelled":
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("cancelled job did not reach its terminal state")
+
+    assert value["phase"] == "cancelled"
+    assert value["error"] == ""
+    assert value["cancellation_reason"] == "operator_requested"
+    assert value["cancel_requested_at"]
+    assert value["cancelled_at"]
+    repeated = client.post(
+        f"/api/v4/jobs/{started['job_id']}/cancel",
+        json={"reason": "duplicate_request"},
+    )
+    assert repeated.status_code == 200
+    assert repeated.get_json()["cancellation_reason"] == "operator_requested"
+
+
+def test_v4_terminal_and_historical_jobs_reject_cancellation() -> None:
+    class FinishedGateway:
+        def solve_target(self, **kwargs):
+            return {
+                "run_id": kwargs["run_id"],
+                "gates": {},
+                "claim": {},
+                "stop_decision": {"decision": "completed", "terminal": True},
+            }
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+        def list_runs(self, **_kwargs):
+            return {
+                "runs": [
+                    {
+                        "run_id": "archived-cancel-target",
+                        "target_name": "archived",
+                        "updated_at": "2026-08-24T00:00:00Z",
+                    }
+                ]
+            }
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(FinishedGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "finished", "target_smiles": "CCO"},
+    ).get_json()
+    for _ in range(100):
+        current = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+        if current["status"] == "unresolved":
+            break
+        time.sleep(0.01)
+
+    terminal = client.post(
+        f"/api/v4/jobs/{started['job_id']}/cancel",
+        json={},
+    )
+    historical = client.post(
+        "/api/v4/jobs/solve:archived-cancel-target/cancel",
+        json={},
+    )
+
+    assert terminal.status_code == 409
+    assert terminal.get_json()["status"] == "unresolved"
+    assert historical.status_code == 409
+    assert historical.get_json()["status"] == "historical"
+
+
 def test_v4_api_marks_legacy_objective_mode_as_deprecated(
     tmp_path: Path,
     monkeypatch,
@@ -236,7 +378,7 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert rendered.status_code == 200
     assert index.status_code == 200
     assert console.status_code == 302
-    assert console.headers["Location"] == "/v4#new-task"
+    assert console.headers["Location"] == "/"
     assert showcase.status_code == 302
     assert showcase.headers["Location"] == "/v4#routes"
     assert legacy_agent.headers["Location"] == "/v4#routes"
@@ -260,6 +402,9 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
         "program_benchmarks_are_not_self_evolution_memory"
     ]
     assert workspace.get_json()["entrypoints"]["self_evolution"] == "/v4#evolution"
+    assert workspace.get_json()["entrypoints"]["primary_page"] == "/"
+    assert workspace.get_json()["entrypoints"]["launch"] == "/"
+    assert workspace.get_json()["entrypoints"]["workspace"] == "/v4"
     assert workbench.get_json()["snapshot"]["run_id"] == "web-example"
     assert programs.status_code == 200
     assert programs.get_json()["oracle"]["accepted"] is True
@@ -275,11 +420,11 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert "路线候选可供审查，不代表证据、库存或工艺已经闭合" in index.get_data(as_text=True)
     assert 'id="objectiveMode"' not in index.get_data(as_text=True)
     assert "objective_mode:$('objectiveMode').value" not in index.get_data(as_text=True)
-    assert "所有任务进入同一条 anytime trajectory" in index.get_data(as_text=True)
+    assert "新逆合成统一从 Strategy Builder 首页启动" in index.get_data(as_text=True)
     assert "/api/v4/workspace" in index.get_data(as_text=True)
     assert 'id="collapseLibrary"' in index.get_data(as_text=True)
     assert 'id="restoreLibrary"' in index.get_data(as_text=True)
-    assert 'id="launchDialog"' in index.get_data(as_text=True)
+    assert 'id="launchDialog"' not in index.get_data(as_text=True)
     assert 'data-view-panel="overview"' in index.get_data(as_text=True)
     assert 'data-view-panel="routes"' in index.get_data(as_text=True)
     assert 'data-view-panel="runs"' in index.get_data(as_text=True)
@@ -288,13 +433,9 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert "sidebar-collapsed" in index.get_data(as_text=True)
     assert "catalog-collapsed" in index.get_data(as_text=True)
     assert "embed=1" in index.get_data(as_text=True)
-    assert 'id="solveForm"' in index.get_data(as_text=True)
-    assert 'id="forbiddenReagents"' in index.get_data(as_text=True)
-    assert 'id="executionDomains"' in index.get_data(as_text=True)
-    assert "forbidden_reagents:csv($('forbiddenReagents').value)" in index.get_data(
-        as_text=True
-    )
-    assert "启动逆合成" in index.get_data(as_text=True)
+    assert 'id="solveForm"' not in index.get_data(as_text=True)
+    assert 'data-open-launch' not in index.get_data(as_text=True)
+    assert 'href="/">Strategy Builder 首页</a>' in index.get_data(as_text=True)
     assert "自进化库" in index.get_data(as_text=True)
     assert "多步 Program 作为宿主路线内的可验证替代层展示" in index.get_data(as_text=True)
     assert "Program 在所属路线的准确区间内显示" in index.get_data(as_text=True)
@@ -311,51 +452,6 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert 'id="memoryDialog"' in index.get_data(as_text=True)
     assert "enhanceMemoryRows" in index.get_data(as_text=True)
     assert "reaction_smarts" in index.get_data(as_text=True)
-    assert 'id="inputTokens"' in index.get_data(as_text=True)
-    assert 'id="outputTokens"' in index.get_data(as_text=True)
-    assert 'id="modelWallMinutes"' in index.get_data(as_text=True)
-    assert "max_input_tokens:Number($('inputTokens').value)" in index.get_data(
-        as_text=True
-    )
-    for field_id in (
-        "totalTasks",
-        "evidenceTasks",
-        "stockTasks",
-        "validationTasks",
-        "programTasks",
-        "experimentTasks",
-        "runWallMinutes",
-    ):
-        assert f'id="{field_id}"' in index.get_data(as_text=True)
-    assert "max_total_tasks:Number($('totalTasks').value)" in index.get_data(
-        as_text=True
-    )
-    assert "max_evidence_tasks:Number($('evidenceTasks').value)" in index.get_data(
-        as_text=True
-    )
-    assert "max_stock_tasks:Number($('stockTasks').value)" in index.get_data(
-        as_text=True
-    )
-    assert "max_validation_tasks:Number($('validationTasks').value)" in index.get_data(
-        as_text=True
-    )
-    assert "max_program_tasks:Number($('programTasks').value)" in index.get_data(
-        as_text=True
-    )
-    assert "max_experiment_tasks:Number($('experimentTasks').value)" in index.get_data(
-        as_text=True
-    )
-    assert "max_run_wall_time_s:Number($('runWallMinutes').value)*60" in index.get_data(
-        as_text=True
-    )
-    assert "inputTokens:1200000" in index.get_data(as_text=True)
-    assert "outputTokens:200000" in index.get_data(as_text=True)
-    assert "modelWallMinutes:30" in index.get_data(as_text=True)
-    assert "chemTimeoutMinutes:30" in index.get_data(as_text=True)
-    assert 'id="deliveryBoundary"' in index.get_data(as_text=True)
-    assert "delivery_boundary:$('deliveryBoundary').value" in index.get_data(
-        as_text=True
-    )
     assert "'/api/v4/jobs'" in index.get_data(as_text=True)
     assert 'id="downloadRoutePdf"' in index.get_data(as_text=True)
     assert "删除队列记录" in index.get_data(as_text=True)
@@ -963,7 +1059,7 @@ def test_v4_http_exposes_read_only_route_program_innovation_review(
     )
 
 
-def test_isolated_v4_app_redirects_root_and_keeps_shared_security_guards() -> None:
+def test_isolated_v4_app_serves_strategy_builder_home_and_keeps_security_guards() -> None:
     app = create_v4_app(lambda: None)
     client = app.test_client()
 
@@ -971,8 +1067,8 @@ def test_isolated_v4_app_redirects_root_and_keeps_shared_security_guards() -> No
     rejected = client.post("/api/v4/runs", data="{}", content_type="text/plain")
     response = client.get("/v4")
 
-    assert root.status_code == 302
-    assert root.headers["Location"].endswith("/v4")
+    assert root.status_code == 200
+    assert "Strategy-first synthesis" in root.get_data(as_text=True)
     assert rejected.status_code == 415
     assert response.headers["X-Content-Type-Options"] == "nosniff"
 
@@ -1155,7 +1251,7 @@ def test_v4_paper_profile_is_topology_first_before_gateway_dispatch() -> None:
     assert captured["visual_evidence_provider"] is None
     assert config.execution_profile == "paper_synthex"
     assert config.strategy_search_profile == "synthex_matched"
-    assert config.require_complete_route_json is False
+    assert config.require_complete_route_json is True
     assert config.allow_editor_route_mutations is True
     assert config.enable_web_search is False
     assert config.enable_initial_director_web_search is False
@@ -1291,6 +1387,182 @@ def test_v4_async_job_separates_execution_end_from_scientific_acceptance() -> No
         "program"
     ] == {"limit": 7}
     assert value["progress"]["delivery"]["proof_closure_complete"] is False
+
+
+def test_interactive_paper_request_binds_configured_strategy_stock(
+    tmp_path: Path,
+) -> None:
+    config_path, stock_path = _strategy_stock_fixture(tmp_path)
+
+    class RecordingGateway:
+        observed = {}
+
+        def solve_target(self, **kwargs):
+            self.observed.update(kwargs)
+            return {"run_id": kwargs["run_id"]}
+
+    result = solve_target_request(
+        RecordingGateway(),
+        {
+            "run_id": "interactive-stock-binding",
+            "target_name": "interactive stock binding",
+            "target_smiles": "CCO",
+            "run_scope": "interactive",
+            "execution_profile": "paper_synthex",
+            "aizynthfinder_config_path": str(config_path),
+            "aizynthfinder_runtime_root": str(tmp_path),
+        },
+    )
+
+    assert result["run_id"] == "interactive-stock-binding"
+    builder = RecordingGateway.observed["stock_catalog_builder"]
+    assert builder.index_path == stock_path.resolve()
+    assert builder.index_sha256 == hashlib.sha256(stock_path.read_bytes()).hexdigest()
+    catalog = builder(("CCO",))
+    assert [row["canonical_smiles"] for row in catalog["members"]] == ["CCO"]
+
+
+def test_interactive_paper_request_keeps_missing_strategy_stock_fail_closed(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "aizynthfinder.paper.yml"
+    config_path.write_text(
+        "stock:\n"
+        "  paper_zinc_emolecules:\n"
+        "    type: fixture\n"
+        "    path: missing-stock.sqlite3\n",
+        encoding="utf-8",
+    )
+
+    class UnusedGateway:
+        def solve_target(self, **_kwargs):
+            raise AssertionError("missing stock must block before solver dispatch")
+
+    with pytest.raises(ValueError, match="strategy_stock_index_missing"):
+        solve_target_request(
+            UnusedGateway(),
+            {
+                "run_id": "missing-interactive-stock",
+                "target_name": "missing interactive stock",
+                "target_smiles": "CCO",
+                "run_scope": "interactive",
+                "execution_profile": "paper_synthex",
+                "aizynthfinder_config_path": str(config_path),
+                "aizynthfinder_runtime_root": str(tmp_path),
+            },
+        )
+
+
+def test_interactive_job_rejects_invalid_smiles_before_creating_a_job() -> None:
+    class UnusedGateway:
+        def __init__(self) -> None:
+            raise AssertionError("invalid SMILES must not construct a gateway")
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(UnusedGateway))
+    client = app.test_client()
+
+    response = client.post(
+        "/api/v4/jobs",
+        json={
+            "target_name": "invalid interactive target",
+            "target_smiles": "C1(CC",
+            "run_scope": "interactive",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "error": "invalid_target_smiles",
+        "reason": "invalid_target_smiles",
+    }
+
+
+def test_interactive_repository_hit_is_returned_without_starting_a_job(
+    tmp_path: Path,
+) -> None:
+    canonical = "CC(=O)O"
+    (tmp_path / "molecule-repository.csv").write_text(
+        f"name,smiles\nacetic acid,{canonical}\n",
+        encoding="utf-8",
+    )
+
+    class RepositoryGateway:
+        paths = type("Paths", (), {"repository_root": tmp_path})()
+
+        def solve_target(self, **_kwargs):
+            raise AssertionError("repository hits must not start the solver")
+
+        def list_runs(self, *, limit=100):
+            return {"runs": []}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RepositoryGateway))
+    client = app.test_client()
+
+    response = client.post(
+        "/api/v4/jobs",
+        json={
+            "target_name": "acetic acid",
+            "target_smiles": "CC(O)=O",
+            "run_scope": "interactive",
+        },
+    )
+
+    assert response.status_code == 200
+    value = response.get_json()
+    assert value["status"] == "repository_hit"
+    assert value["target_smiles"] == canonical
+    assert value["repository_paths"] == ["molecule-repository.csv"]
+    assert value["workspace_url"] == "/v4#routes"
+    assert client.get("/api/v4/jobs").get_json()["jobs"] == []
+
+
+def test_interactive_novel_target_passes_scope_and_canonical_smiles_to_solver(
+    tmp_path: Path,
+) -> None:
+    called = Event()
+
+    class RecordingGateway:
+        paths = type("Paths", (), {"repository_root": tmp_path})()
+        observed = {}
+
+        def solve_target(self, **kwargs):
+            self.observed.update(kwargs)
+            called.set()
+            return {
+                "run_id": kwargs["run_id"],
+                "gates": {},
+                "claim": {
+                    "accepted_under_configured_policy": True,
+                    "objective_achieved": True,
+                },
+                "stop_decision": {"decision": "completed", "terminal": True},
+            }
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    client = app.test_client()
+
+    response = client.post(
+        "/api/v4/jobs",
+        json={
+            "target_name": "novel interactive target",
+            "target_smiles": "OC(C)C",
+            "run_scope": "interactive",
+            "enable_auto_patent_evidence": False,
+            "enable_auto_literature_evidence": False,
+        },
+    )
+
+    assert response.status_code == 202
+    assert called.wait(timeout=2)
+    assert response.get_json()["target_smiles"] == "CC(C)O"
+    assert RecordingGateway.observed["target_smiles"] == "CC(C)O"
+    assert RecordingGateway.observed["config"].run_scope == "interactive"
 
 
 def test_v4_async_job_automatically_resumes_a_bounded_unaccepted_pass() -> None:

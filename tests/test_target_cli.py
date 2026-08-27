@@ -276,6 +276,12 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
             "45",
             "--chemenzy-seed",
             "17",
+            "--aizynthfinder-python-executable",
+            "D:/aiz/.venv/Scripts/python.exe",
+            "--aizynthfinder-config-path",
+            "D:/aiz/config/paper.yml",
+            "--aizynthfinder-runtime-root",
+            "D:/aiz",
         ]
     )
     disabled = parser.parse_args(
@@ -304,6 +310,11 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
     assert configured.chemenzy_expansion_topk == 12
     assert configured.chemenzy_timeout_s == 45.0
     assert configured.chemenzy_seed == 17
+    assert configured.aizynthfinder_python_executable == (
+        "D:/aiz/.venv/Scripts/python.exe"
+    )
+    assert configured.aizynthfinder_config_path == "D:/aiz/config/paper.yml"
+    assert configured.aizynthfinder_runtime_root == "D:/aiz"
 
 
 def test_validation_fork_supports_parallel_patent_and_literature_sources() -> None:

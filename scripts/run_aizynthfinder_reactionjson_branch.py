@@ -31,7 +31,7 @@ from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (  #
 )
 
 
-SCHEMA = "aizynthfinder_reactionjson_branch_sidecar.v1"
+SCHEMA = "aizynthfinder_reactionjson_branch_sidecar.v2"
 
 
 class _InlineStock(StockQueryMixin):
@@ -117,11 +117,11 @@ def main() -> int:
                     for row in response.get("candidates") or []
                     if isinstance(row, dict)
                 ),
-                stopped_product_smiles=tuple(
-                    str(value)
-                    for value in response.get("stopped_product_smiles") or []
-                    if str(value)
+                model_call_consumed=bool(
+                    response.get("model_call_consumed", True)
                 ),
+                stop_search=bool(response.get("stop_search", False)),
+                stop_reason=str(response.get("stop_reason") or ""),
             )
 
         result = run_reactionjson_branch(

@@ -669,7 +669,8 @@ class WebAppTest(unittest.TestCase):
         ):
             self.assertFalse((web_app.STATIC_DIR / obsolete).exists(), obsolete)
         self.assertIn("AutoPlanner · 统一工作区", workspace)
-        self.assertIn('id="solveForm"', workspace)
+        self.assertNotIn('id="solveForm"', workspace)
+        self.assertIn('href="/">Strategy Builder 首页</a>', workspace)
         self.assertIn("fetch(url", workspace)
         self.assertIn("'/api/v4/jobs'", workspace)
         self.assertIn('data-view="routes"', workspace)
@@ -719,11 +720,10 @@ class WebAppTest(unittest.TestCase):
             "restoreCatalog",
             "collapseQueue",
             "restoreQueue",
-            "launchFocus",
-            "launchDialog",
-            "submitButton",
         ):
             self.assertIn(f'id="{control_id}"', workspace)
+        for retired_control_id in ("launchFocus", "launchDialog", "submitButton"):
+            self.assertNotIn(f'id="{retired_control_id}"', workspace)
         self.assertIn('aria-label="一级功能"', workspace)
         self.assertIn('aria-live="polite"', workspace)
         self.assertIn('sandbox="allow-scripts allow-same-origin"', workspace)
@@ -739,9 +739,13 @@ class WebAppTest(unittest.TestCase):
         self.assertIn('@media(max-width:900px)', workspace)
         self.assertIn("localStorage.setItem(shellKey", workspace)
         self.assertIn("embed=1", workspace)
-        self.assertIn("max_visual_evidence_pages", workspace)
-        self.assertIn("enable_patent_self_evolution", workspace)
-        self.assertIn("max_guided_chemenzy_frontiers", workspace)
+        for retired_launch_field in (
+            "max_visual_evidence_pages",
+            "enable_patent_self_evolution",
+            "max_guided_chemenzy_frontiers",
+        ):
+            self.assertNotIn(retired_launch_field, workspace)
+        self.assertIn('href="/">新建 Strategy Builder 任务</a>', workspace)
 
     def test_missing_template_relevance_selection_is_rejected_before_search(self):
         missing_model = "template_relevance.autoplanner_missing_for_test"

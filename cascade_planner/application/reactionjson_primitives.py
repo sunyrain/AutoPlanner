@@ -29,7 +29,7 @@ _FIELDS = {
     "change_atom": _COMMON
     | {"map_idx", "atomic_num", "element", "formal_charge", "isotope"},
     "set_explicit_h": _COMMON | {"map_idx", "count", "no_implicit"},
-    "add_group": _COMMON | {"map_idx", "fragment_smiles"},
+    "add_group": _COMMON | {"map_idx", "fragment_smiles", "order"},
     "remove_group": _COMMON | {"map_indices"},
     "invert_stereocenter": _COMMON | {"map_idx"},
     "clear_stereocenter": _COMMON | {"map_idx"},
@@ -54,6 +54,21 @@ _STEREO = {
 
 class ReactionJsonReplayError(ValueError):
     """The edit program is outside the profile or cannot be replayed safely."""
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        operation_index: int | None = None,
+        failed_operation: Mapping[str, Any] | None = None,
+        failure_context: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.operation_index = operation_index
+        self.failed_operation = (
+            dict(failed_operation) if failed_operation is not None else None
+        )
+        self.failure_context = dict(failure_context or {})
 
 
 def normalize_operation(value: Any) -> dict[str, Any]:
@@ -83,7 +98,15 @@ def apply_operation(molecule: Chem.RWMol, row: Mapping[str, Any]) -> Chem.RWMol:
         a, b = _bond_atoms(molecule, row)
         if molecule.GetBondBetweenAtoms(a, b) is not None:
             raise ReactionJsonReplayError("reactionjson_bond_already_exists")
-        molecule.AddBond(a, b, _bond_type(row.get("order", 1)))
+        bond_type = _bond_type(row.get("order", 1))
+        if bond_type == Chem.BondType.AROMATIC and not (
+            molecule.GetAtomWithIdx(a).GetIsAromatic()
+            and molecule.GetAtomWithIdx(b).GetIsAromatic()
+        ):
+            raise ReactionJsonReplayError(
+                "reactionjson_aromatic_bond_requires_aromatic_atoms"
+            )
+        molecule.AddBond(a, b, bond_type)
     elif kind == "change_bond_order":
         a, b = _bond_atoms(molecule, row)
         bond = molecule.GetBondBetweenAtoms(a, b)
@@ -188,23 +211,19 @@ def complete_edited_atom_valences(
 
 def _change_atom(molecule: Chem.RWMol, row: Mapping[str, Any]) -> None:
     atom = molecule.GetAtomWithIdx(_map_index(molecule, row.get("map_idx")))
+    if "atomic_num" in row or "element" in row:
+        raise ReactionJsonReplayError(
+            "reactionjson_change_atom_transmutation_forbidden"
+        )
     fields = {
         key
-        for key in ("atomic_num", "element", "formal_charge", "isotope")
+        for key in ("formal_charge", "isotope")
         if key in row
     }
     if not fields:
         raise ReactionJsonReplayError("reactionjson_change_atom_field_required")
-    atomic_num = row.get("atomic_num")
-    element = str(row.get("element") or "").strip()
-    if atomic_num is not None and element:
-        raise ReactionJsonReplayError("reactionjson_change_atom_element_conflict")
-    if element:
-        atomic_num = Chem.GetPeriodicTable().GetAtomicNumber(element)
-    if atomic_num is not None:
-        atom.SetAtomicNum(
-            _integer(atomic_num, "reactionjson_atomic_num_invalid", minimum=1)
-        )
+    if len(fields) != 1:
+        raise ReactionJsonReplayError("reactionjson_change_atom_field_ambiguous")
     if "formal_charge" in row:
         atom.SetFormalCharge(_integer(row["formal_charge"], "reactionjson_charge_invalid"))
     if "isotope" in row:
@@ -238,21 +257,38 @@ def _add_group(molecule: Chem.RWMol, row: Mapping[str, Any]) -> Chem.RWMol:
     # maps deterministically at the replay boundary while retaining strict
     # uniqueness/collision checks for any explicit maps the model supplied.
     used_maps = existing_maps | set(explicit_fragment_maps)
-    next_map = max(used_maps, default=0) + 1
+    supplied_fresh_maps = iter(row.get("_fresh_atom_maps") or ())
     for atom in fragment_atoms:
         if int(atom.GetAtomMapNum()) > 0:
             continue
-        while next_map in used_maps:
-            next_map += 1
+        try:
+            next_map = int(next(supplied_fresh_maps))
+        except (StopIteration, TypeError, ValueError):
+            next_map = max(used_maps, default=0) + 1
+            while next_map in used_maps:
+                next_map += 1
+        if next_map <= 0 or next_map in used_maps:
+            raise ReactionJsonReplayError("reactionjson_fragment_map_collision")
         atom.SetAtomMapNum(next_map)
         used_maps.add(next_map)
-        next_map += 1
     dummy = dummies[0]
     neighbor = dummy.GetNeighbors()[0]
     attachment_bond = fragment.GetBondBetweenAtoms(dummy.GetIdx(), neighbor.GetIdx())
+    attachment_bond_type = (
+        _bond_type(_finite_number(row.get("order"), "reactionjson_bond_order_invalid"))
+        if row.get("order") is not None
+        else attachment_bond.GetBondType()
+    )
+    anchor_atom = molecule.GetAtomWithIdx(anchor_index)
+    if attachment_bond_type == Chem.BondType.AROMATIC and not (
+        anchor_atom.GetIsAromatic() and neighbor.GetIsAromatic()
+    ):
+        raise ReactionJsonReplayError(
+            "reactionjson_aromatic_bond_requires_aromatic_atoms"
+        )
     offset = molecule.GetNumAtoms()
     combined = Chem.RWMol(Chem.CombineMols(molecule.GetMol(), fragment))
-    combined.AddBond(anchor_index, offset + neighbor.GetIdx(), attachment_bond.GetBondType())
+    combined.AddBond(anchor_index, offset + neighbor.GetIdx(), attachment_bond_type)
     combined.RemoveAtom(offset + dummy.GetIdx())
     return combined
 
@@ -265,12 +301,64 @@ def _set_bond_stereo(molecule: Chem.RWMol, row: Mapping[str, Any]) -> None:
     stereo_name = str(row.get("stereo") or "").strip().upper()
     if stereo_name not in _STEREO:
         raise ReactionJsonReplayError("reactionjson_bond_stereo_invalid")
-    stereo_maps = row.get("stereo_atom_maps")
     if stereo_name not in {"NONE", "ANY"}:
-        if not isinstance(stereo_maps, list) or len(stereo_maps) != 2:
-            raise ReactionJsonReplayError("reactionjson_stereo_atom_maps_invalid")
-        bond.SetStereoAtoms(*[_map_index(molecule, value) for value in stereo_maps])
+        left, right = _host_stereo_reference_atoms(molecule, a, b)
+        # RDKit requires the first reference atom to neighbour the bond's
+        # internal begin atom and the second to neighbour its end atom.  Atom
+        # map order is a model-facing identity and need not match that hidden
+        # storage orientation, especially after remove_group/change-order
+        # edits.  Reorder only the Host-derived references; E/Z intent remains
+        # the model's semantic input.
+        if bond.GetBeginAtomIdx() == a and bond.GetEndAtomIdx() == b:
+            bond.SetStereoAtoms(left, right)
+        elif bond.GetBeginAtomIdx() == b and bond.GetEndAtomIdx() == a:
+            bond.SetStereoAtoms(right, left)
+        else:  # pragma: no cover - RDKit bond endpoints must be {a, b}.
+            raise ReactionJsonReplayError(
+                "reactionjson_stereo_bond_endpoint_mismatch"
+            )
     bond.SetStereo(_STEREO[stereo_name])
+
+
+def _host_stereo_reference_atoms(
+    molecule: Chem.RWMol,
+    a: int,
+    b: int,
+) -> tuple[int, int]:
+    """Select the highest-CIP explicit neighbour on each alkene endpoint."""
+
+    probe = Chem.Mol(molecule)
+    try:
+        probe.UpdatePropertyCache(strict=False)
+        Chem.SanitizeMol(probe)
+        Chem.AssignStereochemistry(probe, cleanIt=True, force=True)
+    except Exception as exc:
+        raise ReactionJsonReplayError(
+            "reactionjson_stereo_reference_derivation_failed"
+        ) from exc
+
+    def selected(endpoint: int, other: int) -> int:
+        candidates = [
+            neighbor.GetIdx()
+            for neighbor in probe.GetAtomWithIdx(endpoint).GetNeighbors()
+            if neighbor.GetIdx() != other
+        ]
+        if not candidates:
+            raise ReactionJsonReplayError(
+                "reactionjson_stereo_reference_neighbor_missing"
+            )
+
+        def priority(atom_index: int) -> tuple[int, int, int]:
+            atom = probe.GetAtomWithIdx(atom_index)
+            try:
+                cip_rank = int(atom.GetProp("_CIPRank"))
+            except (KeyError, ValueError):
+                cip_rank = -1
+            return (cip_rank, int(atom.GetAtomicNum()), -atom_index)
+
+        return max(candidates, key=priority)
+
+    return selected(a, b), selected(b, a)
 
 
 def _bond_atoms(molecule: Chem.RWMol, row: Mapping[str, Any]) -> tuple[int, int]:

@@ -609,25 +609,9 @@ def validate_retrosynthesis_report_payload(payload: Any) -> list[str]:
     if not isinstance(candidates, list):
         return reasons
     if "stop_signal" in payload or "stop_reason" in payload:
-        stop_signal = payload.get("stop_signal")
-        stop_reason = str(payload.get("stop_reason") or "").strip()
-        if not isinstance(stop_signal, bool):
-            reasons.append("paper_route_step_stop_signal_not_boolean")
-        elif stop_signal:
-            if candidates:
-                reasons.append("paper_route_step_stop_must_not_include_candidate")
-            if stop_reason not in {
-                "route_complete",
-                "simple_for_explorative_search",
-                "constraint_conflict",
-                "no_reasonable_disconnection",
-            }:
-                reasons.append("paper_route_step_stop_reason_invalid")
-        else:
-            if len(candidates) != 1:
-                reasons.append("paper_route_step_disconnection_requires_one_candidate")
-            if stop_reason:
-                reasons.append("paper_route_step_nonstop_reason_must_be_empty")
+        reasons.append("paper_route_step_legacy_stop_contract_forbidden")
+    if "builder_action" in payload or "builder_reason" in payload:
+        reasons.append("paper_route_step_legacy_builder_control_forbidden")
     for index, raw in enumerate(candidates):
         candidate = raw if isinstance(raw, dict) else {}
         # Paper-mode Route Builder and Editor artifacts are edit programs, not

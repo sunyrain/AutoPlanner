@@ -39,6 +39,7 @@ config/
 !config/
 config/*
 !config/trusted_stock_catalogs.json
+!config/aizynthfinder.paper.yml
 !config/examples/
 config/examples/*
 !config/examples/nirmatrelvir_source_route_candidates.json
@@ -175,6 +176,9 @@ archive/code/*
 
 # Generated result/model and benchmark artefacts. Keep these local.
 results/
+/output/
+/tmp/
+/uv.lock
 ref_routes_n*.json
 targets_n*.txt
 results/enzexpand_*.csv

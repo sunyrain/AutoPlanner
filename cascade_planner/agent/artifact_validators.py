@@ -209,12 +209,7 @@ def _common_reasons(data: dict[str, Any]) -> list[str]:
         route_draft = bool(
             data.get("artifact_type") == "RetrosynthesisProposalReport"
             and isinstance(payload, dict)
-            and (
-                (
-                    payload.get("stop_signal") is True
-                    and payload.get("candidates") == []
-                )
-                or any(
+            and any(
                     isinstance(candidate, dict)
                     and (
                         (
@@ -225,10 +220,14 @@ def _common_reasons(data: dict[str, Any]) -> list[str]:
                         or
                         (isinstance(candidate.get("route_json"), list) and bool(candidate.get("route_json")))
                         or (isinstance(candidate.get("route_patch"), list) and bool(candidate.get("route_patch")))
+                        or (
+                            isinstance(candidate.get("replace_span"), dict)
+                            and bool(candidate["replace_span"].get("remove_step_ids"))
+                            and bool(candidate["replace_span"].get("revised_steps"))
+                        )
                     )
                     for candidate in payload.get("candidates") or []
                 )
-            )
         )
         if not route_draft:
             reasons.append("missing_evidence_or_input_refs")

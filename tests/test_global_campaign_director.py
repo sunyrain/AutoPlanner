@@ -383,6 +383,7 @@ def _runner(plan: dict[str, Any]):
                 "input_tokens": 2_000,
                 "output_tokens": 1_000,
                 "wall_time_s": 2.5,
+                "actual_route_builder_policy_calls": 7,
             },
             metadata={"backend": "deterministic_fake", "direct_child": True},
         )
@@ -455,6 +456,8 @@ def test_director_coordinates_global_families_through_one_kernel_call_and_cache(
     assert len(first.plan.multi_step_skeletons) == 2
     assert len(first.plan.shared_intermediates) == 1
     assert all(row["accepted"] is True for row in first.proposal_audits)
+    assert first.resource_usage["actual_route_builder_policy_calls"] == 7
+    assert second.resource_usage["actual_route_builder_policy_calls"] == 7
     assert kernel.state.attempt_count == 0
     assert kernel.state.model_totals["model_invocations"] == 1
     assert kernel.state.accepted_expansion_count == 0

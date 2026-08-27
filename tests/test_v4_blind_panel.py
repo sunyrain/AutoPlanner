@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,8 @@ from cascade_planner.application.campaign_trajectory import (
     compile_campaign_trajectory,
 )
 from scripts.run_v4_blind_panel import (
+    PANEL_EXECUTION_PROFILES,
+    PANEL_REASONING_EFFORTS,
     _ablation_cli_args,
     _acceptance_cli_args,
     _guided_chemenzy_cli_args,
@@ -24,12 +27,76 @@ from scripts.run_v4_blind_panel import (
     _resolved_model_wall_time_s,
     _resume_completed_targets,
     _run_id_for_case,
+    _run_case,
     _select_cases,
     _summarize_report,
     _validate_matched_baseline,
     _write_matched_comparison,
     _write_result_summary,
 )
+
+
+def test_v9_high_effort_panel_contract_reaches_target_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert "v9_smoke" in PANEL_EXECUTION_PROFILES
+    assert "high" in PANEL_REASONING_EFFORTS
+
+    output_root = tmp_path / "panel"
+    (output_root / "logs").mkdir(parents=True)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    case = BlindCase(
+        case_id="synthexfig1-001-test",
+        target_name="case1",
+        target_smiles="CCO",
+        acceptance={"stock_boundary": "benchmark_search"},
+    )
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "scripts.run_v4_blind_panel._prepare_case_snapshot",
+        lambda **_kwargs: {},
+    )
+
+    def capture_command(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        observed["command"] = command
+        raise RuntimeError("command_captured")
+
+    monkeypatch.setattr("scripts.run_v4_blind_panel.subprocess.run", capture_command)
+
+    with pytest.raises(RuntimeError, match="command_captured"):
+        _run_case(
+            case,
+            manifest=manifest,
+            output_root=output_root,
+            model="gpt-5.6-sol",
+            reasoning_effort="high",
+            execution_profile="v9_smoke",
+            node_expansions_per_branch=25,
+            native_short_tail_engine="aizynthfinder",
+            strategy_tree_engine="aizynthfinder_mcts",
+            no_chemenzy=True,
+            resume=False,
+            visual=False,
+            chemenzy_env_prefix=None,
+            snapshot={},
+            ablation="baseline",
+            self_evo_library_seed=None,
+            inventory_snapshot=None,
+            benchmark_stock_index=None,
+            benchmark_stock_name="",
+            leakage_audit_pack=None,
+        )
+
+    command = observed["command"]
+    assert isinstance(command, list)
+    assert command[command.index("--execution-profile") + 1] == "v9_smoke"
+    assert command[command.index("--reasoning-effort") + 1] == "high"
+    assert command[command.index("--node-expansions-per-branch") + 1] == "25"
+    assert command[command.index("--route-local-repair-rounds") + 1] == "6"
+    assert command[command.index("--aizynthfinder-short-tail-mode") + 1] == "short_tail"
 
 
 def test_blind_panel_run_id_uses_manifest_identity_without_statin_hardcoding() -> None:

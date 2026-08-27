@@ -32,7 +32,11 @@ def delivery_projection(
         "structure_bound_unproven",
     }
     normalized_job = str(job_status or "").casefold()
-    if normalized_job == "failed":
+    if normalized_job == "cancelled":
+        state = "cancelled"
+    elif normalized_job == "cancelling":
+        state = "cancelling"
+    elif normalized_job == "failed":
         state = "failed"
     elif normalized_job == "complete":
         state = "complete"
@@ -52,7 +56,11 @@ def delivery_projection(
         "state": state,
         "route_candidates_available": route_candidates_available,
         "proof_closure_complete": normalized_job == "complete",
-        "proof_closure_known": normalized_job in {"complete", "unresolved", "failed"},
+        "proof_closure_known": normalized_job in {
+            "complete",
+            "unresolved",
+            "failed",
+        },
         "evidence_stage_complete": evidence_complete,
         "workbench_available": route_candidates_available,
         "semantics": {

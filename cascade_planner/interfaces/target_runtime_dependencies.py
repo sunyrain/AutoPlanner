@@ -74,6 +74,19 @@ TARGET_PROFILE_DEFAULTS = {
         "max_model_wall_time_s": 70_200.0,
         "max_director_wall_time_s": 70_200.0,
     },
+    # V9 development canary: reuse the same target-only stock/search runtime
+    # without claiming the frozen paper Critic/Editor protocol.
+    "v9_smoke": {
+        "steps": 6,
+        "iterations": 500,
+        "topk": 120,
+        "timeout": 1_200.0,
+        "workers": 1,
+        "max_input_tokens": 900_000,
+        "max_output_tokens": 300_000,
+        "max_model_wall_time_s": 18_000.0,
+        "max_director_wall_time_s": 18_000.0,
+    },
 }
 
 

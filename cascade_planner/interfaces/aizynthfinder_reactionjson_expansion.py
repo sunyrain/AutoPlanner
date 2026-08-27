@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-import json
 import math
 from pathlib import Path
 import sqlite3
@@ -28,6 +27,7 @@ from aizynthfinder.context.policy.expansion_strategies import ExpansionStrategy
 from aizynthfinder.context.stock.queries import StockQueryMixin
 from aizynthfinder.search.mcts.node import MctsNode
 from aizynthfinder.search.mcts.search import MctsSearchTree
+from rdkit import Chem
 
 from cascade_planner.application.strategy_contract import reaction_edit_signature
 
@@ -91,10 +91,12 @@ ReactionJsonCandidateProvider = Callable[
 
 @dataclass(frozen=True, slots=True)
 class ReactionJsonPolicyResponse:
-    """Policy output plus leaves deliberately handed off by Route Builder."""
+    """One policy response; only Host/MCTS owns terminal decisions."""
 
     candidates: tuple[ReactionJsonExpansionCandidate, ...] = ()
-    stopped_product_smiles: tuple[str, ...] = ()
+    model_call_consumed: bool = True
+    stop_search: bool = False
+    stop_reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,16 +141,21 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
         self.max_candidates_per_call = int(max_candidates_per_call)
         self.request_metadata = dict(request_metadata or {})
         self.policy_calls = 0
+        self.provider_callback_count = 0
         self.accepted_actions = 0
         self.duplicate_actions = 0
         self.rejected_candidates: list[dict[str, str]] = []
-        self.deferred_molecule_inchikeys: set[str] = set()
-        self.deferred_product_smiles: set[str] = set()
+        self.host_stop_requested = False
+        self.host_stop_reason = ""
         self._node: MctsNode | None = None
 
     @property
     def calls_exhausted(self) -> bool:
         return self.policy_calls >= self.max_policy_calls
+
+    @property
+    def search_stopped(self) -> bool:
+        return self.calls_exhausted or self.host_stop_requested
 
     def set_node_context(self, node: MctsNode) -> None:
         """Bind the node selected by AiZ immediately before policy expansion."""
@@ -161,44 +168,46 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
         cache_molecules: Sequence[TreeMolecule] | None = None,
     ) -> tuple[list[Any], list[float]]:
         del cache_molecules  # AiZ cache hints must never create paid calls.
-        active = [
-            mol
-            for mol in molecules or ()
-            if mol.inchi_key not in self.deferred_molecule_inchikeys
-        ]
-        if not active or self.calls_exhausted:
+        active = list(molecules or ())
+        if not active or self.search_stopped:
             return [], []
         if self._node is None:
             raise ReactionJsonPolicyError("reactionjson AiZ node context is missing")
 
-        self.policy_calls += 1
+        self.provider_callback_count += 1
         request = self._make_request(active)
         try:
             raw_response = self.candidate_provider(request)
         except Exception as exc:  # fail at the policy boundary; AiZ must not retry blindly
+            # Without a typed response the sidecar cannot prove that the Host
+            # failed before launching its Builder.  Count the ambiguous call
+            # conservatively; the exception terminates this branch anyway.
+            self.policy_calls += 1
             raise ReactionJsonPolicyError(
-                f"reactionjson candidate provider failed on call {self.policy_calls}"
+                f"reactionjson candidate provider failed on call {request.call_index}"
             ) from exc
 
         if isinstance(raw_response, ReactionJsonPolicyResponse):
+            if raw_response.candidates and not raw_response.model_call_consumed:
+                raise ReactionJsonPolicyError(
+                    "reactionjson unconsumed policy response cannot contain candidates"
+                )
+            if raw_response.model_call_consumed:
+                self.policy_calls += 1
+            if raw_response.stop_search:
+                self.host_stop_requested = True
+                self.host_stop_reason = str(
+                    raw_response.stop_reason or "host_requested_search_stop"
+                )
             proposed = list(raw_response.candidates)
-            active_inchikeys = {mol.inchi_key for mol in active}
-            for smiles in raw_response.stopped_product_smiles:
-                value = str(smiles or "").strip()
-                try:
-                    inchikey = _molecule_inchikey(value)
-                except Exception:
-                    continue
-                if inchikey in active_inchikeys:
-                    self.deferred_molecule_inchikeys.add(inchikey)
-                    self.deferred_product_smiles.add(value)
         else:
+            # Sequence-returning providers are the legacy/direct fixture
+            # surface.  Each invocation represents one policy/model call.
+            self.policy_calls += 1
             proposed = list(raw_response or ())
 
         mol_by_inchikey = {
-            mol.inchi_key: mol
-            for mol in active
-            if mol.inchi_key not in self.deferred_molecule_inchikeys
+            _molecule_inchikey(str(mol.smiles or "")): mol for mol in active
         }
         actions: list[Any] = []
         priors: list[float] = []
@@ -207,18 +216,18 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
             if len(actions) >= self.max_candidates_per_call:
                 break
             try:
-                product = TreeMolecule(parent=None, smiles=candidate.product_smiles)
-            except Exception:
+                product_inchikey = _molecule_inchikey(candidate.product_smiles)
+            except ReactionJsonPolicyError:
                 self._reject(candidate, "product_not_parseable")
                 continue
-            mol = mol_by_inchikey.get(product.inchi_key)
+            mol = mol_by_inchikey.get(product_inchikey)
             if mol is None:
                 self._reject(candidate, "product_not_in_expandable_state")
                 continue
             mapped_precursors = tuple(
                 str(value).strip() for value in candidate.mapped_precursor_smiles
             )
-            signature = (mol.inchi_key, tuple(sorted(mapped_precursors)))
+            signature = (product_inchikey, tuple(sorted(mapped_precursors)))
             if signature in seen:
                 self.duplicate_actions += 1
                 continue
@@ -253,26 +262,21 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
     def reset_cache(self) -> None:
         """There is no prediction cache; preserve the scientific call ledger."""
 
-    def all_molecules_deferred(self, molecules: Sequence[TreeMolecule]) -> bool:
-        active = list(molecules or ())
-        return bool(active) and all(
-            mol.inchi_key in self.deferred_molecule_inchikeys for mol in active
-        )
-
     def diagnostics(self) -> dict[str, Any]:
         return {
             "engine": "AiZynthFinder.MctsSearchTree",
             "policy": self.key,
             "strategy_id": self.strategy_id,
             "policy_calls": self.policy_calls,
+            "provider_callback_count": self.provider_callback_count,
             "max_policy_calls": self.max_policy_calls,
             "max_candidates_per_call": self.max_candidates_per_call,
             "accepted_actions": self.accepted_actions,
             "duplicate_actions": self.duplicate_actions,
             "rejected_candidates": list(self.rejected_candidates),
-            "builder_deferred_leaf_count": len(self.deferred_molecule_inchikeys),
-            "builder_deferred_product_smiles": sorted(self.deferred_product_smiles),
             "calls_exhausted": self.calls_exhausted,
+            "host_stop_requested": self.host_stop_requested,
+            "host_stop_reason": self.host_stop_reason,
         }
 
     def _make_request(
@@ -287,7 +291,7 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
         return ReactionJsonExpansionRequest(
             strategy_id=self.strategy_id,
             strategy_text=self.strategy_text,
-            call_index=self.policy_calls,
+            call_index=self.policy_calls + 1,
             max_calls=self.max_policy_calls,
             depth=len(actions),
             expandable_smiles=tuple(mol.smiles for mol in molecules),
@@ -385,7 +389,7 @@ def _bind_host_precursor_maps(
     consumed: dict[str, int] = {}
     bindings: dict[int, str] = {}
     for molecule in tree_molecules:
-        key = str(molecule.inchi_key or "")
+        key = _molecule_inchikey(str(molecule.smiles or ""))
         occurrence = consumed.get(key, 0)
         candidates = host_occurrences.get(key, [])
         if occurrence >= len(candidates):
@@ -405,7 +409,14 @@ def _bind_host_precursor_maps(
 @lru_cache(maxsize=16_384)
 def _molecule_inchikey(smiles: str) -> str:
     try:
-        return str(TreeMolecule(parent=None, smiles=smiles).inchi_key or "")
+        molecule = Chem.MolFromSmiles(str(smiles or "").strip())
+        if molecule is None:
+            raise ValueError("molecule is not parseable")
+        Chem.AssignStereochemistry(molecule, cleanIt=True, force=True)
+        inchikey = str(Chem.MolToInchiKey(molecule) or "")
+        if not inchikey:
+            raise ValueError("molecule has no InChIKey")
+        return inchikey
     except Exception as exc:
         raise ReactionJsonPolicyError(
             "reactionjson host precursor identity is invalid"
@@ -455,18 +466,10 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
         leaf = self.select_leaf()
         leaf.expand()
 
-        def policy_exhausted() -> bool:
+        def policy_stopped() -> bool:
             for key in self.config.expansion_policy.selection or ():
                 policy = self.config.expansion_policy[key]
-                if bool(getattr(policy, "calls_exhausted", False)):
-                    return True
-            return False
-
-        def builder_deferred_all(node: MctsNode) -> bool:
-            for key in self.config.expansion_policy.selection or ():
-                policy = self.config.expansion_policy[key]
-                checker = getattr(policy, "all_molecules_deferred", None)
-                if callable(checker) and checker(node.state.expandable_mols):
+                if bool(getattr(policy, "search_stopped", False)):
                     return True
             return False
 
@@ -476,8 +479,7 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
         if not getattr(leaf, "_children_actions", None):
             if (
                 not leaf.state.is_terminal
-                and not policy_exhausted()
-                and not builder_deferred_all(leaf)
+                and not policy_stopped()
             ):
                 leaf.is_expandable = True
                 leaf.is_expanded = False
@@ -492,8 +494,7 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
                 if not getattr(child, "_children_actions", None):
                     if (
                         not child.state.is_terminal
-                        and not policy_exhausted()
-                        and not builder_deferred_all(child)
+                        and not policy_stopped()
                     ):
                         child.is_expandable = True
                         child.is_expanded = False
@@ -505,8 +506,7 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
                 # the branch before its scientific call ceiling.
                 if (
                     not leaf.state.is_terminal
-                    and not policy_exhausted()
-                    and not builder_deferred_all(leaf)
+                    and not policy_stopped()
                 ):
                     leaf.is_expandable = True
                     leaf.is_expanded = False
@@ -551,7 +551,7 @@ def run_reactionjson_branch(
     # for every other molecule, but apply the standard leave-target-out rule
     # at the search boundary (also preventing a cyclic route from closing by
     # returning to the target).
-    target_inchikey = TreeMolecule(parent=None, smiles=target_smiles).inchi_key
+    target_inchikey = _molecule_inchikey(target_smiles)
     effective_stock = TargetExcludedStockQuery(
         stock_query,
         excluded_inchikeys=(target_inchikey,),
@@ -582,14 +582,7 @@ def run_reactionjson_branch(
         iterations += 1
         stock_solved = bool(tree.one_iteration())
         solved_leaf = tree.last_backpropagated_leaf
-        solved = bool(
-            stock_solved
-            and solved_leaf is not None
-            and _node_satisfies_strategy_execution_contract(
-                solved_leaf,
-                strategy_text=strategy_text,
-            )
-        )
+        solved = bool(stock_solved and solved_leaf is not None)
         if solved:
             break
         if policy.policy_calls == previous_calls:
@@ -597,6 +590,8 @@ def run_reactionjson_branch(
         else:
             stagnant_iterations = 0
         previous_calls = policy.policy_calls
+        if policy.host_stop_requested:
+            break
         if policy.calls_exhausted and stagnant_iterations >= 10:
             break
 
@@ -605,12 +600,6 @@ def run_reactionjson_branch(
         strategy_text=strategy_text,
     )
     actions, _nodes = selected.path_to()
-    selected_strategy_contract_satisfied = (
-        _node_satisfies_strategy_execution_contract(
-            selected,
-            strategy_text=strategy_text,
-        )
-    )
     route_steps = tuple(
         dict(action.metadata.get("autoplanner_route_step") or {})
         for action in actions
@@ -649,16 +638,12 @@ def run_reactionjson_branch(
         "path_route_projection_complete": len(actions) == len(route_steps),
         "selected_open_leaves": len(open_leaf_states),
         "selected_solved": bool(selected.state.is_solved),
-        "selected_stock_solved": bool(selected.state.is_solved),
         "selected_realized_strategic_milestones": (
             _realized_strategy_milestone_count(selected)
         ),
         "maximum_realized_strategic_milestones_in_tree": max(
             (_realized_strategy_milestone_count(node) for node in tree.nodes()),
             default=0,
-        ),
-        "selected_strategy_execution_contract_satisfied": (
-            selected_strategy_contract_satisfied
         ),
         # AiZ stores solved state on the selected descendant; the root state's
         # molecule set remains the original unsolved target and is therefore
@@ -667,7 +652,7 @@ def run_reactionjson_branch(
     }
     return ReactionJsonBranchResult(
         strategy_id=strategy_id,
-        solved=bool(selected.state.is_solved and selected_strategy_contract_satisfied),
+        solved=bool(selected.state.is_solved),
         route_steps=route_steps,
         open_leaf_states=open_leaf_states,
         policy_calls=policy.policy_calls,
@@ -693,7 +678,11 @@ class FullInchiKeySqliteStockQuery(StockQueryMixin):
             raise ValueError("paper stock index lacks stock.full_inchikey")
 
     def __contains__(self, mol: Any) -> bool:
-        return self._contains_inchikey(str(mol.inchi_key or ""))
+        try:
+            inchikey = _molecule_inchikey(str(getattr(mol, "smiles", "") or ""))
+        except ReactionJsonPolicyError:
+            return False
+        return self._contains_inchikey(inchikey)
 
     @lru_cache(maxsize=100_000)
     def _contains_inchikey(self, inchikey: str) -> bool:
@@ -738,8 +727,15 @@ class TargetExcludedStockQuery(StockQueryMixin):
         )
 
     def __contains__(self, mol: Any) -> bool:
-        inchikey = str(getattr(mol, "inchi_key", "") or "")
-        return bool(inchikey and inchikey not in self.excluded_inchikeys and mol in self.source)
+        try:
+            inchikey = _molecule_inchikey(str(getattr(mol, "smiles", "") or ""))
+        except ReactionJsonPolicyError:
+            return False
+        return bool(
+            inchikey
+            and inchikey not in self.excluded_inchikeys
+            and mol in self.source
+        )
 
     def __len__(self) -> int:
         # Report the backing catalog size.  The one-case exclusion is recorded
@@ -773,27 +769,23 @@ def _select_branch_projection_node(
     *,
     strategy_text: str = "",
 ) -> MctsNode:
+    # Strategy text steers the Builder policy but has no admission, solved, or
+    # projection authority.  Keep the parameter for sidecar compatibility.
+    del strategy_text
     nodes = list(tree.nodes())
-    solved = [
-        node
-        for node in nodes
-        if node.state.is_solved
-        and _node_satisfies_strategy_execution_contract(
-            node,
-            strategy_text=strategy_text,
-        )
-    ]
+    solved = [node for node in nodes if node.state.is_solved]
+
+    def reward(node: MctsNode) -> float:
+        try:
+            return float(tree.compute_reward(node))
+        except (TypeError, ValueError):
+            return -math.inf
+
     if solved:
-        # Stock closure remains the first authority.  Within solved routes,
-        # retain the path that actually executed the greatest number of
-        # route-internal StrategyCards before preferring the shorter route.
-        return max(
-            solved,
-            key=lambda node: (
-                _realized_strategy_milestone_count(node),
-                -len(node.path_to()[0]),
-            ),
-        )
+        # AiZ stock closure is the sole solved authority.  Use AiZ's own
+        # reward to choose among solved descendants; Strategy metadata cannot
+        # disqualify or promote one.
+        return max(solved, key=reward)
 
     # The root is not a retrosynthetic route.  AiZ's state reward can still
     # rank it above every incomplete descendant (especially when a first
@@ -805,44 +797,19 @@ def _select_branch_projection_node(
     routed_nodes = [node for node in nodes if node.path_to()[0]]
     candidates = routed_nodes or nodes
 
-    # A branch projection is also the frozen RouteJSON sent to the Critic.  A
-    # generic AiZ reward may prefer a shallower chemical-only prefix even when
-    # the branch's immutable StrategyCard requires an actual chemoenzymatic
-    # sequence.  If the search has materialized at least one strategy-complete
-    # descendant, rank within that cohort instead of silently truncating the
-    # biological step from the reported route.  This changes only projection;
-    # AiZ remains the owner of UCB selection and back-propagation during search.
-    strategy_complete = [
-        node
-        for node in candidates
-        if _node_satisfies_strategy_execution_contract(
-            node,
-            strategy_text=strategy_text,
-        )
-    ]
-    if strategy_complete:
-        candidates = strategy_complete
-
-    def key(node: MctsNode) -> tuple[int, int, int, float, int]:
-        try:
-            reward = float(tree.compute_reward(node))
-        except (TypeError, ValueError):
-            reward = -math.inf
+    def key(node: MctsNode) -> tuple[int, float, int]:
         # An unsolved projection is the Route Builder's best *partial route*,
         # not an AiZ value-function snapshot.  The generic reward strongly
         # prefers a shallow prefix when a deeper descendant exposes additional
         # non-stock leaves.  That is useful for UCB selection, but it is the
         # wrong serialization boundary: Critic/Editor must receive the most
         # complete connected route the tree actually built.  Keep the
-        # strategy-milestone cohort first, then prefer the deepest path; use
-        # reward only as a tie-breaker.  Solved routes remain handled by the
-        # stock-authoritative branch above.
+        # deepest Host-replayed path first and use AiZ reward only as a
+        # tie-breaker.  Strategy labels remain observational metadata.
         depth = len(node.path_to()[0])
         return (
-            _realized_strategy_milestone_count(node),
-            _realized_strategy_anchor_pair_count(node),
             depth,
-            reward,
+            reward(node),
             -len(node.state.expandable_mols),
         )
 
@@ -867,15 +834,12 @@ def _realized_strategy_milestone_count(node: MctsNode) -> int:
     for steps in grouped.values():
         required: set[tuple[int, int]] = set()
         realized: set[tuple[int, int]] = set()
-        has_anchor = False
         for step in steps:
             card = step.get("strategy_card")
             if isinstance(card, Mapping):
                 required.update(_strategy_map_pairs(card))
-            if step.get("strategy_anchor") is True:
-                has_anchor = True
             realized.update(_step_changed_map_pairs(step))
-        if (required and required.issubset(realized)) or (not required and has_anchor):
+        if required and required.issubset(realized):
             complete += 1
     return complete
 
@@ -892,38 +856,6 @@ def _realized_strategy_anchor_pair_count(node: MctsNode) -> int:
                 required.update(_strategy_map_pairs(card))
             realized.update(_step_changed_map_pairs(step))
     return len(required.intersection(realized))
-
-
-def _node_satisfies_strategy_execution_contract(
-    node: MctsNode,
-    *,
-    strategy_text: str,
-) -> bool:
-    required = _strategy_required_execution_domains(strategy_text)
-    present = _node_route_execution_domains(node)
-    if not required.issubset(present):
-        return False
-    required_pairs = _strategy_map_pairs_from_text(strategy_text)
-    if required_pairs:
-        actions, _nodes = node.path_to()
-        realized_pairs: set[tuple[int, int]] = set()
-        for action in actions:
-            step = action.metadata.get("autoplanner_route_step")
-            if isinstance(step, Mapping):
-                realized_pairs.update(_step_changed_map_pairs(step))
-        if not required_pairs.issubset(realized_pairs):
-            return False
-    if _strategy_requires_chemical_anchor(strategy_text):
-        return _node_has_chemical_strategy_anchor(node)
-    return True
-
-
-def _strategy_map_pairs_from_text(strategy_text: str) -> frozenset[tuple[int, int]]:
-    try:
-        strategy = json.loads(str(strategy_text or ""))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return frozenset()
-    return _strategy_map_pairs(strategy if isinstance(strategy, Mapping) else {})
 
 
 def _strategy_map_pairs(card: Mapping[str, Any]) -> frozenset[tuple[int, int]]:
@@ -947,68 +879,3 @@ def _step_changed_map_pairs(step: Mapping[str, Any]) -> frozenset[tuple[int, int
         for pair in signature.get("changed_map_pairs") or ()
         if isinstance(pair, (list, tuple)) and len(pair) == 2
     )
-
-
-def _strategy_required_execution_domains(strategy_text: str) -> frozenset[str]:
-    try:
-        strategy = json.loads(str(strategy_text or ""))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return frozenset()
-    if not isinstance(strategy, Mapping):
-        return frozenset()
-    execution_domain = str(strategy.get("execution_domain") or "").strip().lower()
-    if execution_domain in {"hybrid", "chemoenzymatic", "chemo-enzymatic"}:
-        return frozenset({"chemical", "biological"})
-    return frozenset()
-
-
-def _strategy_requires_chemical_anchor(strategy_text: str) -> bool:
-    try:
-        strategy = json.loads(str(strategy_text or ""))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return False
-    if not isinstance(strategy, Mapping):
-        return False
-    execution_domain = str(strategy.get("execution_domain") or "").strip().lower()
-    return execution_domain in {
-        "hybrid",
-        "chemoenzymatic",
-        "chemo-enzymatic",
-    } and any(
-        str(value or "").startswith("map_pair:")
-        for value in strategy.get("key_bond_signature") or ()
-    )
-
-
-def _node_has_chemical_strategy_anchor(node: MctsNode) -> bool:
-    actions, _nodes = node.path_to()
-    for action in actions:
-        step = action.metadata.get("autoplanner_route_step")
-        if not isinstance(step, Mapping) or step.get("strategy_anchor") is not True:
-            continue
-        domain = str(step.get("execution_domain") or "").strip().lower()
-        if domain == "chemical":
-            return True
-    return False
-
-
-def _node_route_execution_domains(node: MctsNode) -> frozenset[str]:
-    actions, _nodes = node.path_to()
-    domains: set[str] = set()
-    for action in actions:
-        step = action.metadata.get("autoplanner_route_step")
-        if not isinstance(step, Mapping):
-            continue
-        domain = str(step.get("execution_domain") or "").strip().lower()
-        if domain == "chemical":
-            domains.add("chemical")
-        if domain in {
-            "biological",
-            "biocatalytic",
-            "enzymatic",
-            "enzyme",
-            "whole_cell",
-            "whole-cell",
-        } or step.get("enzyme") or isinstance(step.get("biocatalytic_step"), Mapping):
-            domains.add("biological")
-    return frozenset(domains)

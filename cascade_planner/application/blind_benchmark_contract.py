@@ -218,7 +218,12 @@ def audit_blind_preflight(
         reasons.append("repository_root_missing")
     if destination.exists() and any(destination.iterdir()):
         reasons.append("blind_run_directory_not_fresh")
-    allowed = {Path(value).resolve() for value in additional_allowed_paths}
+    prior_allowed = {Path(value).resolve() for value in additional_allowed_paths}
+    known_target_reproduction = _known_target_reproduction_authorized(
+        case,
+        prior_allowed,
+    )
+    allowed = set(prior_allowed)
     if manifest_path is not None:
         allowed.add(Path(manifest_path).resolve())
     target_molecule = Chem.MolFromSmiles(case.target_smiles)
@@ -297,7 +302,7 @@ def audit_blind_preflight(
         if any(
             not str(row.get("kind") or "").startswith("key_intermediate")
             for row in matches
-        ):
+        ) and not known_target_reproduction:
             reasons.append("target_material_already_present_in_repository")
     payload = {
         "schema_version": BLIND_PREFLIGHT_SCHEMA,
@@ -306,6 +311,7 @@ def audit_blind_preflight(
         "run_dir": str(destination),
         "fresh_run_directory": "blind_run_directory_not_fresh" not in reasons,
         "repository_absence_attested": not matches and root.is_dir(),
+        "known_target_reproduction_authorized": known_target_reproduction,
         "repository_matches": sorted(
             matches, key=lambda row: (row["path"], row["kind"])
         ),
@@ -332,6 +338,7 @@ def audit_blind_preflight(
             "additional_needle_values_are_not_emitted": True,
             "inventory_membership_is_not_route_answer_knowledge": True,
             "preflight_grants_no_chemistry_authority": True,
+            "known_target_reproduction_does_not_attest_repository_absence": True,
         },
     }
     payload["content_sha256"] = _digest(payload)
@@ -361,6 +368,23 @@ def _opaque_target_identity(value: str) -> bool:
             "opaque target ",
         )
     )
+
+
+def _known_target_reproduction_authorized(
+    case: BlindCase,
+    prior_paths: Iterable[Path],
+) -> bool:
+    """Recognize a validated prior target manifest, never a route artifact."""
+
+    target = canonical_smiles(case.target_smiles)
+    for path in prior_paths:
+        try:
+            prior_cases = load_blind_manifest(path)
+        except (BlindBenchmarkError, OSError, ValueError):
+            continue
+        if any(canonical_smiles(row.target_smiles) == target for row in prior_cases):
+            return True
+    return False
 
 
 def _inventory_only_path(path: Path, *, root: Path) -> bool:

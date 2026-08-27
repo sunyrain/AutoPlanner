@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from scripts.summarize_v4_blind_panel import (
     _hydrate_report_diagnostics,
@@ -96,6 +97,65 @@ def test_panel_summary_keeps_stock_solved_separate_from_proof_acceptance() -> No
         "B4": 8.0,
         "first_route": 2.0,
     }
+
+
+def test_paused_fixed_cutoff_paper_solution_counts_over_full_panel() -> None:
+    summary = summarize_panel(
+        {
+            "target_count": 1,
+            "targets": {
+                "target": {
+                    "status": "paused",
+                    "case_id": "paper-solved-proof-open",
+                    "accepted_under_configured_policy": False,
+                    "within_resource_budget": True,
+                    "route_counts": {
+                        "target_rooted_distinct_skeletons": 3,
+                        "materialized_skeletons": 3,
+                        "reaction_validated_skeletons": 0,
+                        "stock_closed_skeletons": 3,
+                        "evidence_closed_skeletons": 0,
+                    },
+                    "paper_equivalent": {
+                        "paper_equivalent_solved": True,
+                        "stock_comparable_to_synthex": True,
+                    },
+                    "gate_summary": {
+                        "B1": True,
+                        "B2": False,
+                        "B4": True,
+                        "B5": False,
+                    },
+                    "anytime_route_counts": {
+                        "target_rooted_route_count": 3,
+                        "stock_closed_route_count": 3,
+                    },
+                    "model_cost": {"model_invocations": 64},
+                    "fixed_cutoff_projection": {"available": True},
+                }
+            },
+        }
+    )
+
+    assert summary["counts"]["completed"] == 0
+    assert summary["metrics"]["paper_equivalent_solved"] == {
+        "count": 1,
+        "rate_over_full_panel": 1.0,
+        "rate_over_completed": 0.0,
+    }
+    assert summary["metrics"]["official_benchmark_stock_closed"]["count"] == 1
+    assert summary["metrics"]["within_resource_budget"]["count"] == 1
+    assert summary["result_first"]["milestone_counts"]["B4"] == 1
+    assert summary["result_first"]["milestone_rates"]["B4"] == {
+        "over_full_panel": 1.0,
+        "over_completed": 0.0,
+    }
+    assert summary["result_first"]["route_totals"] == {
+        "stock_closed_route_count": 3,
+        "target_rooted_route_count": 3,
+    }
+    assert summary["resource_totals"]["model_invocations"] == 64
+    assert summary["per_target"][0]["result_first_outcome"] == "stock_closed"
 
 
 def test_panel_summary_flags_credibility_work_before_unreached_b4() -> None:

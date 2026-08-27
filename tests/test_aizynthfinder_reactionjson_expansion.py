@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 
 import pytest
 
@@ -9,6 +10,44 @@ pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("aizynthfinder") is None,
     reason="runs in the isolated requirements_aizynth.txt environment",
 )
+
+
+def test_paper_strategy_query_does_not_turn_builder_role_into_search_control() -> None:
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        _select_branch_projection_node,
+    )
+
+    class Node:
+        def __init__(self, *, solved, reward):
+            self.state = type("State", (), {"is_solved": solved})()
+            self.reward = reward
+
+        def path_to(self):
+            return [], []
+
+    class Tree:
+        def __init__(self, nodes):
+            self._nodes = nodes
+
+        def nodes(self):
+            return self._nodes
+
+        def compute_reward(self, node):
+            return node.reward
+
+    unsolved = Node(solved=False, reward=1.0)
+    stock_solved = Node(solved=True, reward=0.1)
+    selected = _select_branch_projection_node(
+        Tree([unsolved, stock_solved]),
+        strategy_text=json.dumps(
+            {
+                "execution_domain": "hybrid",
+                "key_bond_signature": ["map_pair:101:102"],
+            }
+        ),
+    )
+
+    assert selected is stock_solved
 
 
 def _imports():
@@ -195,6 +234,66 @@ def test_aizynthfinder_requests_preserve_host_maps_for_new_atoms() -> None:
     )
 
 
+def test_host_precursor_binding_preserves_the_replayed_stereoisomer() -> None:
+    from aizynthfinder.chem import SmilesBasedRetroReaction, TreeMolecule
+    from cascade_planner.application.routejson_compiler import RouteJSONCompiler
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        ReactionJsonPolicyError,
+        _bind_host_precursor_maps,
+    )
+
+    mapped_product = (
+        "[CH2:1]=[C:2]([CH3:3])[C@H:4]1[CH2:5][CH2:6]"
+        "[C@:7]([CH3:8])([CH:9]([C@@H:10]2[C@H:11]([CH3:12])"
+        "[CH2:13][CH2:14][C@@H:15]2[C:16]([CH3:17])=[CH2:21])"
+        "[OH:23])[CH:20]1[CH2:19][CH:18]=[CH2:22]"
+    )
+    materialized = RouteJSONCompiler().compile_step(
+        mapped_product_smiles=mapped_product,
+        operations=(
+            {"op": "break_bond", "map_a": 9, "map_b": 10},
+            {"op": "add_group", "map_idx": 10, "fragment_smiles": "[*]I"},
+            {
+                "op": "set_explicit_h",
+                "map_idx": 23,
+                "count": 0,
+                "no_implicit": True,
+            },
+            {"op": "change_bond_order", "map_a": 9, "map_b": 23, "delta": 1},
+        ),
+    )
+    action = SmilesBasedRetroReaction(
+        TreeMolecule(parent=None, smiles=materialized.product_smiles),
+        metadata={},
+        reactants_str=".".join(materialized.mapped_precursor_smiles),
+        mapped_prod_smiles=mapped_product,
+    )
+    tree_molecules = action.reactants[0]
+
+    bindings = _bind_host_precursor_maps(
+        tree_molecules=tree_molecules,
+        precursor_smiles=materialized.precursor_smiles,
+        mapped_precursor_smiles=materialized.mapped_precursor_smiles,
+    )
+
+    assert set(bindings.values()) == set(materialized.mapped_precursor_smiles)
+    epimeric_precursors = tuple(
+        "C=C(C)[C@H]1CC[C@@H](C)[C@H]1I"
+        if "I" in precursor
+        else precursor
+        for precursor in materialized.precursor_smiles
+    )
+    with pytest.raises(
+        ReactionJsonPolicyError,
+        match="reactionjson host precursor identity binding mismatch",
+    ):
+        _bind_host_precursor_maps(
+            tree_molecules=tree_molecules,
+            precursor_smiles=epimeric_precursors,
+            mapped_precursor_smiles=materialized.mapped_precursor_smiles,
+        )
+
+
 def test_flattened_aiz_route_checks_only_terminal_stock_leaves() -> None:
     from scripts.run_aizynthfinder_paper_search import _flatten_route
 
@@ -256,6 +355,50 @@ def test_paper_stock_query_reads_exact_full_inchikey_index() -> None:
             (methane.inchi_key,),
         ).fetchone()
         assert (methane in query) is (expected is not None)
+    finally:
+        query.close()
+
+
+def test_paper_stock_query_does_not_collapse_alkene_stereochemistry(
+    tmp_path,
+) -> None:
+    import sqlite3
+
+    from aizynthfinder.chem import Molecule
+    from rdkit import Chem
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        FullInchiKeySqliteStockQuery,
+    )
+
+    stereodefined = "CC(C)=CCC/C(C)=C\\CC/C(C)=C/CC/C(C)=C/CO"
+    molecule = Molecule(smiles=stereodefined)
+    exact_full_inchikey = Chem.MolToInchiKey(Chem.MolFromSmiles(stereodefined))
+    assert exact_full_inchikey != molecule.inchi_key
+
+    index_path = tmp_path / "stock.sqlite3"
+    with sqlite3.connect(index_path) as connection:
+        connection.execute("CREATE TABLE stock (full_inchikey TEXT PRIMARY KEY)")
+        connection.execute(
+            "INSERT INTO stock(full_inchikey) VALUES (?)",
+            (molecule.inchi_key,),
+        )
+
+    query = FullInchiKeySqliteStockQuery(str(index_path))
+    try:
+        assert molecule not in query
+    finally:
+        query.close()
+
+    with sqlite3.connect(index_path) as connection:
+        connection.execute("DELETE FROM stock")
+        connection.execute(
+            "INSERT INTO stock(full_inchikey) VALUES (?)",
+            (exact_full_inchikey,),
+        )
+
+    query = FullInchiKeySqliteStockQuery(str(index_path))
+    try:
+        assert molecule in query
     finally:
         query.close()
 
@@ -356,7 +499,7 @@ def test_unsolved_branch_projects_best_replayed_descendant_not_empty_root() -> N
     assert result.diagnostics["selected_depth"] == 1
 
 
-def test_builder_stop_defers_each_leaf_without_repeating_provider_call() -> None:
+def test_empty_builder_responses_leave_termination_to_mcts_budget() -> None:
     from aizynthfinder.context.stock.queries import StockQueryMixin
     from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
         ReactionJsonExpansionCandidate,
@@ -392,28 +535,126 @@ def test_builder_stop_defers_each_leaf_without_repeating_provider_call() -> None
                     ),
                 )
             )
-        return ReactionJsonPolicyResponse(
-            stopped_product_smiles=(request.expandable_smiles[0],)
-        )
+        return ReactionJsonPolicyResponse()
 
     result = run_reactionjson_branch(
         target_smiles="CCO",
-        strategy_id="builder-stop",
-        strategy_text="defer simple leaves",
+        strategy_id="host-termination",
+        strategy_text="retain unresolved leaves until the Host budget ends",
         candidate_provider=candidate_provider,
         stock_query=EmptyStock(),
-        max_policy_calls=10,
+        max_policy_calls=4,
         max_candidates_per_call=1,
         max_transforms=3,
     )
 
     assert requests[0] == ("CCO",)
-    assert len(requests) == 3
-    assert len(requests[1]) == 2
-    assert len(requests[2]) == 1
-    assert set(requests[2]).issubset(set(requests[1]))
-    assert result.policy_calls == 3
-    assert result.diagnostics["builder_deferred_leaf_count"] == 2
+    assert len(requests) == 4
+    assert all(len(request) == 2 for request in requests[1:])
+    assert result.policy_calls == 4
+    assert result.diagnostics["calls_exhausted"] is True
+    assert not any("handoff" in key for key in result.diagnostics)
+
+
+def test_unbilled_provider_callback_does_not_consume_builder_call_ceiling() -> None:
+    from aizynthfinder.chem import Molecule
+    from aizynthfinder.context.stock.queries import StockQueryMixin
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        ReactionJsonExpansionCandidate,
+        ReactionJsonPolicyResponse,
+        run_reactionjson_branch,
+    )
+
+    class SetStock(StockQueryMixin):
+        def __init__(self, smiles: set[str]) -> None:
+            self.keys = {Molecule(smiles=value).inchi_key for value in smiles}
+
+        def __contains__(self, mol) -> bool:
+            return mol.inchi_key in self.keys
+
+        def __len__(self) -> int:
+            return len(self.keys)
+
+    callbacks = 0
+
+    def candidate_provider(request):
+        nonlocal callbacks
+        callbacks += 1
+        assert request.call_index == 1
+        if callbacks == 1:
+            return ReactionJsonPolicyResponse(model_call_consumed=False)
+        return ReactionJsonPolicyResponse(
+            candidates=(
+                ReactionJsonExpansionCandidate(
+                    candidate_id="paid-root-split",
+                    product_smiles=request.expandable_smiles[0],
+                    mapped_product_smiles=request.expandable_mapped_smiles[0],
+                    precursor_smiles=("C", "O"),
+                    mapped_precursor_smiles=("[CH4:1]", "[OH2:2]"),
+                    route_step={
+                        "step_id": "paid-root-split",
+                        "product_smiles": request.expandable_smiles[0],
+                    },
+                ),
+            )
+        )
+
+    result = run_reactionjson_branch(
+        target_smiles="CO",
+        strategy_id="unbilled-callback",
+        strategy_text="a callback is not a Builder call",
+        candidate_provider=candidate_provider,
+        stock_query=SetStock({"C", "O"}),
+        max_policy_calls=1,
+        max_candidates_per_call=1,
+        max_transforms=2,
+        max_mcts_iterations=5,
+    )
+
+    assert result.solved is True
+    assert result.policy_calls == 1
+    assert result.diagnostics["provider_callback_count"] == 2
+    assert result.diagnostics["calls_exhausted"] is True
+
+
+def test_host_resource_stop_is_not_reported_as_builder_call_exhaustion() -> None:
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        ReactionJsonPolicyResponse,
+        run_reactionjson_branch,
+    )
+
+    class EmptyStock:
+        def __contains__(self, mol) -> bool:
+            del mol
+            return False
+
+        def __len__(self) -> int:
+            return 0
+
+    result = run_reactionjson_branch(
+        target_smiles="CO",
+        strategy_id="host-resource-stop",
+        strategy_text="preserve the distinct stop authority",
+        candidate_provider=lambda _request: ReactionJsonPolicyResponse(
+            model_call_consumed=False,
+            stop_search=True,
+            stop_reason="route_builder_output_token_allocation_exhausted",
+        ),
+        stock_query=EmptyStock(),
+        max_policy_calls=5,
+        max_candidates_per_call=1,
+        max_transforms=2,
+        max_mcts_iterations=5,
+    )
+
+    assert result.solved is False
+    assert result.policy_calls == 0
+    assert result.diagnostics["provider_callback_count"] == 1
+    assert result.diagnostics["calls_exhausted"] is False
+    assert result.diagnostics["host_stop_requested"] is True
+    assert result.diagnostics["host_stop_reason"] == (
+        "route_builder_output_token_allocation_exhausted"
+    )
 
 
 def test_unsolved_projection_prefers_deepest_connected_route_over_shallow_reward() -> None:
@@ -561,10 +802,10 @@ def test_hybrid_branch_projection_preserves_materialized_chemical_and_biological
         "enzymatic-tailoring",
     ]
     assert result.diagnostics["selected_depth"] == 2
-    assert result.diagnostics["selected_strategy_execution_contract_satisfied"] is True
+    assert "selected_strategy_execution_contract_satisfied" not in result.diagnostics
 
 
-def test_partial_projection_retains_deepest_realized_strategy_milestone() -> None:
+def test_unmapped_role_labels_do_not_count_as_realized_strategy_milestones() -> None:
     from aizynthfinder.context.stock.queries import StockQueryMixin
     from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
         ReactionJsonExpansionCandidate,
@@ -633,8 +874,8 @@ def test_partial_projection_retains_deepest_realized_strategy_milestone() -> Non
         "upstream-milestone",
     ]
     assert result.diagnostics["selected_depth"] == 2
-    assert result.diagnostics["selected_realized_strategic_milestones"] == 2
-    assert result.diagnostics["maximum_realized_strategic_milestones_in_tree"] == 2
+    assert result.diagnostics["selected_realized_strategic_milestones"] == 0
+    assert result.diagnostics["maximum_realized_strategic_milestones_in_tree"] == 0
 
 
 def test_director_worker_record_is_host_replayed_before_aiz_action() -> None:
