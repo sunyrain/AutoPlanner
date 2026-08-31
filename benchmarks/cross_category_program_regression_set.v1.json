@@ -1,6 +1,5 @@
 {
-  "audit_date": "2026-07-16",
-  "content_sha256": "d345e8581103b2ed1b5f4f282f9238d0015dc40a2b647eaac233c815b470c01a",
+  "audit_date": "2026-08-31",
   "cases": [
     {
       "artifact": "config/examples/nirmatrelvir_v4_replay_pack.json",
@@ -43,8 +42,8 @@
     },
     {
       "artifact": "benchmarks/bufotalin_candidate_program_projection.v1.json",
-      "artifact_file_sha256": "8c6fbcd30c856a72c4dd43d4930bb957331b8f330d25c26df19792c2f07eb9ba",
-      "artifact_sha256": "db3399b9e088c355f0d11ba4658e8cf3fdb5fd33c6f3990c0881178cc645f8e2",
+      "artifact_file_sha256": "7d9b7532ae3ad859e66b8dd82e2c96055cf894c3f5256c88bec4002c9daccbbd",
+      "artifact_sha256": "7f21f328e0703a4da1573ece7427b6239e85e4f752717eebdabadf25fb175846",
       "category": "bufadienolide_natural_product",
       "counts": {
         "chemical_states": 21,
@@ -56,8 +55,8 @@
     },
     {
       "artifact": "benchmarks/atorvastatin_candidate_program_projection.v1.json",
-      "artifact_file_sha256": "dd474cbdc386a92653903c4bdb50bfe86c2973c1f2dd287dcedfa46e0d7d8bb3",
-      "artifact_sha256": "49a1fca550c76899ff134dc695d14deb995767e75fcee771e0fcb735e5fc82ed",
+      "artifact_file_sha256": "6af09b83273bce4e91b97142cf3e30dde517437f62675866dd364af23ca89544",
+      "artifact_sha256": "2510d9f622e40e7b9321625aa8c44e32df44c16d2e861ca88a2b2cd3bab85bc3",
       "category": "statin_lipid_lowering_agent",
       "counts": {
         "chemical_states": 22,
@@ -69,8 +68,8 @@
     },
     {
       "artifact": "benchmarks/ibrutinib_candidate_program_projection.v1.json",
-      "artifact_file_sha256": "dd695fcb63cb7a8d6d3ba532e9c8e4f54ff6bb65ceeb67771b036feead9f2631",
-      "artifact_sha256": "abe73ceada84528048ef49af2a71192e64aca747e15f4583b757acb407839776",
+      "artifact_file_sha256": "39a48082f623bba7b836f6e317e77dfc60f97e3ff8f5d7894021b587d13f866a",
+      "artifact_sha256": "655718327df3d7455d2bdf0747cf4b9db853f23418b6284e0b0eedddf326c594",
       "category": "covalent_kinase_inhibitor",
       "counts": {
         "chemical_states": 17,
@@ -82,8 +81,8 @@
     },
     {
       "artifact": "benchmarks/enzalutamide_candidate_program_projection.v1.json",
-      "artifact_file_sha256": "1e87d8d933301aea28f491090e7667066f2d302465ec3cfb2216accb2f0ab29f",
-      "artifact_sha256": "d97e1d80f5f2b2d5865d7db658841e1aeffd4cc886d07253a34d4682abe65847",
+      "artifact_file_sha256": "dca3a9039282458d5b35c8410184937346ad9621dad78e49b481f876fbf8ad6a",
+      "artifact_sha256": "b07d76101aadb929803c09372add54303dd898367a1f66549570c4621d004222",
       "category": "nonsteroidal_antiandrogen",
       "counts": {
         "chemical_states": 16,
@@ -94,6 +93,7 @@
       "target_name": "Enzalutamide"
     }
   ],
+  "content_sha256": "a090b651d39012072bca9234ffd67dab94bd79179cb6491ca5af072b7358b87e",
   "coverage": {
     "candidate_projection_categories": 4,
     "canonical_replay_store_categories": 3,
@@ -103,8 +103,8 @@
   "enzyme_screen_controls": [
     {
       "artifact": "benchmarks/bufotalin_candidate_innovation_screen.v1.json",
-      "artifact_file_sha256": "faa9d07e25167d5c8032b2560618cacd9050b5953f7b202afa524f1b7fe5aac1",
-      "artifact_sha256": "d60522e9b83dc4e189289a6dbbedeba9d3ede7194eab827ee0092dbfe68fbb80",
+      "artifact_file_sha256": "6298c5431dca29c3b8085d790678174921a1c4f2ce1f8c63c233b699261647dd",
+      "artifact_sha256": "e1d967af95825fb27147ccf4b370d94b3fec5a143f51fec19bd27819f2514cdd",
       "control_kind": "positive",
       "enzyme_candidate_count": 5,
       "maximum_replaced_chemical_steps": 6,
@@ -112,8 +112,8 @@
     },
     {
       "artifact": "benchmarks/ibrutinib_candidate_innovation_negative_control.v1.json",
-      "artifact_file_sha256": "49c89a6ca630543f5dbe642acd28d973a63a36c8d1911036dca2684574b1261d",
-      "artifact_sha256": "2cf4c58e86345ef7900a1f50bda570162262732b89c054b4781d1700e5d03a8a",
+      "artifact_file_sha256": "6deda7737108d16b65a873a27641ce9f5097d57329629682cabed48f369f9c0b",
+      "artifact_sha256": "c981f894805ea733dcd46438f43d478dc5a6bdcaa42c7d81feb86d0ebefd1e18",
       "control_kind": "no_applicable_enzyme",
       "enzyme_candidate_count": 0,
       "screenable_route_count": 3,
@@ -131,7 +131,7 @@
     "candidate_projection_is_not_canonical_replay": true,
     "category_labels_are_regression_metadata_not_runtime_rules": true,
     "historical_portfolio_acceptance_is_not_current_authority": true,
-    "three_current_route_ui_dual_read_oracles_have_passed": true,
-    "target_names_are_not_used_for_production_branching": true
+    "target_names_are_not_used_for_production_branching": true,
+    "three_current_route_ui_dual_read_oracles_have_passed": true
   }
 }

@@ -21,7 +21,7 @@ _DEPENDENT_ACTION_KINDS = frozenset(
         "bind_exact_evidence",
         "condition_enrich",
         "chemenzy_target_expand",
-        "chemenzy_frontier_expand",
+        "native_short_tail_expand",
         "codex_global_architecture",
         "codex_global_replan",
         "program_discover",

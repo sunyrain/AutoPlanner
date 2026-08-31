@@ -21,6 +21,10 @@ PRIMITIVES = (
     "clear_stereocenter",
     "set_bond_stereo",
 )
+AUTOPLANNER_EXTENSIONS = (
+    "set_tetrahedral_stereo",
+)
+SUPPORTED_OPERATIONS = PRIMITIVES + AUTOPLANNER_EXTENSIONS
 _COMMON = {"op"}
 _FIELDS = {
     "break_bond": _COMMON | {"map_a", "map_b"},
@@ -35,6 +39,7 @@ _FIELDS = {
     "clear_stereocenter": _COMMON | {"map_idx"},
     "set_bond_stereo": _COMMON
     | {"map_a", "map_b", "stereo", "stereo_atom_maps"},
+    "set_tetrahedral_stereo": _COMMON | {"map_idx", "configuration"},
 }
 _BOND_TYPES = {
     1.0: Chem.BondType.SINGLE,
@@ -79,7 +84,7 @@ def normalize_operation(value: Any) -> dict[str, Any]:
     except (TypeError, ValueError) as exc:
         raise ReactionJsonReplayError("reactionjson_operation_not_json") from exc
     kind = str(row.get("op") or "").strip().lower()
-    if kind not in PRIMITIVES:
+    if kind not in SUPPORTED_OPERATIONS:
         raise ReactionJsonReplayError("reactionjson_primitive_unknown")
     if set(row) - _FIELDS[kind]:
         raise ReactionJsonReplayError("reactionjson_operation_field_unknown")
@@ -146,6 +151,8 @@ def apply_operation(molecule: Chem.RWMol, row: Mapping[str, Any]) -> Chem.RWMol:
         )
     elif kind == "set_bond_stereo":
         _set_bond_stereo(molecule, row)
+    elif kind == "set_tetrahedral_stereo":
+        _set_tetrahedral_stereo(molecule, row)
     return molecule
 
 
@@ -320,6 +327,42 @@ def _set_bond_stereo(molecule: Chem.RWMol, row: Mapping[str, Any]) -> None:
     bond.SetStereo(_STEREO[stereo_name])
 
 
+def _set_tetrahedral_stereo(
+    molecule: Chem.RWMol,
+    row: Mapping[str, Any],
+) -> None:
+    """Assign absolute R/S intent without exposing RDKit atom-order parity."""
+
+    atom_index = _map_index(molecule, row.get("map_idx"))
+    requested = str(row.get("configuration") or "").strip().upper()
+    if requested not in {"R", "S"}:
+        raise ReactionJsonReplayError(
+            "reactionjson_tetrahedral_configuration_invalid"
+        )
+    matching_tag: Chem.ChiralType | None = None
+    for tag in (
+        Chem.ChiralType.CHI_TETRAHEDRAL_CW,
+        Chem.ChiralType.CHI_TETRAHEDRAL_CCW,
+    ):
+        probe = Chem.Mol(molecule)
+        probe.GetAtomWithIdx(atom_index).SetChiralTag(tag)
+        try:
+            probe.UpdatePropertyCache(strict=False)
+            Chem.SanitizeMol(probe)
+            Chem.AssignStereochemistry(probe, cleanIt=True, force=True)
+        except Exception:
+            continue
+        atom = probe.GetAtomWithIdx(atom_index)
+        if atom.HasProp("_CIPCode") and atom.GetProp("_CIPCode") == requested:
+            matching_tag = tag
+            break
+    if matching_tag is None:
+        raise ReactionJsonReplayError(
+            "reactionjson_tetrahedral_stereo_not_assignable"
+        )
+    molecule.GetAtomWithIdx(atom_index).SetChiralTag(matching_tag)
+
+
 def _host_stereo_reference_atoms(
     molecule: Chem.RWMol,
     a: int,
@@ -413,10 +456,12 @@ def _integer(value: Any, reason: str, *, minimum: int | None = None) -> int:
 
 
 __all__ = [
+    "AUTOPLANNER_EXTENSIONS",
     "PRIMITIVES",
     "ReactionJsonReplayError",
     "apply_operation",
     "complete_edited_atom_valences",
     "normalize_operation",
+    "SUPPORTED_OPERATIONS",
     "valence_affected_maps",
 ]

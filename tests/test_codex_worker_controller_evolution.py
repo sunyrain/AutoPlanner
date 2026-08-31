@@ -29,6 +29,7 @@ from cascade_planner.agent.codex_controller import (
     validate_controller_action,
 )
 from cascade_planner.agent.codex_worker import (
+    STRICT_CHEMISTRY_PERMISSION_PROFILE,
     WorkerBudget,
     WorkerProcessResult,
     WorkerRunRecord,
@@ -39,8 +40,10 @@ from cascade_planner.agent.codex_worker import (
     _codex_cli_runtime_environment,
     _codex_cli_worker_environment,
     _codex_cli_command,
+    _configure_strict_chemistry_worker_environment,
     _codex_worker_prompt,
     _normalize_reversible_utf8_mojibake,
+    _run_codex_cli_worker,
     _run_worker_command,
     _worker_model_output_json_schema,
     _worker_output_json_schema,
@@ -168,6 +171,8 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertIn("blocking", assessment["properties"])
         self.assertIn("blocking_type", assessment["properties"])
         self.assertIn("condition_assessment", assessment["properties"])
+        self.assertNotIn("coupled_step_ids", assessment["properties"])
+        self.assertIn("coupled_blocker_groups", critic_payload["properties"])
         self.assertNotIn("mechanistic_analysis", assessment["properties"])
         self.assertNotIn("experimental_variables", critic_payload["properties"])
 
@@ -258,12 +263,72 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         )
         self.assertNotIn("stereo_atom_maps", nongeometric["properties"])
         self.assertNotIn("stereo_atom_maps", geometric["properties"])
+        tetrahedral = next(
+            variant
+            for variant in operation_union
+            if variant["properties"]["op"]["enum"]
+            == ["set_tetrahedral_stereo"]
+        )
+        self.assertEqual(
+            set(tetrahedral["properties"]),
+            {"op", "map_idx", "configuration"},
+        )
+        self.assertEqual(
+            tetrahedral["properties"]["configuration"]["enum"],
+            ["R", "S"],
+        )
 
         editor_wire = _worker_model_output_json_schema(editor_task)
         editor_operations = editor_wire["properties"]["replace_span"][
             "properties"
         ]["revised_steps"]["items"]["properties"]["reaction_operations"]
         self.assertNotIn("maxItems", editor_operations)
+
+    def test_path_repair_editor_wire_has_no_route_or_graph_edits(self):
+        task = WorkerTask(
+            task_id="self-correcting-path-repair",
+            case_id="opaque-case",
+            task_type="path_repair_editor",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+            host_context={"target_smiles": "CCO"},
+        )
+
+        wire = _worker_model_output_json_schema(task)
+        self.assertFalse(wire["additionalProperties"])
+        self.assertEqual(
+            set(wire["properties"]),
+            {
+                "rollback_start_step_id",
+                "rebuild_through_step_id",
+                "additional_coupled_blocker_step_ids",
+                "preserved_suffix_compatible",
+                "repair_goal",
+                "active_constraints",
+            },
+        )
+        payload = _worker_output_json_schema(task)["properties"]["payload"]
+        candidate = payload["properties"]["candidates"]["items"]
+        self.assertFalse(candidate["additionalProperties"])
+        self.assertFalse(
+            candidate["properties"]["repair_directive"]["additionalProperties"]
+        )
+        self.assertEqual(
+            set(candidate["properties"]),
+            {
+                "schema_version",
+                "candidate_id",
+                "no_solved_claim",
+                "not_parent_route_proof",
+                "repair_directive",
+            },
+        )
+        self.assertFalse(
+            {"replace_span", "route_json", "reaction_operations"}
+            & set(candidate["properties"])
+        )
 
     def test_paper_matched_worker_prompt_uses_lean_role_envelope(self):
         task = WorkerTask(
@@ -472,6 +537,7 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                     ],
                     "route_level_risks": [],
                     "repair_actions": [],
+                    "coupled_blocker_groups": [],
                     "limitations": [],
                 },
             ),
@@ -789,6 +855,47 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertEqual(record.status, "accepted_draft")
         self.assertNotIn(
             "tool_call_budget_exceeded", record.output_validation["reasons"]
+        )
+
+    def test_failed_local_chemistry_tool_does_not_override_valid_schema(self):
+        task = WorkerTask(
+            task_id="failed_local_chemistry",
+            case_id="case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            budget=WorkerBudget(max_tool_calls=None),
+            host_context={
+                "target_smiles": "[CH3:1][OH:2]",
+                "selected_product": "[CH3:1][OH:2]",
+            },
+        )
+        wire_output = {
+            "checkpoint_relation": "preparatory",
+            "reaction_intent": "Methyl ether cleavage reveals the alcohol.",
+            "reaction_operations": [
+                {"op": "add_group", "map_idx": 2, "fragment_smiles": "[*]C"}
+            ],
+            "conditions": ["BBr3, CH2Cl2"],
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(wire_output),
+                exit_code=0,
+                tool_calls=[
+                    {"tool": "inspect_mapped_smiles", "status": "failed"}
+                ],
+            ),
+        )
+
+        self.assertEqual(record.status, "accepted_draft")
+        self.assertNotIn(
+            "local_chemistry_tool_failed", record.output_validation["reasons"]
+        )
+        self.assertEqual(
+            record.tool_calls,
+            [{"tool": "inspect_mapped_smiles", "status": "failed"}],
         )
 
     def test_worker_task_round_trip_preserves_unlimited_tool_calls(self):
@@ -1152,6 +1259,165 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertIn("--dangerously-bypass-approvals-and-sandbox", bypass_command)
         self.assertNotIn("--sandbox", bypass_command)
 
+    def test_strict_worker_permission_profile_ignores_legacy_escalation_environment(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "AUTOPLANNER_CODEX_WORKER_SANDBOX": "danger-full-access",
+                "AUTOPLANNER_CODEX_WORKER_PROFILE": "unsafe-profile",
+            },
+            clear=False,
+        ):
+            command = _codex_cli_command(
+                executable="codex",
+                workdir=Path("/tmp/autoplanner-case"),
+                output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+                schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+                runtime_metadata={"codex_home": "ephemeral"},
+                search_enabled=False,
+                use_permission_profile=True,
+            )
+
+        self.assertNotIn("--sandbox", command)
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
+        self.assertNotIn("--profile", command)
+        self.assertNotIn("--ignore-user-config", command)
+        self.assertNotIn("--search", command)
+
+    def test_strict_worker_profile_denies_shared_files_and_command_network(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            codex_home = root / "codex_home"
+            model_workspace = root / "model_workspace"
+            audit_root = root / "audit"
+            codex_home.mkdir()
+            model_workspace.mkdir()
+            audit_root.mkdir()
+            (codex_home / "config.toml").write_text(
+                'model_provider = "openai"\n'
+                'sandbox_mode = "danger-full-access"\n'
+                'default_permissions = ":danger-full-access"\n',
+                encoding="utf-8",
+            )
+            configured = _configure_strict_chemistry_worker_environment(
+                {
+                    **os.environ,
+                    "CODEX_HOME": str(codex_home),
+                    "AUTOPLANNER_CODEX_WORKER_SANDBOX": "bypassed",
+                    "AUTOPLANNER_CODEX_SANDBOX": "danger-full-access",
+                    "AUTOPLANNER_CODEX_WORKER_PROFILE": "unsafe-profile",
+                    "PYTHONPATH": str(Path.cwd()),
+                },
+                model_workspace=model_workspace,
+                audit_root=audit_root,
+            )
+            config = (codex_home / "config.toml").read_text(encoding="utf-8")
+
+        self.assertIn(
+            f'default_permissions = "{STRICT_CHEMISTRY_PERMISSION_PROFILE}"',
+            config,
+        )
+        self.assertEqual(
+            config.splitlines()[0],
+            f'default_permissions = "{STRICT_CHEMISTRY_PERMISSION_PROFILE}"',
+        )
+        if os.name == "nt":
+            self.assertIn('[windows]\nsandbox = "unelevated"', config)
+        self.assertNotIn('sandbox_mode = "danger-full-access"', config)
+        self.assertNotIn('default_permissions = ":danger-full-access"', config)
+        self.assertIn('\":root\" = \"deny\"', config)
+        self.assertIn(f'{json.dumps(str(model_workspace))} = "write"', config)
+        self.assertIn(f'{json.dumps(str(audit_root))} = "deny"', config)
+        self.assertIn("enabled = false", config)
+        self.assertNotIn("AUTOPLANNER_CODEX_WORKER_SANDBOX", configured)
+        self.assertNotIn("AUTOPLANNER_CODEX_SANDBOX", configured)
+        self.assertNotIn("AUTOPLANNER_CODEX_WORKER_PROFILE", configured)
+        self.assertNotIn("PYTHONPATH", configured)
+
+    def test_strict_worker_search_is_disabled_independent_of_tool_budget(self):
+        task = WorkerTask(
+            task_id="strict-search",
+            case_id="case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            allowed_tools=["web_search", "browser"],
+            budget=WorkerBudget(max_tool_calls=None),
+        )
+
+        self.assertFalse(_task_allows_cli_search(task))
+
+    def test_strict_worker_runs_in_disposable_workspace_but_writes_audit_to_host_root(self):
+        observed = {}
+
+        def runtime_environment(tmp_path, workdir, task):
+            del task
+            codex_home = tmp_path / "codex_home"
+            codex_home.mkdir()
+            (codex_home / "config.toml").write_text("", encoding="utf-8")
+            observed["runtime_workdir"] = workdir
+            return (
+                {**os.environ, "CODEX_HOME": str(codex_home)},
+                {"codex_home": "ephemeral_ambient"},
+            )
+
+        def run_command(command, *, cwd, env, **kwargs):
+            del kwargs
+            observed["command"] = command
+            observed["cwd"] = cwd
+            observed["env"] = env
+            self.assertTrue((cwd / "chemistry_inspection.py").is_file())
+            self.assertTrue((cwd / "chemistry_inspection_mcp.py").is_file())
+            strict_config = (
+                Path(env["CODEX_HOME"]) / "config.toml"
+            ).read_text(encoding="utf-8")
+            self.assertIn("[mcp_servers.chemistry_inspection]", strict_config)
+            self.assertIn("required = true", strict_config)
+            self.assertIn(
+                'enabled_tools = ["inspect_mapped_smiles"]', strict_config
+            )
+            self.assertIn(
+                "[mcp_servers.chemistry_inspection.tools.inspect_mapped_smiles]",
+                strict_config,
+            )
+            self.assertIn('approval_mode = "approve"', strict_config)
+            return (
+                0,
+                '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n',
+                "",
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            audit_root = Path(tmp) / "audit"
+            task = WorkerTask(
+                task_id="strict-isolation",
+                case_id="case",
+                task_type="paper_matched_route_step",
+                required_artifact_type="RetrosynthesisProposalReport",
+                allowed_workdir=str(audit_root),
+                budget=WorkerBudget(timeout_s=5, max_tool_calls=None),
+            )
+            with patch(
+                "cascade_planner.agent.codex_worker._codex_executable_available",
+                return_value=True,
+            ), patch(
+                "cascade_planner.agent.codex_worker._codex_cli_runtime_environment",
+                side_effect=runtime_environment,
+            ), patch(
+                "cascade_planner.agent.codex_worker._run_worker_command",
+                side_effect=run_command,
+            ):
+                result = _run_codex_cli_worker(task)
+
+            event_logs = list((audit_root / "codex_worker_events").glob("*.jsonl"))
+            self.assertEqual(len(event_logs), 1)
+            self.assertEqual(result.metadata["audit_workdir"], str(audit_root.resolve()))
+
+        self.assertEqual(observed["runtime_workdir"], observed["cwd"])
+        self.assertNotEqual(observed["cwd"], audit_root.resolve())
+        self.assertNotIn("--sandbox", observed["command"])
+        self.assertNotIn("--search", observed["command"])
+        self.assertNotIn("AUTOPLANNER_CODEX_WORKER_SANDBOX", observed["env"])
+
     def test_agent_action_batch_schema_uses_supported_json_schema_keywords(self):
         task = WorkerTask(
             task_id="planner",
@@ -1314,8 +1580,9 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                 )
                 self.assertEqual(
                     sorted(metadata["ambient_inputs"]),
-                    ["auth.json", "config.toml", "installation_id", "models_cache.json"],
+                    ["auth.json", "config.toml", "installation_id"],
                 )
+                self.assertFalse((worker_home / "models_cache.json").exists())
                 self.assertEqual(metadata["config_mode"], "provider_only_snapshot")
 
         self.assertEqual(metadata["provider"], "ambient_codex_cli")

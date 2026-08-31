@@ -46,7 +46,7 @@ def test_guided_progress_counts_only_target_rooted_parent_routes() -> None:
     ] is True
 
 
-def test_guided_search_stops_globally_only_after_root_stock_closure() -> None:
+def test_root_stock_closure_does_not_suppress_distinct_frontiers() -> None:
     before = {"best_open_leaf_count": 3}
     progressed = evaluate_guided_stock_progress(
         before,
@@ -71,8 +71,11 @@ def test_guided_search_stops_globally_only_after_root_stock_closure() -> None:
     assert unchanged["reason"] == (
         "parent_route_stock_open_leaf_count_not_decreased"
     )
-    assert closed["continue_guided_search"] is False
+    assert closed["continue_guided_search"] is True
     assert closed["reason"] == "root_b4_stock_boundary_reached"
+    assert closed["semantics"][
+        "root_b4_is_a_portfolio_milestone_not_a_frontier_queue_stop"
+    ] is True
 
 
 def test_guided_provider_success_without_parent_route_is_not_progress() -> None:

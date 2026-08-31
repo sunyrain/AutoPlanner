@@ -1,0 +1,27 @@
+{
+  "cases": [
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 128,
+        "max_attempt_runs": 320,
+        "max_model_invocations": 150,
+        "max_prompt_context_bytes": 64000,
+        "max_total_input_tokens": 2000000,
+        "max_total_output_tokens": 500000,
+        "max_total_wall_time_s": 70200
+      },
+      "case_id": "baccatin-iii-repro-ovmsocfbdvblfw",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "target",
+      "target_smiles": "CC(=O)O[C@H]1C(=O)[C@@]2(C)[C@H]([C@H](OC(=O)c3ccccc3)[C@]3(O)C[C@H](O)C(C)=C1C3(C)C)[C@]1(OC(C)=O)CO[C@@H]1C[C@@H]2O"
+    }
+  ],
+  "schema_version": "blind_retrosynthesis_manifest.v1"
+}

@@ -375,6 +375,25 @@ def _job_with_live_progress(
     row = _job_projection(job)
     progress = _live_job_progress(factory, job)
     row["progress"] = progress
+    for key in ("campaign_status", "campaign_terminal", "campaign_decision"):
+        if key in progress:
+            row[key] = progress[key]
+    if progress.get("campaign_terminal") is True:
+        decision = str(
+            progress.get("campaign_decision")
+            or progress.get("campaign_status")
+            or "unresolved"
+        ).casefold()
+        row["status"] = {
+            "completed": "complete",
+            "cancelled": "cancelled",
+            "failed": "failed",
+            "budget_exhausted": "unresolved",
+            "unresolved": "unresolved",
+        }.get(decision, "unresolved")
+        row["phase"] = decision
+        row["cancellation_available"] = False
+        return row
     if str(job.get("status") or "") in {
         "queued",
         "running",

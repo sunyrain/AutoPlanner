@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
@@ -267,6 +267,27 @@ class CampaignGateway(CampaignMilestoneGatewayMixin, CampaignProgramGatewayMixin
     ) -> dict[str, Any]:
         return campaign_gateway_result(
             self._open(run_id, run_dir=run_dir), operation="status"
+        )
+
+    def cancel(
+        self,
+        run_id: str,
+        *,
+        run_dir: str | Path | None = None,
+        reasons: Iterable[str] = ("user_requested",),
+        idempotency_key: str = "gateway:cancel",
+    ) -> dict[str, Any]:
+        """Cancel one campaign through its canonical Kernel state machine."""
+
+        service = self._open(run_id, run_dir=run_dir)
+        event = service.kernel.cancel(
+            idempotency_key=idempotency_key,
+            reasons=reasons,
+        )
+        return campaign_gateway_result(
+            service,
+            operation="cancel",
+            operations={"cancellation": event.to_dict()},
         )
 
     def workbench(

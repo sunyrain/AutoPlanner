@@ -10,7 +10,7 @@ CAMPAIGN_ACTION_TIMELINE_SCHEMA = "campaign_action_timeline.v1"
 
 _ACTORS = {
     "chemenzy_target_expand": "ChemEnzy",
-    "chemenzy_frontier_expand": "ChemEnzy",
+    "native_short_tail_expand": "Native short-tail",
     "codex_global_architecture": "Codex",
     "codex_global_replan": "Codex",
     "acquire_exact_evidence": "Evidence",

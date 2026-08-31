@@ -14,6 +14,9 @@ from cascade_planner.application.campaign_trajectory import (
     compile_campaign_snapshot,
     compile_campaign_trajectory,
 )
+from cascade_planner.interfaces.target_runtime_dependencies import (
+    SYNTHEX_MATCHED_PROFILE_DEFAULTS,
+)
 from scripts.run_v4_blind_panel import (
     PANEL_EXECUTION_PROFILES,
     PANEL_REASONING_EFFORTS,
@@ -31,6 +34,7 @@ from scripts.run_v4_blind_panel import (
     _run_case,
     _select_cases,
     _summarize_report,
+    _strategy_tree_requires_benchmark_stock_index,
     _validate_matched_baseline,
     _write_matched_comparison,
     _write_result_summary,
@@ -38,11 +42,25 @@ from scripts.run_v4_blind_panel import (
 from cascade_planner.runtime.run_registry_catalog import RunRegistryCatalog
 
 
-def test_v9_high_effort_panel_contract_reaches_target_command(
+def test_paper25_shared_budget_covers_online_critic_for_every_candidate() -> None:
+    profile = SYNTHEX_MATCHED_PROFILE_DEFAULTS
+    branches = int(profile["strategy_branches"])
+    policy_calls = branches * int(profile["node_expansions_per_branch"])
+    candidate_audits = policy_calls * int(
+        profile["reactionjson_candidates_per_node"]
+    )
+    minimum_calls = 1 + policy_calls + candidate_audits + branches
+
+    assert int(profile["max_model_invocations"]) >= minimum_calls
+    assert int(profile["max_input_tokens"]) >= 6_000_000
+    assert int(profile["max_output_tokens"]) >= 2_000_000
+
+
+def test_self_correcting_high_effort_panel_contract_reaches_target_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert "v9_smoke" in PANEL_EXECUTION_PROFILES
+    assert "self_correcting_sequential" in PANEL_EXECUTION_PROFILES
     assert "high" in PANEL_REASONING_EFFORTS
 
     output_root = tmp_path / "panel"
@@ -75,7 +93,7 @@ def test_v9_high_effort_panel_contract_reaches_target_command(
             output_root=output_root,
             model="gpt-5.6-sol",
             reasoning_effort="high",
-            execution_profile="v9_smoke",
+            execution_profile="self_correcting_sequential",
             node_expansions_per_branch=25,
             native_short_tail_engine="aizynthfinder",
             strategy_tree_engine="aizynthfinder_mcts",
@@ -94,7 +112,9 @@ def test_v9_high_effort_panel_contract_reaches_target_command(
 
     command = observed["command"]
     assert isinstance(command, list)
-    assert command[command.index("--execution-profile") + 1] == "v9_smoke"
+    assert command[command.index("--execution-profile") + 1] == (
+        "self_correcting_sequential"
+    )
     assert command[command.index("--reasoning-effort") + 1] == "high"
     assert command[command.index("--node-expansions-per-branch") + 1] == "25"
     assert command[command.index("--route-local-repair-rounds") + 1] == "6"
@@ -277,6 +297,29 @@ def test_panel_binds_benchmark_stock_into_chemenzy_by_default(tmp_path: Path) ->
 
     assert names == ("FrozenBenchmarkStock",)
     assert paths == (f"FrozenBenchmarkStock={stock.resolve()}",)
+
+
+@pytest.mark.parametrize(
+    ("execution_profile", "strategy_tree_engine", "expected"),
+    [
+        ("self_correcting_sequential", None, True),
+        ("self_correcting_sequential", "aizynthfinder_mcts", True),
+        ("standard", "aizynthfinder_mcts", True),
+        ("standard", "chemenzy_best_first", False),
+    ],
+)
+def test_panel_preflight_knows_when_aiz_strategy_requires_stock_index(
+    execution_profile: str,
+    strategy_tree_engine: str | None,
+    expected: bool,
+) -> None:
+    assert (
+        _strategy_tree_requires_benchmark_stock_index(
+            execution_profile=execution_profile,
+            strategy_tree_engine=strategy_tree_engine,
+        )
+        is expected
+    )
 
 
 def test_panel_rejects_a_provider_stock_different_from_scoring_stock(
@@ -643,6 +686,18 @@ def test_panel_summary_scores_only_the_fixed_cutoff_trajectory_projection(
                     }
                 ],
                 "resource_envelope": {"within_budget": True},
+                "rejection_taxonomy": {
+                    "schema_version": "retrosynthesis_rejection_taxonomy.v1",
+                    "counts": {"critic_chemistry": 2},
+                    "reason_counts": {
+                        "critic_chemistry": {"chemoselectivity": 2}
+                    },
+                    "events": [],
+                    "semantics": {
+                        "report_only": True,
+                        "no_execution_or_admission_authority": True,
+                    },
+                },
                 "trajectory": trajectory,
             }
         ),
@@ -669,6 +724,9 @@ def test_panel_summary_scores_only_the_fixed_cutoff_trajectory_projection(
     assert summary["final_state"]["claim"]["objective_mode"] == "benchmark_search"
     assert summary["chemenzy"]["status"] == "completed"
     assert summary["chemenzy"]["proposal_count"] == 17
+    assert summary["rejection_taxonomy"]["counts"] == {
+        "critic_chemistry": 2
+    }
 
 
 def test_panel_marks_frozen_observation_complete_without_conflating_acceptance(

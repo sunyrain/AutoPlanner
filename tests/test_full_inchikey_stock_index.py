@@ -36,11 +36,56 @@ def test_full_inchikey_index_is_shared_by_host_and_chemenzy(tmp_path: Path) -> N
     )
     result = host(["CCO", "CC"], max_molecules=2)
     assert [row["canonical_smiles"] for row in result["members"]] == ["CCO"]
+    assert result["source"]["identity_key"] == "full_inchikey"
+    assert result["members"][0]["full_inchikey"] == ethanol_key
+    assert result["misses"][0]["full_inchikey"] == Chem.MolToInchiKey(
+        Chem.MolFromSmiles("CC")
+    )
     provider = _SqliteStockMembership(index)
     assert "CCO" in provider
     assert "CC" not in provider
     assert _smiles_in_stock_file("CCO", index) is True
     assert _smiles_in_stock_file("CC", index) is False
+
+
+def test_full_inchikey_connectivity_diagnostic_never_closes_a_stereo_miss(
+    tmp_path: Path,
+) -> None:
+    stocked = "C[C@H](O)C(=O)O"
+    queried = "C[C@@H](O)C(=O)O"
+    stocked_key = Chem.MolToInchiKey(Chem.MolFromSmiles(stocked))
+    queried_key = Chem.MolToInchiKey(Chem.MolFromSmiles(queried))
+    assert stocked_key != queried_key
+    assert stocked_key.split("-", 1)[0] == queried_key.split("-", 1)[0]
+    source = tmp_path / "stock.txt"
+    source.write_text(f"{stocked_key}\n", encoding="utf-8")
+    index = tmp_path / "stock.sqlite3"
+    built = build_index(
+        [source],
+        index,
+        column="",
+        catalog_name="stereo diagnostic stock",
+        expected_count=1,
+        batch_size=1,
+    )
+
+    host = FrozenBenchmarkStockIndex(
+        index,
+        expected_sha256=built["index_sha256"],
+    )
+    result = host([queried])
+
+    assert result["members"] == []
+    assert len(result["misses"]) == 1
+    miss = result["misses"][0]
+    assert miss["full_inchikey"] == queried_key
+    assert miss["connectivity_diagnostic"] == {
+        "connectivity_block": queried_key.split("-", 1)[0],
+        "catalog_contains_same_connectivity": True,
+        "grants_membership": False,
+        "reason": "full_inchikey_exact_match_required",
+    }
+    assert result["semantics"]["only_exact_identity_match_grants_membership"] is True
 
 
 def test_composite_full_inchikey_index_unions_hdf_and_smiles_sqlite(

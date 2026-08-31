@@ -47,8 +47,8 @@ TARGET_PROFILE_DEFAULTS = {
         "topk": 120,
         "timeout": 1_200.0,
         "workers": 1,
-        "max_input_tokens": 1_200_000,
-        "max_output_tokens": 200_000,
+        "max_input_tokens": 6_000_000,
+        "max_output_tokens": 2_000_000,
         "max_model_wall_time_s": 70_200.0,
         "max_director_wall_time_s": 70_200.0,
     },
@@ -69,14 +69,14 @@ TARGET_PROFILE_DEFAULTS = {
         # timeouts are the paper-facing scientific limits. The output ceiling
         # also covers complete 25-step Editor documents and detailed per-step
         # Critic assessments across all six improvement rounds.
-        "max_input_tokens": 3_000_000,
-        "max_output_tokens": 1_000_000,
+        "max_input_tokens": 6_000_000,
+        "max_output_tokens": 2_000_000,
         "max_model_wall_time_s": 70_200.0,
         "max_director_wall_time_s": 70_200.0,
     },
-    # V9 development canary: reuse the same target-only stock/search runtime
-    # without claiming the frozen paper Critic/Editor protocol.
-    "v9_smoke": {
+    # Self-correcting sequential canary: reuse the same target-only
+    # stock/search runtime without claiming the frozen paper protocol.
+    "self_correcting_sequential": {
         "steps": 6,
         "iterations": 500,
         "topk": 120,
@@ -129,17 +129,21 @@ SYNTHEX_MATCHED_PROFILE_DEFAULTS = {
     "max_node_prompt_bytes": 96_000,
     "node_call_timeout_s": 600.0,
     "critic_call_timeout_s": 600.0,
-    # Up to 3 Strategy calls + 75 policy calls + 3*(6 Editor + 7 Critic)
-    # calls = 117 before bounded malformed-output retries.  This aggregate is
-    # an operational guard only; it is not reported as a SynthEx parameter.
-    "max_model_invocations": 150,
-    "max_input_tokens": 3_000_000,
-    "max_output_tokens": 1_000_000,
+    # The shared envelope must cover 75 policy calls, up to one online
+    # key-event Critic for every replayed policy candidate, transactional
+    # Builder repair phases, receding-horizon Strategy review, and the final
+    # Critic/Editor loop. Repair phases reuse the configured per-branch node
+    # ceiling and settle against this same ledger; there is no private repair
+    # quota. It is deliberately
+    # not a private Critic quota: every actual call still settles against the
+    # one global ledger, whose protected final-Critic balance is unchanged.
+    # This aggregate is operational and is not a SynthEx-reported parameter.
+    "max_model_invocations": 240,
+    "max_input_tokens": 6_000_000,
+    "max_output_tokens": 2_000_000,
     # SynthEx reports per-call and per-search limits, not one 1,800 s cap for
     # the complete multi-agent run.  This is a conservative host envelope for
-    # Up to 3 StrategyCard calls + 3*25 policy calls + 3*(1+6*2) Critic/Editor calls,
-    # each permitted up to the reported 600 s.  Invocation counts and the
-    # per-call timeout remain the scientific limits; this aggregate is merely
+    # Per-call timeout remains the scientific limit; this aggregate is merely
     # an operational ceiling and must not be presented as paper-reported.
     "max_model_wall_time_s": 70_200.0,
     # Allow native short-tail searches and host materialization to finish after

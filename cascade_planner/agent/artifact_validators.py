@@ -225,6 +225,24 @@ def _common_reasons(data: dict[str, Any]) -> list[str]:
                             and bool(candidate["replace_span"].get("remove_step_ids"))
                             and bool(candidate["replace_span"].get("revised_steps"))
                         )
+                        or (
+                            isinstance(candidate.get("repair_directive"), dict)
+                            and bool(
+                                candidate["repair_directive"].get(
+                                    "rollback_start_step_id"
+                                )
+                            )
+                            and bool(
+                                candidate["repair_directive"].get(
+                                    "rebuild_through_step_id"
+                                )
+                            )
+                            and bool(
+                                candidate["repair_directive"].get(
+                                    "repair_goal"
+                                )
+                            )
+                        )
                     )
                     for candidate in payload.get("candidates") or []
                 )

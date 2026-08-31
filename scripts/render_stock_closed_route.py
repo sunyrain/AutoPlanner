@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import textwrap
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -290,7 +289,6 @@ def render(report_path: Path, output_prefix: Path, route_index: int = 0) -> dict
     fig.patch.set_facecolor(WHITE)
     ax.set_facecolor(WHITE)
 
-    x_center = (leaf_count - 1) * x_gap / 2
     ordinal_by_product = {
         _canonical_smiles(step.get("product_smiles")): index
         for index, step in enumerate(route.get("steps") or [], start=1)

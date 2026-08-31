@@ -21,6 +21,12 @@ from cascade_planner.application.biocatalytic_step_contract import (
 
 STRATEGY_CARD_SCHEMA = "strategy_card.v1"
 REACTION_EDIT_SIGNATURE_SCHEMA = "reaction_edit_signature.v1"
+KEY_EVENT_REPAIR_SCOPES = (
+    "none",
+    "focus_edge",
+    "route_span",
+    "strategy_horizon",
+)
 
 _TEXT_FIELDS = (
     "strategy_query",
@@ -71,6 +77,7 @@ _REACTION_OPERATION_FIELDS = {
     "invert_stereocenter": {"op", "map_idx"},
     "clear_stereocenter": {"op", "map_idx"},
     "set_bond_stereo": {"op", "map_a", "map_b", "stereo", "stereo_atom_maps"},
+    "set_tetrahedral_stereo": {"op", "map_idx", "configuration"},
 }
 
 
@@ -211,6 +218,25 @@ def normalize_reaction_operations(
         if row.get("op"):
             rows.append(row)
     return tuple(rows)
+
+
+def normalize_key_event_repair_scope(value: Any, *, verdict: Any) -> str:
+    """Validate the Key Critic's repair owner without guessing a fallback.
+
+    A rejected, unadmitted edge can be redrawn as one replacement edge,
+    require a transaction that rebuilds a local multi-step span, or invalidate
+    the current Strategy horizon.  Pass/uncertain decisions own no mutation.
+    Returning an empty string for an inconsistent pair lets the worker
+    contract reject it before the Host can dispatch an impossible retry.
+    """
+
+    scope = str(value or "").strip().lower()
+    decision = str(verdict or "").strip().lower()
+    if decision == "reject":
+        return scope if scope in set(KEY_EVENT_REPAIR_SCOPES) - {"none"} else ""
+    if decision in {"pass", "uncertain"}:
+        return "none" if scope == "none" else ""
+    return ""
 
 
 def reaction_edit_signature(
@@ -364,7 +390,12 @@ def _edit_class(op: str) -> str:
         return "bond_edit"
     if op in {"add_group", "remove_group", "change_atom"}:
         return "functional_group_edit"
-    if op in {"invert_stereocenter", "clear_stereocenter", "set_bond_stereo"}:
+    if op in {
+        "invert_stereocenter",
+        "clear_stereocenter",
+        "set_bond_stereo",
+        "set_tetrahedral_stereo",
+    }:
         return "stereochemical_edit"
     return "atom_state_edit"
 
@@ -409,9 +440,11 @@ def _digest(value: Any) -> str:
 
 
 __all__ = [
+    "KEY_EVENT_REPAIR_SCOPES",
     "REACTION_EDIT_SIGNATURE_SCHEMA",
     "STRATEGY_CARD_SCHEMA",
     "key_bond_signature",
+    "normalize_key_event_repair_scope",
     "normalize_reaction_operations",
     "normalize_strategy_card",
     "normalize_strategy_policy_card",

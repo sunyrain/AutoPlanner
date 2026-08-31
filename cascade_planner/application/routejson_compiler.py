@@ -48,6 +48,17 @@ class RouteGraphReplayState:
 
     reactions: tuple[MaterializedReaction, ...]
     open_precursors: tuple[MappedOpenPrecursor, ...]
+    parent_step_indices: tuple[int | None, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _OpenRouteOccurrence:
+    """One unconsumed frontier occurrence with its branch-local ancestry."""
+
+    product_smiles: str
+    mapped_product_smiles: str
+    ancestor_products: frozenset[str]
+    producer_step_index: int
 
 
 class RouteJSONCompiler:
@@ -261,6 +272,7 @@ class RouteJSONCompiler:
         mapped_target_smiles: str,
         steps: Iterable[Mapping[str, Any]],
         minimum_depth: int = 1,
+        reserved_atom_maps: Iterable[int] = (),
     ) -> tuple[MaterializedReaction, ...]:
         """Replay a target-rooted RouteJSON DAG and return its reactions."""
 
@@ -268,6 +280,7 @@ class RouteJSONCompiler:
             mapped_target_smiles=mapped_target_smiles,
             steps=steps,
             minimum_depth=minimum_depth,
+            reserved_atom_maps=reserved_atom_maps,
         ).reactions
 
     def compile_route_graph_state(
@@ -276,6 +289,7 @@ class RouteJSONCompiler:
         mapped_target_smiles: str,
         steps: Iterable[Mapping[str, Any]],
         minimum_depth: int = 1,
+        reserved_atom_maps: Iterable[int] = (),
     ) -> RouteGraphReplayState:
         """Replay a topologically ordered RouteJSON DAG.
 
@@ -297,9 +311,13 @@ class RouteJSONCompiler:
             raise ReactionJsonReplayError("routejson_compiler_target_invalid")
 
         compiled: list[MaterializedReaction] = []
-        seen_products: set[str] = set()
-        available: list[tuple[str, str]] = []
-        reserved_atom_maps = _mapped_atom_maps(target_mapped)
+        parent_step_indices: list[int | None] = []
+        available: list[_OpenRouteOccurrence] = []
+        reserved_atom_maps = {
+            int(value)
+            for value in reserved_atom_maps
+            if int(value) > 0
+        } | _mapped_atom_maps(target_mapped)
         for index, row in enumerate(rows):
             declared_product = _canonical_smiles(row.get("product_smiles"))
             if not declared_product:
@@ -310,6 +328,8 @@ class RouteJSONCompiler:
             if index == 0:
                 current_product = target
                 current_mapped = target_mapped
+                current_ancestors: frozenset[str] = frozenset()
+                parent_step_index: int | None = None
                 if declared_product != target:
                     if _constitution_smiles(declared_product) != _constitution_smiles(
                         target
@@ -330,15 +350,16 @@ class RouteJSONCompiler:
                     raise ReactionJsonReplayError(
                         "routejson_compiler_product_not_open_precursor"
                     )
-                current_product, current_mapped = match
+                current_product = match.product_smiles
+                current_mapped = match.mapped_product_smiles
+                current_ancestors = match.ancestor_products
+                parent_step_index = match.producer_step_index
                 # The matched boundary is no longer open after this row is
                 # expanded. Keeping consumed pairs in the frontier made it
                 # impossible to return a truthful mapped open-precursor state
                 # to an Editor retry.
                 available.remove(match)
                 declaration_mismatch = declared_product != current_product
-            if current_product in seen_products:
-                raise ReactionJsonReplayError("routejson_compiler_product_cycle")
 
             materialized = self.compile_step(
                 mapped_product_smiles=current_mapped,
@@ -356,20 +377,27 @@ class RouteJSONCompiler:
                         "declared_product_mismatch_type": "stereochemistry_only",
                     },
                 )
+            branch_ancestors = current_ancestors | {current_product}
             if any(
-                precursor == current_product or precursor in seen_products
+                precursor in branch_ancestors
                 for precursor in materialized.precursor_smiles
             ):
                 raise ReactionJsonReplayError("routejson_compiler_product_cycle")
             compiled.append(materialized)
-            seen_products.add(current_product)
+            parent_step_indices.append(parent_step_index)
             reserved_atom_maps.update(
                 _mapped_atom_maps(materialized.mapped_product_smiles)
             )
             for mapped_precursor in materialized.mapped_precursor_smiles:
                 reserved_atom_maps.update(_mapped_atom_maps(mapped_precursor))
             available.extend(
-                zip(
+                _OpenRouteOccurrence(
+                    product_smiles=precursor,
+                    mapped_product_smiles=mapped_precursor,
+                    ancestor_products=branch_ancestors,
+                    producer_step_index=index,
+                )
+                for precursor, mapped_precursor in zip(
                     materialized.precursor_smiles,
                     materialized.mapped_precursor_smiles,
                     strict=True,
@@ -379,11 +407,12 @@ class RouteJSONCompiler:
             reactions=tuple(compiled),
             open_precursors=tuple(
                 MappedOpenPrecursor(
-                    product_smiles=product,
-                    mapped_product_smiles=mapped,
+                    product_smiles=occurrence.product_smiles,
+                    mapped_product_smiles=occurrence.mapped_product_smiles,
                 )
-                for product, mapped in available
+                for occurrence in available
             ),
+            parent_step_indices=tuple(parent_step_indices),
         )
 
     @staticmethod
@@ -502,32 +531,37 @@ def _match_route_graph_product(
     *,
     declared_product: str,
     declared_mapped_product: str,
-    available: Iterable[tuple[str, str]],
-) -> tuple[str, str] | None:
+    available: Iterable[_OpenRouteOccurrence],
+) -> _OpenRouteOccurrence | None:
     exact = [
-        (canonical, mapped)
-        for canonical, mapped in available
-        if canonical == declared_product
+        occurrence
+        for occurrence in available
+        if occurrence.product_smiles == declared_product
     ]
     candidates = exact or [
-        (canonical, mapped)
-        for canonical, mapped in available
-        if _constitution_smiles(canonical) == _constitution_smiles(declared_product)
+        occurrence
+        for occurrence in available
+        if _constitution_smiles(occurrence.product_smiles)
+        == _constitution_smiles(declared_product)
     ]
     if not candidates:
         return None
     declared_mapped = _canonical_mapped_smiles(declared_mapped_product)
     if declared_mapped:
         mapped_matches = [
-            pair
-            for pair in candidates
-            if _canonical_mapped_smiles(pair[1]) == declared_mapped
+            occurrence
+            for occurrence in candidates
+            if _canonical_mapped_smiles(occurrence.mapped_product_smiles)
+            == declared_mapped
         ]
         if len(mapped_matches) == 1:
             return mapped_matches[0]
     unique = {
-        (canonical, _canonical_mapped_smiles(mapped)): (canonical, mapped)
-        for canonical, mapped in candidates
+        (
+            occurrence.product_smiles,
+            _canonical_mapped_smiles(occurrence.mapped_product_smiles),
+        ): occurrence
+        for occurrence in candidates
     }
     if len(unique) == 1:
         return next(iter(unique.values()))

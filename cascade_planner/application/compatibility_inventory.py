@@ -172,13 +172,6 @@ _SHIMS = (
         removal_milestone="P10 after external edge journal replay migration",
         telemetry_source="parent legacy campaign compatibility event",
     ),
-    CompatibilityShim(
-        shim_id="legacy.combined_web_surface",
-        module="cascade_planner.legacy.web",
-        replacement="cascade_planner.web.v4_app",
-        removal_milestone="P10 after legacy UI and saved-run routes are retired",
-        telemetry_source="scripts/legacy/serve_combined_web.py invocation",
-    ),
 )
 
 

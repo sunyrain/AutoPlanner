@@ -5,9 +5,9 @@
     "lipase:polycyclic-steroid-selective-acylation",
     "sdr:polycyclic-steroid-ketone-screen"
   ],
-  "candidate_projection_sha256": "abe73ceada84528048ef49af2a71192e64aca747e15f4583b757acb407839776",
+  "candidate_projection_sha256": "655718327df3d7455d2bdf0747cf4b9db853f23418b6284e0b0eedddf326c594",
   "capability_audit_sha256": "5c381a779c53ebb67f296aa2ce39b1e9815a7aca3bfeee10b1eb6ef0ad170a2d",
-  "content_sha256": "2cf4c58e86345ef7900a1f50bda570162262732b89c054b4781d1700e5d03a8a",
+  "content_sha256": "c981f894805ea733dcd46438f43d478dc5a6bdcaa42c7d81feb86d0ebefd1e18",
   "counts": {
     "enzyme_candidates": 0,
     "mechanism_candidates": 0,

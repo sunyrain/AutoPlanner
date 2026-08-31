@@ -438,7 +438,12 @@ def run_aizynthfinder_guided_frontier_stage(
                 "disposition": "host_portfolio_selected",
                 "reasons": [],
                 "canonical_route_family_alias": alias,
-                "canonical_route_family_id": "",
+                "canonical_route_family_id": (
+                    parent_route_family_ids[0]
+                    if parent_route_family_ids
+                    else ""
+                ),
+                "canonical_route_family_ids": list(parent_route_family_ids),
                 **compile_route_topology_lineage(
                     route,
                     alias=alias,

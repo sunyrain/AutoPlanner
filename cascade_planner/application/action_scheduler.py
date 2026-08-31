@@ -6,6 +6,14 @@ import json
 from typing import Any, Mapping
 
 from cascade_planner.application.action_preflight import compile_action_preflight
+from cascade_planner.application.campaign_actions import (
+    ACTION_KIND_ORDER,
+    CLOSURE_PIPELINE,
+    NEW_FRONTIER_ACTION_KINDS,
+    PROGRAM_PROOF_ACTION_KINDS,
+    RESULT_FIRST_DEFERRED_ACTION_KINDS,
+    ROUTE_ACTION_KINDS,
+)
 from cascade_planner.application.action_service_policy import (
     action_class_for_kind,
     bind_action_class_selection,
@@ -18,70 +26,6 @@ from cascade_planner.application.scientific_closure_pressure import (
 
 ACTION_SCHEDULE_DECISION_SCHEMA = "campaign_action_schedule_decision.v1"
 ACTION_SCHEDULER_POLICIES = frozenset({"adaptive", "round_robin"})
-
-_ROUTE_ACTIONS = frozenset(
-    {
-        "host_materialize",
-        "stock_audit",
-        "chemenzy_target_expand",
-        "chemenzy_frontier_expand",
-        "codex_global_architecture",
-        "codex_global_replan",
-        "recompute_route_closure",
-    }
-)
-_RESULT_FIRST_DEFERRED_ACTIONS = frozenset(
-    {
-        "resolve_conflict",
-        "acquire_exact_evidence",
-        "bind_exact_evidence",
-        "condition_enrich",
-        "program_discover",
-        "program_review",
-        "program_admit",
-        "program_validate",
-        "experiment_feedback_ingest",
-    }
-)
-_PROGRAM_PROOF_ACTIONS = frozenset(
-    {
-        "program_validate",
-        "experiment_feedback_ingest",
-    }
-)
-_CLOSURE_PIPELINE = (
-    "host_materialize",
-    "reaction_validate",
-    "stock_audit",
-    "recompute_route_closure",
-)
-_NEW_FRONTIER_ACTIONS = frozenset(
-    {
-        "chemenzy_target_expand",
-        "chemenzy_frontier_expand",
-        "codex_global_architecture",
-        "codex_global_replan",
-    }
-)
-_KIND_ORDER = {
-    "resolve_conflict": 0,
-    "host_materialize": 1,
-    "reaction_validate": 2,
-    "stock_audit": 3,
-    "acquire_exact_evidence": 4,
-    "bind_exact_evidence": 5,
-    "condition_enrich": 6,
-    "chemenzy_target_expand": 7,
-    "codex_global_architecture": 8,
-    "chemenzy_frontier_expand": 9,
-    "codex_global_replan": 10,
-    "program_discover": 11,
-    "program_review": 12,
-    "program_admit": 13,
-    "program_validate": 14,
-    "experiment_feedback_ingest": 15,
-    "recompute_route_closure": 16,
-}
 
 
 def schedule_next_action(
@@ -153,7 +97,7 @@ def schedule_next_action(
     # are still waiting for their own bounded tail.  Finish those bound leaf
     # attempts first so an expensive model replan cannot jump the queue.
     paper_short_tail_pending = any(
-        str(row.get("kind") or "") == "chemenzy_frontier_expand"
+        str(row.get("kind") or "") == "native_short_tail_expand"
         and dict(row.get("metadata") or {}).get("paper_short_tail_eligible")
         is True
         and str(row.get("action_id") or "") not in in_flight
@@ -163,7 +107,7 @@ def schedule_next_action(
         )
         and (
             not handler_filter_applied
-            or "chemenzy_frontier_expand" in available_kinds
+            or "native_short_tail_expand" in available_kinds
         )
         and resources.get(str(row.get("resource_class") or ""), True)
         is not False
@@ -174,7 +118,7 @@ def schedule_next_action(
         gates.get("target_rooted_route_exists") is True
         or gates.get("B1_global_multi_route") is True
     ):
-        for closure_kind in _CLOSURE_PIPELINE:
+        for closure_kind in CLOSURE_PIPELINE:
             if any(
                 str(row.get("kind") or "") == closure_kind
                 and str(row.get("action_id") or "") not in in_flight
@@ -226,7 +170,7 @@ def schedule_next_action(
             scheduler_policy == "adaptive"
             and "B4_stock_boundary" in gates
             and gates.get("B4_stock_boundary") is not True
-            and kind in _RESULT_FIRST_DEFERRED_ACTIONS
+            and kind in RESULT_FIRST_DEFERRED_ACTION_KINDS
             and not (
                 kind == "program_discover"
                 and dict(row.get("metadata") or {}).get(
@@ -237,13 +181,13 @@ def schedule_next_action(
         ):
             blocked_reasons.append("result_first_stock_boundary_not_reached")
         if pending_closure_stage:
-            closure_rank = _CLOSURE_PIPELINE.index(pending_closure_stage)
-            if kind in _NEW_FRONTIER_ACTIONS:
+            closure_rank = CLOSURE_PIPELINE.index(pending_closure_stage)
+            if kind in NEW_FRONTIER_ACTION_KINDS:
                 blocked_reasons.append(
                     f"route_closure_pipeline_pending:{pending_closure_stage}"
                 )
-            elif kind in _CLOSURE_PIPELINE and (
-                _CLOSURE_PIPELINE.index(kind) > closure_rank
+            elif kind in CLOSURE_PIPELINE and (
+                CLOSURE_PIPELINE.index(kind) > closure_rank
             ):
                 blocked_reasons.append(
                     f"earlier_route_closure_stage_pending:{pending_closure_stage}"
@@ -332,11 +276,13 @@ def schedule_next_action(
         action_class_service.get("required_action_class") or ""
     )
     if scheduler_policy == "round_robin":
-        kind_count = max(1, len(_KIND_ORDER))
+        kind_count = max(1, len(ACTION_KIND_ORDER))
         offset = cursor % kind_count
 
         def round_robin_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
-            kind_rank = _KIND_ORDER.get(str(row.get("kind") or ""), kind_count)
+            kind_rank = ACTION_KIND_ORDER.get(
+                str(row.get("kind") or ""), kind_count
+            )
             cyclic_rank = (kind_rank - offset) % kind_count
             return (
                 row.get("eligible") is not True,
@@ -354,7 +300,7 @@ def schedule_next_action(
                 and str(row.get("action_class") or "")
                 != required_action_class,
                 -float(row.get("schedule_score") or 0.0),
-                _KIND_ORDER.get(str(row.get("kind") or ""), 99),
+                ACTION_KIND_ORDER.get(str(row.get("kind") or ""), 99),
                 str(row.get("action_id") or ""),
             ),
         )
@@ -487,14 +433,14 @@ def _state_bonus(kind: str, gates: Mapping[str, bool]) -> float:
     evidence_closed = gates.get("B3_exact_multi_source") is True
     stock_closed = gates.get("B4_stock_boundary") is True
     bonus = 0.0
-    if not has_routes and kind in _ROUTE_ACTIONS:
+    if not has_routes and kind in ROUTE_ACTION_KINDS:
         bonus += 120.0
-    if has_routes and not stock_closed and kind in _ROUTE_ACTIONS:
+    if has_routes and not stock_closed and kind in ROUTE_ACTION_KINDS:
         bonus += 75.0
     if (
         stock_closed
         and (not validated or not evidence_closed)
-        and kind in _PROGRAM_PROOF_ACTIONS
+        and kind in PROGRAM_PROOF_ACTION_KINDS
     ):
         bonus += 55.0
     return bonus

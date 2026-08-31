@@ -151,6 +151,8 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
     b4_outcomes = Counter()
     independent_axis_outcomes = Counter()
     reaction_rejection_reasons = Counter()
+    rejection_taxonomy_counts = Counter()
+    rejection_taxonomy_reasons: dict[str, Counter[str]] = {}
     stock_diagnostics = Counter()
     provider_lineage_dispositions = Counter()
     provider_search = Counter()
@@ -211,6 +213,29 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
                 ).items()
             }
         )
+        rejection_taxonomy = dict(row.get("rejection_taxonomy") or {})
+        rejection_taxonomy_counts.update(
+            {
+                str(key): int(value or 0)
+                for key, value in dict(
+                    rejection_taxonomy.get("counts") or {}
+                ).items()
+            }
+        )
+        for category, raw_counts in dict(
+            rejection_taxonomy.get("reason_counts") or {}
+        ).items():
+            if not isinstance(raw_counts, Mapping):
+                continue
+            category_counter = rejection_taxonomy_reasons.setdefault(
+                str(category), Counter()
+            )
+            category_counter.update(
+                {
+                    str(reason): int(count or 0)
+                    for reason, count in dict(raw_counts).items()
+                }
+            )
         stock_diagnostics.update(
             {
                 str(key): int(value or 0)
@@ -583,6 +608,9 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
             "reaction_rejection_reason_counts": dict(
                 row.get("reaction_rejection_reason_counts") or {}
             ),
+            "rejection_taxonomy": dict(
+                row.get("rejection_taxonomy") or {}
+            ),
             "stock_audit_diagnostics": dict(
                 row.get("stock_audit_diagnostics") or {}
             ),
@@ -677,6 +705,24 @@ def summarize_panel(status: Mapping[str, Any]) -> dict[str, Any]:
             "reaction_rejection_reason_counts": dict(
                 sorted(reaction_rejection_reasons.items())
             ),
+            "rejection_taxonomy": {
+                "counts": dict(sorted(rejection_taxonomy_counts.items())),
+                "reason_counts": {
+                    category: dict(
+                        sorted(
+                            counts.items(),
+                            key=lambda item: (-item[1], item[0]),
+                        )
+                    )
+                    for category, counts in sorted(
+                        rejection_taxonomy_reasons.items()
+                    )
+                },
+                "semantics": {
+                    "report_only": True,
+                    "no_execution_or_admission_authority": True,
+                },
+            },
             "stock_audit_totals": dict(sorted(stock_diagnostics.items())),
             "provider_lineage_disposition_counts": dict(
                 sorted(provider_lineage_dispositions.items())
@@ -1114,6 +1160,9 @@ def _hydrate_report_diagnostics(status: Mapping[str, Any]) -> dict[str, Any]:
             "scientific_disposition",
             str(current_disposition.get("state") or ""),
         )
+        row["rejection_taxonomy"] = dict(
+            report.get("rejection_taxonomy") or {}
+        )
         # Migrate compact rows emitted before operational completion and
         # scientific acceptance were split.  Preserve the legacy value for
         # auditability; the frozen report and cutoff projection are unchanged.
@@ -1304,14 +1353,14 @@ def _hydrate_report_diagnostics(status: Mapping[str, Any]) -> dict[str, Any]:
             ),
             "guided_before_first_route_closure": (
                 result_action_kinds[:first_closure].count(
-                    "chemenzy_frontier_expand"
+                    "native_short_tail_expand"
                 )
                 if first_closure >= 0
-                else result_action_kinds.count("chemenzy_frontier_expand")
+                else result_action_kinds.count("native_short_tail_expand")
             ),
             "guided_after_first_route_closure": (
                 result_action_kinds[first_closure + 1 :].count(
-                    "chemenzy_frontier_expand"
+                    "native_short_tail_expand"
                 )
                 if first_closure >= 0
                 else 0
@@ -1364,6 +1413,115 @@ def _provider_search_attempts(
     """Read compact search telemetry from native/guided provider artifacts."""
 
     attempts: list[dict[str, Any]] = []
+    try:
+        solve_report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        solve_report = {}
+    seen_native_attempts: set[tuple[Any, ...]] = set()
+    for stage in solve_report.get("stages") or []:
+        if not isinstance(stage, Mapping):
+            continue
+        detail = dict(stage.get("detail") or {})
+        for result_index, raw_result in enumerate(detail.get("results") or []):
+            if not isinstance(raw_result, Mapping):
+                continue
+            result = dict(raw_result)
+            provider_id = str(result.get("provider_id") or "")
+            if provider_id != "aizynthfinder":
+                continue
+            invocation_count = int(result.get("provider_invocation_count") or 0)
+            if invocation_count <= 0:
+                continue
+            frontier_values = [
+                str(value) for value in result.get("frontier_smiles") or [] if str(value)
+            ]
+            statistics = dict(result.get("statistics") or {})
+            profiling = dict(statistics.get("profiling") or {})
+            identity = (
+                provider_id,
+                tuple(frontier_values),
+                str(statistics.get("target") or ""),
+                _finite_number(statistics.get("search_time")),
+            )
+            if identity in seen_native_attempts:
+                continue
+            seen_native_attempts.add(identity)
+            accepted_route_count = int(result.get("accepted_route_count") or 0)
+            rejected_route_count = int(result.get("rejected_route_count") or 0)
+            selected_route_count = int(
+                result.get("selected_proposal_route_count") or 0
+            )
+            complete_route_count = int(
+                result.get("complete_provider_route_count") or 0
+            )
+            provider_solved = bool(result.get("provider_solved"))
+            search_time = _finite_number(statistics.get("search_time"))
+            first_solution_time = _finite_number(
+                statistics.get("first_solution_time")
+            )
+            attempts.append(
+                {
+                    "artifact": (
+                        f"{stage.get('stage') or 'native_short_tail'}:"
+                        f"{result_index + 1}"
+                    ),
+                    "provider_id": provider_id,
+                    "kind": "guided",
+                    "search_target_smiles": (
+                        frontier_values[0] if frontier_values else ""
+                    ),
+                    "search_target_is_root": bool(
+                        root_target_smiles
+                        and frontier_values
+                        and frontier_values[0] == root_target_smiles
+                    ),
+                    "ok": str(result.get("status") or "")
+                    in {"completed", "unresolved"},
+                    "raw_solved": provider_solved,
+                    "host_admitted_solved": bool(
+                        provider_solved
+                        and complete_route_count > 0
+                        and selected_route_count > 0
+                    ),
+                    "search_status": str(result.get("status") or ""),
+                    "backend_failure_categories": (
+                        [str(result.get("reason") or "native_search_failed")]
+                        if str(result.get("status") or "") == "failed"
+                        else []
+                    ),
+                    "provider_time_s": search_time,
+                    "first_success_time_s": (
+                        first_solution_time
+                        if first_solution_time is not None
+                        and first_solution_time > 0
+                        else None
+                    ),
+                    "native_raw_route_count": _integer(
+                        statistics.get("number_of_routes")
+                    ),
+                    "native_found_route_count": accepted_route_count,
+                    "normalized_route_count": accepted_route_count,
+                    "host_search_admitted_route_count": selected_route_count,
+                    "host_search_rejected_route_count": rejected_route_count,
+                    "output_route_count": selected_route_count,
+                    "first_output_raw_route_index": (
+                        0 if selected_route_count > 0 else None
+                    ),
+                    "rule_gate_input_route_count": (
+                        accepted_route_count + rejected_route_count
+                    ),
+                    "rule_gate_kept_route_count": accepted_route_count,
+                    "rule_gate_dropped_route_count": rejected_route_count,
+                    "quarantined_route_count": rejected_route_count,
+                    "atom_balance_only_quarantine_count": 0,
+                    "atom_balance_only_stock_closed_quarantine_count": 0,
+                    "hard_structure_quarantine_count": 0,
+                    "executed_iterations": _integer(
+                        profiling.get("iterations")
+                    ),
+                    "stop_reason": str(result.get("reason") or ""),
+                }
+            )
     for result_path in sorted(report_path.parent.glob("chemenzy-v4-*-result.json")):
         try:
             result = json.loads(result_path.read_text(encoding="utf-8"))

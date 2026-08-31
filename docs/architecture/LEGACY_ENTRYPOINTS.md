@@ -21,8 +21,8 @@
 
 实现与命令名统一归档在 `scripts/legacy/`；`scripts/` 根目录不再保留 V3 包装器。
 
-主 CLI 已不再提供 combined Web surface。历史 combined UI 的唯一入口是
-`python scripts/legacy/serve_combined_web.py`。
+combined Web surface 已于 2026-08-29 从当前源码退役并打包到本地 archive；历史案卷统一通过
+Canonical V4 的 `/v4` 与 Workbench 查看，不再保留第二个 Web 启动入口。
 
 V3 recursive campaign 及其 scheduler/ledger/portfolio/acceptance 实现已从主线包目录迁入
 `cascade_planner/legacy/orchestration_runtime/` 和
@@ -67,7 +67,6 @@ blackboard route adapter、外部边 receipt 和 admitted-hyperedge journal 位�
 - `legacy/migrate_codex_campaign_v2.py`
 - `legacy/audit_architecture_v2.py`
 - `legacy/compile_source_route_portfolio.py`（冻结的 V3 source-route portfolio/acceptance 重放）
-- `legacy/serve_combined_web.py`（显式启动冻结 combined UI；不属于主 CLI）
 
 迁移完成条件是 Nirmatrelvir/Paclitaxel golden 和历史 saved run 都能从 V4 canonical artifacts 重放。之后才能删除对应大模块，不能提前用“没有引用”判断科学兼容性。
 

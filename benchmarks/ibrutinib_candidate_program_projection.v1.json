@@ -171,7 +171,7 @@
       "status": "candidate_route_observation"
     }
   },
-  "content_sha256": "abe73ceada84528048ef49af2a71192e64aca747e15f4583b757acb407839776",
+  "content_sha256": "655718327df3d7455d2bdf0747cf4b9db853f23418b6284e0b0eedddf326c594",
   "counts": {
     "blocked_candidate": 0,
     "canonical_admissible": 12,
@@ -414,7 +414,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "C": 25,
@@ -439,17 +442,20 @@
         "product_heavy_atom_count": 34,
         "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCN(C(=O)CCO)C1",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "bf37713be6694f54c6c68dacfbddbd2a323da92c53270ce92a808f1dd973c0cb",
+      "content_sha256": "7322a9e30315efbfabbe69beec3fb1d35aad7489ee6f56a1ad59dfd862049fcf",
       "input_state_ids": [
         "candidate-state:35fd2e13a7f609938de1f8a5",
         "candidate-state:071fc9aad3745343c2fa5b0e"
@@ -496,7 +502,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "C": 22,
@@ -521,17 +530,20 @@
         "product_heavy_atom_count": 29,
         "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "7eed622eff9595d2a756fc5d1353be822d268c726c971583b9abbe1424f872a5",
+      "content_sha256": "f858c26603cd5210ffa41a5bcbf7204051e1823f8410f55c5211b8d05d7235d6",
       "input_state_ids": [
         "candidate-state:8904391a69eef3c7aed1e6a7",
         "candidate-state:689c3dbf0c01cbb19346625d"
@@ -580,7 +592,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "C": 25,
@@ -604,17 +619,20 @@
         "product_heavy_atom_count": 33,
         "product_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "5452757aaad5306cbf22c02e14d0f8fb9ed1d17ed29ec3a525da1b3b285ca6ad",
+      "content_sha256": "6e928618dcd137f43a4d4bcc2d63afd11c9992700a86e7fa14943bf30b7f05a9",
       "input_state_ids": [
         "candidate-state:bcf3375f01df02558a63f084",
         "candidate-state:35fd2e13a7f609938de1f8a5"
@@ -661,7 +679,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "C": 25,
@@ -686,17 +707,20 @@
         "product_heavy_atom_count": 33,
         "product_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "eeb667ffe72f3fee55acefd99b76f573ddc3a3f4602af5950321dabfd965a277",
+      "content_sha256": "690d58516c15492624f4b6854a3f4b8f4d95651a8e5e4aaedb89718a723ed500",
       "input_state_ids": [
         "candidate-state:88c059fcdf9c53cc5fffdf93",
         "candidate-state:35fd2e13a7f609938de1f8a5"
@@ -743,7 +767,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "B": 1,
@@ -771,17 +798,20 @@
         "product_heavy_atom_count": 24,
         "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "f2a636a1d2d13201069c8be6cb979471e30bea6f9e1bb35c25a56e014dabe5e3",
+      "content_sha256": "2c8cf46f240b384fcd84322f7a7df15ef2642d2b0254275b311205f199800357",
       "input_state_ids": [
         "candidate-state:3b9c6e7e25fafe924d49c708",
         "candidate-state:5da735a86394608d43321612"
@@ -828,7 +858,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "B": 1,
@@ -853,17 +886,20 @@
         "product_heavy_atom_count": 16,
         "product_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "c0ddd374a513c0521bfd87d8ecf5b6deaa58545fdce06f285a4e39e9e4454fb5",
+      "content_sha256": "a7d320021a0bd7732ac3b3fc182ef93d48f061d5a4aabd0abaf5624b8e0bcf19",
       "input_state_ids": [
         "candidate-state:eba0a67d6a08ed2adcb891b3",
         "candidate-state:a1f4263b76dc7e9da83477e6"
@@ -910,7 +946,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "B": 1,
@@ -935,17 +974,20 @@
         "product_heavy_atom_count": 16,
         "product_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "d146289ec3519258386b01410ce1f370d7e1a5514073df6b3e88c5e2b1e68428",
+      "content_sha256": "748016dd0318649dc8ac18d69cbc58e1c562fdaa432ef0ecef01618feba9c800",
       "input_state_ids": [
         "candidate-state:380b442dc83a99f87f8cfd6f",
         "candidate-state:a1f4263b76dc7e9da83477e6"
@@ -991,7 +1033,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "C": 25,
@@ -1013,17 +1058,20 @@
         "product_heavy_atom_count": 33,
         "product_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "8d02047cb90cf91a729622b0051f2897684846857e756fefbabd18badcffd50f",
+      "content_sha256": "b13532ffe08048d4b9012c689fdf057d843fb190dbf4e00520c663c09ad54eee",
       "input_state_ids": [
         "candidate-state:67a6c2b5e5315eee35b8d82e"
       ],
@@ -1069,7 +1117,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "B": 1,
@@ -1097,17 +1148,20 @@
         "product_heavy_atom_count": 24,
         "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2F",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "1fe12421dcf0344dff7c0ba01104b285ae82b9cf05ec09198df111c823641eb7",
+      "content_sha256": "761df6f9a38879b496b21d66b8502d246e9f4134dccfbc3ad593365f438acf4f",
       "input_state_ids": [
         "candidate-state:05455c24eca6707ec61a28e7",
         "candidate-state:5da735a86394608d43321612"
@@ -1154,7 +1208,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "B": 1,
@@ -1182,17 +1239,20 @@
         "product_heavy_atom_count": 24,
         "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "97614d07a963367f16442c710d067a39f1c2b1897cbccd742352f6451be3e54f",
+      "content_sha256": "64779b24a9484d021d276a65c97c235bee722ab55f42eaa9b81caf74bd0b6276",
       "input_state_ids": [
         "candidate-state:9506c391a0ec417bef248778",
         "candidate-state:5da735a86394608d43321612"
@@ -1239,7 +1299,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "C": 22,
@@ -1264,17 +1327,20 @@
         "product_heavy_atom_count": 29,
         "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "627795607392dd53dcc21a391a41633b5ce963ad286b0eb0bc70cf8747ce2f7e",
+      "content_sha256": "d2e39cc4aba5e6c0872d2a03e4caf55871d382a7221a3598aa50ec6d9de1cc8b",
       "input_state_ids": [
         "candidate-state:8904391a69eef3c7aed1e6a7",
         "candidate-state:4596c1b14726c98bd52e92fb"
@@ -1323,7 +1389,10 @@
           "schema_version": "retrosynthetic_edge_identity.v1"
         },
         "element_deficits": {},
+        "external_atom_source_requires_validation": false,
         "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
         "missing_product_heavy_atom_count": 0,
         "precursor_element_counts": {
           "B": 1,
@@ -1348,17 +1417,20 @@
         "product_heavy_atom_count": 16,
         "product_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
         "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
         "schema_version": "retrosynthetic_candidate_admission.v1",
         "semantics": {
           "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
           "not_reaction_proof": true,
           "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
           "search_admission_only": true,
           "small_salts_and_leaving_groups_are_exempt": true
         },
         "surplus_advanced_precursor_fragments": []
       },
-      "content_sha256": "c97fefff2379a54a0aa0083abbc9c932d858a32846d1256f8b9ff068ebc90b8d",
+      "content_sha256": "521cd640accce8a9918ff272ca60f72d52c57d2eec131de3ec8266a0d2703140",
       "input_state_ids": [
         "candidate-state:f7034004c0c222a1650ededf",
         "candidate-state:a1f4263b76dc7e9da83477e6"

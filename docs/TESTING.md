@@ -56,8 +56,9 @@ python -m pytest -q -p no:cacheprovider -m "not legacy"
 python -m pytest -q -p no:cacheprovider -m legacy
 ```
 
-Tests under `tests/legacy/` protect saved-run and combined-Web compatibility;
-they are not evidence that those modules belong to the V4 mainline. V4
+Tests under `tests/legacy/` protect saved-run compatibility; the retired
+combined Web no longer has an executable regression surface. These tests
+are not evidence that those modules belong to the V4 mainline. V4
 architecture changes should also run `tests/test_legacy_namespace.py`, which
 checks that default package exports and fresh V4 imports stay isolated.
 

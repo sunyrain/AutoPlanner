@@ -131,9 +131,9 @@ python -m cascade_planner serve
 打开 `http://127.0.0.1:7860/` 进入唯一首页和唯一逆合成启动入口。首页使用
 Strategy Generator + 三分支 Route Builder：每次结构化模型输出都会实时投影，随后由 host replay
 补齐规范前体与校验状态。`/v4` 仅用于查看运行、路线 Workbench、展示案例和 benchmark 审计，
-不再提供独立的 ChemEnzy-first 启动表单。旧 `/synthesis` 与 `/v4/console` 重定向到首页；
-`/v4/showcase`、`/agent`、`/statins` 和 `/showcase` 仅作结果查看兼容重定向。CLI、V4 API 和
-Web workbench 共用 `CampaignGateway` 与
+不再提供独立的启动表单。旧 `/synthesis`、`/v4/console`、`/v4/showcase`、`/agent`、`/statins`
+和 `/showcase` 均已退役并返回 404；combined V3/V4 Web 已从可执行源码移入本地归档。
+CLI、V4 API 和 Web workbench 共用 `CampaignGateway` 与
 `RetrosynthesisCampaignService`。页面每 2 秒读取 canonical checkpoint，并分别显示路线
 结构闭合、证据待补、模型/视觉调用和历史快照；历史内核记录为 `running` 不代表进程仍在执行。
 

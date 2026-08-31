@@ -159,3 +159,78 @@ def test_strategy_sidecar_preserves_unbilled_callback_semantics() -> None:
     assert result["solved"] is True
     assert result["policy_calls"] == 1
     assert result["diagnostics"]["provider_callback_count"] == 2
+
+
+def test_strategy_sidecar_roundtrips_host_path_rejection_and_retries_parent() -> None:
+    root_calls = 0
+
+    def handler(request):
+        nonlocal root_calls
+        if request["depth"] == 0:
+            root_calls += 1
+            if root_calls == 1:
+                return {
+                    "candidates": [
+                        {
+                            "candidate_id": "rejected-root",
+                            "product_smiles": "CCO",
+                            "mapped_product_smiles": request[
+                                "expandable_mapped_smiles"
+                            ][0],
+                            "precursor_smiles": ["CC", "O"],
+                            "mapped_precursor_smiles": [
+                                "[CH3:1][CH3:2]",
+                                "[OH2:3]",
+                            ],
+                            "route_step": {
+                                "step_id": "rejected-root",
+                                "product_smiles": "CCO",
+                            },
+                        }
+                    ]
+                }
+            return {
+                "candidates": [
+                    {
+                        "candidate_id": "alternate-root",
+                        "product_smiles": "CCO",
+                        "mapped_product_smiles": request[
+                            "expandable_mapped_smiles"
+                        ][0],
+                        "precursor_smiles": ["C", "O"],
+                        "mapped_precursor_smiles": ["[CH4:1]", "[OH2:3]"],
+                        "route_step": {
+                            "step_id": "alternate-root",
+                            "product_smiles": "CCO",
+                        },
+                    }
+                ]
+            }
+        return {
+            "candidates": [],
+            "model_call_consumed": False,
+            "rejected_path_step_ids": ["rejected-root"],
+            "rejection_reason": "followup critic rejected the root action",
+        }
+
+    result = run_aizynthfinder_strategy_branch_sidecar(
+        target_smiles="CCO",
+        mapped_target_smiles="[CH3:1][CH2:2][OH:3]",
+        strategy_id="path-rejection-roundtrip",
+        strategy_text="retry the parent after rejecting one edge",
+        request_handler=handler,
+        inline_stock_smiles=("C", "O"),
+        max_policy_calls=2,
+        max_candidates_per_call=1,
+        max_transforms=3,
+        max_mcts_iterations=6,
+        timeout_s=60,
+    )
+
+    assert result["solved"] is True
+    assert result["policy_calls"] == 2
+    assert result["diagnostics"]["provider_callback_count"] == 3
+    assert result["diagnostics"]["path_rejection_count"] == 1
+    assert [row["step_id"] for row in result["route_steps"]] == [
+        "alternate-root"
+    ]

@@ -9,6 +9,9 @@ from pathlib import Path
 
 import pytest
 
+from cascade_planner.application.campaign_action_status import (
+    compile_active_campaign_actions,
+)
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisRunBudget,
 )
@@ -506,6 +509,107 @@ def test_event_idempotency_prevents_double_count_and_conflicts(
     assert lifecycle["status"] == "settled"
     assert lifecycle["settlement"]["event_id"] == settled.event_id
     assert kernel.state.attempt_count == 0
+
+
+def test_terminal_run_interrupts_active_projection_without_faking_task_cost(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="director",
+        kind="model",
+        idempotency_key="reserve-director",
+        input_revision=0,
+        uses_model=True,
+        metadata={
+            "campaign_action_id": "action:director:1",
+            "campaign_action_execution_id": "campaign-action:director:1",
+            "campaign_action_kind": "codex_global_architecture",
+        },
+    )
+
+    assert len(compile_active_campaign_actions(kernel.state)) == 1
+
+    cancellation = kernel.cancel(
+        idempotency_key="operator:cancel",
+        reasons=("user_requested",),
+    )
+    state = kernel.state
+
+    assert state.status == "cancelled"
+    assert state.active_task_reservations == {}
+    assert set(state.interrupted_task_reservations) == {"director"}
+    assert state.settled_task_count == 0
+    assert state.model_totals["model_invocations"] == 0
+    assert compile_active_campaign_actions(state) == []
+    lifecycle = kernel.task_lifecycle("director")
+    assert lifecycle["status"] == "interrupted"
+    assert lifecycle["interruption"]["event_id"] == cancellation.event_id
+    assert lifecycle["settlement"] == {}
+
+    reopened = RunKernel(tmp_path / "runtime", tmp_path / "run")
+    assert reopened.task_lifecycle("director")["status"] == "interrupted"
+    assert reopened.state.active_task_reservations == {}
+    recovery = reopened.recover()
+    assert recovery["active_task_count"] == 0
+    assert recovery["interrupted_task_count"] == 1
+    assert recovery["semantics"][
+        "terminal_reservations_are_historical_until_measured_settlement"
+    ] is True
+
+
+def test_late_measured_settlement_supersedes_terminal_interruption(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="model",
+        kind="model",
+        idempotency_key="reserve-model",
+        input_revision=0,
+        uses_model=True,
+    )
+    kernel.cancel(idempotency_key="cancel-model")
+
+    kernel.settle_task(
+        task_id="model",
+        idempotency_key="settle-model",
+        status="cancelled",
+        model_usage={"model_invocations": 1, "input_tokens": 31},
+        elapsed_s=2.5,
+    )
+
+    state = kernel.state
+    assert state.status == "cancelled"
+    assert state.in_flight_tasks == {}
+    assert state.settled_task_count == 1
+    assert state.model_totals["model_invocations"] == 1
+    assert state.model_totals["input_tokens"] == 31
+    assert kernel.task_lifecycle("model")["status"] == "settled"
+
+
+def test_graceful_terminal_transition_requires_measured_task_settlement(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="validation",
+        kind="validation",
+        idempotency_key="reserve-validation",
+        input_revision=0,
+    )
+
+    with pytest.raises(
+        RunKernelError,
+        match="graceful_terminal_transition_requires_settled_tasks",
+    ):
+        kernel.transition("completed", idempotency_key="complete-too-early")
+
+    assert kernel.state.status == "running"
+    assert set(kernel.state.active_task_reservations) == {"validation"}
 
 
 def test_task_checkpoints_are_cas_bound_ordered_and_replayable(

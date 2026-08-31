@@ -3,8 +3,14 @@ from cascade_planner.application.route_reconciliation import (
 )
 
 
-def _family(route_id: str, steps: int, open_leaves: int) -> dict:
-    return {
+def _family(
+    route_id: str,
+    steps: int,
+    open_leaves: int,
+    *,
+    current_steps: int | None = None,
+) -> dict:
+    family = {
         "route_family_id": route_id,
         "title": route_id,
         "aizynthfinder_strategy_search": {
@@ -14,6 +20,12 @@ def _family(route_id: str, steps: int, open_leaves: int) -> dict:
             "selected_solved": open_leaves == 0,
         },
     }
+    if current_steps is not None:
+        family["steps"] = [
+            {"step_id": f"{route_id}:current:{index}"}
+            for index in range(current_steps)
+        ]
+    return family
 
 
 def _record(route_id: str, proposal_id: str, *, materialized: bool, reasons=()):
@@ -74,6 +86,45 @@ def test_reconciliation_distinguishes_admission_gap_from_stock_open() -> None:
     ]
     assert rows["family:stock"]["classification"] == "stock_closure_open"
     assert result["materialization_gap_route_count"] == 1
+
+
+def test_reconciliation_does_not_treat_editor_revision_as_materialization_gap() -> None:
+    result = compile_route_reconciliation(
+        [
+            {
+                "status": "accepted",
+                "plan": {
+                    "route_families": [
+                        _family(
+                            "family:edited",
+                            18,
+                            2,
+                            current_steps=10,
+                        )
+                    ]
+                },
+            }
+        ],
+        lifecycle={
+            "records": [
+                _record("family:edited", f"p{i}", materialized=True)
+                for i in range(10)
+            ]
+        },
+        paper_equivalent={
+            "reached_routes": [{"route_family_id": "family:edited"}],
+            "solved_routes": [],
+        },
+    )
+
+    row = result["routes"][0]
+    assert row["projected_step_count"] == 18
+    assert row["current_route_step_count"] == 10
+    assert row["search_to_current_route_step_delta"] == 8
+    assert row["search_projection_superseded"] is True
+    assert row["materialization_gap_step_count"] == 0
+    assert row["classification"] == "stock_closure_open"
+    assert result["materialization_gap_route_count"] == 0
 
 
 def test_reconciliation_is_diagnostic_only() -> None:

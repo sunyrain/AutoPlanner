@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Mapping
 
 
-ROUTE_RECONCILIATION_SCHEMA = "route_search_materialization_reconciliation.v1"
+ROUTE_RECONCILIATION_SCHEMA = "route_search_materialization_reconciliation.v2"
 
 
 def _route_records(
@@ -78,9 +78,12 @@ def compile_route_reconciliation(
 ) -> dict[str, Any]:
     """Explain route progress across search, admission, materialization, and stock.
 
-    ``projected_step_count`` is the provider's connected path projection;
-    ``materialized_step_count`` is the count that survived canonical host
-    materialization.  They are deliberately not collapsed into one number.
+    ``projected_step_count`` is the provider's original connected search path;
+    ``current_route_step_count`` is the latest Host-replayable RouteJSON
+    revision after any accepted Editor repair; and ``materialized_step_count``
+    is the count that entered the canonical graph.  A legitimate route
+    revision must not be reported as missing canonical materialization merely
+    because it no longer has the same length as the original search path.
     """
 
     route_families_by_id: dict[str, Mapping[str, Any]] = {}
@@ -142,11 +145,21 @@ def compile_route_reconciliation(
             or family.get("route_call_count")
             or 0
         )
+        current_route_rows = [
+            row
+            for row in family.get("steps") or []
+            if isinstance(row, Mapping)
+        ]
+        current_route_step_count = (
+            len(current_route_rows) if current_route_rows else projected
+        )
         materialized = len(materialized_records)
+        materialization_gap = max(0, current_route_step_count - materialized)
+        search_to_current_delta = projected - current_route_step_count
         comparison_ids = {route_id, *canonical_route_ids}
         reached = bool(comparison_ids.intersection(reached_ids))
         solved = bool(comparison_ids.intersection(solved_ids))
-        if quarantined_records:
+        if quarantined_records or materialization_gap:
             classification = "materialization_admission_gap"
         elif solved:
             classification = "paper_equivalent_solved"
@@ -162,10 +175,13 @@ def compile_route_reconciliation(
                 "canonical_route_family_ids": sorted(canonical_route_ids),
                 "title": str(family.get("title") or ""),
                 "projected_step_count": projected,
+                "current_route_step_count": current_route_step_count,
+                "search_to_current_route_step_delta": search_to_current_delta,
+                "search_projection_superseded": bool(search_to_current_delta),
                 "admitted_step_count": len(admitted_records),
                 "materialized_step_count": materialized,
                 "quarantined_step_count": len(quarantined_records),
-                "materialization_gap_step_count": max(0, projected - materialized),
+                "materialization_gap_step_count": materialization_gap,
                 "materialization_gap_reasons": gap_reasons,
                 "search_selected_open_leaves": int(search.get("selected_open_leaves") or 0),
                 "search_selected_solved": bool(search.get("selected_solved")),
@@ -178,6 +194,8 @@ def compile_route_reconciliation(
                 "classification": classification,
                 "semantics": {
                     "projected_steps_are_not_canonical_steps": True,
+                    "current_route_revision_owns_materialization_expectation": True,
+                    "search_projection_delta_is_not_materialization_failure": True,
                     "paper_metric_is_existential_stock_topology_only": True,
                     "quarantine_precedes_stock_interpretation": True,
                 },

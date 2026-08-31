@@ -178,7 +178,7 @@ class RetrosynthesisCampaignService(
             "model_totals": dict(state.model_totals),
             "native_search": self.kernel.native_search_budget(),
             "task_budget": self.kernel.task_budget(),
-            "active_actions": compile_active_campaign_actions(state.in_flight_tasks),
+            "active_actions": compile_active_campaign_actions(state),
             "frontier": list(state.deficits),
             "portfolio": portfolio,
             "campaign_spec": self.kernel.spec.campaign_spec.to_dict(),

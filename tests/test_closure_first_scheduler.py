@@ -17,7 +17,8 @@ def test_existing_route_closes_before_new_frontier_even_when_expansion_scores_hi
     decision = schedule_next_action(
         {
             "actions": [
-                _action("expand", "chemenzy_frontier_expand", "native_search_frontier"),
+                _action("expand", "native_short_tail_expand", "native_search_frontier"),
+                _action("builder", "codex_frontier_expand", "model"),
                 _action("stock", "stock_audit", "stock"),
                 _action("validate", "reaction_validate", "validation"),
                 _action("materialize", "host_materialize", "deterministic"),
@@ -30,7 +31,8 @@ def test_existing_route_closes_before_new_frontier_even_when_expansion_scores_hi
         },
         resource_availability={},
         available_action_kinds=(
-            "chemenzy_frontier_expand",
+            "native_short_tail_expand",
+            "codex_frontier_expand",
             "stock_audit",
             "reaction_validate",
             "host_materialize",
@@ -40,5 +42,6 @@ def test_existing_route_closes_before_new_frontier_even_when_expansion_scores_hi
     assert decision["selected_action_id"] == "materialize"
     blocked = {row["action_id"]: row["blocked_reasons"] for row in decision["candidates"]}
     assert "route_closure_pipeline_pending:host_materialize" in blocked["expand"]
+    assert "route_closure_pipeline_pending:host_materialize" in blocked["builder"]
     assert "earlier_route_closure_stage_pending:host_materialize" in blocked["validate"]
     assert "earlier_route_closure_stage_pending:host_materialize" in blocked["stock"]

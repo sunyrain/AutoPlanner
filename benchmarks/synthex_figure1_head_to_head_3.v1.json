@@ -11,10 +11,10 @@
       "budget": {
         "max_accepted_expansions": 96,
         "max_attempt_runs": 256,
-        "max_model_invocations": 150,
+        "max_model_invocations": 240,
         "max_prompt_context_bytes": 96000,
-        "max_total_input_tokens": 3000000,
-        "max_total_output_tokens": 1000000,
+        "max_total_input_tokens": 6000000,
+        "max_total_output_tokens": 2000000,
         "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfig1-001-9c1f431594a7",
@@ -33,10 +33,10 @@
       "budget": {
         "max_accepted_expansions": 96,
         "max_attempt_runs": 256,
-        "max_model_invocations": 150,
+        "max_model_invocations": 240,
         "max_prompt_context_bytes": 96000,
-        "max_total_input_tokens": 3000000,
-        "max_total_output_tokens": 1000000,
+        "max_total_input_tokens": 6000000,
+        "max_total_output_tokens": 2000000,
         "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfig1-002-5cac6c0d9928",
@@ -55,10 +55,10 @@
       "budget": {
         "max_accepted_expansions": 96,
         "max_attempt_runs": 256,
-        "max_model_invocations": 150,
+        "max_model_invocations": 240,
         "max_prompt_context_bytes": 96000,
-        "max_total_input_tokens": 3000000,
-        "max_total_output_tokens": 1000000,
+        "max_total_input_tokens": 6000000,
+        "max_total_output_tokens": 2000000,
         "max_total_wall_time_s": 70200
       },
       "case_id": "synthexfig1-003-63956b2f8f73",

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import base64
 import re
 import signal
 import shutil
@@ -30,10 +31,23 @@ from cascade_planner.agent.action_contracts import (
     PLANNER_SOURCE_HINT_SCHEMA,
     contains_raw_reaction_payload,
 )
+from cascade_planner.application.strategy_contract import (
+    KEY_EVENT_REPAIR_SCOPES,
+    normalize_key_event_repair_scope,
+)
 WORKER_TASK_SCHEMA = "worker_task.v1"
 WORKER_RUN_RECORD_SCHEMA = "worker_run_record.v1"
 WORKER_OUTPUT_VALIDATION_SCHEMA = "worker_output_validation.v1"
 DEFAULT_RETROSYNTHESIS_KEY_FILE = Path(__file__).resolve().parents[2] / "key.txt"
+
+# Ambient ChatGPT auth is snapshotted into an isolated worker home so the
+# chemistry worker cannot mutate the user's Codex configuration. Near token
+# expiry, however, independent snapshots would all try to spend the same
+# single-use refresh token. One process-local refresh lease lets the first
+# worker update the ambient authority while unrelated, fresh-token calls stay
+# parallel.
+_AMBIENT_AUTH_REFRESH_LOCK = threading.RLock()
+_AMBIENT_AUTH_REFRESH_WINDOW_S = 600.0
 
 ALLOWED_WORKER_TASK_TYPES = {
     "target_research",
@@ -48,6 +62,7 @@ ALLOWED_WORKER_TASK_TYPES = {
     "paper_matched_key_event_critic",
     "paper_matched_route_critic",
     "paper_matched_route_editor",
+    "path_repair_editor",
     "route_audit_research",
     "condition_research",
     "evolution_candidate_research",
@@ -63,6 +78,21 @@ PAPER_MATCHED_WORKER_TASK_TYPES = frozenset(
         "paper_matched_route_editor",
     }
 )
+PATH_REPAIR_WORKER_TASK_TYPES = frozenset({"path_repair_editor"})
+STRICT_CHEMISTRY_WORKER_TASK_TYPES = (
+    PAPER_MATCHED_WORKER_TASK_TYPES | PATH_REPAIR_WORKER_TASK_TYPES
+)
+STRICT_CHEMISTRY_PERMISSION_PROFILE = "autoplanner-chemistry-worker"
+LOCAL_CHEMISTRY_TOOL_TASK_TYPES = frozenset(
+    {
+        "paper_matched_route_step",
+        "paper_matched_key_event_critic",
+        "paper_matched_route_critic",
+        "paper_matched_route_editor",
+        "path_repair_editor",
+    }
+)
+LOCAL_CHEMISTRY_TOOL_NAME = "inspect_mapped_smiles"
 ALLOWED_WORKER_ARTIFACT_TYPES = {
     "AgentActionBatch",
     "ResearchReport",
@@ -316,7 +346,16 @@ def run_codex_worker(
         validation = dict(validation)
         validation["reasons"] = sorted(set([*validation.get("reasons", []), *runtime_reasons]))
         validation["accepted"] = False
-    status = "accepted_draft" if validation["accepted"] else "rejected_output"
+    provider_failure_reason = _worker_provider_failure_reason_from_process(process)
+    if provider_failure_reason:
+        validation = dict(validation)
+        validation["reasons"] = sorted(
+            set([*validation.get("reasons", []), provider_failure_reason])
+        )
+        validation["accepted"] = False
+        status = "provider_error"
+    else:
+        status = "accepted_draft" if validation["accepted"] else "rejected_output"
     return WorkerRunRecord(
         run_id=f"{task.task_id}:run",
         task_id=task.task_id,
@@ -332,6 +371,11 @@ def run_codex_worker(
         output_validation=validation,
         metadata={
             **dict(process.metadata or {}),
+            **(
+                {"provider_failure_reason": provider_failure_reason}
+                if provider_failure_reason
+                else {}
+            ),
             **(
                 {"unicode_mojibake_repairs": unicode_repairs}
                 if unicode_repairs
@@ -430,6 +474,9 @@ def validate_worker_output(task: WorkerTask, artifact: Any) -> dict[str, Any]:
     if task.task_type == "paper_matched_route_step":
         payload = artifact.get("payload") if isinstance(artifact, dict) else None
         reasons.extend(_paper_matched_route_step_contract_reasons(payload))
+    if task.task_type == "paper_matched_key_event_critic":
+        payload = artifact.get("payload") if isinstance(artifact, dict) else None
+        reasons.extend(_paper_matched_key_event_critic_contract_reasons(payload))
     return {
         "schema_version": WORKER_OUTPUT_VALIDATION_SCHEMA,
         "accepted": not reasons,
@@ -475,6 +522,25 @@ def _paper_matched_route_step_contract_reasons(payload: Any) -> list[str]:
         if not isinstance(candidate.get("conditions"), list):
             reasons.append("paper_route_step_conditions_not_list")
     return sorted(set(reasons))
+
+
+def _paper_matched_key_event_critic_contract_reasons(payload: Any) -> list[str]:
+    """Keep chemical verdict and mutation ownership internally consistent."""
+
+    if not isinstance(payload, Mapping):
+        return ["paper_key_critic_payload_not_object"]
+    assessments = payload.get("step_assessments")
+    if not isinstance(assessments, list) or len(assessments) != 1:
+        return ["paper_key_critic_focus_assessment_invalid"]
+    assessment = assessments[0]
+    if not isinstance(assessment, Mapping):
+        return ["paper_key_critic_focus_assessment_invalid"]
+    if not normalize_key_event_repair_scope(
+        assessment.get("repair_scope"),
+        verdict=assessment.get("verdict"),
+    ):
+        return ["paper_key_critic_repair_scope_inconsistent"]
+    return []
 
 
 def worker_task_from_dict(data: dict[str, Any]) -> WorkerTask:
@@ -552,13 +618,14 @@ def _run_codex_cli_worker(
     if not _codex_executable_available(executable):
         raise FileNotFoundError(f"Codex CLI executable not found: {executable}")
 
-    workdir = Path(task.allowed_workdir or ".").resolve()
-    workdir.mkdir(parents=True, exist_ok=True)
+    audit_root = Path(task.allowed_workdir or ".").resolve()
+    audit_root.mkdir(parents=True, exist_ok=True)
+    strict_chemistry = task.task_type in STRICT_CHEMISTRY_WORKER_TASK_TYPES
     prompt = _codex_worker_prompt(task)
     worker_temp_root: Path | None = None
-    candidate_temp_roots = [
+    candidate_temp_roots = [] if strict_chemistry else [
         Path(__file__).resolve().parents[2] / ".codex-worker-tmp",
-        workdir / ".autoplanner" / "codex-worker-tmp",
+        audit_root / ".autoplanner" / "codex-worker-tmp",
     ]
     for candidate in candidate_temp_roots:
         try:
@@ -575,42 +642,111 @@ def _run_codex_cli_worker(
         temp_kwargs["dir"] = str(worker_temp_root)
     with tempfile.TemporaryDirectory(**temp_kwargs) as tmp:
         tmp_path = Path(tmp)
+        model_workspace = audit_root
+        local_chemistry_tool = task.task_type in LOCAL_CHEMISTRY_TOOL_TASK_TYPES
+        if strict_chemistry:
+            model_workspace = tmp_path / "model_workspace"
+            model_workspace.mkdir(parents=True, exist_ok=True)
+            if local_chemistry_tool:
+                for name in (
+                    "chemistry_inspection.py",
+                    "chemistry_inspection_mcp.py",
+                ):
+                    shutil.copyfile(
+                        Path(__file__).resolve().parents[1] / "application" / name,
+                        model_workspace / name,
+                    )
         output_path = tmp_path / "last_message.json"
         schema_path = tmp_path / "worker_output_schema.json"
         schema_path.write_text(
             json.dumps(schema, indent=2),
             encoding="utf-8",
         )
-        env, metadata = _codex_cli_runtime_environment(tmp_path, workdir, task)
+        env, metadata = _codex_cli_runtime_environment(
+            tmp_path,
+            model_workspace,
+            task,
+        )
+        if strict_chemistry:
+            env = _configure_strict_chemistry_worker_environment(
+                env,
+                model_workspace=model_workspace,
+                audit_root=audit_root,
+                enable_local_chemistry_tool=local_chemistry_tool,
+            )
+            metadata = {
+                **metadata,
+                "permission_profile": STRICT_CHEMISTRY_PERMISSION_PROFILE,
+                "model_workdir": str(model_workspace),
+                "audit_workdir": str(audit_root),
+                "command_network_enabled": False,
+                "shared_workspace_readable": False,
+                "local_chemistry_tool": (
+                    LOCAL_CHEMISTRY_TOOL_NAME if local_chemistry_tool else ""
+                ),
+            }
         command = _codex_cli_command(
             executable=_codex_executable_command(executable),
-            workdir=workdir,
+            workdir=model_workspace,
             output_path=output_path,
             schema_path=schema_path,
             runtime_metadata=metadata,
-            search_enabled=_task_allows_cli_search(task),
-            multi_agent_enabled=task.agent_mode == "coordinator",
+            search_enabled=(
+                False if strict_chemistry else _task_allows_cli_search(task)
+            ),
+            multi_agent_enabled=(
+                task.agent_mode == "coordinator" and not strict_chemistry
+            ),
+            use_permission_profile=strict_chemistry,
         )
-        try:
-            returncode, stdout, stderr = _run_worker_command(
-                command,
-                cwd=workdir,
-                input_text=prompt,
-                env=env,
-                timeout_s=float(task.budget.timeout_s),
-                cancel_event=cancel_event,
-                cancel_backend="codex_cli",
+        auth_refresh_lease = False
+        ambient_home = _ambient_worker_auth_home(metadata)
+        worker_home = _worker_codex_home(env)
+        if ambient_home is not None and _ambient_auth_refresh_due(ambient_home):
+            _AMBIENT_AUTH_REFRESH_LOCK.acquire()
+            auth_refresh_lease = True
+            _refresh_worker_auth_snapshot(
+                source_home=ambient_home,
+                worker_home=worker_home,
             )
-        except subprocess.TimeoutExpired as exc:
-            raise WorkerTimeoutError(
-                f"worker timeout after {task.budget.timeout_s}s",
-                backend="codex_cli",
-                command=command,
-            ) from exc
+            # A preceding worker may have refreshed the authority while this
+            # call waited. Fresh snapshots do not need to remain serialized.
+            if not _ambient_auth_refresh_due(ambient_home):
+                _AMBIENT_AUTH_REFRESH_LOCK.release()
+                auth_refresh_lease = False
+        try:
+            try:
+                returncode, stdout, stderr = _run_worker_command(
+                    command,
+                    cwd=model_workspace,
+                    input_text=prompt,
+                    env=env,
+                    timeout_s=float(task.budget.timeout_s),
+                    cancel_event=cancel_event,
+                    cancel_backend="codex_cli",
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise WorkerTimeoutError(
+                    f"worker timeout after {task.budget.timeout_s}s",
+                    backend="codex_cli",
+                    command=command,
+                ) from exc
+        finally:
+            if ambient_home is not None:
+                _publish_refreshed_worker_auth(
+                    worker_home=worker_home,
+                    ambient_home=ambient_home,
+                )
+            if auth_refresh_lease:
+                _AMBIENT_AUTH_REFRESH_LOCK.release()
         final = output_path.read_text(encoding="utf-8", errors="replace") if output_path.exists() else stdout
         stderr = stderr or ""
         event_audit = _parse_codex_jsonl_events(stdout)
-        event_log_path = _write_codex_event_log(workdir, task=task, stdout=stdout)
+        event_log_path = _write_codex_event_log(
+            audit_root,
+            task=task,
+            stdout=stdout,
+        )
         child_agents = _assign_child_roles(
             event_audit["child_agents"],
             roles=task.child_roles,
@@ -989,7 +1125,12 @@ def _ambient_codex_cli_worker_environment(
     codex_home = tmp_path / "codex_home"
     codex_home.mkdir(parents=True, exist_ok=True)
     copied_inputs: list[str] = []
-    for name in ("auth.json", "installation_id", "models_cache.json"):
+    # The ambient model cache is tied to the installed Codex schema.  Copying
+    # it into every disposable worker caused each real call to reject the
+    # stale cache (for example, a missing ``base_instructions`` field) before
+    # downloading the same current catalog again.  Auth and installation
+    # identity are the only ambient files the worker actually needs.
+    for name in ("auth.json", "installation_id"):
         source = source_home / name
         if not source.is_file():
             continue
@@ -1021,6 +1162,7 @@ def _ambient_codex_cli_worker_environment(
         "config_mode": "provider_only_snapshot",
         "configured_model_provider": configured_model_provider,
         "transport": _codex_worker_transport(),
+        "ambient_codex_home": str(source_home),
     }
 
 
@@ -1031,6 +1173,84 @@ def _ambient_codex_home() -> Path:
         if candidate.is_dir():
             return candidate
     return Path.home() / ".codex"
+
+
+def _ambient_worker_auth_home(metadata: Mapping[str, Any]) -> Path | None:
+    if str(metadata.get("auth_source") or "") != "ambient_codex_cli_snapshot":
+        return None
+    value = str(metadata.get("ambient_codex_home") or "").strip()
+    return Path(value).expanduser().resolve() if value else None
+
+
+def _worker_codex_home(environment: Mapping[str, str]) -> Path:
+    value = str(environment.get("CODEX_HOME") or "").strip()
+    if not value:
+        raise RuntimeError("codex worker home missing")
+    return Path(value).expanduser().resolve()
+
+
+def _ambient_auth_refresh_due(source_home: Path) -> bool:
+    expiry = _auth_access_token_expiry(source_home / "auth.json")
+    if expiry is None:
+        # Unknown ambient auth formats are serialized at the refresh boundary
+        # instead of being copied concurrently with no coordination.
+        return True
+    return expiry - time.time() <= _AMBIENT_AUTH_REFRESH_WINDOW_S
+
+
+def _auth_access_token_expiry(path: Path) -> float | None:
+    try:
+        auth = json.loads(path.read_text(encoding="utf-8"))
+        token = str(dict(auth.get("tokens") or {}).get("access_token") or "")
+        payload = token.split(".", 2)[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
+        return float(claims["exp"])
+    except (OSError, ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def _refresh_worker_auth_snapshot(*, source_home: Path, worker_home: Path) -> None:
+    source = source_home / "auth.json"
+    if source.is_file():
+        shutil.copyfile(source, worker_home / "auth.json")
+
+
+def _publish_refreshed_worker_auth(*, worker_home: Path, ambient_home: Path) -> bool:
+    """Publish only a demonstrably newer worker token back to its authority."""
+
+    candidate_path = worker_home / "auth.json"
+    ambient_path = ambient_home / "auth.json"
+    if not candidate_path.is_file() or not ambient_path.is_file():
+        return False
+    with _AMBIENT_AUTH_REFRESH_LOCK:
+        try:
+            candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+            ambient = json.loads(ambient_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        candidate_refresh = str(candidate.get("last_refresh") or "")
+        ambient_refresh = str(ambient.get("last_refresh") or "")
+        candidate_expiry = _auth_access_token_expiry(candidate_path) or 0.0
+        ambient_expiry = _auth_access_token_expiry(ambient_path) or 0.0
+        if (
+            candidate_refresh <= ambient_refresh
+            and candidate_expiry <= ambient_expiry
+        ):
+            return False
+        temporary = ambient_home / f".auth.autoplanner.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            temporary.write_text(
+                json.dumps(candidate, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(ambient_path)
+        finally:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return True
 
 
 def _ambient_codex_provider_config(source: Path) -> str:
@@ -1107,6 +1327,117 @@ def _codex_cli_worker_environment(
         "codex_home": "ephemeral",
     }
     return env, metadata
+
+
+def _configure_strict_chemistry_worker_environment(
+    environment: Mapping[str, str],
+    *,
+    model_workspace: Path,
+    audit_root: Path,
+    enable_local_chemistry_tool: bool = False,
+) -> dict[str, str]:
+    """Install one per-worker least-privilege command profile.
+
+    The Codex parent process retains its model/auth transport.  Only commands
+    authored by the chemistry worker are confined to the disposable model
+    workspace and no command network.  A narrow stdio MCP tool owns RDKit
+    inspection without granting the model a general Python runtime.  The
+    durable audit directory and repository remain outside the model's view.
+    """
+
+    env = dict(environment)
+    codex_home_value = str(env.get("CODEX_HOME") or "").strip()
+    if not codex_home_value:
+        raise RuntimeError("strict chemistry worker requires an ephemeral CODEX_HOME")
+    codex_home = Path(codex_home_value).resolve()
+    config_path = codex_home / "config.toml"
+    existing = (
+        config_path.read_text(encoding="utf-8", errors="replace")
+        if config_path.is_file()
+        else ""
+    )
+    retained: list[str] = []
+    for line in existing.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("sandbox_mode") and "=" in stripped:
+            continue
+        if stripped.startswith("default_permissions") and "=" in stripped:
+            continue
+        retained.append(line)
+    filesystem_rules: dict[str, str] = {
+        ":root": "deny",
+        str(audit_root.resolve()): "deny",
+        str(model_workspace.resolve()): "write",
+    }
+    profile_lines = [
+        f"[permissions.{STRICT_CHEMISTRY_PERMISSION_PROFILE}]",
+        'description = "Isolated local RDKit workspace without command network access."',
+        "",
+        f"[permissions.{STRICT_CHEMISTRY_PERMISSION_PROFILE}.filesystem]",
+    ]
+    profile_lines.extend(
+        f"{_toml_string(path)} = {_toml_string(access)}"
+        for path, access in filesystem_rules.items()
+    )
+    profile_lines.extend(
+        [
+            "",
+            f"[permissions.{STRICT_CHEMISTRY_PERMISSION_PROFILE}.network]",
+            "enabled = false",
+            "",
+        ]
+    )
+    config_lines = [
+        f"default_permissions = {_toml_string(STRICT_CHEMISTRY_PERMISSION_PROFILE)}",
+        "",
+        *retained,
+        "",
+    ]
+    if os.name == "nt":
+        config_lines.extend(
+            [
+                "[windows]",
+                # Official Codex guidance recommends elevated first, but the
+                # current host cannot create its dedicated sandbox user
+                # (CreateProcessWithLogonW error 2).  Unelevated is the
+                # documented fallback; RDKit remains available through the
+                # out-of-sandbox, single-purpose stdio MCP server above.
+                'sandbox = "unelevated"',
+                "",
+            ]
+        )
+    if enable_local_chemistry_tool:
+        server_path = model_workspace / "chemistry_inspection_mcp.py"
+        config_lines.extend(
+            [
+                "[mcp_servers.chemistry_inspection]",
+                f"command = {_toml_string(sys.executable)}",
+                f"args = [{_toml_string(str(server_path))}]",
+                f"cwd = {_toml_string(str(model_workspace))}",
+                "required = true",
+                f"enabled_tools = [{_toml_string(LOCAL_CHEMISTRY_TOOL_NAME)}]",
+                "startup_timeout_sec = 15",
+                "tool_timeout_sec = 30",
+                "",
+                "[mcp_servers.chemistry_inspection.tools.inspect_mapped_smiles]",
+                'approval_mode = "approve"',
+                "",
+            ]
+        )
+    config_path.write_text(
+        "\n".join([*config_lines, *profile_lines]).lstrip(),
+        encoding="utf-8",
+    )
+    # Strict tasks cannot use environment variables to select a broader legacy
+    # sandbox/config profile or to import repository code through PYTHONPATH.
+    for name in (
+        "AUTOPLANNER_CODEX_WORKER_SANDBOX",
+        "AUTOPLANNER_CODEX_SANDBOX",
+        "AUTOPLANNER_CODEX_WORKER_PROFILE",
+        "PYTHONPATH",
+    ):
+        env.pop(name, None)
+    return env
 
 
 def _task_reasoning_effort(task: WorkerTask) -> str:
@@ -1387,6 +1718,7 @@ def _codex_cli_command(
     runtime_metadata: dict[str, Any] | None = None,
     search_enabled: bool | None = None,
     multi_agent_enabled: bool = False,
+    use_permission_profile: bool = False,
 ) -> list[str]:
     command = list(executable) if isinstance(executable, list) else [executable]
     runtime_metadata = dict(runtime_metadata or {})
@@ -1426,7 +1758,10 @@ def _codex_cli_command(
     command.extend([
         "exec",
     ])
-    if str(runtime_metadata.get("codex_home") or "") == "ephemeral":
+    if (
+        str(runtime_metadata.get("codex_home") or "") == "ephemeral"
+        and not use_permission_profile
+    ):
         command.append("--ignore-user-config")
         base_url = str(runtime_metadata.get("base_url") or "").strip()
         if base_url:
@@ -1445,11 +1780,12 @@ def _codex_cli_command(
     # Git trust check is only a CLI launch precondition and otherwise causes
     # zero-token failures before the provider is contacted.
     command.append("--skip-git-repo-check")
-    sandbox = _codex_worker_sandbox_mode()
-    if sandbox == "bypassed":
-        command.append("--dangerously-bypass-approvals-and-sandbox")
-    else:
-        command.extend(["--sandbox", sandbox])
+    if not use_permission_profile:
+        sandbox = _codex_worker_sandbox_mode()
+        if sandbox == "bypassed":
+            command.append("--dangerously-bypass-approvals-and-sandbox")
+        else:
+            command.extend(["--sandbox", sandbox])
     command.extend([
         "--ephemeral",
         "--color",
@@ -1464,7 +1800,7 @@ def _codex_cli_command(
     if model:
         command.extend(["--model", model])
     profile = os.environ.get("AUTOPLANNER_CODEX_WORKER_PROFILE")
-    if profile:
+    if profile and not use_permission_profile:
         command.extend(["--profile", profile])
     if _env_flag("AUTOPLANNER_CODEX_WORKER_OSS", default=False):
         command.append("--oss")
@@ -1506,8 +1842,9 @@ def _codex_worker_sandbox_mode() -> str:
         return value
     return "read-only"
 
-
 def _task_allows_cli_search(task: WorkerTask) -> bool:
+    if task.task_type in STRICT_CHEMISTRY_WORKER_TASK_TYPES:
+        return False
     if (
         task.budget.max_tool_calls is not None
         and int(task.budget.max_tool_calls) <= 0
@@ -1518,11 +1855,16 @@ def _task_allows_cli_search(task: WorkerTask) -> bool:
 
 
 def _codex_worker_prompt(task: WorkerTask) -> str:
-    if task.task_type in PAPER_MATCHED_WORKER_TASK_TYPES:
+    if task.task_type in STRICT_CHEMISTRY_WORKER_TASK_TYPES:
+        execution_context = (
+            "This is a blind self-correcting route-repair task derived from the frozen paper baseline."
+            if task.task_type in PATH_REPAIR_WORKER_TASK_TYPES
+            else "This is a blind paper-matched chemistry task."
+        )
         return "\n".join(
             [
                 "Return exactly one JSON object satisfying the supplied output schema; emit no markdown or prose outside JSON.",
-                "This is a blind paper-matched chemistry task. Judge the supplied structures and route context without inferring target identity or claiming evidence, validation, stock, or solved status.",
+                execution_context + " Judge the supplied structures and route context without inferring target identity or claiming evidence, validation, stock, or solved status.",
                 "Reason deeply before choosing, but keep authored fields concise and report only the selected result, not hidden deliberation or a long explanation.",
                 "Task objective:",
                 task.objective,
@@ -1610,8 +1952,11 @@ def _artifact_payload_instruction(
         ("paper_matched_route_editor", "RetrosynthesisProposalReport"): (
             "Return one schema-defined dependency-closed replace_span; the host preserves all unlisted rows, derives every precursor, merges the span into the full RouteJSON, and replays the complete route."
         ),
+        ("path_repair_editor", "RetrosynthesisProposalReport"): (
+            "Return one compact rollback directive naming a current RouteJSON step and the chemical repair goal. The host computes only the rollback-to-blocker dependency path, preserves unrelated rows and the reconnectable suffix, restores the exact mapped frontier, and ordinary one-step Builder calls perform every structural edit."
+        ),
         ("paper_matched_route_critic", "ChemicalStrategyCritique"): (
-            "Return the schema-defined concise forward audit, marking only concrete chemical contradictions as blocking."
+            "Return the schema-defined concise forward audit, marking only concrete chemical contradictions as blocking; Strategy adherence is non-blocking observation metadata."
         ),
         ("paper_matched_key_event_critic", "ChemicalStrategyCritique"): (
             "Return the schema-defined concise audit of the first purported key construction, marking only concrete chemical or Strategy contradictions as blocking."
@@ -1735,8 +2080,8 @@ def _artifact_payload_instruction(
         return (
             "For payload, return schema_version=chemical_strategy_critique.v1 and independently forward-audit the supplied frozen route. "
             "Assess every step for atom provenance, plausible mechanism, functional-group compatibility, site/chemoselectivity, stereochemical outcome, sequence ordering, competing pathways, and enzyme identity/capability where applicable. "
-            "When a Strategy is supplied, independently verify that an actual serialized transformation executes its named key construction; self-reported key or anchor labels are not evidence. If the route substitutes another construction or only prepares a later named event, set strategy_adherence=false and reject the substituted step as a sequence dependency. "
-            "Use step verdict pass for coherent chemistry, uncertain for unresolved conditions/precedent/scope/selectivity without contradiction, and reject only for a concrete chemical or supplied-strategy contract contradiction. Set overall_assessment=reject if any step rejects, uncertain if none reject and at least one is uncertain, otherwise viable. "
+            "When a Strategy is supplied, independently verify that an actual serialized transformation executes its named key construction; self-reported key or anchor labels are not evidence. In a final route audit, record a missing or substituted construction only as strategy_adherence=false and do not reject chemistry merely to force the steering Strategy. In a key-event checkpoint audit, a concrete topology or sequence contradiction in the focus action may still block that proposed action. "
+            "Use step verdict pass for coherent chemistry, uncertain for unresolved conditions/precedent/scope/selectivity without contradiction, and reject only for a concrete chemical contradiction in the serialized route (or the focus-action contradiction allowed by a key-event audit). Set overall_assessment=reject if any step rejects, uncertain if none reject and at least one is uncertain, otherwise viable. "
             "For each reject, identify the exact step_id and smallest structure-local replacement boundary while preserving unrelated non-blocking steps and the complete target-to-terminal-leaf synthesis boundary. Never recommend truncating the route or deleting an unresolved suffix to improve the blocking fraction. "
             "Include strategy_adherence, step_assessments, route_level_risks, repair_actions, experimental_variables, no_reaction_proof=true, no_source_authority=true, and no_solved_claim=true. "
             "Do not search the web, cite sources, infer the target name, or defer chemical judgment to literature availability."
@@ -1795,7 +2140,7 @@ def _artifact_payload_instruction(
 
 
 def _worker_output_json_schema(task: WorkerTask) -> dict[str, Any]:
-    paper_matched = task.task_type in PAPER_MATCHED_WORKER_TASK_TYPES
+    paper_matched = task.task_type in STRICT_CHEMISTRY_WORKER_TASK_TYPES
     properties = {
         "schema_version": (
             {
@@ -2016,6 +2361,16 @@ def _reaction_operation_json_schema() -> dict[str, Any]:
                     },
                 },
             ),
+            operation(
+                "set_tetrahedral_stereo",
+                {
+                    "map_idx": positive_map,
+                    "configuration": {
+                        "type": "string",
+                        "enum": ["R", "S"],
+                    },
+                },
+            ),
         ]
     }
 
@@ -2042,7 +2397,7 @@ def _paper_editor_route_step_json_schema() -> dict[str, Any]:
 def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
     """Schema shown to the model; the host adds the durable artifact wrapper."""
 
-    if task.task_type not in PAPER_MATCHED_WORKER_TASK_TYPES:
+    if task.task_type not in STRICT_CHEMISTRY_WORKER_TASK_TYPES:
         return _worker_output_json_schema(task)
     if task.task_type in {
         "paper_matched_strategy_generator",
@@ -2100,6 +2455,24 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                 ),
             }
         )
+
+    if task.task_type == "path_repair_editor":
+        return _strict_object_schema(
+            {
+                "rollback_start_step_id": _short_text_schema(160),
+                "rebuild_through_step_id": _short_text_schema(160),
+                "additional_coupled_blocker_step_ids": {
+                    "type": "array",
+                    "items": _short_text_schema(160),
+                },
+                "preserved_suffix_compatible": {"type": "boolean"},
+                "repair_goal": _short_text_schema(500),
+                "active_constraints": _string_array_schema(
+                    max_items=5,
+                    item_max_length=240,
+                ),
+            }
+        )
     if task.task_type == "paper_matched_key_event_critic":
         return _strict_object_schema(
             {
@@ -2123,6 +2496,10 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                         "sequence_dependency",
                         "competing_pathway",
                     ],
+                },
+                "repair_scope": {
+                    "type": "string",
+                    "enum": list(KEY_EVENT_REPAIR_SCOPES),
                 },
                 "reasons": _string_array_schema(max_items=2, item_max_length=260),
                 "suggested_revision": _short_text_schema(420),
@@ -2176,6 +2553,14 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                 "repair_actions": _string_array_schema(
                     max_items=4, item_max_length=360
                 ),
+                "coupled_blocker_groups": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": _short_text_schema(160),
+                        "minItems": 2,
+                    },
+                },
                 "limitations": _string_array_schema(
                     max_items=2, item_max_length=240
                 ),
@@ -2565,7 +2950,7 @@ def _materialize_paper_matched_artifact(
 ) -> Any:
     """Wrap a compact paper-task wire result in the durable host artifact."""
 
-    if task.task_type not in PAPER_MATCHED_WORKER_TASK_TYPES:
+    if task.task_type not in STRICT_CHEMISTRY_WORKER_TASK_TYPES:
         return raw
     if not isinstance(raw, Mapping):
         return raw
@@ -2671,9 +3056,54 @@ def _materialize_paper_matched_artifact(
             "limitations": [],
             "no_solved_claim": True,
         }
+    elif task.task_type == "path_repair_editor":
+        payload = {
+            "schema_version": "retrosynthesis_proposal_report.v1",
+            "case_id": task.case_id,
+            "agent_role": "route_editor",
+            "target_smiles": target,
+            "candidates": [
+                {
+                    "schema_version": "retrosynthesis_candidate.v1",
+                    "candidate_id": f"{task.task_id}:candidate:1",
+                    "no_solved_claim": True,
+                    "not_parent_route_proof": True,
+                    "repair_directive": {
+                        "rollback_start_step_id": str(
+                            result.get("rollback_start_step_id") or ""
+                        ),
+                        "rebuild_through_step_id": str(
+                            result.get("rebuild_through_step_id") or ""
+                        ),
+                        "additional_coupled_blocker_step_ids": [
+                            str(value)
+                            for value in result.get(
+                                "additional_coupled_blocker_step_ids"
+                            )
+                            or []
+                            if str(value).strip()
+                        ],
+                        "preserved_suffix_compatible": (
+                            result.get("preserved_suffix_compatible") is True
+                        ),
+                        "repair_goal": str(result.get("repair_goal") or ""),
+                        "active_constraints": [
+                            str(value)
+                            for value in result.get("active_constraints") or []
+                            if str(value).strip()
+                        ],
+                    },
+                }
+            ],
+            "evidence_refs": [],
+            "limitations": [],
+            "no_solved_claim": True,
+        }
     elif task.task_type == "paper_matched_key_event_critic":
         verdict = str(result.get("verdict") or "uncertain")
         checkpoint_match = result.get("checkpoint_match") is True
+        blocking_type = str(result.get("blocking_type") or "none")
+        repair_scope = str(result.get("repair_scope") or "")
         focus_step_id = str(task.host_context.get("focus_step_id") or "")
         payload = {
             "schema_version": "chemical_strategy_critique.v1",
@@ -2692,9 +3122,8 @@ def _materialize_paper_matched_artifact(
                     "step_id": focus_step_id,
                     "verdict": verdict,
                     "blocking": verdict == "reject",
-                    "blocking_type": str(
-                        result.get("blocking_type") or "none"
-                    ),
+                    "blocking_type": blocking_type,
+                    "repair_scope": repair_scope,
                     "reasons": list(result.get("reasons") or [])[:2],
                     "condition_assessment": "",
                     "suggested_revision": str(
@@ -3037,6 +3466,58 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
             }
         )
 
+    if task.task_type == "path_repair_editor":
+        candidate = _strict_object_schema(
+            {
+                "schema_version": {
+                    "type": "string",
+                    "enum": ["retrosynthesis_candidate.v1"],
+                },
+                "candidate_id": _short_text_schema(160),
+                "no_solved_claim": {"type": "boolean", "enum": [True]},
+                "not_parent_route_proof": {
+                    "type": "boolean",
+                    "enum": [True],
+                },
+                "repair_directive": _strict_object_schema(
+                    {
+                        "rollback_start_step_id": _short_text_schema(160),
+                        "rebuild_through_step_id": _short_text_schema(160),
+                        "additional_coupled_blocker_step_ids": {
+                            "type": "array",
+                            "items": _short_text_schema(160),
+                        },
+                        "preserved_suffix_compatible": {"type": "boolean"},
+                        "repair_goal": _short_text_schema(500),
+                        "active_constraints": _string_array_schema(
+                            max_items=5,
+                            item_max_length=240,
+                        ),
+                    }
+                ),
+            }
+        )
+        return _strict_object_schema(
+            {
+                "schema_version": {
+                    "type": "string",
+                    "enum": ["retrosynthesis_proposal_report.v1"],
+                },
+                "case_id": {"type": "string", "enum": [task.case_id]},
+                "agent_role": {"type": "string"},
+                "target_smiles": {"type": "string"},
+                "candidates": {
+                    "type": "array",
+                    "items": candidate,
+                    "minItems": 1,
+                    "maxItems": 1,
+                },
+                "evidence_refs": _string_array_schema(max_items=0),
+                "limitations": _string_array_schema(max_items=0),
+                "no_solved_claim": {"type": "boolean", "enum": [True]},
+            }
+        )
+
 
     candidate_properties = {
         "schema_version": {"type": "string", "enum": ["retrosynthesis_candidate.v1"]},
@@ -3206,8 +3687,7 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
         "paper_matched_route_critic",
         "paper_matched_key_event_critic",
     }:
-        step_assessment = _strict_object_schema(
-            {
+        step_assessment_properties: dict[str, Any] = {
                 "step_id": _short_text_schema(160),
                 "verdict": {
                     "type": "string",
@@ -3236,8 +3716,13 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
                 ),
                 "condition_assessment": _short_text_schema(320),
                 "suggested_revision": _short_text_schema(420),
+        }
+        if task.task_type == "paper_matched_key_event_critic":
+            step_assessment_properties["repair_scope"] = {
+                "type": "string",
+                "enum": list(KEY_EVENT_REPAIR_SCOPES),
             }
-        )
+        step_assessment = _strict_object_schema(step_assessment_properties)
         properties: dict[str, Any] = {
                 "schema_version": {
                     "type": "string",
@@ -3273,6 +3758,15 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
         }
         if task.task_type == "paper_matched_key_event_critic":
             properties["checkpoint_match"] = {"type": "boolean"}
+        else:
+            properties["coupled_blocker_groups"] = {
+                "type": "array",
+                "items": {
+                    "type": "array",
+                    "items": _short_text_schema(160),
+                    "minItems": 2,
+                },
+            }
         return _strict_object_schema(properties)
 
     assessment_properties = {
@@ -4253,6 +4747,113 @@ def _worker_runtime_reasons(task: WorkerTask, process: WorkerProcessResult) -> l
         ):
             reasons.append("required_child_roles_not_prompt_bound")
     return reasons
+
+
+def _worker_provider_failure_reason_from_process(
+    process: WorkerProcessResult,
+) -> str:
+    """Classify a missing provider turn separately from schema rejection."""
+
+    event_summary = dict((process.metadata or {}).get("event_summary") or {})
+    if (
+        event_summary.get("turn_completed") is True
+        and event_summary.get("last_terminal_event_type") == "turn.completed"
+        and not str(event_summary.get("fatal_error") or "")
+    ):
+        return ""
+    text = "\n".join(
+        (
+            str(process.stderr or ""),
+            str(process.stdout or ""),
+            str(event_summary.get("fatal_error") or ""),
+        )
+    )
+    return _provider_failure_reason_from_text(text)
+
+
+def _provider_failure_reason_from_text(value: str) -> str:
+    """Classify known provider outages from one unfinished worker turn."""
+
+    text = str(value or "").casefold()
+    if any(
+        marker in text
+        for marker in (
+            "refresh_token_reused",
+            "token_expired",
+            "failed to refresh token",
+            "authentication token is expired",
+            "401 unauthorized",
+            "403 forbidden",
+        )
+    ):
+        return "provider_auth_unavailable"
+    if any(
+        marker in text
+        for marker in (
+            "429 too many requests",
+            "rate limit",
+            "rate_limit",
+        )
+    ):
+        return "provider_rate_limited"
+    if any(
+        marker in text
+        for marker in (
+            "502 bad gateway",
+            "503 service unavailable",
+            "504 gateway timeout",
+            "service unavailable",
+            "selected model is at capacity",
+            "model is at capacity",
+            "upstream connect error",
+        )
+    ):
+        return "provider_service_unavailable"
+    if any(
+        marker in text
+        for marker in (
+            "stream disconnected",
+            "error sending request",
+            "connection reset",
+            "connection refused",
+            "dns error",
+            "timed out while waiting for provider",
+        )
+    ):
+        return "provider_transport_unavailable"
+    return ""
+
+
+def worker_provider_failure_reason(record: WorkerRunRecord) -> str:
+    """Return the durable runtime classification for one worker record."""
+
+    if str(record.status or "") != "provider_error":
+        event_summary = dict((record.metadata or {}).get("event_summary") or {})
+        if not (
+            event_summary.get("turn_failed") is True
+            or event_summary.get("last_terminal_event_type") == "turn.failed"
+        ):
+            return ""
+        return _provider_failure_reason_from_text(
+            "\n".join(
+                (
+                    str(record.stderr or ""),
+                    str(record.stdout or ""),
+                    str(event_summary.get("fatal_error") or ""),
+                )
+            )
+        )
+    return str(
+        dict(record.metadata or {}).get("provider_failure_reason")
+        or next(
+            (
+                value
+                for value in dict(record.output_validation or {}).get("reasons") or []
+                if str(value).startswith("provider_")
+            ),
+            "provider_unavailable",
+        )
+    )
 
 
 def _tool_failed_before_execution(call: Mapping[str, Any]) -> bool:

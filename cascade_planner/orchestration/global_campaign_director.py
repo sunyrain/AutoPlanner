@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import threading
 import time
@@ -25,7 +26,10 @@ from cascade_planner.agent.codex_worker import (
     WorkerTask,
     run_codex_worker,
 )
-from cascade_planner.application.campaign_context import CampaignContext
+from cascade_planner.application.campaign_context import (
+    CampaignContext,
+    CampaignContextError,
+)
 from cascade_planner.application.run_kernel import RunKernel
 from cascade_planner.orchestration.provider_delegation import (
     complete_chemenzy_delegation,
@@ -34,7 +38,9 @@ from cascade_planner.runtime import (
     AgentResult,
     AgentSpec,
     AgentState,
+    ArtifactRef,
     ArtifactReferenceError,
+    ArtifactStoreError,
     Budget,
 )
 
@@ -221,11 +227,16 @@ class DirectorConfig:
     # profile.  Inferring this from a loose combination of strategy settings
     # allowed legacy/global runners to masquerade as a matched experiment.
     paper_matched_reach_profile: bool = False
-    # V9-only sparse review interrupts.  They are explicit profile semantics,
+    # Optional sparse review interrupts. They are explicit profile semantics,
     # not inferred from the paper-matched flag, so the frozen paper arm keeps
     # its original Strategy -> Builder -> final Critic call topology.
     enable_strategy_portfolio_critic: bool = False
     enable_key_event_critic: bool = False
+    # Optional transactional repair. The frozen paper arm keeps the published
+    # full-route Editor loop; the enhanced architecture asks the Editor only
+    # for a rollback intent and lets the Host reopen a real mapped frontier for
+    # ordinary one-step Builder actions.
+    enable_transactional_path_repair: bool = False
     # Owns node selection, alternative-action retention, cycle pruning, and
     # back-propagation for sequential StrategyCard branches.  The paper arm
     # uses AiZynthFinder's MCTS/UCB tree; the ChemEnzy best-first tree remains
@@ -328,6 +339,10 @@ class DirectorConfig:
             raise ValueError("director strategy portfolio mode is invalid")
         if self.strategy_branch_workers > self.strategy_branch_count:
             raise ValueError("director strategy branch workers exceed branch count")
+        if self.enable_transactional_path_repair and self.allow_editor_route_mutations:
+            raise ValueError(
+                "director Editor modes are mutually exclusive"
+            )
         if (
             isinstance(self.minimum_planning_route_steps, bool)
             or not isinstance(self.minimum_planning_route_steps, int)
@@ -462,15 +477,102 @@ class GlobalCampaignDirector:
         mode: str,
         force: bool = False,
     ) -> DirectorOutcome:
-        lock_key = _digest(
+        if mode not in DIRECTOR_MODES:
+            raise ValueError("unsupported director mode")
+        if context.run_id != self.kernel.spec.run_id:
+            raise GlobalCampaignDirectorError("director_context_run_mismatch")
+        context = self._recover_in_flight_context(context, mode=mode)
+        lock_key = self._cache_key(context, mode=mode)
+        with self._invocation_lock(lock_key):
+            return self._run_unlocked(context, mode=mode, force=force)
+
+    def _cache_key(self, context: CampaignContext, *, mode: str) -> str:
+        return _digest(
             {
                 "context_sha256": context.content_sha256,
                 "mode": mode,
                 "config_sha256": self.config.to_dict()["content_sha256"],
             }
         )
-        with self._invocation_lock(lock_key):
-            return self._run_unlocked(context, mode=mode, force=force)
+
+    def _recover_in_flight_context(
+        self,
+        context: CampaignContext,
+        *,
+        mode: str,
+    ) -> CampaignContext:
+        """Reuse the immutable context bound to an unfinished Director turn."""
+
+        config_sha256 = str(self.config.to_dict()["content_sha256"])
+        action_scope = self.kernel.current_action_resource_context()
+        action_execution_id = str(
+            action_scope.get("campaign_action_execution_id") or ""
+        )
+        candidates: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        for task_id, raw_reservation in self.kernel.state.in_flight_tasks.items():
+            reservation = dict(raw_reservation or {})
+            metadata = dict(reservation.get("metadata") or {})
+            if (
+                metadata.get("director_mode") != mode
+                or metadata.get("config_sha256") != config_sha256
+            ):
+                continue
+            if action_execution_id and metadata.get(
+                "campaign_action_execution_id"
+            ) != action_execution_id:
+                continue
+            candidates.append((str(task_id), reservation, metadata))
+        if not candidates:
+            return context
+
+        exact = [
+            candidate
+            for candidate in candidates
+            if candidate[2].get("context_sha256") == context.content_sha256
+        ]
+        selected = exact if exact else candidates
+        if len(selected) != 1:
+            raise GlobalCampaignDirectorError(
+                "director_in_flight_context_ambiguous"
+            )
+        task_id, reservation, metadata = selected[0]
+        context_ref_row = metadata.get("director_context_ref")
+        if not isinstance(context_ref_row, Mapping):
+            # Reservations written before durable context binding remain
+            # replayable only when the caller still holds that exact context.
+            if metadata.get("context_sha256") == context.content_sha256:
+                return context
+            raise GlobalCampaignDirectorError(
+                "director_in_flight_context_ref_missing"
+            )
+        try:
+            context_ref = ArtifactRef.from_dict(dict(context_ref_row))
+            restored = CampaignContext.from_dict(
+                self.kernel.artifacts.read_json(context_ref)
+            )
+        except (
+            ArtifactReferenceError,
+            ArtifactStoreError,
+            CampaignContextError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise GlobalCampaignDirectorError(
+                "director_in_flight_context_invalid:"
+                f"{type(exc).__name__}:{str(exc)}"
+            ) from exc
+        expected_task_id = f"director:{self._cache_key(restored, mode=mode)[:24]}"
+        if (
+            restored.run_id != self.kernel.spec.run_id
+            or restored.content_sha256 != metadata.get("context_sha256")
+            or restored.revision.revision
+            != int(reservation.get("input_revision") or 0)
+            or task_id != expected_task_id
+        ):
+            raise GlobalCampaignDirectorError(
+                "director_in_flight_context_binding_invalid"
+            )
+        return restored
 
     def _run_unlocked(
         self,
@@ -493,13 +595,7 @@ class GlobalCampaignDirector:
                 context_sha256=context.content_sha256,
                 reasons=("no_material_replan_trigger",),
             )
-        cache_key = _digest(
-            {
-                "context_sha256": context.content_sha256,
-                "mode": mode,
-                "config_sha256": self.config.to_dict()["content_sha256"],
-            }
-        )
+        cache_key = self._cache_key(context, mode=mode)
         task_id = f"director:{cache_key[:24]}"
         cached = self._load_cached(cache_key)
         if cached is not None:
@@ -537,16 +633,7 @@ class GlobalCampaignDirector:
                     or {}
                 ),
             )
-        if task_id in self.kernel.state.in_flight_tasks:
-            return DirectorOutcome(
-                status="in_flight",
-                invoked=False,
-                cache_hit=False,
-                mode=mode,
-                context_sha256=context.content_sha256,
-                reasons=("identical_director_task_requires_recovery",),
-                task_id=task_id,
-            )
+        resume_in_flight = task_id in self.kernel.state.in_flight_tasks
         mode_limit = {
             "initial_architecture": self.config.max_initial_architecture_calls,
             "event_replan": self.config.max_event_replan_calls,
@@ -557,7 +644,7 @@ class GlobalCampaignDirector:
         prior_mode_calls = self.kernel.count_task_reservations(
             metadata={"director_mode": mode},
         )
-        if prior_mode_calls >= mode_limit:
+        if not resume_in_flight and prior_mode_calls >= mode_limit:
             return DirectorOutcome(
                 status="budget_exhausted",
                 invoked=False,
@@ -575,20 +662,31 @@ class GlobalCampaignDirector:
         )
         prompt_bytes = len(prompt.encode("utf-8"))
         uses_model = not bool(getattr(self.runner, "model_free", False))
-        self.kernel.reserve_task(
-            task_id=task_id,
-            kind="model" if uses_model else "validation",
-            idempotency_key=f"reserve:{task_id}",
-            input_revision=context.revision.revision,
-            uses_model=uses_model,
-            prompt_context_bytes=prompt_bytes,
-            metadata={
-                "director_mode": mode,
-                "context_sha256": context.content_sha256,
-                "config_sha256": self.config.to_dict()["content_sha256"],
-                "trigger_reasons": trigger_reasons,
-            },
-        )
+        if not resume_in_flight:
+            context_ref = self.kernel.artifacts.put_json(
+                context.to_dict(),
+                logical_name=f"{task_id}-context.json",
+                producer="autoplanner.global_campaign_director",
+            )
+            if context_ref.size_bytes != context.byte_count:
+                raise GlobalCampaignDirectorError(
+                    "director_context_artifact_size_mismatch"
+                )
+            self.kernel.reserve_task(
+                task_id=task_id,
+                kind="model" if uses_model else "validation",
+                idempotency_key=f"reserve:{task_id}",
+                input_revision=context.revision.revision,
+                uses_model=uses_model,
+                prompt_context_bytes=prompt_bytes,
+                metadata={
+                    "director_mode": mode,
+                    "context_sha256": context.content_sha256,
+                    "director_context_ref": context_ref.to_dict(),
+                    "config_sha256": self.config.to_dict()["content_sha256"],
+                    "trigger_reasons": trigger_reasons,
+                },
+            )
         spec = AgentSpec.from_context(
             run_id=self.kernel.spec.run_id,
             agent_id=task_id,
@@ -656,6 +754,8 @@ class GlobalCampaignDirector:
                     resource_usage=resource_usage,
                 )
             if result.state is not AgentState.SUCCEEDED:
+                if str(result.error or "").startswith("model_provider_unavailable:"):
+                    raise GlobalCampaignDirectorError(str(result.error))
                 raise GlobalCampaignDirectorError(
                     "director_child_failed:" + (result.error or result.state.value)
                 )
@@ -748,11 +848,18 @@ class GlobalCampaignDirector:
             )
         except BaseException as exc:
             usage = normalize_director_usage(result.usage if result else {})
+            provider_runtime_unavailable = (
+                isinstance(exc, GlobalCampaignDirectorError)
+                and str(exc).startswith("model_provider_unavailable:")
+            )
             if uses_model and result is None and usage["model_invocations"] == 0:
                 # Fail conservatively: once the backend boundary was entered,
                 # an unobserved exception must consume one call slot.
                 usage["model_invocations"] = 1
-            if task_id in self.kernel.state.in_flight_tasks:
+            if (
+                not provider_runtime_unavailable
+                and task_id in self.kernel.state.in_flight_tasks
+            ):
                 self.kernel.settle_task(
                     task_id=task_id,
                     idempotency_key=f"settle:{task_id}",
@@ -852,30 +959,60 @@ class GlobalCampaignDirector:
         lock_root.mkdir(parents=True, exist_ok=True)
         lock_path = lock_root / f"{cache_key[:24]}.lock"
         deadline = time.monotonic() + self.config.max_wall_time_s + 30.0
-        stale_after_s = self.config.max_wall_time_s + 120.0
-        while True:
-            try:
-                lock_path.mkdir()
-                break
-            except FileExistsError:
-                try:
-                    if time.time() - lock_path.stat().st_mtime > stale_after_s:
-                        lock_path.rmdir()
-                        continue
-                except (FileNotFoundError, OSError):
-                    pass
-                if time.monotonic() >= deadline:
-                    raise GlobalCampaignDirectorError(
-                        "director_identical_context_lock_timeout"
-                    )
-                time.sleep(0.02)
+        handle = lock_path.open("a+b")
+        acquired = False
         try:
+            while True:
+                try:
+                    _lock_director_file(handle)
+                    acquired = True
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise GlobalCampaignDirectorError(
+                            "director_identical_context_lock_timeout"
+                        ) from None
+                    time.sleep(0.02)
             yield
         finally:
             try:
-                lock_path.rmdir()
-            except FileNotFoundError:
-                pass
+                if acquired:
+                    _unlock_director_file(handle)
+            finally:
+                handle.close()
+
+
+def _lock_director_file(handle: Any) -> None:
+    """Acquire a non-blocking OS lock that is released on process exit."""
+
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        if not handle.read(1):
+            handle.seek(0)
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock_director_file(handle: Any) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def validate_global_campaign_plan(
@@ -1039,7 +1176,10 @@ def validate_global_campaign_plan(
                 reasons.append("provider_frontier_cannot_be_campaign_target")
             elif frontier_smiles not in skeleton_molecules:
                 reasons.append("provider_frontier_not_in_skeleton")
-            if any(value not in {"chemenzy"} for value in providers):
+            if any(
+                value not in {"chemenzy", "native_short_tail"}
+                for value in providers
+            ):
                 reasons.append("provider_frontier_unknown_provider")
     if reasons:
         raise GlobalCampaignPlanValidationError(";".join(sorted(set(reasons))))

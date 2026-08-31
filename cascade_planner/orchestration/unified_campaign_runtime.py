@@ -312,6 +312,7 @@ class CampaignActionRuntime:
         max_actions: int,
         max_consecutive_no_gain: int = 3,
         excluded_action_ids: tuple[str, ...] = (),
+        available_action_kinds: tuple[CampaignActionKind | str, ...] = (),
         concurrent_start_kinds: tuple[CampaignActionKind | str, ...] = (),
         concurrent_action_kinds: tuple[CampaignActionKind | str, ...] = (),
         max_concurrent_actions: int = MAX_BOUNDED_ACTION_WORKERS,
@@ -331,6 +332,7 @@ class CampaignActionRuntime:
         }
         termination = "action_limit"
         termination_reasons: list[str] = []
+        runtime_pause_reasons: list[str] = []
         action_limit = max(1, int(max_actions))
         no_gain_limit = max(1, int(max_consecutive_no_gain))
         initial_revision = self.kernel.state.graph_revision
@@ -352,6 +354,21 @@ class CampaignActionRuntime:
             initial_convergence.get("consecutive_no_gain") or 0
         )
         convergence_resumed_from_history = consecutive_no_gain > 0
+        normalized_available_kinds = tuple(
+            dict.fromkeys(
+                kind
+                if isinstance(kind, CampaignActionKind)
+                else CampaignActionKind(str(kind))
+                for kind in (available_action_kinds or tuple(self.handlers))
+                if (
+                    kind
+                    if isinstance(kind, CampaignActionKind)
+                    else CampaignActionKind(str(kind))
+                )
+                in self.handlers
+            )
+        )
+        available_kind_set = set(normalized_available_kinds)
         normalized_start_kinds = tuple(
             (
                 kind
@@ -359,6 +376,12 @@ class CampaignActionRuntime:
                 else CampaignActionKind(str(kind))
             )
             for kind in concurrent_start_kinds
+            if (
+                kind
+                if isinstance(kind, CampaignActionKind)
+                else CampaignActionKind(str(kind))
+            )
+            in available_kind_set
         )
         normalized_concurrent_kinds = tuple(
             dict.fromkeys(
@@ -366,6 +389,12 @@ class CampaignActionRuntime:
                 if isinstance(kind, CampaignActionKind)
                 else CampaignActionKind(str(kind))
                 for kind in concurrent_action_kinds
+                if (
+                    kind
+                    if isinstance(kind, CampaignActionKind)
+                    else CampaignActionKind(str(kind))
+                )
+                in available_kind_set
             )
         )
         concurrent_worker_limit = min(
@@ -388,6 +417,12 @@ class CampaignActionRuntime:
                 if isinstance(kind, CampaignActionKind)
                 else CampaignActionKind(str(kind))
                 for kind in progressive_delivery_action_kinds
+                if (
+                    kind
+                    if isinstance(kind, CampaignActionKind)
+                    else CampaignActionKind(str(kind))
+                )
+                in available_kind_set
             )
         )
 
@@ -397,12 +432,37 @@ class CampaignActionRuntime:
                 and dict(milestones_provider()).get(stop_milestone) is True
             )
 
+        def runtime_pause_requested() -> bool:
+            return bool(runtime_pause_reasons)
+
         def record_execution(execution: Mapping[str, Any]) -> None:
             nonlocal consecutive_no_gain
             execution_row = dict(execution)
             executions.append(execution_row)
             action_row = dict(execution_row.get("action") or {})
             action_id = str(action_row.get("action_id") or "")
+            if _execution_runtime_unavailable(execution_row):
+                if on_execution is not None:
+                    on_execution(len(executions), execution_row)
+                outcome = dict(execution_row.get("outcome") or {})
+                handler_result = dict(outcome.get("handler_result") or {})
+                reasons = [
+                    str(value)
+                    for value in (
+                        outcome.get("failure_reasons")
+                        or handler_result.get("reasons")
+                        or handler_result.get("failure_reasons")
+                        or [
+                            handler_result.get("reason")
+                            or "model_provider_unavailable"
+                        ]
+                    )
+                    if str(value)
+                ]
+                runtime_pause_reasons.extend(
+                    value for value in reasons if value not in runtime_pause_reasons
+                )
+                return
             action_revision = int(
                 action_row.get("input_revision")
                 if action_row.get("input_revision") is not None
@@ -446,6 +506,8 @@ class CampaignActionRuntime:
                 return
             record_execution(execution)
             progressively_recorded_execution_ids.add(execution_id)
+            if runtime_pause_requested():
+                return
             pending_slot_count = len(pending_action_ids)
             while (
                 normalized_progressive_delivery_kinds
@@ -482,6 +544,8 @@ class CampaignActionRuntime:
                 }:
                     break
                 record_execution(followup)
+                if runtime_pause_requested():
+                    break
             if delivery_milestone_reached() and on_delivery_milestone is not None:
                 on_delivery_milestone()
 
@@ -544,7 +608,11 @@ class CampaignActionRuntime:
                 )
                 if execution_id not in progressively_recorded_execution_ids:
                     record_execution(execution)
-            if cohort_executions and delivery_milestone_reached():
+            if runtime_pause_requested():
+                termination = "runtime_unavailable"
+                termination_reasons = list(runtime_pause_reasons)
+                action_limit = len(executions)
+            elif cohort_executions and delivery_milestone_reached():
                 termination = "milestone_reached"
                 termination_reasons = [
                     f"delivery_milestone_reached:{stop_milestone}"
@@ -607,6 +675,10 @@ class CampaignActionRuntime:
                     concurrent_cohorts.append(dict(cohort))
                     for execution in cohort_executions:
                         record_execution(execution)
+                    if runtime_pause_requested():
+                        termination = "runtime_unavailable"
+                        termination_reasons = list(runtime_pause_reasons)
+                        break
                     if delivery_milestone_reached():
                         termination = "milestone_reached"
                         termination_reasons = [
@@ -623,6 +695,7 @@ class CampaignActionRuntime:
                 resource_availability=resource_availability_provider(),
                 excluded_action_ids=excluded,
                 round_robin_cursor=len(executions),
+                available_action_kinds=normalized_available_kinds,
             )
             if execution.get("status") == "no_action":
                 termination = "no_action"
@@ -636,6 +709,10 @@ class CampaignActionRuntime:
                 ]
                 break
             record_execution(execution)
+            if runtime_pause_requested():
+                termination = "runtime_unavailable"
+                termination_reasons = list(runtime_pause_reasons)
+                break
             if delivery_milestone_reached():
                 termination = "milestone_reached"
                 termination_reasons = [
@@ -646,7 +723,19 @@ class CampaignActionRuntime:
                 termination = "converged_low_marginal_gain"
                 break
         kernel_stop_decision: dict[str, Any] = {}
-        if termination == "budget_exhausted":
+        if termination == "runtime_unavailable":
+            if self.kernel.state.status == "running":
+                self.kernel.transition(
+                    "paused",
+                    idempotency_key=(
+                        "campaign:anytime:provider-runtime-pause:"
+                        f"{self.kernel.state.revision}"
+                    ),
+                    reasons=termination_reasons
+                    or ("model_provider_unavailable",),
+                )
+            kernel_stop_decision = self.kernel.decide_stop().to_dict()
+        elif termination == "budget_exhausted":
             terminal_revision = self.kernel.state.revision
             if not self.kernel.state.terminal:
                 self.kernel.transition(
@@ -684,7 +773,7 @@ class CampaignActionRuntime:
             milestones=milestones_provider(),
             resource_availability=resource_availability_provider(),
             available_action_kinds=tuple(
-                sorted(kind.value for kind in self.handlers)
+                sorted(kind.value for kind in normalized_available_kinds)
             ),
             prior_action_kinds=self.action_service_history(),
             policy=self.scheduler_policy,
@@ -1107,7 +1196,11 @@ class CampaignActionRuntime:
         )
         if recovered is not None:
             return recovered
-        if action.input_revision != self.kernel.state.graph_revision:
+        lifecycle = self.kernel.task_lifecycle(action.task_id)
+        if (
+            action.input_revision != self.kernel.state.graph_revision
+            and lifecycle.get("status") != "in_flight"
+        ):
             return {
                 "schema_version": CAMPAIGN_ACTION_EXECUTION_SCHEMA,
                 "status": "stale",
@@ -1276,6 +1369,38 @@ class CampaignActionRuntime:
                 failure_reasons.append(
                     f"campaign_action_handler_error:{type(exc).__name__}:{str(exc)[:500]}"
                 )
+        if handler_returned and _handler_result_runtime_unavailable(raw_result):
+            runtime_reason = str(
+                raw_result.get("reason")
+                or next(
+                    (
+                        value
+                        for value in raw_result.get("reasons")
+                        or raw_result.get("failure_reasons")
+                        or ()
+                        if str(value)
+                    ),
+                    "model_provider_unavailable",
+                )
+            )
+            return {
+                "schema_version": CAMPAIGN_ACTION_EXECUTION_SCHEMA,
+                "status": "runtime_unavailable",
+                "action": action.to_dict(),
+                "decision": dict(decision or {}),
+                "outcome": {
+                    "status": "runtime_unavailable",
+                    "input_revision": action.input_revision,
+                    "output_revision": self.kernel.state.graph_revision,
+                    "failure_type": "runtime_unavailable",
+                    "failure_reasons": [runtime_reason],
+                    "handler_result": _json_result(raw_result),
+                },
+                "cache_hit": False,
+                "runtime_unavailable": True,
+                "runtime_pause": True,
+                "recovery_boundary": "campaign_action_in_flight",
+            }
         if handler_returned and _checkpoint_native_handler(action):
             self._record_handler_checkpoint(
                 action,
@@ -2247,8 +2372,12 @@ def _action_history_handler_result(
         "plan": bool(row.get("plan")),
         "proposal_count": int(row.get("proposal_count") or 0),
         "candidate_count": int(row.get("candidate_count") or 0),
+        "status": str(row.get("status") or ""),
+        "runtime_unavailable": row.get("runtime_unavailable") is True,
+        "runtime_pause": row.get("runtime_pause") is True,
+        "reason": str(row.get("reason") or ""),
     }
-    if action_kind == CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value:
+    if action_kind == CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value:
         result.update(
             {
                 "frontier_smiles": list(row.get("frontier_smiles") or []),
@@ -2369,6 +2498,11 @@ def _execution_failed_or_rejected(execution: Mapping[str, Any]) -> bool:
     # frontier candidate without repeating any provider/model call.
     if handler_result.get("rejected"):
         return True
+    if handler_result.get("retryable_after_graph_revision") is True:
+        # A deterministic prerequisite may change the opportunity at the
+        # next canonical revision.  This execution is intentionally neither
+        # gain nor durable no-gain evidence, and must not suppress the retry.
+        return True
     statuses = {
         str(execution.get("status") or "").casefold(),
         str(outcome.get("status") or "").casefold(),
@@ -2402,6 +2536,29 @@ def _execution_failed_or_rejected(execution: Mapping[str, Any]) -> bool:
     if outcome.get("failure_type") or outcome.get("failure_reasons"):
         return True
     return False
+
+
+def _handler_result_runtime_unavailable(value: Mapping[str, Any] | None) -> bool:
+    row = dict(value or {})
+    return bool(
+        row.get("runtime_unavailable") is True
+        or row.get("runtime_pause") is True
+        or str(row.get("status") or "").casefold() == "runtime_unavailable"
+    )
+
+
+def _execution_runtime_unavailable(execution: Mapping[str, Any]) -> bool:
+    row = dict(execution)
+    outcome = dict(row.get("outcome") or {})
+    return bool(
+        row.get("runtime_unavailable") is True
+        or row.get("runtime_pause") is True
+        or str(row.get("status") or "").casefold() == "runtime_unavailable"
+        or str(outcome.get("status") or "").casefold() == "runtime_unavailable"
+        or _handler_result_runtime_unavailable(
+            dict(outcome.get("handler_result") or {})
+        )
+    )
 
 
 def _outcome_gained(

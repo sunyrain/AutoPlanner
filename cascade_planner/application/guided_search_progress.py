@@ -70,7 +70,14 @@ def evaluate_guided_stock_progress(
     *,
     root_b4_reached: bool,
 ) -> dict[str, Any]:
-    """Close one frontier after audit without suppressing distinct frontiers."""
+    """Close one attempted frontier without suppressing distinct frontiers.
+
+    ``root_b4_reached`` is a portfolio milestone, not ownership of the native
+    frontier queue.  The caller already records the attempted molecule
+    identity and suppresses only that exact occurrence on later scheduler
+    passes.  Disabling the whole frontier resource here used to strand other
+    target-reachable leaves as soon as any sibling route reached B4.
+    """
 
     before_count = before.get("best_open_leaf_count")
     after_count = after.get("best_open_leaf_count")
@@ -98,12 +105,12 @@ def evaluate_guided_stock_progress(
         "root_b4_reached": bool(root_b4_reached),
         "progressed": progressed,
         "retry_same_frontier": False,
-        "continue_guided_search": not root_b4_reached,
+        "continue_guided_search": True,
         "reason": reason,
         "semantics": {
             "provider_success_alone_is_not_progress": True,
             "progress_is_measured_after_materialization_and_stock_audit": True,
-            "root_b4_is_the_only_stock_delivery_stop": True,
+            "root_b4_is_a_portfolio_milestone_not_a_frontier_queue_stop": True,
             "no_gain_closes_only_the_attempted_frontier": True,
             "distinct_untried_frontiers_remain_scheduler_eligible": True,
         },

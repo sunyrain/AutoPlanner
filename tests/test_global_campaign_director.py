@@ -12,6 +12,7 @@ import pytest
 from cascade_planner.application.campaign_context import (
     CampaignContext,
     CampaignContextCompiler,
+    CampaignContextError,
     CampaignContextTooLargeError,
 )
 from cascade_planner.application.retrosynthesis_run_contract import (
@@ -21,6 +22,7 @@ from cascade_planner.application.run_kernel import RunKernel, RunLimits, RunSpec
 from cascade_planner.orchestration.global_campaign_director import (
     DirectorConfig,
     GlobalCampaignDirector,
+    GlobalCampaignDirectorError,
     GlobalCampaignPlan,
     GlobalCampaignPlanValidationError,
     ReplayDirectorRunner,
@@ -96,6 +98,14 @@ def test_paper_profile_can_disable_director_provider_delegation() -> None:
     ] is True
 
 
+def test_director_config_allows_only_one_editor_writer() -> None:
+    with pytest.raises(ValueError, match="Editor modes are mutually exclusive"):
+        DirectorConfig(
+            enable_transactional_path_repair=True,
+            allow_editor_route_mutations=True,
+        )
+
+
 def _context(
     kernel: RunKernel,
     *,
@@ -143,6 +153,18 @@ def _context(
         previous=previous,
         material_events=material_events,
     )
+
+
+def test_campaign_context_round_trip_rejects_tampered_payload(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    assert CampaignContext.from_dict(context.to_dict()) == context
+
+    tampered = json.loads(json.dumps(context.to_dict()))
+    tampered["budget_state"]["active_task_count"] = 999
+    with pytest.raises(CampaignContextError, match="digest_invalid"):
+        CampaignContext.from_dict(tampered)
 
 
 def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str, Any]:
@@ -461,6 +483,82 @@ def test_director_coordinates_global_families_through_one_kernel_call_and_cache(
     assert kernel.state.attempt_count == 0
     assert kernel.state.model_totals["model_invocations"] == 1
     assert kernel.state.accepted_expansion_count == 0
+
+
+def test_director_provider_failure_keeps_one_reservation_and_resumes(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    plan = _plan(context)
+    calls: list[tuple[str, str]] = []
+
+    def runner(
+        spec: AgentSpec,
+        supplied_context: CampaignContext,
+        _mode: str,
+        _config: DirectorConfig,
+    ) -> AgentResult:
+        calls.append((spec.agent_id, supplied_context.content_sha256))
+        if len(calls) == 1:
+            return AgentResult(
+                run_id=spec.run_id,
+                agent_id=spec.agent_id,
+                parent_agent_id=spec.parent_agent_id,
+                attempt=spec.attempt,
+                idempotency_key=f"{spec.idempotency_key}:provider-error",
+                context_hash=spec.context_hash,
+                capabilities=spec.capabilities,
+                write_scope=spec.write_scope,
+                budget=spec.budget,
+                state=AgentState.FAILED,
+                output=None,
+                usage={
+                    "model_invocations": 0,
+                    "provider_failure_count": 1,
+                },
+                error="model_provider_unavailable:provider_auth_unavailable",
+            )
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:completed",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.SUCCEEDED,
+            output=plan,
+            usage={"model_invocations": 1, "input_tokens": 20, "output_tokens": 5},
+        )
+
+    director = GlobalCampaignDirector(kernel, runner=runner)
+    with pytest.raises(
+        GlobalCampaignDirectorError,
+        match="model_provider_unavailable:provider_auth_unavailable",
+    ):
+        director.run(context, mode="initial_architecture")
+
+    assert len(kernel.state.in_flight_tasks) == 1
+    refreshed_context = _context(
+        kernel,
+        previous=context,
+        material_events=("provider_runtime_recovered",),
+    )
+    assert refreshed_context.content_sha256 != context.content_sha256
+    resumed = director.run(refreshed_context, mode="initial_architecture")
+
+    assert resumed.status == "accepted"
+    assert len(calls) == 2
+    assert calls[0] == calls[1]
+    assert resumed.context_sha256 == context.content_sha256
+    assert kernel.state.in_flight_tasks == {}
+    assert kernel.count_task_reservations(
+        metadata={"director_mode": "initial_architecture"}
+    ) == 1
+    assert kernel.state.model_totals["model_invocations"] == 1
 
 
 def test_single_call_director_plan_remains_bound_by_output_bytes(
@@ -1067,6 +1165,26 @@ def test_director_downgrades_unbound_provider_target_to_host_priority(
     assert validate_global_campaign_plan(repaired, context)
 
 
+def test_director_accepts_native_short_tail_but_rejects_unknown_provider(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    priority = raw["frontier_priorities"][0]
+    priority["proposal_id"] = "proposal:amide:2"
+    priority["target_smiles"] = "CCOC(=O)O"
+    priority["provider_preferences"] = ["native_short_tail"]
+
+    assert validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+
+    priority["provider_preferences"] = ["unknown-provider"]
+    with pytest.raises(
+        GlobalCampaignPlanValidationError,
+        match="provider_frontier_unknown_provider",
+    ):
+        validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+
+
 def test_director_resolves_chemenzy_request_to_shared_intermediate(
     tmp_path: Path,
 ) -> None:
@@ -1122,6 +1240,26 @@ def test_concurrent_identical_context_invokes_runner_once(tmp_path: Path) -> Non
     assert sum(outcome.invoked for outcome in outcomes) == 1
     assert sum(outcome.cache_hit for outcome in outcomes) == 1
     assert kernel.state.model_totals["model_invocations"] == 1
+
+
+def test_existing_unlocked_director_lock_file_does_not_block_resume(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    calls, runner = _runner(_plan(context))
+    director = GlobalCampaignDirector(kernel, runner=runner)
+    cache_key = director._cache_key(context, mode="initial_architecture")
+    lock_root = director.director_dir / "locks"
+    lock_root.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_root / f"{cache_key[:24]}.lock"
+    lock_path.write_bytes(b"\0")
+
+    outcome = director.run(context, mode="initial_architecture")
+
+    assert outcome.invoked is True
+    assert len(calls) == 1
+    assert lock_path.is_file()
 
 
 def test_replay_runner_is_model_free_and_schema_identical(tmp_path: Path) -> None:

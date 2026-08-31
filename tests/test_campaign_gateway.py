@@ -404,6 +404,27 @@ def test_gateway_status_projects_only_active_action_wrapper_reservations(
     assert active[0]["kind"] == "program_review"
     assert active[0]["semantics"]["not_a_second_queue"] is True
 
+    cancelled = gateway.cancel(
+        "active-action-status",
+        reasons=("operator_requested",),
+        idempotency_key="gateway-test:cancel",
+    )
+    repeated = gateway.cancel(
+        "active-action-status",
+        reasons=("operator_requested",),
+        idempotency_key="gateway-test:cancel",
+    )
+
+    assert cancelled["operation"] == "cancel"
+    assert cancelled["status"]["status"] == "cancelled"
+    assert cancelled["status"]["active_actions"] == []
+    assert repeated["operations"]["cancellation"]["event_id"] == cancelled[
+        "operations"
+    ]["cancellation"]["event_id"]
+    assert service.kernel.task_lifecycle("campaign-action:fixture")["status"] == (
+        "interrupted"
+    )
+
 
 def test_gateway_program_store_requires_explicit_enablement_and_preserves_graph(
     tmp_path: Path,

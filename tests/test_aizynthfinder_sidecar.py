@@ -122,6 +122,12 @@ def test_guided_frontier_ingests_aizynthfinder_provenance() -> None:
     assert result["budget_truncated_route_count"] == 0
     assert result["route_lineage"][0]["route_trace_id"] == "aizynthfinder:test"
     assert result["route_lineage"][0]["step_proposal_ids"]
+    assert result["route_lineage"][0]["canonical_route_family_id"] == (
+        "route:parent"
+    )
+    assert result["route_lineage"][0]["canonical_route_family_ids"] == [
+        "route:parent"
+    ]
     batch, idempotency_key = service.batches[0]
     hypothesis = batch.hypotheses[0]
     assert hypothesis["origin_kind"] == "aizynthfinder"

@@ -691,6 +691,7 @@ def test_all_candidate_producers_enter_one_canonical_ingestion_surface() -> None
         "cascade_planner/orchestration/retrosynthesis_service_planning.py",
         "cascade_planner/interfaces/chemenzy_probe.py",
         "cascade_planner/interfaces/patent_self_evolution.py",
+        "cascade_planner/interfaces/aizynthfinder_sidecar.py",
         # Lifecycle replay can append only validated, digest-bound fact events.
         "cascade_planner/interfaces/replay_lifecycle.py",
         "cascade_planner/interfaces/target_solver.py",
@@ -701,6 +702,7 @@ def test_all_candidate_producers_enter_one_canonical_ingestion_surface() -> None
         "cascade_planner/orchestration/retrosynthesis_service_planning.py",
         "cascade_planner/interfaces/chemenzy_probe.py",
         "cascade_planner/interfaces/patent_self_evolution.py",
+        "cascade_planner/interfaces/aizynthfinder_sidecar.py",
         "cascade_planner/interfaces/target_solver.py",
         "cascade_planner/interfaces/target_solver_stages.py",
     }
@@ -842,7 +844,12 @@ def test_target_solver_constructs_one_runtime_and_projects_stages_read_only() ->
     )
 
     assert len(runtime_constructors) == 1
-    assert len(anytime_calls) == 1
+    assert anytime_calls
+    assert {
+        node.func.value.id
+        for node in anytime_calls
+        if isinstance(node.func.value, ast.Name)
+    } == {"unified_core_runtime"}
     assert projector.args.args[1].arg == "action_kinds"
     assert projector_dispatch_calls == []
 
@@ -885,10 +892,12 @@ def test_v4_workbench_adapter_does_not_execute_legacy_route_forest_compiler() ->
     assert "cascade_planner.harness.route_forest_delivery" in imports
 
 
-def test_isolated_v4_web_surface_does_not_import_combined_compatibility_app() -> None:
+def test_canonical_web_is_the_only_importable_web_application() -> None:
     imports = _imports(ROOT / "cascade_planner/web/v4_app.py")
 
-    assert "cascade_planner.legacy.web_runtime.app" not in imports
+    assert importlib.util.find_spec("cascade_planner.legacy.web") is None
+    assert importlib.util.find_spec("cascade_planner.legacy.web_runtime.app") is None
+    assert importlib.util.find_spec("scripts.legacy.serve_combined_web") is None
     assert (
         "cascade_planner.legacy.harness_runtime.agentic_blackboard_controller"
         not in imports

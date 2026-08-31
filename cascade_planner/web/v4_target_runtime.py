@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import lru_cache
 import json
 from pathlib import Path
 from threading import Event, RLock
@@ -11,7 +12,10 @@ from typing import Any, Callable, Mapping
 from cascade_planner.interfaces.campaign_action_timeline import (
     compile_campaign_action_timeline,
 )
-from cascade_planner.interfaces.campaign_gateway import CampaignGateway
+from cascade_planner.interfaces.campaign_gateway import (
+    CampaignGateway,
+    CampaignGatewayError,
+)
 from cascade_planner.interfaces.target_delivery import (
     delivery_projection as _delivery_projection,
 )
@@ -30,6 +34,9 @@ from cascade_planner.interfaces.target_solver import TargetSolveCancelled
 
 GatewayFactory = Callable[[], CampaignGateway]
 _NONTERMINAL_CAMPAIGN_STATES = frozenset({"created", "running", "paused"})
+_TERMINAL_CAMPAIGN_STATES = frozenset(
+    {"completed", "unresolved", "budget_exhausted", "cancelled", "failed"}
+)
 _RUN_ACTIVITY_STALE_AFTER_S = 2 * 60 * 60
 
 
@@ -44,6 +51,7 @@ def run_target_job(
     started = time.monotonic()
     continuation_pass_count = 0
     compact: dict[str, Any] = {}
+    gateway: CampaignGateway | None = None
     with lock:
         if (
             cancel_event is not None
@@ -62,14 +70,15 @@ def run_target_job(
             raise TargetSolveCancelled("target_solve_cancelled_by_user")
         request_payload = dict(payload)
         while True:
+            gateway = factory()
             result = (
                 solve_target_request(
-                    factory(),
+                    gateway,
                     request_payload,
                     cancel_event=cancel_event,
                 )
                 if cancel_event is not None
-                else solve_target_request(factory(), request_payload)
+                else solve_target_request(gateway, request_payload)
             )
             compact = _compact_solve_result(result)
             if cancel_event is not None and cancel_event.is_set():
@@ -101,7 +110,27 @@ def run_target_job(
         status, error = ("complete" if objective_achieved else "unresolved"), ""
         phase = "complete" if objective_achieved else "unresolved"
     except TargetSolveCancelled:
-        status, phase, error = "cancelled", "cancelled", ""
+        with lock:
+            cancellation_reason = str(
+                jobs[job_id].get("cancellation_reason") or "user_requested"
+            )
+        try:
+            (gateway or factory()).cancel(
+                str(payload.get("run_id") or ""),
+                reasons=("user_requested_termination", cancellation_reason),
+                idempotency_key=f"web:{job_id}:cancel",
+            )
+        except CampaignGatewayError as exc:
+            if not str(exc).startswith("run_not_found:"):
+                status, phase = "failed", "failed"
+                error = f"campaign_cancel_failed: {exc}"[:4_000]
+            else:
+                status, phase, error = "cancelled", "cancelled", ""
+        except Exception as exc:  # pragma: no cover - durable cancellation boundary
+            status, phase = "failed", "failed"
+            error = f"campaign_cancel_failed: {type(exc).__name__}: {exc}"[:4_000]
+        else:
+            status, phase, error = "cancelled", "cancelled", ""
     except Exception as exc:  # pragma: no cover - integration failure boundary
         if cancel_event is not None and cancel_event.is_set():
             status, phase, error = "cancelled", "cancelled", ""
@@ -173,6 +202,17 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
             return result
     status_result = dict(status_result)
     status = dict(status_result.get("status") or {})
+    stop_decision = dict(status.get("stop_decision") or {})
+    campaign_status = str(status.get("status") or "").casefold()
+    campaign_terminal = bool(
+        stop_decision.get("terminal") is True
+        or campaign_status in _TERMINAL_CAMPAIGN_STATES
+    )
+    campaign_decision = str(stop_decision.get("decision") or campaign_status)
+    execution_active = bool(execution_active and not campaign_terminal)
+    cancellation_available = bool(
+        job.get("cancellation_available") is not False and not campaign_terminal
+    )
     portfolio = dict(status.get("portfolio") or {})
     frontier = [
         dict(value) for value in status.get("frontier") or [] if isinstance(value, dict)
@@ -182,7 +222,11 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         kind = str(value.get("kind") or "other")
         frontier_counts[kind] = frontier_counts.get(kind, 0) + 1
     result.update(
-        campaign_status=str(status.get("status") or ""),
+        campaign_status=campaign_status,
+        campaign_terminal=campaign_terminal,
+        campaign_decision=campaign_decision,
+        execution_active=execution_active,
+        cancellation_available=cancellation_available,
         graph_revision=int(status.get("graph_revision") or 0),
         evidence_revision=int(status.get("evidence_revision") or 0),
         attempt_count=int(status.get("attempt_count") or 0),
@@ -255,11 +299,13 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         timeline_stages,
         active_actions=(
             dict(row)
-            for row in status.get("active_actions") or []
+            for row in (() if campaign_terminal else status.get("active_actions") or [])
             if isinstance(row, Mapping)
         ),
     )
-    final_projection = job_status not in {
+    if campaign_terminal:
+        result["phase"] = campaign_decision or campaign_status
+    final_projection = campaign_terminal or job_status not in {
         "queued",
         "running",
         "cancelling",
@@ -296,7 +342,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
             result["proof_profile_known"] = False
     delivery = _delivery_projection(
         list(result.get("stages") or []),
-        job_status=job_status,
+        job_status=(campaign_decision or campaign_status) if campaign_terminal else job_status,
     )
     if job_status == "historical":
         accepted = result.get("scientific_status") == "accepted"
@@ -312,7 +358,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         )
     delivery.update(
         execution_active=execution_active,
-        cancellation_available=job.get("cancellation_available") is not False,
+        cancellation_available=cancellation_available,
         scientific_status=str(result.get("scientific_status") or ""),
         achieved_profile=str(result.get("achieved_profile") or ""),
         condition_complete_route_count=int(
@@ -469,6 +515,7 @@ def registry_job(
     run_status = str(run.get("status") or "").casefold()
     if run_status == "paused":
         activity_observed_at, activity_stale = _run_activity_observation(run, run)
+        experiment_outcome = _panel_experiment_outcome(run)
         fallback.update(
             target_smiles=str(run.get("target_smiles") or ""),
             status="paused",
@@ -482,6 +529,7 @@ def registry_job(
             campaign_terminal=False,
             campaign_decision="paused",
             cancellation_available=False,
+            **experiment_outcome,
         )
         progress = dict(fallback.get("progress") or {})
         progress.update(
@@ -489,6 +537,7 @@ def registry_job(
             campaign_status="paused",
             execution_active=False,
             cancellation_available=False,
+            **experiment_outcome,
         )
         fallback["progress"] = progress
         return fallback
@@ -570,6 +619,78 @@ def registry_job(
         "error": "",
         "result": {},
         **common,
+    }
+
+
+def _panel_experiment_outcome(run: Mapping[str, Any]) -> dict[str, Any]:
+    """Read bounded-panel outcome semantics without rewriting campaign state."""
+
+    run_id = str(run.get("run_id") or "")
+    raw_run_dir = str(run.get("run_dir") or "")
+    if not run_id or not raw_run_dir:
+        return {}
+    panel_path = Path(raw_run_dir).parent.parent / "panel-status.json"
+    try:
+        stat = panel_path.stat()
+    except OSError:
+        return {}
+    return dict(
+        _cached_panel_experiment_outcome(
+            str(panel_path),
+            stat.st_mtime_ns,
+            stat.st_size,
+            run_id,
+        )
+    )
+
+
+@lru_cache(maxsize=256)
+def _cached_panel_experiment_outcome(
+    panel_path: str,
+    _mtime_ns: int,
+    _size: int,
+    run_id: str,
+) -> dict[str, Any]:
+    try:
+        panel = json.loads(Path(panel_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(panel, Mapping) or panel.get("complete") is not True:
+        return {}
+    targets = panel.get("targets")
+    if not isinstance(targets, Mapping):
+        return {}
+    target = next(
+        (
+            dict(value)
+            for value in targets.values()
+            if isinstance(value, Mapping)
+            and str(value.get("run_id") or "") == run_id
+        ),
+        None,
+    )
+    if target is None:
+        return {}
+    final_state = dict(target.get("final_state") or {})
+    claim = dict(final_state.get("claim") or {})
+    if claim.get("benchmark_search_completed") is not True:
+        return {}
+    paper_equivalent = dict(target.get("paper_equivalent") or {})
+    stop_decision = dict(final_state.get("stop_decision") or {})
+    campaign_paused = str(target.get("status") or "").casefold() == "paused"
+    return {
+        "experiment_status": "complete",
+        "paper_equivalent_status": (
+            "solved"
+            if paper_equivalent.get("paper_equivalent_solved") is True
+            else "reached"
+            if paper_equivalent.get("paper_reach") is True
+            else "unresolved"
+        ),
+        "campaign_resumable": (
+            campaign_paused and stop_decision.get("terminal") is not True
+        ),
+        "scientific_status": str(target.get("scientific_status") or "unresolved"),
     }
 
 

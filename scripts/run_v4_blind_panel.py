@@ -64,7 +64,7 @@ PANEL_EXECUTION_PROFILES = (
     "proof",
     "paper_synthex",
     "paper_matched_reach",
-    "v9_smoke",
+    "self_correcting_sequential",
 )
 
 
@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         default="paper_matched_reach",
         help=(
             "execution contract; paper_matched_reach is the frozen paper-control "
-            "arm, while v9_smoke keeps the same reach budgets with online V9 critics"
+            "arm, while self_correcting_sequential adds sparse online review"
         ),
     )
     parser.add_argument(
@@ -259,7 +259,8 @@ def main(argv: list[str] | None = None) -> int:
         "--benchmark-stock-index",
         help=(
             "Optional frozen SQLite stock-membership index shared read-only by "
-            "benchmark_search cases; no planning provider is loaded from it."
+            "benchmark_search cases; required when the Strategy tree uses "
+            "AiZynthFinder MCTS."
         ),
     )
     parser.add_argument(
@@ -385,6 +386,16 @@ def main(argv: list[str] | None = None) -> int:
     allowed_prior_target_manifests = _prior_target_manifest_files(
         args.allowed_prior_target_manifest
     )
+    if (
+        _strategy_tree_requires_benchmark_stock_index(
+            execution_profile=args.execution_profile,
+            strategy_tree_engine=args.strategy_tree_engine,
+        )
+        and not str(args.benchmark_stock_index or "").strip()
+    ):
+        raise SystemExit(
+            "aizynthfinder_strategy_stock_index_required_before_panel_preflight"
+        )
 
     try:
         chemenzy_stock_names, chemenzy_stock_paths = _resolve_panel_chemenzy_stock_binding(
@@ -1240,7 +1251,7 @@ def _run_case(
         # A clean ChemEnzy-off arm must disable both the direct provider and
         # the guided frontier scheduler. Passing only --no-chemenzy leaves
         # enable_guided_chemenzy at its CLI default, which still enqueues
-        # chemenzy_frontier_expand campaign actions and contaminates an
+        # native_short_tail_expand campaign actions and contaminates an
         # ostensibly AiZ-only control.
         *(
             ["--no-chemenzy", "--no-guided-chemenzy"]
@@ -1850,6 +1861,7 @@ def _summarize_report(
             ),
         },
         "failure_events": failure_events,
+        "rejection_taxonomy": dict(report.get("rejection_taxonomy") or {}),
         "evidence": {
             "pass_count": len(evidence_stages),
             "source_count": sum(
@@ -2045,6 +2057,17 @@ def _resolve_panel_chemenzy_stock_binding(
     if next(iter(parsed.values())) != benchmark_path:
         raise ValueError("benchmark_and_chemenzy_stock_paths_differ")
     return names, tuple(f"{name}={parsed[name]}" for name in names)
+
+
+def _strategy_tree_requires_benchmark_stock_index(
+    *,
+    execution_profile: str,
+    strategy_tree_engine: str | None,
+) -> bool:
+    effective_engine = str(strategy_tree_engine or "").strip()
+    if not effective_engine and _is_paper_reach_profile(execution_profile):
+        effective_engine = "aizynthfinder_mcts"
+    return effective_engine == "aizynthfinder_mcts"
 
 
 def _binary_fingerprint(value: str | None) -> dict[str, Any]:

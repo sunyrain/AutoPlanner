@@ -25,6 +25,7 @@ ExpansionRequestHandler = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 def run_aizynthfinder_strategy_branch_sidecar(
     *,
     target_smiles: str,
+    mapped_target_smiles: str = "",
     strategy_id: str,
     strategy_text: str,
     request_handler: ExpansionRequestHandler,
@@ -99,6 +100,7 @@ def run_aizynthfinder_strategy_branch_sidecar(
     launch = {
         "schema_version": SCHEMA,
         "target_smiles": target_smiles,
+        "mapped_target_smiles": mapped_target_smiles,
         "strategy_id": strategy_id,
         "strategy_text": strategy_text,
         "stock_index_path": str(stock_index_path),
@@ -152,6 +154,20 @@ def run_aizynthfinder_strategy_branch_sidecar(
                             "candidates": list(response.get("candidates") or []),
                             "model_call_consumed": bool(
                                 response.get("model_call_consumed", True)
+                            ),
+                            "host_replay_seed": bool(
+                                response.get("host_replay_seed", False)
+                            ),
+                            "rejected_path_step_ids": [
+                                str(value)
+                                for value in response.get(
+                                    "rejected_path_step_ids"
+                                )
+                                or []
+                                if str(value).strip()
+                            ],
+                            "rejection_reason": str(
+                                response.get("rejection_reason") or ""
                             ),
                             "stop_search": bool(response.get("stop_search", False)),
                             "stop_reason": str(response.get("stop_reason") or ""),

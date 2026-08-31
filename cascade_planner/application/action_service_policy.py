@@ -5,62 +5,21 @@ import hashlib
 import json
 from typing import Any, Iterable, Mapping
 
+from cascade_planner.application.campaign_actions import (
+    ACTION_CLASS_ORDER,
+    CampaignActionKind,
+    campaign_action_kind_policy,
+)
+
 
 ACTION_CLASS_SERVICE_SCHEMA = "campaign_action_class_service.v1"
-ACTION_CLASS_ORDER = (
-    "route_discovery",
-    "deterministic_closure",
-    "scientific_proof",
-    "program_experiment",
-)
 ACTION_CLASS_MINIMUM_SERVICE_INTERVAL = 12
 
-_ACTION_CLASS_KINDS = {
-    "route_discovery": frozenset(
-        {
-            "chemenzy_target_expand",
-            "chemenzy_frontier_expand",
-            "codex_global_architecture",
-            "codex_global_replan",
-        }
-    ),
-    "deterministic_closure": frozenset(
-        {
-            "host_materialize",
-            "reaction_validate",
-            "stock_audit",
-            "recompute_route_closure",
-        }
-    ),
-    "scientific_proof": frozenset(
-        {
-            "acquire_exact_evidence",
-            "bind_exact_evidence",
-            "condition_enrich",
-            "resolve_conflict",
-        }
-    ),
-    "program_experiment": frozenset(
-        {
-            "program_discover",
-            "program_review",
-            "program_admit",
-            "program_validate",
-            "experiment_feedback_ingest",
-        }
-    ),
-}
-_KIND_TO_ACTION_CLASS = {
-    kind: action_class
-    for action_class, kinds in _ACTION_CLASS_KINDS.items()
-    for kind in kinds
-}
 
-
-def action_class_for_kind(kind: str) -> str:
+def action_class_for_kind(kind: CampaignActionKind | str) -> str:
     """Return the frozen service class for one canonical Action kind."""
 
-    return _KIND_TO_ACTION_CLASS.get(str(kind or ""), "unclassified")
+    return campaign_action_kind_policy(kind).action_class
 
 
 def compile_action_class_service(
@@ -151,9 +110,7 @@ def compile_action_class_service(
         "action_class_order": list(ACTION_CLASS_ORDER),
         "minimum_service_interval": ACTION_CLASS_MINIMUM_SERVICE_INTERVAL,
         "prior_action_count": len(history),
-        "classified_prior_action_count": sum(
-            value != "unclassified" for value in history_classes
-        ),
+        "classified_prior_action_count": len(history_classes),
         "next_action_ordinal": next_ordinal,
         "prior_action_kinds_sha256": _digest(list(history)),
         "classes": class_rows,

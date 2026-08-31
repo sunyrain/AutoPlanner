@@ -120,12 +120,26 @@ def main() -> int:
                 model_call_consumed=bool(
                     response.get("model_call_consumed", True)
                 ),
+                host_replay_seed=bool(
+                    response.get("host_replay_seed", False)
+                ),
+                rejected_path_step_ids=tuple(
+                    str(value)
+                    for value in response.get("rejected_path_step_ids") or []
+                    if str(value).strip()
+                ),
+                rejection_reason=str(
+                    response.get("rejection_reason") or ""
+                ),
                 stop_search=bool(response.get("stop_search", False)),
                 stop_reason=str(response.get("stop_reason") or ""),
             )
 
         result = run_reactionjson_branch(
             target_smiles=str(launch.get("target_smiles") or ""),
+            mapped_target_smiles=str(
+                launch.get("mapped_target_smiles") or ""
+            ),
             strategy_id=str(launch.get("strategy_id") or ""),
             strategy_text=str(launch.get("strategy_text") or ""),
             candidate_provider=candidate_provider,

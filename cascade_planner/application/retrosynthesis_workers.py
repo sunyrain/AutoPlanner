@@ -768,7 +768,8 @@ def materialize_candidate_worker(
     provider_template_topology = bool(
         not payload.get("reaction_operations")
         and any(
-            str(value.get("origin_kind") or "") == "chemenzy"
+            str(value.get("origin_kind") or "")
+            in {"aizynthfinder", "chemenzy"}
             for value in proposal_refs
         )
     )

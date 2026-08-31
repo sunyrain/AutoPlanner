@@ -509,12 +509,12 @@ Blackboard 都不能自行把 proposal 提升为事实。</p>
     验证、exact 文献、条件、benchmark 库存和采购闭合严格分轴。Bufotalin V3 显示 3/4 条结构闭合、最长
     12 步；B1–B5 仍可保持开放，不再把“证据/库存未闭合”误写成“整条路线不存在”。展示页和路线工作台
     均显示该独立卡片；12 步路线已实际点击检查，R1 检查器可打开且条件、来源缺口和 Proof vector 完整可滚动。</li>
-<li>Canonical V4 Web 已收敛为一个后端事实源和三个协同视图：<code>/v4</code> 统一工作区同时列出 fresh showcase
-    与 gateway 运行索引，并在同一个 iframe 中审查 Workbench；<code>/v4/console</code> 只负责从 SMILES 发起异步
-    campaign；<code>/v4/showcase</code> 负责全屏展示。<code>/api/v4/workspace</code> 汇总入口、后端状态、run 与展示目录，
+<li>Canonical V4 Web 已收敛为唯一首页与结果审查中心：<code>/v4</code> 同时列出 fresh showcase
+    与 gateway 运行索引，并在同一个 iframe 中审查 Workbench；唯一首页 <code>/</code> 从 SMILES 发起异步
+    campaign 并实时投影路线。<code>/api/v4/workspace</code> 汇总入口、后端状态、run 与展示目录，
     <code>/api/v4/showcase</code> 有界发现生成的 <code>showcase/summary.json</code>，同一目标优先采用最新 fresh 工件。旧版没有
     <code>route_closure</code> 时显示“闭合待 current 投影”，不误报失败；旧蟾毒灵 20 步展示会被 fresh V3 的 12 步
-    闭合事实替代。启动脚本现调用默认 Canonical V4 server，不再把 combined 兼容应用作为新入口；
+    闭合事实替代。combined 兼容应用已经退役归档，启动脚本只调用 Canonical V4 server；
     <code>--server auto</code> 在 Waitress 缺失时自动回退 Flask，默认命令不会在端口绑定前失败。</li>
 </ol>
 <h3 id="71-bufotalin-v3">7.1 闭合优先核算（Bufotalin V3 当前样例）</h3>

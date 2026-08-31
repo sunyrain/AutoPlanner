@@ -39,11 +39,8 @@
 6. `legacy.combined_web_surface` 纳入 compatibility inventory。
 
 隔离后的 `web.v4_app` 导入不会加载 `agentic_blackboard_controller`、RouteForest compiler 或
-`codex_retrosynthesis` legacy campaign。旧综合展示仍可显式运行：
-
-```bash
-python scripts/legacy/serve_combined_web.py
-```
+`codex_retrosynthesis` legacy campaign。此处记录的旧综合展示随后已于 2026-08-29 退役；
+当前只通过 Canonical Web 与 Workbench 查看历史运行，不再保留可执行的 combined Web launcher。
 
 ## 4. 第一块新功能：Program 只读基座
 

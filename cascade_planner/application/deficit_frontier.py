@@ -116,6 +116,70 @@ def target_reachable_route_boundaries(
     }
 
 
+def frontier_builder_budget_state(
+    graph: Mapping[str, Any],
+    *,
+    route_family_id: str,
+) -> dict[str, Any]:
+    """Project the remaining Builder calls for one canonical route family.
+
+    A route may continue a stock-rejected canonical leaf only with calls left
+    on its originating per-branch policy axis. Durable frontier-Builder
+    attempt signals debit that same axis; they never create a third retry
+    budget. Execution profiles decide whether this lane is registered.
+    """
+
+    family_id = str(route_family_id or "")
+    family = dict(dict(graph.get("route_families") or {}).get(family_id) or {})
+    budget = dict(family.get("paper_policy_call_budget") or {})
+    maximum_raw = budget.get("maximum_calls")
+    bounded = maximum_raw is not None
+    maximum_calls = max(0, int(maximum_raw or 0)) if bounded else None
+    initial_calls = max(
+        0,
+        int(
+            budget.get("actual_calls")
+            if budget.get("actual_calls") is not None
+            else family.get("route_call_count")
+            or 0
+        ),
+    )
+    continuation_calls = sum(
+        1
+        for signal in dict(graph.get("action_signals") or {}).values()
+        if isinstance(signal, Mapping)
+        and str(signal.get("kind") or "") == DeficitKind.EXPANSION.value
+        and str(dict(signal.get("metadata") or {}).get("attempt_lane") or "")
+        == "codex_frontier_builder"
+        and str(dict(signal.get("metadata") or {}).get("route_family_id") or "")
+        == family_id
+        and dict(signal.get("metadata") or {}).get("lane_unavailable") is not True
+    )
+    total_calls = initial_calls + continuation_calls
+    remaining_calls = (
+        max(0, int(maximum_calls) - total_calls)
+        if maximum_calls is not None
+        else None
+    )
+    return {
+        "route_family_id": family_id,
+        "bounded": bounded,
+        "maximum_calls": maximum_calls,
+        "initial_calls": initial_calls,
+        "continuation_calls": continuation_calls,
+        "total_calls": total_calls,
+        "remaining_calls": remaining_calls,
+        "available": bool(
+            family and (remaining_calls is None or remaining_calls > 0)
+        ),
+        "semantics": {
+            "continuation_debits_initial_policy_axis": True,
+            "no_private_frontier_retry_budget": True,
+            "durable_attempt_signals_are_budget_authority": True,
+        },
+    }
+
+
 class DeficitKind(str, Enum):
     ARCHITECTURE = "architecture"
     MATERIALIZATION = "materialization"
@@ -672,29 +736,155 @@ def compile_deficit_frontier(
         target_routes = tuple(reachable_route_ids.get(str(molecule_id)) or ())
         open_routes = tuple(open_leaf_route_ids.get(str(molecule_id)) or ())
         selected = bool(target_routes)
-        guided_expansion_observed = any(
-            str(hypothesis.get("product_smiles") or "")
-            == str(molecule.get("canonical_smiles") or "")
-            and bool(
-                set(str(value) for value in hypothesis.get("route_family_ids") or [])
-                & set(open_routes)
-            )
-            and str(origin.get("origin_kind") or "") == "chemenzy"
-            and str(origin.get("origin_ref") or "").startswith("chemenzy:guided-")
-            for hypothesis in dict(graph.get("hypotheses") or {}).values()
-            if isinstance(hypothesis, Mapping)
-            for origin in hypothesis.get("origin_records") or []
-            if isinstance(origin, Mapping)
+        open_route_set = set(open_routes)
+        settled_native_routes: set[str] = set()
+        unscoped_native_attempt = False
+        for hypothesis in dict(graph.get("hypotheses") or {}).values():
+            if not isinstance(hypothesis, Mapping):
+                continue
+            if str(hypothesis.get("product_smiles") or "") != str(
+                molecule.get("canonical_smiles") or ""
+            ):
+                continue
+            if not any(
+                str(origin.get("origin_kind") or "") in {"chemenzy", "aizynthfinder"}
+                and ":guided-" in str(origin.get("origin_ref") or "")
+                for origin in hypothesis.get("origin_records") or []
+                if isinstance(origin, Mapping)
+            ):
+                continue
+            hypothesis_routes = {
+                str(value)
+                for value in hypothesis.get("route_family_ids") or []
+                if str(value)
+            }
+            if hypothesis_routes:
+                settled_native_routes.update(hypothesis_routes & open_route_set)
+            else:
+                unscoped_native_attempt = True
+        for signal in dict(graph.get("action_signals") or {}).values():
+            if not isinstance(signal, Mapping):
+                continue
+            if (
+                str(signal.get("kind") or "") != DeficitKind.EXPANSION.value
+                or str(signal.get("status") or "") != "resolved"
+                or str(signal.get("object_id") or "") != str(molecule_id)
+                or dict(signal.get("metadata") or {}).get(
+                    "guided_provider_attempt"
+                )
+                is not True
+            ):
+                continue
+            signal_routes = {
+                str(value)
+                for value in signal.get("route_family_ids") or []
+                if str(value)
+            }
+            if signal_routes:
+                settled_native_routes.update(signal_routes & open_route_set)
+            elif dict(signal.get("metadata") or {}).get(
+                "frontier_occurrence_key"
+            ):
+                # A legacy explicitly occurrence-bound record may lack the
+                # projected family list.  Treat only that explicit historical
+                # record as a wildcard; an unbound signal grants no closure.
+                unscoped_native_attempt = True
+        guided_provider_lane_settled = bool(open_route_set) and (
+            unscoped_native_attempt
+            or open_route_set <= settled_native_routes
         )
-        guided_expansion_observed = guided_expansion_observed or any(
-            str(signal.get("kind") or "") == DeficitKind.EXPANSION.value
-            and str(signal.get("status") or "") == "resolved"
-            and str(signal.get("object_id") or "") == str(molecule_id)
-            and dict(signal.get("metadata") or {}).get("guided_provider_attempt")
-            is True
+        builder_route_candidates = tuple(sorted(open_routes or target_routes))
+        unavailable_builder_routes = {
+            str(dict(signal.get("metadata") or {}).get("route_family_id") or "")
             for signal in dict(graph.get("action_signals") or {}).values()
             if isinstance(signal, Mapping)
+            and str(signal.get("kind") or "") == DeficitKind.EXPANSION.value
+            and str(signal.get("object_id") or "") == str(molecule_id)
+            and str(dict(signal.get("metadata") or {}).get("attempt_lane") or "")
+            == "codex_frontier_builder"
+            and dict(signal.get("metadata") or {}).get("lane_unavailable") is True
+        }
+        builder_budget_states = {
+            route_id: frontier_builder_budget_state(
+                graph,
+                route_family_id=route_id,
+            )
+            for route_id in builder_route_candidates
+        }
+        exhausted_builder_routes = {
+            route_id
+            for route_id, state in builder_budget_states.items()
+            if state.get("available") is not True
+        }
+        builder_route_id = next(
+            (
+                route_id
+                for route_id in builder_route_candidates
+                if route_id not in unavailable_builder_routes
+                and route_id not in exhausted_builder_routes
+            ),
+            "",
         )
+        frontier_builder_attempts = sorted(
+            (
+                dict(signal)
+                for signal in dict(graph.get("action_signals") or {}).values()
+                if isinstance(signal, Mapping)
+                and str(signal.get("kind") or "")
+                == DeficitKind.EXPANSION.value
+                and str(signal.get("object_id") or "") == str(molecule_id)
+                and str(dict(signal.get("metadata") or {}).get("attempt_lane") or "")
+                == "codex_frontier_builder"
+                and str(
+                    dict(signal.get("metadata") or {}).get("route_family_id") or ""
+                )
+                == builder_route_id
+            ),
+            key=lambda signal: int(
+                dict(signal.get("metadata") or {}).get("attempt_index") or 0
+            ),
+        )
+        frontier_builder_attempt_count = max(
+            (
+                int(dict(signal.get("metadata") or {}).get("attempt_index") or 0)
+                for signal in frontier_builder_attempts
+            ),
+            default=0,
+        )
+        latest_frontier_builder_attempt = (
+            dict(frontier_builder_attempts[-1])
+            if frontier_builder_attempts
+            else {}
+        )
+        latest_builder_metadata = dict(
+            latest_frontier_builder_attempt.get("metadata") or {}
+        )
+        builder_lane = {
+            "frontier_builder_attempt_index": frontier_builder_attempt_count + 1,
+            "frontier_builder_route_family_id": builder_route_id,
+            "frontier_builder_prior_rejection": dict(
+                latest_builder_metadata.get("diagnostic") or {}
+            ),
+            "guided_provider_lane_settled": guided_provider_lane_settled,
+            "attempt_history_does_not_resolve_leaf": True,
+            "provider_lanes_exhausted": bool(
+                guided_provider_lane_settled and not builder_route_id
+            ),
+            "frontier_builder_budget": dict(
+                builder_budget_states.get(builder_route_id) or {}
+            ),
+            "frontier_builder_exhausted_route_family_ids": sorted(
+                exhausted_builder_routes
+            ),
+        }
+
+        def expansion_provider_preferences() -> list[str]:
+            values: list[str] = []
+            if not guided_provider_lane_settled:
+                values.append("native_short_tail")
+            if builder_route_id:
+                values.append("codex_frontier_builder")
+            return values
         active_stock_id = str(molecule.get("active_stock_observation_id") or "")
         active_stock = dict(
             dict(graph.get("stock_observations") or {}).get(active_stock_id) or {}
@@ -703,7 +893,6 @@ def compile_deficit_frontier(
             molecule.get("provider_expansion_requested") is True
             and active_stock.get("accepted") is not True
             and selected
-            and not guided_expansion_observed
             and not (open_routes and active_stock_id)
         ):
             items.append(
@@ -727,9 +916,7 @@ def compile_deficit_frontier(
                     ),
                     metadata={
                         "frontier_smiles": str(molecule.get("canonical_smiles") or ""),
-                        "provider_preferences": list(
-                            molecule.get("provider_preferences") or ["chemenzy"]
-                        ),
+                        "provider_preferences": expansion_provider_preferences(),
                         "retron_hints": list(molecule.get("provider_retron_hints") or []),
                         "provider_request_ids": list(
                             molecule.get("provider_request_ids") or []
@@ -740,6 +927,7 @@ def compile_deficit_frontier(
                         "frontier_molecule_id": str(molecule_id),
                         "target_rooted": True,
                         "target_rooted_open_leaf": bool(open_routes),
+                        **builder_lane,
                     },
                 )
             )
@@ -751,7 +939,6 @@ def compile_deficit_frontier(
         if (
             active_stock_id
             and active_stock.get("accepted") is not True
-            and not guided_expansion_observed
         ):
             items.append(
                 _item(
@@ -761,7 +948,11 @@ def compile_deficit_frontier(
                     route_family_ids=open_routes,
                     deterministic=False,
                     model_allowed=True,
-                    reason="stock_rejected_leaf_requires_upstream_expansion",
+                    reason=(
+                        "stock_rejected_leaf_requires_builder_fallback"
+                        if guided_provider_lane_settled
+                        else "stock_rejected_leaf_requires_upstream_expansion"
+                    ),
                     score=_score(
                         DeficitKind.EXPANSION,
                         selected=selected,
@@ -771,20 +962,16 @@ def compile_deficit_frontier(
                         "frontier_smiles": str(
                             molecule.get("canonical_smiles") or ""
                         ),
-                        "provider_preferences": ["chemenzy", "codex_global_director"],
+                        "provider_preferences": expansion_provider_preferences(),
                         "stock_observation_id": active_stock_id,
                         "frontier_molecule_id": str(molecule_id),
                         "target_rooted": True,
                         "target_rooted_open_leaf": True,
                         "paper_short_tail_eligible": True,
+                        **builder_lane,
                     },
                 )
             )
-            continue
-        # A negative stock observation is immutable for this bound oracle.
-        # Once the one bounded short-tail attempt has settled, another stock
-        # audit is a deterministic no-op; the route remains incomplete.
-        if active_stock_id and active_stock.get("accepted") is not True:
             continue
         items.append(
             _item(

@@ -487,9 +487,9 @@ target solve report，或 report/trajectory 摘要无效，文件仍会写出但
 
 默认启动隔离的 Canonical V4 surface，不装载旧 Blackboard compiler 或旧 campaign。
 唯一首页和唯一 Web 逆合成启动入口为 `/`。它运行 Strategy Generator + 三分支 Route Builder，
-并通过 SSE 逐次展示模型输出和 host replay。统一结果工作区为 `/v4`，集中展示兼容入口为
-`/v4/showcase`；它们共用 `/api/v4/workspace`、`/api/v4/showcase`、`/api/v4/runs` 和同一
-Workbench read model。旧 `/synthesis` 与 `/v4/console` 仅重定向到 `/`，不再拥有独立启动表单。
+并通过 SSE 逐次展示模型输出和 host replay。结果与审查中心为 `/v4`，它与首页共用
+`/api/v4/workspace`、`/api/v4/showcase`、`/api/v4/runs` 和同一 Workbench read model。
+旧 `/synthesis`、`/v4/console`、`/v4/showcase`、`/agent`、`/statins` 与 `/showcase` 均已退役并返回 404。
 Program 迁移盘点为
 `/api/v4/program-migration`，单运行影子投影为 `/api/v4/runs/<run_id>/programs`。默认仅绑定
 `127.0.0.1`。CLI 不提供隐式删除模式；
@@ -509,6 +509,11 @@ python -m cascade_planner serve --server flask --host 127.0.0.1 --port 8878
 它不是第二个任务队列。历史卡片是停止执行的不可变快照，内核原始状态只作审计，不能被
 理解为仍有后台线程或已经达到 B3/L4。
 
+网页取消最终以 `RunKernel.status=cancelled` 为准。终态下仍出现在事件回放中的 `in_flight_tasks` 是
+“已 reservation、尚未收到 measured settlement”的中断证据，不是活跃线程；服务状态的
+`active_actions` 必须为空。若 worker 随后提交真实 settlement，账本补记实际资源并将该 task lifecycle
+从 `interrupted` 更新为 `settled`，不得在取消时预填零成本。
+
 网站任务队列只覆盖当前 Web gateway 注册的运行。若直接使用 CLI 并通过 `--run-dir`/独立输出目录创建另一份
 `run_index.sqlite3`，该运行不会因位于仓库 `results/**` 下而自动进入网站；这是两个运行注册域，不是 SSE 丢失。
 需要网页实时监控的 smoke 必须通过同一服务的 `POST /api/v4/jobs` 启动，随后使用返回的 `job_id` 连接
@@ -522,13 +527,8 @@ Canonical Web 不发送 `objective_mode`。旧 API 客户端仍可暂时传入�
 `Warning: 299`，async job 还会在 `request_warnings[]` 中保留收据。调用方必须在
 2026-10-01 前迁移到显式 stock、acceptance 和 budget 参数。
 
-仅在需要旧 Agent/Statin/RouteForest 综合界面时显式启动兼容 surface：
-
-```bash
-python scripts/legacy/serve_combined_web.py
-```
-
-该 surface 不是 Canonical V4 的科学权威，不能承载新产品逻辑。
+旧 Agent/Statin/RouteForest combined Web 已从当前源码退役；不要为历史案卷重新建立第二个 Web 服务。
+历史运行仍通过 `/v4` 和 canonical Workbench 只读审查。
 
 ## 7. 本地发布门
 

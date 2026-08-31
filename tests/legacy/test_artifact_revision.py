@@ -20,7 +20,6 @@ from cascade_planner.legacy.runtime.artifact_revision import (
     validate_closeout_manifest,
     validate_latest_closeout_revision,
 )
-from cascade_planner.legacy.web_runtime.app import _agent_runtime_payload
 from scripts.legacy.evaluate_agentic_run import evaluate_run
 from scripts.legacy.refresh_agentic_closeout_artifacts import refresh_agentic_closeout_artifacts
 
@@ -439,15 +438,6 @@ def test_evaluator_ignores_mutated_fixed_proof_and_verdict_after_closeout(
         in report["warnings"]
     )
     assert "closeout_compatibility:final_verdict_compatibility_drift" in report["warnings"]
-    web_payload = _agent_runtime_payload({"run_dir": str(tmp_path)})
-    assert web_payload["final_verdict_authority"] == "content_addressed_closeout_objects"
-    assert web_payload["authoritative_final_verdict"]["solved"] is False
-    assert set(web_payload["closeout_compatibility_semantic_drift"]) == {
-        "agent_blackboard_parent_proof_drift",
-        "final_verdict_compatibility_drift",
-    }
-
-
 def test_failed_new_controller_closeout_preserves_prior_cas_decision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

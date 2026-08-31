@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AutoPlanner · 静态逆合成路线</title>
+  <style>__AUTOPLANNER_EXPORT_STYLES__</style>
+</head>
+<body>
+  <div class="export-shell">
+    <header class="sitebar">
+      <div class="brand"><svg viewBox="0 0 36 42" aria-hidden="true"><path d="M18 2v10M8 7l10 5 10-5M8 7v12l10 6 10-6V7M18 25v15M10 35l8 5 8-5"/><circle cx="8" cy="19" r="2.4"/><circle cx="28" cy="19" r="2.4"/></svg><div>AutoPlanner<small>Strategy Builder · Route Builder</small></div></div>
+      <div class="site-meta"><span class="kind-chip">静态逆合成路线</span><span class="offline-chip">离线单页</span><time id="exportedAt"></time></div>
+    </header>
+    <section class="runbar">
+      <div class="run-identity"><small id="runStatus">最终保存状态</small><h1 id="targetName">逆合成任务</h1><code id="runId" class="run-id"></code></div>
+      <div class="progress-block"><div class="progress-meta"><b id="strategyTitle">Strategy 01</b><span id="scientificState"></span></div><div class="progress-track"><div class="progress-fill" style="width:100%"></div></div></div>
+      <div class="run-stats"><div class="run-stat"><b id="stepMetric">0</b><span>路线步骤</span></div><div class="run-stat"><b id="callMetric">0</b><span>模型调用</span></div><div class="run-stat"><b id="tokenMetric">0</b><span>输出 tokens</span></div></div>
+    </section>
+    <main class="page-body">
+      <section class="route-layout">
+        <aside class="panel">
+          <header class="panel-header"><div><small>Selected strategy</small><h2 id="strategyLabel">Strategy 01</h2></div><span>STATIC</span></header>
+          <article class="target-card"><div id="targetArt" class="target-visual" role="img" aria-label="目标分子结构"></div><code id="targetSmiles" class="target-smiles"></code></article>
+          <div class="route-summary"><span class="strategy-no" id="strategyNo">STRATEGY 01</span><h2 id="strategySignature">等待路线</h2><p id="strategyQuery"></p><dl><dt>Host route steps</dt><dd id="routeStepCount">0</dd><dt>大模型步骤</dt><dd id="routeLlmSteps">0</dd><dt>AIz 收尾步骤</dt><dd id="routeAizSteps">0</dd><dt>来源未记录</dt><dd id="routeUnknownSteps">0</dd><dt>Model outputs</dt><dd id="routeModelCalls">0</dd><dt>Route status</dt><dd id="routeStatus">—</dd></dl></div>
+        </aside>
+        <section class="panel">
+          <header class="panel-header"><div><small>Final host-replayed route</small><h2>逐步逆合成路线</h2></div><span id="routeCount">0 steps</span></header>
+          <div id="routeList" class="route-list"></div>
+        </section>
+      </section>
+      <footer class="footer"><p><b>静态逆合成路线：</b>只展示所选 Strategy 在导出时的最终 Host-replayed 步骤，不包含模型播放过程，也不把规划路线解释为实验验证。</p><span id="footerRun"></span></footer>
+    </main>
+  </div>
+  <script id="showcaseData" type="application/json">__AUTOPLANNER_SHOWCASE_DATA__</script>
+  <script>
+    (()=>{
+      'use strict';
+      const data=JSON.parse(document.getElementById('showcaseData').textContent),$=id=>document.getElementById(id);
+      const esc=value=>String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+      const compact=value=>{const n=Number(value||0);return n>=1e6?(n/1e6).toFixed(1)+'m':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);};
+      const molecule=smiles=>data.molecules?.[String(smiles||'')]||'<svg viewBox="0 0 320 200"><rect width="320" height="200" rx="16" fill="#f7f9f7"/></svg>';
+      const moleculeCard=(smiles,label)=>`<article class="molecule-card route-molecule"><header><span>${esc(label)}</span><span>STRUCTURE</span></header><div class="molecule-art" role="img" aria-label="${esc(label)}：${esc(smiles)}">${molecule(smiles)}</div><code class="molecule-smiles" title="${esc(smiles)}">${esc(smiles)}</code></article>`;
+      const originClass=kind=>kind==='aizynthfinder_short_tail'?'aiz':kind==='large_model'?'model':'unknown';
+      const originBadges=step=>{const rows=Array.isArray(step.step_origins)&&step.step_origins.length?step.step_origins:[{kind:'unknown',label:'来源未记录'}];return `<div class="route-step-origin">${rows.map(value=>`<span class="origin-badge ${originClass(value.kind)}">${esc(value.label)}</span>`).join('')}</div>`;};
+      const sourceCounts=steps=>steps.reduce((counts,step)=>{(step.step_origins||[{kind:'unknown'}]).forEach(value=>{counts[value.kind]=(counts[value.kind]||0)+1;});return counts;},{aizynthfinder_short_tail:0,large_model:0,unknown:0});
+      const meta=data.metadata||{},summary=data.summary||{},projection=data.projection||{},branchIndex=Number(meta.branch_index)||1;
+      const branch=(projection.branches||[]).find(value=>Number(value.branch_index)===branchIndex)||{steps:[],model_calls:0,status:'waiting'};
+      const strategy=(projection.strategies||[])[branchIndex-1]||{};
+      const steps=(branch.steps||[]).filter(step=>(step.precursor_smiles||[]).length);
+      const origins=sourceCounts(steps);
+      $('targetName').textContent=meta.target_name||meta.run_id||'逆合成任务';$('runId').textContent=meta.run_id||'';$('runStatus').textContent=meta.status==='historical'?'历史运行 · 最终保存状态':meta.status||'最终保存状态';$('scientificState').textContent=summary.scientific_state?`科学状态 · ${summary.scientific_state}`:'';$('exportedAt').textContent=String(data.exported_at||'').replace('T',' ').replace('+00:00',' UTC');$('targetArt').innerHTML=molecule(meta.target_smiles);$('targetSmiles').textContent=meta.target_smiles||'';$('targetSmiles').title=meta.target_smiles||'';
+      $('strategyTitle').textContent=`Strategy 0${branchIndex} · ${strategy.signature||'最终路线'}`;$('strategyLabel').textContent=`Strategy 0${branchIndex}`;$('strategyNo').textContent=`STRATEGY 0${branchIndex}`;$('strategySignature').textContent=strategy.signature||'未命名策略';$('strategyQuery').textContent=strategy.query||'';$('routeStepCount').textContent=String(steps.length);$('routeLlmSteps').textContent=String(origins.large_model||0);$('routeAizSteps').textContent=String(origins.aizynthfinder_short_tail||0);$('routeUnknownSteps').textContent=String(origins.unknown||0);$('routeModelCalls').textContent=String(branch.model_calls||0);$('routeStatus').textContent=branch.status||'—';$('routeCount').textContent=`${steps.length} steps`;$('stepMetric').textContent=String(steps.length);$('callMetric').textContent=compact(summary.model_invocations);$('tokenMetric').textContent=compact(summary.output_tokens);$('footerRun').textContent=meta.run_id||'';
+      $('routeList').innerHTML=steps.length?steps.map((step,index)=>{const precursors=(step.precursor_smiles||[]).filter(Boolean);const condition=(step.conditions||[])[0]||step.catalyst||step.transformation_rationale||'该步骤未保存条件摘要';return `<article class="route-step"><div class="route-step-no">STEP ${String(index+1).padStart(2,'0')}${originBadges(step)}</div>${moleculeCard(step.product_smiles||meta.target_smiles,'PRODUCT')}<div class="route-reaction"><b>${esc(step.reaction_family||step.transformation_rationale||'反应类型未记录')}</b><span>${esc(condition)}</span></div><div class="route-precursors">${precursors.map((smiles,precursorIndex)=>moleculeCard(smiles,precursorIndex?'CO-REACTANT':'PRECURSOR')).join('')}</div></article>`;}).join(''):'<div class="scheme-empty"><b>该 Strategy 没有最终 Host 路线</b><span>导出时未发现含可投影前体的保存步骤。</span></div>';
+      document.title=`${meta.target_name||meta.run_id||'AutoPlanner'} · Strategy 0${branchIndex} 静态路线`;
+    })();
+  </script>
+</body>
+</html>

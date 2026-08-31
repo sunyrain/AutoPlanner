@@ -7,6 +7,7 @@ from cascade_planner.application.chemical_strategy_critic import (
 )
 from cascade_planner.application.reactionjson_replay import (
     PRIMITIVES,
+    REACTIONJSON_EXTENSION_PROFILE,
     REACTIONJSON_PROFILE,
     ReactionJsonReplayError,
     diagnose_reactionjson,
@@ -200,6 +201,8 @@ def test_public_profile_replays_all_ten_primitives(
 
     assert audit["accepted"] is True
     assert audit["profile"] == REACTIONJSON_PROFILE
+    assert audit["public_profile_compatible"] is True
+    assert audit["extensions_used"] == []
     assert audit["primitive_counts"][operation["op"]] == 1
     assert audit["expected_precursors_match"] is True
     assert audit["semantics"]["replay_grants_no_reaction_proof"] is True
@@ -217,6 +220,52 @@ def test_add_bond_then_change_bond_order_creates_a_double_bond() -> None:
 
     assert audit["accepted"] is True
     assert audit["expected_precursors_match"] is True
+
+
+@pytest.mark.parametrize(
+    ("configuration", "expected"),
+    [("R", "C[C@H](F)Cl"), ("S", "C[C@@H](F)Cl")],
+)
+def test_autoplanner_extension_assigns_actual_tetrahedral_cip(
+    configuration: str,
+    expected: str,
+) -> None:
+    audit = replay_reactionjson(
+        mapped_product_smiles="[CH3:1][CH:2]([F:3])[Cl:4]",
+        operations=[
+            {
+                "op": "set_tetrahedral_stereo",
+                "map_idx": 2,
+                "configuration": configuration,
+            }
+        ],
+        expected_precursor_smiles=[expected],
+    )
+
+    assert audit["profile"] == REACTIONJSON_EXTENSION_PROFILE
+    assert audit["public_profile"] == REACTIONJSON_PROFILE
+    assert audit["public_profile_compatible"] is False
+    assert audit["extensions_used"] == ["set_tetrahedral_stereo"]
+    assert audit["extension_counts"]["set_tetrahedral_stereo"] == 1
+
+
+def test_autoplanner_extension_rejects_non_stereogenic_atom() -> None:
+    with pytest.raises(
+        ReactionJsonReplayError,
+        match="reactionjson_tetrahedral_stereo_not_assignable",
+    ) as exc_info:
+        replay_reactionjson(
+            mapped_product_smiles="[CH3:1][CH3:2]",
+            operations=[
+                {
+                    "op": "set_tetrahedral_stereo",
+                    "map_idx": 1,
+                    "configuration": "R",
+                }
+            ],
+        )
+
+    assert exc_info.value.operation_index == 0
 
 
 @pytest.mark.parametrize(
@@ -279,6 +328,13 @@ def test_add_group_assigns_deterministic_fresh_maps_to_unmapped_atoms() -> None:
     assert ":7]" in first["mapped_precursor_smiles"][0]
     assert ":8]" in first["mapped_precursor_smiles"][0]
     assert ":9]" in first["mapped_precursor_smiles"][0]
+    assert first["resolved_operations"] == [
+        {
+            "op": "add_group",
+            "map_idx": 7,
+            "fragment_smiles": "*[Mg:8][Br:9]",
+        }
+    ]
 
 
 def test_add_group_never_reuses_a_map_removed_earlier_in_the_same_replay() -> None:
@@ -314,8 +370,42 @@ def test_host_derives_stereo_reference_atoms_even_for_legacy_invalid_maps() -> N
     assert audit["accepted"] is True
 
 
+def test_graph_edit_rejects_invalidated_alkene_stereo_before_rdkit_crash() -> None:
+    operations = [
+        {"op": "break_bond", "map_a": 1, "map_b": 2},
+        {"op": "add_group", "map_idx": 2, "fragment_smiles": "[*]I"},
+    ]
+
+    with pytest.raises(
+        ReactionJsonReplayError,
+        match="reactionjson_bond_stereo_invalidated_by_graph_edit",
+    ) as captured:
+        replay_reactionjson(
+            mapped_product_smiles="[CH3:1]/[CH:2]=[CH:3]/[CH3:4]",
+            operations=operations,
+        )
+
+    assert captured.value.failure_context["invalidated_bond_stereo"] == [
+        {"map_a": 2, "map_b": 3, "previous_stereo": "E"}
+    ]
+
+
+def test_graph_edit_rebinds_explicit_stereo_after_substituent_replacement() -> None:
+    audit = replay_reactionjson(
+        mapped_product_smiles="[CH3:1]/[CH:2]=[CH:3]/[CH3:4]",
+        operations=[
+            {"op": "break_bond", "map_a": 1, "map_b": 2},
+            {"op": "add_group", "map_idx": 2, "fragment_smiles": "[*]I"},
+            {"op": "set_bond_stereo", "map_a": 2, "map_b": 3, "stereo": "E"},
+        ],
+    )
+
+    assert audit["accepted"] is True
+    assert len(audit["precursor_smiles"]) == 2
+
+
 def test_host_orients_stereo_references_after_epoxide_oxygen_removal() -> None:
-    """Regression for the first branch of the V9 five-step smoke."""
+    """Regression for the first self-correcting five-step smoke branch."""
 
     audit = replay_reactionjson(
         mapped_product_smiles=(
@@ -353,6 +443,21 @@ def test_add_group_order_overrides_dummy_attachment_bond() -> None:
 
     assert audit["accepted"] is True
     assert audit["expected_precursors_match"] is True
+    assert audit["resolved_operations"] == [
+        {
+            "op": "add_group",
+            "map_idx": 1,
+            "fragment_smiles": "*=[O:2]",
+        }
+    ]
+    replayed = replay_reactionjson(
+        mapped_product_smiles="[CH2:1]",
+        operations=audit["resolved_operations"],
+        expected_precursor_smiles=["C=O"],
+    )
+    assert replayed["mapped_precursor_smiles"] == audit[
+        "mapped_precursor_smiles"
+    ]
 
 
 def test_add_group_without_order_uses_dummy_attachment_bond() -> None:

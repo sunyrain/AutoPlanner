@@ -1,7 +1,7 @@
 # Frozen V3 compatibility
 
 This namespace is the only supported discovery surface for pre-V4 application,
-orchestration, provider, controller-harness, and combined-Web APIs. Package-root
+orchestration, provider, and controller-harness APIs. Package-root
 aliases have been deleted. The remaining implementations stay here or in their
 historical modules until the frozen saved-run corpus has canonical V4 replay
 receipts.
@@ -10,9 +10,9 @@ Canonical V4 code must not import `cascade_planner.legacy`. Compatibility
 exports are deprecated, non-authoritative, and excluded from the default public
 `__all__` surfaces.
 
-Run the combined compatibility UI explicitly with
-`python scripts/legacy/serve_combined_web.py`. The main campaign CLI serves V4
-only.
+The combined compatibility UI was retired on 2026-08-29. Historical runs are
+reviewed through the canonical V4 workspace and Workbench; this namespace no
+longer contains an executable Web application.
 
 The frozen recursive campaign and its scheduling/ledger/portfolio/acceptance
 runtime now live under `legacy/orchestration_runtime/` and
@@ -24,10 +24,9 @@ legacy runner, and RouteForest compiler live under `legacy/harness_runtime/`.
 Only the renderer/layout modules shared by the V4 Workbench remain in
 `cascade_planner.harness`.
 
-The combined Flask application lives under `legacy/web_runtime/`, and all V3
-operator, replay, golden, and RouteForest commands live under
-`scripts/legacy/`. Former `cascade_planner.web.app` and root `scripts.*` V3
-paths are deleted rather than wrapped.
+V3 operator, replay, golden, and RouteForest commands remain under
+`scripts/legacy/` only where saved-run replay still requires them. Former Web
+application and launcher paths are deleted rather than wrapped.
 
 Blackboard graph reconstruction, external-edge receipts, and the admitted
 hyperedge journal live under `legacy/routes_runtime/` and
@@ -68,6 +67,6 @@ under `cascadeboard_runtime`. Current execution uses the source-supported rescue
 providers directly plus the common/vendor/ZINC stock chain; no old-path aliases
 are retained.
 
-The V3 saved-run audit and combined-Web regressions live under
-`scripts/legacy/` and `tests/legacy/`. They remain part of release compatibility
-coverage but are no longer presented as current V4 architecture modules.
+The V3 saved-run audit regressions live under `scripts/legacy/` and
+`tests/legacy/`. They remain part of release compatibility coverage but are no
+longer presented as current V4 architecture modules.

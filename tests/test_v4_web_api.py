@@ -233,6 +233,62 @@ def test_paused_main_catalog_row_does_not_reload_kernel_status(
     gateway.status.assert_not_called()
 
 
+def test_completed_paper_panel_projects_outcome_without_overwriting_pause(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path / "primary")
+    run_id = "paper-panel-complete"
+    run_dir = tmp_path / "paper-panel" / "runs" / "target"
+    run_dir.mkdir(parents=True)
+    (run_dir.parent.parent / "panel-status.json").write_text(
+        json.dumps(
+            {
+                "complete": True,
+                "targets": {
+                    "opaque target": {
+                        "run_id": run_id,
+                        "status": "paused",
+                        "scientific_status": "unresolved",
+                        "paper_equivalent": {
+                            "paper_reach": True,
+                            "paper_equivalent_solved": True,
+                        },
+                        "final_state": {
+                            "claim": {"benchmark_search_completed": True},
+                            "stop_decision": {
+                                "decision": "paused",
+                                "terminal": False,
+                            },
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest = _catalog_manifest(
+        run_id,
+        run_dir=run_dir,
+        updated_at="2026-08-27T08:00:00Z",
+        target_name="paper panel target",
+    )
+    manifest["status"] = "paused"
+    gateway.index.upsert_run(manifest)
+    gateway.status = Mock(side_effect=AssertionError("paused status was reloaded"))
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+
+    job = app.test_client().get("/api/v4/jobs?limit=20").get_json()["jobs"][0]
+
+    assert job["status"] == "paused"
+    assert job["campaign_status"] == "paused"
+    assert job["experiment_status"] == "complete"
+    assert job["paper_equivalent_status"] == "solved"
+    assert job["campaign_resumable"] is True
+    assert job["scientific_status"] == "unresolved"
+    gateway.status.assert_not_called()
+
+
 def _strategy_stock_fixture(tmp_path: Path) -> tuple[Path, Path]:
     stock_path = tmp_path / "strategy-stock.sqlite3"
     with sqlite3.connect(stock_path) as connection:
@@ -374,6 +430,8 @@ def test_v4_active_job_can_be_cancelled_idempotently() -> None:
     entered = Event()
 
     class CancellableGateway:
+        cancellations: list[dict[str, object]] = []
+
         def solve_target(self, **kwargs):
             cancel_event = kwargs["cancel_event"]
             entered.set()
@@ -382,6 +440,16 @@ def test_v4_active_job_can_be_cancelled_idempotently() -> None:
 
         def status(self, _run_id):
             raise RuntimeError("fixture has no persistent kernel")
+
+        def cancel(self, run_id, *, reasons, idempotency_key):
+            self.cancellations.append(
+                {
+                    "run_id": run_id,
+                    "reasons": tuple(reasons),
+                    "idempotency_key": idempotency_key,
+                }
+            )
+            return {"operation": "cancel"}
 
         def list_runs(self, **_kwargs):
             return {"runs": []}
@@ -415,6 +483,13 @@ def test_v4_active_job_can_be_cancelled_idempotently() -> None:
     assert value["cancellation_reason"] == "operator_requested"
     assert value["cancel_requested_at"]
     assert value["cancelled_at"]
+    assert CancellableGateway.cancellations == [
+        {
+            "run_id": started["run_id"],
+            "reasons": ("user_requested_termination", "operator_requested"),
+            "idempotency_key": f"web:{started['job_id']}:cancel",
+        }
+    ]
     repeated = client.post(
         f"/api/v4/jobs/{started['job_id']}/cancel",
         json={"reason": "duplicate_request"},
@@ -473,6 +548,61 @@ def test_v4_terminal_and_historical_jobs_reject_cancellation() -> None:
     assert terminal.get_json()["status"] == "unresolved"
     assert historical.status_code == 409
     assert historical.get_json()["status"] == "historical"
+
+
+def test_v4_live_job_derives_terminality_from_kernel_not_stale_worker_row() -> None:
+    entered = Event()
+    release = Event()
+
+    class TerminalKernelGateway:
+        def solve_target(self, **kwargs):
+            entered.set()
+            release.wait(timeout=5.0)
+            return {"run_id": kwargs["run_id"], "gates": {}, "claim": {}}
+
+        def status(self, _run_id):
+            return {
+                "status": {
+                    "status": "cancelled",
+                    "stop_decision": {
+                        "decision": "cancelled",
+                        "terminal": True,
+                    },
+                    # Deliberately stale input: terminality must suppress it.
+                    "active_actions": [
+                        {
+                            "execution_id": "campaign-action:stale",
+                            "action_id": "action:stale",
+                            "kind": "codex_global_architecture",
+                        }
+                    ],
+                    "portfolio": {},
+                    "frontier": [],
+                }
+            }
+
+        def list_runs(self, **_kwargs):
+            return {"runs": []}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(TerminalKernelGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "terminal", "target_smiles": "CCO"},
+    ).get_json()
+    assert entered.wait(timeout=2.0)
+
+    job = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+    release.set()
+
+    assert job["status"] == "cancelled"
+    assert job["phase"] == "cancelled"
+    assert job["campaign_status"] == "cancelled"
+    assert job["campaign_terminal"] is True
+    assert job["cancellation_available"] is False
+    assert job["progress"]["execution_active"] is False
+    assert job["progress"]["action_timeline"]["record_count"] == 0
 
 
 def test_v4_registry_kernel_run_is_visible_as_external_live_job(
@@ -784,13 +914,13 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert program_audit.get_json()["run_count"] == 1
     assert program_audit.get_json()["semantics"]["read_only"] is True
     assert b"/api/v4/runs" in index.data
-    assert "AutoPlanner · 统一工作区" in index.get_data(as_text=True)
+    assert "AutoPlanner · 运行与审计档案" in index.get_data(as_text=True)
     assert "路线候选可供审查，不代表证据、库存或工艺已经闭合" in index.get_data(
         as_text=True
     )
     assert 'id="objectiveMode"' not in index.get_data(as_text=True)
     assert "objective_mode:$('objectiveMode').value" not in index.get_data(as_text=True)
-    assert "新逆合成统一从 Strategy Builder 首页启动" in index.get_data(as_text=True)
+    assert "单个任务的路线、反应详情" in index.get_data(as_text=True)
     assert "/api/v4/workspace" in index.get_data(as_text=True)
     assert 'id="collapseLibrary"' in index.get_data(as_text=True)
     assert 'id="restoreLibrary"' in index.get_data(as_text=True)
@@ -805,7 +935,7 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert "embed=1" in index.get_data(as_text=True)
     assert 'id="solveForm"' not in index.get_data(as_text=True)
     assert "data-open-launch" not in index.get_data(as_text=True)
-    assert 'href="/">Strategy Builder 首页</a>' in index.get_data(as_text=True)
+    assert 'href="/">返回实时任务</a>' in index.get_data(as_text=True)
     assert "自进化库" in index.get_data(as_text=True)
     assert "多步 Program 作为宿主路线内的可验证替代层展示" in index.get_data(
         as_text=True
@@ -1494,7 +1624,8 @@ def test_isolated_v4_app_serves_strategy_builder_home_and_keeps_security_guards(
     response = client.get("/v4")
 
     assert root.status_code == 200
-    assert "Strategy-first synthesis" in root.get_data(as_text=True)
+    assert "LLM-directed retrosynthesis" in root.get_data(as_text=True)
+    assert "进入可审查的路线" in root.get_data(as_text=True)
     assert rejected.status_code == 415
     assert response.headers["X-Content-Type-Options"] == "nosniff"
 

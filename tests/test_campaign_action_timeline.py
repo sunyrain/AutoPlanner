@@ -3,6 +3,7 @@ from __future__ import annotations
 from cascade_planner.application.campaign_action_status import (
     compile_active_campaign_actions,
 )
+from cascade_planner.application.run_kernel import RunState
 from cascade_planner.interfaces.campaign_action_timeline import (
     compile_campaign_action_timeline,
 )
@@ -10,23 +11,27 @@ from cascade_planner.interfaces.campaign_action_timeline import (
 
 def test_active_action_projection_ignores_child_tasks_and_reads_legacy_kind() -> None:
     active = compile_active_campaign_actions(
-        {
-            "campaign-action:wrapper": {
-                "input_revision": 4,
-                "resource_class": "model",
-                "metadata": {
-                    "campaign_action_id": "action:codex_global_replan:abc",
-                    "campaign_action_execution_id": "campaign-action:abc",
-                    "producer": "codex_global_director",
+        RunState(
+            run_id="active-action-projection",
+            status="running",
+            in_flight_tasks={
+                "campaign-action:wrapper": {
+                    "input_revision": 4,
+                    "resource_class": "model",
+                    "metadata": {
+                        "campaign_action_id": "action:codex_global_replan:abc",
+                        "campaign_action_execution_id": "campaign-action:abc",
+                        "producer": "codex_global_director",
+                    },
+                },
+                "model-child": {
+                    "input_revision": 4,
+                    "metadata": {
+                        "campaign_action_execution_id": "campaign-action:abc",
+                    },
                 },
             },
-            "model-child": {
-                "input_revision": 4,
-                "metadata": {
-                    "campaign_action_execution_id": "campaign-action:abc",
-                },
-            },
-        }
+        )
     )
 
     assert len(active) == 1

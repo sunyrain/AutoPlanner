@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1060" viewBox="0 0 1600 1060" role="img" aria-labelledby="title desc">
   <title id="title">AutoPlanner current architecture overview</title>
-  <desc id="desc">Canonical V4 hosts the paper-aligned V8 and transitional V9 strategy search. Model and provider outputs are proposals; Host replay, canonical ingestion, exact stock and independent validation own facts. Explicit Run Registry Catalog federation discovers owning run indexes without copying their state.</desc>
+  <desc id="desc">One Canonical Host runs paper-matched and self-correcting sequential search. Model and provider outputs are proposals; Host replay, canonical ingestion, exact stock and independent validation own facts. Explicit Run Registry Catalog federation discovers owning run indexes without copying their state.</desc>
   <defs>
     <filter id="shadow" x="-12%" y="-20%" width="124%" height="150%">
       <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0B2637" flood-opacity=".10"/>
@@ -34,7 +34,7 @@
 
   <rect width="1600" height="1060" rx="28" fill="#F4F8FA"/>
   <text x="48" y="48" class="kicker" fill="#2478D4">AUTOPLANNER · CURRENT SYSTEM MAP</text>
-  <text x="48" y="88" class="heading" fill="#102C3D">Canonical V4 Host + paper-aligned V8 + transitional V9</text>
+  <text x="48" y="88" class="heading" fill="#102C3D">Canonical Host · one unified retrosynthesis architecture</text>
   <text x="48" y="116" class="subtitle" fill="#607783">模型提出候选 · Host 编译事实 · 搜索控制分支 · 验证与完成分轴 · UI 只读投影</text>
 
   <rect x="34" y="145" width="1532" height="132" rx="20" fill="#EAF2FA"/>
@@ -71,7 +71,7 @@
   <path d="M1270 222 H1330" class="flow"/>
 
   <rect x="34" y="298" width="1532" height="286" rx="20" fill="#FFF6E8"/>
-  <text x="54" y="324" class="lane-title" fill="#B66F17">2 · STRATEGY SEARCH SUBSYSTEM · V8 BASELINE / V9 SMOKE</text>
+  <text x="54" y="324" class="lane-title" fill="#B66F17">2 · STRATEGY SEARCH · PAPER CONTROL / SELF-CORRECTING</text>
   <text x="1255" y="324" class="tiny" fill="#8A6C48">proposal + search state · not chemical fact</text>
 
   <g class="node">
@@ -84,7 +84,7 @@
   <g class="node">
     <rect x="345" y="354" width="235" height="82" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>
     <rect x="359" y="366" width="88" height="20" rx="10" fill="#E6DFFA"/>
-    <text x="403" y="380" text-anchor="middle" class="badge" fill="#6043AE">V9 ONLY</text>
+    <text x="403" y="380" text-anchor="middle" class="badge" fill="#6043AE">SELF-CORRECTING</text>
     <text x="367" y="408" class="node-title" fill="#173243">Portfolio Review</text>
     <text x="367" y="428" class="node-sub" fill="#607783">same 3-card contract</text>
   </g>
@@ -117,7 +117,7 @@
   <g class="node">
     <rect x="190" y="482" width="340" height="76" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>
     <text x="212" y="512" class="node-title" fill="#173243">Chemistry Reviewer</text>
-    <text x="212" y="535" class="node-sub" fill="#607783">V9 key-event audit · final audit</text>
+    <text x="212" y="535" class="node-sub" fill="#607783">key-event audit · final audit</text>
   </g>
   <g class="node">
     <rect x="650" y="482" width="350" height="76" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>

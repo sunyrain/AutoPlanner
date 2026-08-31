@@ -564,12 +564,13 @@ Blackboard 都不能自行把 proposal 提升为事实。
     验证、exact 文献、条件、benchmark 库存和采购闭合严格分轴。Bufotalin V3 显示 3/4 条结构闭合、最长
     12 步；B1–B5 仍可保持开放，不再把“证据/库存未闭合”误写成“整条路线不存在”。展示页和路线工作台
     均显示该独立卡片；12 步路线已实际点击检查，R1 检查器可打开且条件、来源缺口和 Proof vector 完整可滚动。
-26. Canonical V4 Web 已收敛为一个后端事实源和三个协同视图：`/v4` 统一工作区同时列出 fresh showcase
-    与 gateway 运行索引，并在同一个 iframe 中审查 Workbench；`/v4/console` 只负责从 SMILES 发起异步
-    campaign；`/v4/showcase` 负责全屏展示。`/api/v4/workspace` 汇总入口、后端状态、run 与展示目录，
+26. Canonical V4 Web 已收敛为唯一首页 `/` 与结果审查中心 `/v4`：首页从 SMILES 发起异步 campaign，
+    实时投影三条 Strategy、Builder/Critic/Editor 输出和 host replay；`/v4` 同时列出 fresh showcase
+    与 gateway 运行索引，并在同一个 iframe 中审查 Workbench。`/api/v4/workspace` 汇总后端状态、run 与展示目录，
     `/api/v4/showcase` 有界发现生成的 `showcase/summary.json`，同一目标优先采用最新 fresh 工件。旧版没有
     `route_closure` 时显示“闭合待 current 投影”，不误报失败；旧蟾毒灵 20 步展示会被 fresh V3 的 12 步
-    闭合事实替代。启动脚本现调用默认 Canonical V4 server，不再把 combined 兼容应用作为新入口；
+    闭合事实替代。旧 `/synthesis`、`/v4/console`、`/v4/showcase`、`/agent`、`/statins` 与 `/showcase`
+    均返回 404；combined 兼容应用已于 2026-08-29 退役归档，不再存在第二个 Web 启动入口。
     `--server auto` 在 Waitress 缺失时自动回退 Flask，默认命令不会在端口绑定前失败。
 27. Target-only 多轮规划最多保留 10 个 director outcome（1 次首轮架构 + 最多 9 次 event replan）；每次重规划
     均拆成两个独立门：`global_replan_signal_gate` 先证明上一轮之后出现了新的可行动

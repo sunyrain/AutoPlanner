@@ -14,7 +14,7 @@ from typing import Any
 
 from rdkit import Chem, RDLogger
 
-from .reactionjson_primitives import PRIMITIVES
+from .reactionjson_primitives import AUTOPLANNER_EXTENSIONS, PRIMITIVES
 from .reactionjson_primitives import ReactionJsonReplayError
 from .reactionjson_primitives import apply_operation
 from .reactionjson_primitives import complete_edited_atom_valences
@@ -23,6 +23,7 @@ from .reactionjson_primitives import valence_affected_maps
 
 RDLogger.DisableLog("rdApp.*")
 REACTIONJSON_PROFILE = "reactionjson_public_profile.2026-08-17.v1"
+REACTIONJSON_EXTENSION_PROFILE = "reactionjson_autoplanner_extensions.2026-08-28.v1"
 REACTIONJSON_REPLAY_AUDIT_SCHEMA = "reactionjson_replay_audit.v1"
 UPSTREAM_PUBLIC_COMMIT = "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f"
 
@@ -57,7 +58,7 @@ def replay_reactionjson(
     }
     deferred_stereo: list[tuple[int, dict[str, Any]]] = []
     for operation_index, row in enumerate(rows):
-        if row["op"] == "set_bond_stereo":
+        if row["op"] in {"set_bond_stereo", "set_tetrahedral_stereo"}:
             # Bond stereo is serialization on the final edited graph, not a
             # separate skeletal edit.  Defer it until ordinary valences have
             # been recomputed so the Host can select the correct CIP reference
@@ -85,6 +86,29 @@ def replay_reactionjson(
             editable,
             map_indices=valence_completion_maps - explicit_h_maps,
         )
+        invalidated_bond_stereo = _clear_invalid_bond_stereo_references(editable)
+        explicitly_reassigned_bonds = {
+            frozenset((int(row["map_a"]), int(row["map_b"])))
+            for _operation_index, row in deferred_stereo
+            if row["op"] == "set_bond_stereo"
+        }
+        unresolved_bond_stereo = [
+            row
+            for row in invalidated_bond_stereo
+            if frozenset((int(row["map_a"]), int(row["map_b"])))
+            not in explicitly_reassigned_bonds
+        ]
+        if unresolved_bond_stereo:
+            raise ReactionJsonReplayError(
+                "reactionjson_bond_stereo_invalidated_by_graph_edit",
+                failure_context={
+                    "failure_stage": "graph_finalization",
+                    "invalidated_bond_stereo": unresolved_bond_stereo,
+                    "required_repair": (
+                        "add set_bond_stereo for each affected retained double bond"
+                    ),
+                },
+            )
         for operation_index, row in deferred_stereo:
             try:
                 editable = apply_operation(editable, row)
@@ -98,6 +122,19 @@ def replay_reactionjson(
         replayed = editable.GetMol()
         Chem.SanitizeMol(replayed)
         Chem.AssignStereochemistry(replayed, cleanIt=True, force=True)
+        for operation_index, row in deferred_stereo:
+            if row["op"] != "set_tetrahedral_stereo":
+                continue
+            atom = replayed.GetAtomWithIdx(
+                _map_index_for_audit(replayed, int(row["map_idx"]))
+            )
+            requested = str(row["configuration"]).upper()
+            if not atom.HasProp("_CIPCode") or atom.GetProp("_CIPCode") != requested:
+                raise ReactionJsonReplayError(
+                    "reactionjson_tetrahedral_stereo_not_assignable",
+                    operation_index=operation_index,
+                    failed_operation=_public_operation(row),
+                )
     except ReactionJsonReplayError:
         raise
     except Exception as exc:
@@ -123,19 +160,34 @@ def replay_reactionjson(
         raise ReactionJsonReplayError("reactionjson_expected_precursors_invalid")
     if expected is not None and fragments != expected:
         raise ReactionJsonReplayError("reactionjson_expected_precursors_mismatch")
+    extensions_used = sorted(
+        {str(row["op"]) for row in rows if row["op"] in AUTOPLANNER_EXTENSIONS}
+    )
+    public_profile_compatible = not extensions_used
     audit = {
         "schema_version": REACTIONJSON_REPLAY_AUDIT_SCHEMA,
-        "profile": REACTIONJSON_PROFILE,
+        "profile": (
+            REACTIONJSON_PROFILE
+            if public_profile_compatible
+            else REACTIONJSON_EXTENSION_PROFILE
+        ),
+        "public_profile": REACTIONJSON_PROFILE,
+        "public_profile_compatible": public_profile_compatible,
+        "extensions_used": extensions_used,
         "upstream_public_commit": UPSTREAM_PUBLIC_COMMIT,
         "mapped_product_smiles": Chem.MolToSmiles(
             product, canonical=True, isomericSmiles=True
         ),
         "operation_count": len(rows),
-        "resolved_operations": [_public_operation(row) for row in rows],
+        "resolved_operations": [_resolved_operation(row) for row in rows],
         "fresh_atom_maps_assigned": fresh_atom_maps,
         "primitive_counts": {
             key: int(Counter(row["op"] for row in rows).get(key, 0))
             for key in PRIMITIVES
+        },
+        "extension_counts": {
+            key: int(Counter(row["op"] for row in rows).get(key, 0))
+            for key in AUTOPLANNER_EXTENSIONS
         },
         "implicit_valence_completion_maps": completed_maps,
         "mapped_precursor_smiles": mapped_fragments,
@@ -145,7 +197,8 @@ def replay_reactionjson(
         "accepted": True,
         "authority_scope": "external_structure_proposal_replay",
         "semantics": {
-            "provisional_public_profile": True,
+            "provisional_public_profile": public_profile_compatible,
+            "autoplanner_extension_profile_used": bool(extensions_used),
             "deterministic_graph_edit_replay": True,
             "replay_grants_no_reaction_proof": True,
             "replay_grants_no_source_or_condition_authority": True,
@@ -154,6 +207,67 @@ def replay_reactionjson(
     }
     audit["content_sha256"] = _digest(audit)
     return audit
+
+
+def _clear_invalid_bond_stereo_references(
+    molecule: Chem.RWMol,
+) -> list[dict[str, Any]]:
+    """Clear stale RDKit stereo references before native finalization.
+
+    RDKit stores E/Z reference atoms as raw atom indices. Replacing an alkene
+    substituent can leave those indices pointing at atoms that are no longer
+    neighbours of the double-bond endpoints. Passing that state to
+    ``SetDoubleBondNeighborDirections`` can terminate Python inside RDKit
+    instead of raising an exception. Clear only invalid references here. The
+    caller then requires an explicit ``set_bond_stereo`` operation for every
+    retained affected double bond, so process safety cannot silently weaken
+    stereochemical provenance.
+    """
+
+    defined_stereo = {
+        Chem.BondStereo.STEREOE,
+        Chem.BondStereo.STEREOZ,
+        Chem.BondStereo.STEREOCIS,
+        Chem.BondStereo.STEREOTRANS,
+    }
+    invalidated: list[dict[str, Any]] = []
+    for bond in molecule.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        stereo = bond.GetStereo()
+        if stereo not in defined_stereo:
+            continue
+        begin = int(bond.GetBeginAtomIdx())
+        end = int(bond.GetEndAtomIdx())
+        references = tuple(int(value) for value in bond.GetStereoAtoms())
+        begin_neighbours = {
+            int(atom.GetIdx())
+            for atom in molecule.GetAtomWithIdx(begin).GetNeighbors()
+            if int(atom.GetIdx()) != end
+        }
+        end_neighbours = {
+            int(atom.GetIdx())
+            for atom in molecule.GetAtomWithIdx(end).GetNeighbors()
+            if int(atom.GetIdx()) != begin
+        }
+        references_valid = (
+            len(references) == 2
+            and references[0] in begin_neighbours
+            and references[1] in end_neighbours
+        )
+        if references_valid:
+            continue
+        begin_map = int(molecule.GetAtomWithIdx(begin).GetAtomMapNum())
+        end_map = int(molecule.GetAtomWithIdx(end).GetAtomMapNum())
+        bond.SetStereo(Chem.BondStereo.STEREONONE)
+        invalidated.append(
+            {
+                "map_a": begin_map,
+                "map_b": end_map,
+                "previous_stereo": str(stereo).removeprefix("STEREO"),
+            }
+        )
+    return invalidated
 
 
 def diagnose_reactionjson(
@@ -281,6 +395,13 @@ def _require_complete_unique_maps(molecule: Chem.Mol, *, reason: str) -> None:
         raise ReactionJsonReplayError(reason)
 
 
+def _map_index_for_audit(molecule: Chem.Mol, map_idx: int) -> int:
+    for atom in molecule.GetAtoms():
+        if int(atom.GetAtomMapNum()) == map_idx:
+            return int(atom.GetIdx())
+    raise ReactionJsonReplayError("reactionjson_map_not_found")
+
+
 def _resolve_add_group_atom_maps(
     product: Chem.Mol,
     rows: Iterable[Mapping[str, Any]],
@@ -342,7 +463,7 @@ def _resolve_add_group_atom_maps(
     next_map = max(used, default=0) + 1
     assigned: list[int] = []
     for index, fragment in fragments.items():
-        changed = False
+        fresh_for_fragment: list[int] = []
         for atom in fragment.GetAtoms():
             if atom.GetAtomicNum() == 0 or int(atom.GetAtomMapNum()) > 0:
                 continue
@@ -351,15 +472,19 @@ def _resolve_add_group_atom_maps(
             atom.SetAtomMapNum(next_map)
             used.add(next_map)
             assigned.append(next_map)
+            fresh_for_fragment.append(next_map)
             next_map += 1
-            changed = True
-        if changed:
-            normalized[index]["_fresh_atom_maps"] = assigned[-sum(
-                1
-                for atom in fragment.GetAtoms()
-                if atom.GetAtomicNum() != 0 and int(atom.GetAtomMapNum()) > 0
-                and int(atom.GetAtomMapNum()) in assigned
-            ):]
+        if fresh_for_fragment:
+            normalized[index]["_fresh_atom_maps"] = fresh_for_fragment
+            # Execute the caller's original fragment in this replay so legacy
+            # ``order`` overrides retain their implicit-H semantics.  Persist
+            # a separately resolved public fragment for later route replay.
+            resolved_fragment, encodes_order = _resolved_add_group_fragment(
+                fragment,
+                row=normalized[index],
+            )
+            normalized[index]["_resolved_fragment_smiles"] = resolved_fragment
+            normalized[index]["_resolved_fragment_encodes_order"] = encodes_order
     return normalized, assigned
 
 
@@ -369,6 +494,58 @@ def _public_operation(row: Mapping[str, Any]) -> dict[str, Any]:
         for key, value in row.items()
         if not str(key).startswith("_")
     }
+
+
+def _resolved_operation(row: Mapping[str, Any]) -> dict[str, Any]:
+    operation = _public_operation(row)
+    resolved_fragment = str(row.get("_resolved_fragment_smiles") or "")
+    if resolved_fragment:
+        operation["fragment_smiles"] = resolved_fragment
+    if row.get("_resolved_fragment_encodes_order") is True:
+        operation.pop("order", None)
+    return operation
+
+
+def _resolved_add_group_fragment(
+    fragment: Chem.Mol,
+    *,
+    row: Mapping[str, Any],
+) -> tuple[str, bool]:
+    """Serialize assigned maps and fold a legacy order into the dummy bond."""
+
+    resolved = Chem.Mol(fragment)
+    order = row.get("order")
+    encodes_order = False
+    if order is not None:
+        try:
+            numeric_order = float(order)
+        except (TypeError, ValueError):
+            numeric_order = 0.0
+        bond_type = {
+            1.0: Chem.BondType.SINGLE,
+            1.5: Chem.BondType.AROMATIC,
+            2.0: Chem.BondType.DOUBLE,
+            3.0: Chem.BondType.TRIPLE,
+        }.get(numeric_order)
+        dummies = [atom for atom in resolved.GetAtoms() if atom.GetAtomicNum() == 0]
+        if bond_type is not None and len(dummies) == 1 and dummies[0].GetDegree() == 1:
+            dummy = dummies[0]
+            neighbor = dummy.GetNeighbors()[0]
+            bond = resolved.GetBondBetweenAtoms(dummy.GetIdx(), neighbor.GetIdx())
+            bond.SetBondType(bond_type)
+            bond.SetIsAromatic(bond_type == Chem.BondType.AROMATIC)
+            for atom in resolved.GetAtoms():
+                atom.UpdatePropertyCache(strict=False)
+            try:
+                Chem.SanitizeMol(resolved)
+            except Exception:
+                pass
+            else:
+                encodes_order = True
+    return (
+        Chem.MolToSmiles(resolved, canonical=True, isomericSmiles=True),
+        encodes_order,
+    )
 
 
 def _fragments(molecule: Chem.Mol, *, keep_maps: bool) -> list[str]:

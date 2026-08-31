@@ -6,8 +6,64 @@ from pathlib import Path
 from scripts.summarize_v4_blind_panel import (
     _hydrate_report_diagnostics,
     _markdown,
+    _provider_search_attempts,
     summarize_panel,
 )
+
+
+def test_provider_attempt_projection_reads_native_aiz_short_tail_receipts(
+    tmp_path: Path,
+) -> None:
+    result = {
+        "provider_id": "aizynthfinder",
+        "provider_invocation_count": 1,
+        "frontier_smiles": ["CCO"],
+        "status": "unresolved",
+        "provider_solved": False,
+        "accepted_route_count": 3,
+        "rejected_route_count": 1,
+        "selected_proposal_route_count": 0,
+        "complete_provider_route_count": 0,
+        "reason": "paper_short_tail_no_complete_stock_closed_route",
+        "statistics": {
+            "number_of_routes": 1667,
+            "search_time": 40.25,
+            "first_solution_time": 0,
+            "profiling": {"iterations": 500},
+        },
+    }
+    report = tmp_path / "target-only-solve-report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "stages": [
+                    {
+                        "stage": "aizynthfinder_stock_recovery",
+                        "detail": {"results": [result]},
+                    },
+                    {
+                        "stage": "aizynthfinder_duplicate_projection",
+                        "detail": {"results": [result]},
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    attempts = _provider_search_attempts(report, root_target_smiles="CCN")
+
+    assert len(attempts) == 1
+    assert attempts[0]["provider_id"] == "aizynthfinder"
+    assert attempts[0]["kind"] == "guided"
+    assert attempts[0]["native_raw_route_count"] == 1667
+    assert attempts[0]["native_found_route_count"] == 3
+    assert attempts[0]["host_search_admitted_route_count"] == 0
+    assert attempts[0]["executed_iterations"] == 500
+    assert attempts[0]["provider_time_s"] == 40.25
+    assert attempts[0]["stop_reason"] == (
+        "paper_short_tail_no_complete_stock_closed_route"
+    )
 
 
 def test_panel_summary_keeps_stock_solved_separate_from_proof_acceptance() -> None:
@@ -422,6 +478,23 @@ def test_panel_summary_hydrates_reaction_rejection_reasons(tmp_path) -> None:
         json.dumps(
             {
                 "target": {"canonical_smiles": "CCO"},
+                "rejection_taxonomy": {
+                    "schema_version": "retrosynthesis_rejection_taxonomy.v1",
+                    "counts": {
+                        "host_replay_or_topology": 3,
+                        "critic_chemistry": 1,
+                    },
+                    "reason_counts": {
+                        "host_replay_or_topology": {
+                            "reactionjson_map_not_found": 3
+                        },
+                        "critic_chemistry": {"atom_provenance": 1},
+                    },
+                    "semantics": {
+                        "report_only": True,
+                        "no_execution_or_admission_authority": True,
+                    },
+                },
                 "stages": [
                     {
                         "stage": "campaign_action_unified_core_01",
@@ -484,7 +557,7 @@ def test_panel_summary_hydrates_reaction_rejection_reasons(tmp_path) -> None:
                     {
                         "stage": "campaign_action_unified_core_04",
                         "detail": {
-                            "action": {"kind": "chemenzy_frontier_expand"},
+                            "action": {"kind": "native_short_tail_expand"},
                             "outcome": {"handler_result": {}},
                         },
                     },
@@ -609,6 +682,17 @@ def test_panel_summary_hydrates_reaction_rejection_reasons(tmp_path) -> None:
     assert summary["result_first"]["reaction_rejection_reason_counts"] == {
         "reaction_edit_budget_exceeded": 2
     }
+    assert summary["result_first"]["rejection_taxonomy"]["counts"] == {
+        "critic_chemistry": 1,
+        "host_replay_or_topology": 3,
+    }
+    assert summary["result_first"]["rejection_taxonomy"]["reason_counts"] == {
+        "critic_chemistry": {"atom_provenance": 1},
+        "host_replay_or_topology": {"reactionjson_map_not_found": 3},
+    }
+    assert summary["per_target"][0]["rejection_taxonomy"]["semantics"][
+        "report_only"
+    ] is True
     assert summary["result_first"]["stock_audit_totals"] == {
         "miss_count": 3,
         "remaining_pending_candidate_count": 0,

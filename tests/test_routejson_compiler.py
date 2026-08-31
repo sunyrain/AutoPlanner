@@ -173,6 +173,81 @@ def test_compile_linear_route_preserves_atom_maps_across_steps() -> None:
     assert set(compiled[1].mapped_precursor_smiles) == {"[CH4:10]", "[CH4:20]"}
 
 
+def test_assembled_route_persists_host_assigned_add_group_maps_across_steps() -> None:
+    compiler = RouteJSONCompiler()
+    first = compiler.compile_step(
+        mapped_product_smiles="[CH3:1][Br:2]",
+        operations=[
+            {"op": "remove_group", "map_indices": [2]},
+            {"op": "add_group", "map_idx": 1, "fragment_smiles": "[*]O"},
+        ],
+        expected_product_smiles="CBr",
+        reserved_atom_maps=(1, 2, 31),
+    )
+
+    assert first.reaction_operations == (
+        {"op": "remove_group", "map_indices": [2]},
+        {
+            "op": "add_group",
+            "map_idx": 1,
+            "fragment_smiles": "*[OH:32]",
+        },
+    )
+    assembled = compiler.assemble_route(
+        (first,),
+        metadata=[{"step_id": "route:1"}],
+    )
+    assembled.append(
+        {
+            "step_id": "route:2",
+            "product_smiles": "CO",
+            "reaction_operations": [
+                {"op": "break_bond", "map_a": 1, "map_b": 32}
+            ],
+        }
+    )
+
+    replayed = compiler.compile_route_graph(
+        mapped_target_smiles="[CH3:1][Br:2]",
+        steps=assembled,
+    )
+
+    assert replayed[0].reaction_operations == first.reaction_operations
+    assert replayed[1].mapped_product_smiles == "[CH3:1][OH:32]"
+    assert replayed[1].precursor_smiles == ("C", "O")
+
+
+def test_route_graph_replay_inherits_repair_reserved_atom_map_namespace() -> None:
+    compiler = RouteJSONCompiler()
+    rows = [
+        {
+            "step_id": "repair:1",
+            "product_smiles": "CBr",
+            "reaction_operations": [
+                {"op": "remove_group", "map_indices": [2]},
+                {"op": "add_group", "map_idx": 1, "fragment_smiles": "[*]O"},
+            ],
+        },
+        {
+            "step_id": "repair:2",
+            "product_smiles": "CO",
+            "reaction_operations": [
+                {"op": "break_bond", "map_a": 1, "map_b": 32}
+            ],
+        },
+    ]
+
+    replayed = compiler.compile_route_graph(
+        mapped_target_smiles="[CH3:1][Br:2]",
+        steps=rows,
+        reserved_atom_maps=(31,),
+    )
+
+    assert replayed[0].reaction_operations[-1]["fragment_smiles"] == "*[OH:32]"
+    assert replayed[1].mapped_product_smiles == "[CH3:1][OH:32]"
+    assert replayed[1].precursor_smiles == ("C", "O")
+
+
 def test_compile_route_graph_preserves_sibling_frontiers_and_map_namespaces() -> None:
     compiled = RouteJSONCompiler().compile_route_graph(
         mapped_target_smiles="[CH3:1][CH2:2][O:3][CH3:4]",
@@ -231,6 +306,7 @@ def test_compile_route_graph_state_returns_only_real_mapped_open_precursors() ->
     )
 
     assert state.reactions[1].mapped_product_smiles == "[CH3:1][CH3:2]"
+    assert state.parent_step_indices == (None, 0)
     assert {
         (row.product_smiles, row.mapped_product_smiles)
         for row in state.open_precursors
@@ -239,6 +315,97 @@ def test_compile_route_graph_state_returns_only_real_mapped_open_precursors() ->
         ("C", "[CH4:1]"),
         ("C", "[CH4:2]"),
     }
+
+
+def test_compile_route_graph_state_reports_sibling_dependency_parents() -> None:
+    state = RouteJSONCompiler().compile_route_graph_state(
+        mapped_target_smiles="[CH3:1][CH2:2][O:3][CH3:4]",
+        steps=[
+            {
+                "product_smiles": "CCOC",
+                "reaction_operations": [
+                    {"op": "break_bond", "map_a": 2, "map_b": 3}
+                ],
+            },
+            {
+                "product_smiles": "CC",
+                "mapped_product_smiles": "[CH3:1][CH3:2]",
+                "reaction_operations": [
+                    {"op": "break_bond", "map_a": 1, "map_b": 2}
+                ],
+            },
+            {
+                "product_smiles": "CO",
+                "mapped_product_smiles": "[OH:3][CH3:4]",
+                "reaction_operations": [
+                    {"op": "break_bond", "map_a": 3, "map_b": 4}
+                ],
+            },
+        ],
+    )
+
+    assert state.parent_step_indices == (None, 0, 0)
+
+
+def test_compile_route_graph_allows_duplicate_products_on_sibling_branches() -> None:
+    compiled = RouteJSONCompiler().compile_route_graph(
+        mapped_target_smiles="[CH3:1][CH2:2][CH2:3][CH3:4]",
+        steps=[
+            {
+                "product_smiles": "CCCC",
+                "reaction_operations": [
+                    {"op": "break_bond", "map_a": 2, "map_b": 3}
+                ],
+            },
+            {
+                "product_smiles": "CC",
+                "mapped_product_smiles": "[CH3:1][CH3:2]",
+                "reaction_operations": [
+                    {"op": "break_bond", "map_a": 1, "map_b": 2}
+                ],
+            },
+            {
+                "product_smiles": "CC",
+                "mapped_product_smiles": "[CH3:3][CH3:4]",
+                "reaction_operations": [
+                    {"op": "break_bond", "map_a": 3, "map_b": 4}
+                ],
+            },
+        ],
+    )
+
+    assert len(compiled) == 3
+    assert compiled[1].mapped_product_smiles == "[CH3:1][CH3:2]"
+    assert compiled[2].mapped_product_smiles == "[CH3:3][CH3:4]"
+
+
+def test_compile_route_graph_rejects_cycle_within_one_sibling_branch() -> None:
+    with pytest.raises(
+        ReactionJsonReplayError,
+        match="routejson_compiler_product_cycle",
+    ):
+        RouteJSONCompiler().compile_route_graph(
+            mapped_target_smiles="[CH3:1][CH2:2][CH2:3][CH3:4]",
+            steps=[
+                {
+                    "product_smiles": "CCCC",
+                    "reaction_operations": [
+                        {"op": "break_bond", "map_a": 2, "map_b": 3}
+                    ],
+                },
+                {
+                    "product_smiles": "CC",
+                    "mapped_product_smiles": "[CH3:1][CH3:2]",
+                    "reaction_operations": [
+                        {
+                            "op": "add_group",
+                            "map_idx": 2,
+                            "fragment_smiles": "[*][CH2:5][CH3:6]",
+                        }
+                    ],
+                },
+            ],
+        )
 
 
 def test_compile_route_graph_rejects_a_disconnected_step() -> None:

@@ -46,15 +46,13 @@ capabilities before their V4 acceptance tests pass.
 ## Compatibility isolation boundary
 
 - `cascade_planner.legacy` is the explicit discovery namespace for frozen V3
-  application, orchestration, provider, controller-harness, and combined-Web
-  surfaces.
+  application, orchestration, provider, and controller-harness surfaces.
 - Default `cascade_planner.application`, `cascade_planner.orchestration`, and
   `cascade_planner.providers` exports contain V4 symbols only. Old package-root
   aliases have been deleted and raise `AttributeError`; compatibility callers
   must import the explicit legacy namespace.
-- The main `serve` command has no combined surface. The frozen UI is available
-  only through `scripts/legacy/serve_combined_web.py`, routed through
-  `cascade_planner.legacy.web`.
+- The combined Web surface and its launcher were retired on 2026-08-29. The
+  canonical `serve` command is the only Web application entry point.
 - Frozen operator and audit implementations live only under `scripts/legacy/`;
   old root-level command paths are deleted.
 - The explicit execution guard is `cascade_planner.legacy.guard`; the former
@@ -62,8 +60,8 @@ capabilities before their V4 acceptance tests pass.
 - Compatibility regressions live under `tests/legacy/` and use the `legacy`
   pytest marker. `tests/test_legacy_namespace.py` guards the import boundary.
 - V4 architecture tests reject any dependency on `cascade_planner.legacy` or
-  its underlying blackboard, old queue, recursive campaign, RouteForest, and
-  combined-Web state owners.
+  its underlying blackboard, old queue, recursive campaign, and RouteForest
+  state owners; they also require the retired Web modules to remain absent.
 
 Isolation precedes physical deletion. Historical implementations remain only
 where saved-run replay still requires them; each migrated cluster must leave
@@ -205,10 +203,10 @@ The DeepSeek prior-provider comparison is explicitly owned by
 `cascade_planner.research.autoplannrellm.prior_benchmark`; its former
 `cascade_planner.cascadeboard` path is deleted.
 
-The combined Flask application has been removed from `cascade_planner.web` and
-now lives under `cascade_planner.legacy.web_runtime`. V3 operator, replay,
-RouteForest, audit, and golden commands likewise live only under
-`scripts/legacy/`; root script aliases are not retained.
+The combined Flask application and launcher have been removed from executable
+source. V3 replay, RouteForest, audit, and golden commands remain under
+`scripts/legacy/` only where saved-run compatibility still requires them; root
+script aliases are not retained.
 
 Blackboard route reconstruction, legacy admission receipts, and the admitted
 hyperedge journal have been removed from `cascade_planner.routes` and mainline
@@ -233,7 +231,7 @@ longer exports `rebuild_consensus_graph_from_blackboard`.
 | Image-only source recovery | `harness.source_ocr` + deterministic literature registry | legacy visual-chain exact claims |
 | Optional page-vision hypotheses | `interfaces.visual_evidence` + `RunKernel` budget | legacy unmetered visual retries |
 | Presentation projection | `application.route_workbench` + `harness.v4_route_workbench` | `RouteForest` HTML/JSON |
-| Web service surface | `web.v4_app` | explicit `scripts/legacy/serve_combined_web.py` launcher for `legacy.web_runtime.app` |
+| Web service surface | `web.v4_app` | no executable legacy Web surface |
 | Program migration shadow | `application.transformation_programs` + `transformation_program_store` + `interfaces.program_migration` | no legacy owner; read-only by default, explicit append-only admission only |
 | Route/Program UI dual read | `application.route_program_dual_read` + `interfaces.campaign_programs` | overlays secondary Program ids on the current Workbench revision; cannot change route proof, conditions, steps, or acceptance |
 | Open reported-route shadow | `application.candidate_route_observations` + `candidate_programs` | legacy Workbench is digest-bound input only; candidate Programs cannot enter canonical proof/closure |

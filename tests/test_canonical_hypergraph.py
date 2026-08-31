@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalHypergraphStore,
     CanonicalIngestionBatch,
@@ -17,6 +19,7 @@ from cascade_planner.application.canonical_hypergraph import (
 )
 from cascade_planner.application.deficit_frontier import (
     compile_deficit_frontier,
+    frontier_builder_budget_state,
     frontier_scientific_projection,
     target_reachable_route_boundaries,
 )
@@ -296,7 +299,7 @@ def test_rejected_stock_leaf_becomes_provider_expansion_deficit() -> None:
     assert expansion["model_allowed"] is True
     assert expansion["deterministic"] is False
     assert expansion["metadata"]["frontier_smiles"] == "CC(=O)Cl"
-    assert expansion["metadata"]["provider_preferences"][0] == "chemenzy"
+    assert expansion["metadata"]["provider_preferences"][0] == "native_short_tail"
     assert frontier["summary"]["by_kind"]["stock"] == 0
 
 
@@ -775,10 +778,54 @@ def test_declared_route_internal_strategy_milestone_is_not_a_replacement(
             "strategy_signature": "declared route-internal milestone",
         }
     )
+    milestone["host_lineage"] = {
+        "root_mapped_smiles": "[CH3:1][CH2:2][OH:3]",
+        "milestone_index": 2,
+    }
     family = plan["route_families"][0]
     family["strategy_card"] = root
     family["root_strategy_card"] = root
     family["strategy_milestone_cards"] = [root, milestone]
+    family["strategy_milestone_attempts"] = [
+        {
+            "milestone_index": 2,
+            "selected_product_smiles": "CCO",
+            "accepted": True,
+            "strategy_digest": milestone["strategy_digest"],
+        }
+    ]
+    family["strategic_milestone_count"] = 2
+    family["strategy_call_count"] = 2
+    family["route_call_count"] = 3
+    family["paper_policy_call_budget"] = {
+        "maximum_calls": 5,
+        "actual_calls": 3,
+    }
+    family["key_event_critic_call_count"] = 1
+    family["key_event_critic_completed"] = False
+    family["key_event_critic_history"] = [
+        {
+            "strategy_digest": root["strategy_digest"],
+            "strategy_milestone_index": 1,
+            "status": "rejected",
+            "focus_step_id": "attempt:one",
+        },
+        {
+            "strategy_digest": root["strategy_digest"],
+            "strategy_milestone_index": 1,
+            "status": "completed",
+            "focus_step_id": "attempt:two",
+        }
+    ]
+    family["path_repair_transactions"] = [
+        {
+            "transaction_index": 1,
+            "editor_task_id": "editor:one",
+            "status": "retained_uncommitted_prefix",
+            "repair_goal": "rebuild the unresolved route span",
+            "repair_frontier_mapped_product_smiles": "[CH3:1][CH2:2][OH:3]",
+        }
+    ]
     step = plan["multi_step_skeletons"][0]["steps"][0]
     step["strategy_card"] = milestone
     step["strategy_id"] = milestone["strategy_id"]
@@ -796,6 +843,27 @@ def test_declared_route_internal_strategy_milestone_is_not_a_replacement(
     assert {
         card["strategy_digest"] for card in route["strategy_cards"]
     } == {root["strategy_digest"], milestone["strategy_digest"]}
+    assert route["strategy_call_count"] == 2
+    assert route["route_call_count"] == 3
+    assert route["paper_policy_call_budget"] == {
+        "maximum_calls": 5,
+        "actual_calls": 3,
+    }
+    assert route["strategic_milestone_count"] == 2
+    assert route["strategy_milestone_cards"][1]["host_lineage"] == {
+        "root_mapped_smiles": "[CH3:1][CH2:2][OH:3]",
+        "milestone_index": 2,
+    }
+    assert route["strategy_milestone_attempts"][0]["accepted"] is True
+    assert route["key_event_critic_call_count"] == 1
+    assert route["key_event_critic_completed"] is False
+    assert [row["status"] for row in route["key_event_critic_history"]] == [
+        "rejected",
+        "completed",
+    ]
+    assert route["path_repair_transactions"][0]["repair_goal"] == (
+        "rebuild the unresolved route span"
+    )
     assert len(store.frontier_materialization_commands()) == 1
 
 
@@ -1076,8 +1144,10 @@ def test_aiz_mapped_atom_contributor_survives_admission_and_materialization(
     ]["edge_ids"]
 
 
+@pytest.mark.parametrize("origin_kind", ["aizynthfinder", "chemenzy"])
 def test_v36_provider_template_topology_stitches_while_critic_risk_stays_separate(
     tmp_path: Path,
+    origin_kind: str,
 ) -> None:
     """Replay the v36 terminal provider edge that the old critic discarded."""
 
@@ -1104,11 +1174,11 @@ def test_v36_provider_template_topology_stitches_while_critic_risk_stays_separat
         CanonicalIngestionBatch(
             hypotheses=(
                 {
-                    "step_id": "chemenzy:v36:terminal",
+                    "step_id": f"{origin_kind}:v36:terminal",
                     "canonical_route_family_id": parent_id,
                     "product_smiles": product,
                     "precursor_smiles": precursors,
-                    "origin_kind": "chemenzy",
+                    "origin_kind": origin_kind,
                     "origin_ref": "cached-v36-guided-result",
                     "strategy_card": card,
                     "transformation_hypothesis": "provider short-tail template",
@@ -1416,7 +1486,7 @@ def test_disconnected_provider_island_never_becomes_short_tail_work(
     )
 
 
-def test_settled_short_tail_attempt_is_not_retried_or_reaudited() -> None:
+def test_settled_short_tail_attempt_opens_builder_lane_without_reauditing_stock() -> None:
     graph = {
         "scientific_sha256": "fixture",
         "target_molecule_id": "molecule:target",
@@ -1451,6 +1521,7 @@ def test_settled_short_tail_attempt_is_not_retried_or_reaudited() -> None:
                 "kind": "expansion",
                 "status": "resolved",
                 "object_id": "molecule:leaf",
+                "route_family_ids": ["route:selected"],
                 "metadata": {"guided_provider_attempt": True},
             }
         },
@@ -1460,11 +1531,315 @@ def test_settled_short_tail_attempt_is_not_retried_or_reaudited() -> None:
 
     frontier = compile_deficit_frontier(graph)
 
-    assert not any(
-        item["object_id"] == "molecule:leaf"
-        and item["kind"] in {"expansion", "stock"}
+    leaf_items = [
+        item
         for item in frontier["items"]
+        if item["object_id"] == "molecule:leaf"
+    ]
+    assert len(leaf_items) == 1
+    assert leaf_items[0]["kind"] == "expansion"
+    assert leaf_items[0]["metadata"]["provider_preferences"] == [
+        "codex_frontier_builder"
+    ]
+    assert leaf_items[0]["metadata"]["frontier_builder_route_family_id"] == (
+        "route:selected"
     )
+    assert leaf_items[0]["metadata"]["frontier_builder_attempt_index"] == 1
+
+
+def test_rejected_builder_attempt_keeps_same_leaf_lane_open_for_next_attempt() -> None:
+    graph = {
+        "scientific_sha256": "fixture",
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {"canonical_smiles": "CCO", "stock_closed": False},
+            "molecule:leaf": {
+                "canonical_smiles": "CC",
+                "stock_closed": False,
+                "active_stock_observation_id": "stock:miss",
+            },
+        },
+        "stock_observations": {"stock:miss": {"accepted": False}},
+        "route_families": {
+            "route:selected": {
+                "selected": True,
+                "closed": False,
+                "edge_ids": ["edge:root"],
+            }
+        },
+        "edges": {
+            "edge:root": {
+                "edge_id": "edge:root",
+                "product_molecule_id": "molecule:target",
+                "precursor_molecule_ids": ["molecule:leaf"],
+                "status": "materialized",
+                "reaction_proofs": [],
+            }
+        },
+        "hypotheses": {},
+        "action_signals": {
+            "native:leaf": {
+                "kind": "expansion",
+                "status": "resolved",
+                "object_id": "molecule:leaf",
+                "route_family_ids": ["route:selected"],
+                "metadata": {"guided_provider_attempt": True},
+            },
+            "builder:leaf:1": {
+                "kind": "expansion",
+                "status": "resolved",
+                "object_id": "molecule:leaf",
+                "metadata": {
+                    "attempt_lane": "codex_frontier_builder",
+                    "attempt_index": 1,
+                    "route_family_id": "route:selected",
+                    "attempt_disposition": "candidate_rejected",
+                    "lane_unavailable": False,
+                    "diagnostic": {"reason": "reactionjson_replay_failed"},
+                },
+            },
+        },
+        "dependency_index": {"routes_by_entity": {}},
+        "conflicts": {},
+    }
+
+    frontier = compile_deficit_frontier(graph)
+    expansion = next(
+        item
+        for item in frontier["items"]
+        if item["kind"] == "expansion"
+        and item["object_id"] == "molecule:leaf"
+    )
+
+    assert expansion["metadata"]["provider_preferences"] == [
+        "codex_frontier_builder"
+    ]
+    assert expansion["metadata"]["frontier_builder_route_family_id"] == (
+        "route:selected"
+    )
+    assert expansion["metadata"]["frontier_builder_attempt_index"] == 2
+    assert expansion["metadata"]["frontier_builder_prior_rejection"] == {
+        "reason": "reactionjson_replay_failed"
+    }
+
+
+def test_frontier_builder_continuation_debits_remaining_initial_policy_axis() -> None:
+    graph = {
+        "scientific_sha256": "fixture",
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {"canonical_smiles": "CCO", "stock_closed": False},
+            "molecule:leaf": {
+                "canonical_smiles": "CC",
+                "stock_closed": False,
+                "active_stock_observation_id": "stock:miss",
+            },
+        },
+        "stock_observations": {"stock:miss": {"accepted": False}},
+        "route_families": {
+            "route:selected": {
+                "selected": True,
+                "closed": False,
+                "edge_ids": ["edge:root"],
+                "route_call_count": 3,
+                "paper_policy_call_budget": {
+                    "maximum_calls": 5,
+                    "actual_calls": 3,
+                },
+            }
+        },
+        "edges": {
+            "edge:root": {
+                "edge_id": "edge:root",
+                "product_molecule_id": "molecule:target",
+                "precursor_molecule_ids": ["molecule:leaf"],
+                "status": "materialized",
+                "reaction_proofs": [],
+            }
+        },
+        "hypotheses": {},
+        "action_signals": {
+            "native:leaf": {
+                "kind": "expansion",
+                "status": "resolved",
+                "object_id": "molecule:leaf",
+                "route_family_ids": ["route:selected"],
+                "metadata": {"guided_provider_attempt": True},
+            },
+            "builder:leaf:1": {
+                "kind": "expansion",
+                "status": "resolved",
+                "object_id": "molecule:leaf",
+                "metadata": {
+                    "attempt_lane": "codex_frontier_builder",
+                    "attempt_index": 1,
+                    "route_family_id": "route:selected",
+                    "attempt_disposition": "candidate_rejected",
+                    "lane_unavailable": False,
+                },
+            },
+        },
+        "dependency_index": {"routes_by_entity": {}},
+        "conflicts": {},
+    }
+
+    budget = frontier_builder_budget_state(
+        graph,
+        route_family_id="route:selected",
+    )
+    frontier = compile_deficit_frontier(graph)
+    expansion = next(
+        item
+        for item in frontier["items"]
+        if item["kind"] == "expansion"
+        and item["object_id"] == "molecule:leaf"
+    )
+
+    assert budget["initial_calls"] == 3
+    assert budget["continuation_calls"] == 1
+    assert budget["remaining_calls"] == 1
+    assert budget["available"] is True
+    assert expansion["metadata"]["frontier_builder_budget"] == budget
+
+
+def test_exhausted_initial_policy_axis_keeps_leaf_deficit_without_provider_lane() -> None:
+    graph = {
+        "scientific_sha256": "fixture",
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {"canonical_smiles": "CCO", "stock_closed": False},
+            "molecule:leaf": {
+                "canonical_smiles": "CC",
+                "stock_closed": False,
+                "active_stock_observation_id": "stock:miss",
+            },
+        },
+        "stock_observations": {"stock:miss": {"accepted": False}},
+        "route_families": {
+            "route:selected": {
+                "selected": True,
+                "closed": False,
+                "edge_ids": ["edge:root"],
+                "paper_policy_call_budget": {
+                    "maximum_calls": 5,
+                    "actual_calls": 5,
+                },
+            }
+        },
+        "edges": {
+            "edge:root": {
+                "edge_id": "edge:root",
+                "product_molecule_id": "molecule:target",
+                "precursor_molecule_ids": ["molecule:leaf"],
+                "status": "materialized",
+                "reaction_proofs": [],
+            }
+        },
+        "hypotheses": {},
+        "action_signals": {
+            "native:leaf": {
+                "kind": "expansion",
+                "status": "resolved",
+                "object_id": "molecule:leaf",
+                "route_family_ids": ["route:selected"],
+                "metadata": {"guided_provider_attempt": True},
+            }
+        },
+        "dependency_index": {"routes_by_entity": {}},
+        "conflicts": {},
+    }
+
+    budget = frontier_builder_budget_state(
+        graph,
+        route_family_id="route:selected",
+    )
+    frontier = compile_deficit_frontier(graph)
+
+    assert budget["available"] is False
+    assert budget["remaining_calls"] == 0
+    expansion = next(
+        item
+        for item in frontier["items"]
+        if item["kind"] == "expansion"
+        and item["object_id"] == "molecule:leaf"
+    )
+    assert expansion["metadata"]["provider_preferences"] == []
+    assert expansion["metadata"]["provider_lanes_exhausted"] is True
+    assert expansion["metadata"][
+        "frontier_builder_exhausted_route_family_ids"
+    ] == ["route:selected"]
+
+
+def test_unavailable_builder_route_moves_shared_leaf_to_next_route_family() -> None:
+    graph = {
+        "scientific_sha256": "fixture",
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {"canonical_smiles": "CCO", "stock_closed": False},
+            "molecule:leaf": {
+                "canonical_smiles": "CC",
+                "stock_closed": False,
+                "active_stock_observation_id": "stock:miss",
+            },
+        },
+        "stock_observations": {"stock:miss": {"accepted": False}},
+        "route_families": {
+            route_id: {
+                "selected": True,
+                "closed": False,
+                "edge_ids": ["edge:root"],
+            }
+            for route_id in ("route:a", "route:b")
+        },
+        "edges": {
+            "edge:root": {
+                "edge_id": "edge:root",
+                "product_molecule_id": "molecule:target",
+                "precursor_molecule_ids": ["molecule:leaf"],
+                "status": "materialized",
+                "reaction_proofs": [],
+            }
+        },
+        "hypotheses": {},
+        "action_signals": {
+            "native:leaf": {
+                "kind": "expansion",
+                "status": "resolved",
+                "object_id": "molecule:leaf",
+                "route_family_ids": ["route:a"],
+                "metadata": {"guided_provider_attempt": True},
+            },
+            "builder:route-a": {
+                "kind": "expansion",
+                "status": "resolved",
+                "object_id": "molecule:leaf",
+                "metadata": {
+                    "attempt_lane": "codex_frontier_builder",
+                    "attempt_index": 1,
+                    "route_family_id": "route:a",
+                    "attempt_disposition": "lane_unavailable",
+                    "lane_unavailable": True,
+                },
+            },
+        },
+        "dependency_index": {"routes_by_entity": {}},
+        "conflicts": {},
+    }
+
+    frontier = compile_deficit_frontier(graph)
+    expansion = next(
+        item
+        for item in frontier["items"]
+        if item["kind"] == "expansion"
+        and item["object_id"] == "molecule:leaf"
+    )
+
+    assert expansion["metadata"]["provider_preferences"] == [
+        "native_short_tail",
+        "codex_frontier_builder"
+    ]
+    assert expansion["metadata"]["frontier_builder_route_family_id"] == "route:b"
+    assert expansion["metadata"]["frontier_builder_attempt_index"] == 1
 
 
 def test_internal_node_provider_group_is_excluded_from_route_traversal() -> None:

@@ -1,32 +1,31 @@
 # 架构文档导航
 
-更新：2026-08-27
+更新：2026-08-31
 
 本目录按“当前事实、目标设计、迁移记录、历史边界”分工。判断某项能力是否已经完成时，
 必须先读当前状态页，不能从类名、fixture、展示截图或设计文档反推实现状态。
 
 ## 权威阅读顺序
 
-1. [AUTOPLANNER_ARCHITECTURE.md](AUTOPLANNER_ARCHITECTURE.md)：当前系统总图，先解释 Canonical V4、
-   paper-aligned V8、`v9_smoke` 和 GRIA 的嵌套关系、组件分层及事实权威。
+1. [AUTOPLANNER_ARCHITECTURE.md](AUTOPLANNER_ARCHITECTURE.md)：当前系统总图，解释 Canonical Host、
+   论文对齐路径、`self_correcting_sequential` 和 GRIA 的嵌套关系、组件分层及事实权威。
 2. [CURRENT_ARCHITECTURE_STATUS.md](CURRENT_ARCHITECTURE_STATUS.md)：当前 V4 宿主主线的实现状态与迁移门。
-3. [SYNTHEX_COMPONENT_CONTRACT.md](SYNTHEX_COMPONENT_CONTRACT.md)：冻结的 paper-aligned V8 组件合同，
-   也是判断 V9 与 SynthEx 论文差异的复现基线。
+3. [SYNTHEX_COMPONENT_CONTRACT.md](SYNTHEX_COMPONENT_CONTRACT.md)：冻结的论文对齐组件合同，
+   也是判断自纠偏顺序搜索与 SynthEx 论文差异的复现基线。
 4. [archive/paper-aligned-v8-20260826/BASELINE.md](archive/paper-aligned-v8-20260826/BASELINE.md)：
    2026-08-26 论文对齐基线、正式运行证据和已知局限；对应 Git 引用
    paper-aligned-v8-freeze-20260826。
-5. [V9_CAUSAL_TRANSACTIONAL_RETROSYNTHESIS.md](V9_CAUSAL_TRANSACTIONAL_RETROSYNTHESIS.md)：
-   当前 `v9_smoke` 的实现状态、三分子 25-step 结果、与 SynthEx 的差异，以及尚未落地的
-   Strategy-Guided Self-Correcting Search 目标态。Strategy review、关键事件 audit 和 final
-   Critic/Editor 已运行；搜索异常 audit、ReactionWitness 与事务式 Path Repair 尚未实现。
-6. [MAINLINE_REDUNDANCY_AUDIT_20260716.md](MAINLINE_REDUNDANCY_AUDIT_20260716.md)：
+5. [MAINLINE_REDUNDANCY_AUDIT_20260716.md](MAINLINE_REDUNDANCY_AUDIT_20260716.md)：
    当前主干冗余证据、已执行清理和渐进迁移保护门。
-7. [../MAINLINE.md](../MAINLINE.md)：当前 Canonical V4 运行主干及完成定义。
-8. [GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md](GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)：
+6. [../MAINLINE.md](../MAINLINE.md)：当前 Canonical Host 运行主干及完成定义。
+7. [GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md](GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)：
    下一代 GRIA 目标架构；除状态页明确标记外均为设计目标。
-9. [V4_MODULE_AND_COMPATIBILITY_MAP.md](V4_MODULE_AND_COMPATIBILITY_MAP.md)：当前模块和兼容边界。
+8. [V4_MODULE_AND_COMPATIBILITY_MAP.md](V4_MODULE_AND_COMPATIBILITY_MAP.md)：当前模块和兼容边界。
 
 ## 实施与历史记录
+
+- [面向合成学者的策略先行概念图](../assets/current-architecture/strategy-first-generative-retrosynthesis-zh.png)：
+  对外说明同一生成式逆合成范式的延伸；它是展示投影，不是实现状态权威。
 
 - [IDEAL_RETROSYNTHESIS_ARCHITECTURE_AND_TODO.md](IDEAL_RETROSYNTHESIS_ARCHITECTURE_AND_TODO.md)：
   2026-07-14～15 的 V4 收敛清单与实施日志，现为历史迁移记录，不再是下一代设计权威。

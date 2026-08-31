@@ -110,11 +110,24 @@ class FrozenBenchmarkStockIndex:
         )
         truncated = len(canonical_values) > max_molecules
         selected = canonical_values[:max_molecules]
+        full_inchikeys = {
+            canonical: self._full_inchikey(canonical)
+            for canonical in selected
+        }
         found = self._lookup(selected)
+        connectivity_diagnostics = self._connectivity_diagnostics(
+            [
+                full_inchikeys[canonical]
+                for canonical in selected
+                if canonical not in found and full_inchikeys[canonical]
+            ]
+        )
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         members = [
             {
                 "canonical_smiles": canonical,
+                "identity_key": self.identity_key,
+                "full_inchikey": full_inchikeys[canonical],
                 "membership_verified": True,
                 "membership_proof_sha256": hashlib.sha256(
                     f"{self.index_sha256}:{canonical}".encode("utf-8")
@@ -127,7 +140,18 @@ class FrozenBenchmarkStockIndex:
         misses = [
             {
                 "canonical_smiles": canonical,
+                "identity_key": self.identity_key,
+                "full_inchikey": full_inchikeys[canonical],
                 "reason": "molecule_not_in_frozen_benchmark_stock_index",
+                **(
+                    {
+                        "connectivity_diagnostic": connectivity_diagnostics[
+                            full_inchikeys[canonical]
+                        ]
+                    }
+                    if full_inchikeys[canonical] in connectivity_diagnostics
+                    else {}
+                ),
             }
             for canonical in selected
             if canonical not in found
@@ -145,6 +169,7 @@ class FrozenBenchmarkStockIndex:
                 "index_sha256": self.index_sha256,
                 "source_sha256": self.source_sha256,
                 "source_member_count": self.member_count,
+                "identity_key": self.identity_key,
                 "rdkit_version": self.rdkit_version,
                 "immutable_content_addressed": True,
                 "commercial_orderability_claimed": False,
@@ -159,6 +184,8 @@ class FrozenBenchmarkStockIndex:
                 "read_only_shared_index": True,
                 "not_a_reaction_or_route_provider": True,
                 "not_procurement_authority": True,
+                "connectivity_diagnostic_is_non_authoritative": True,
+                "only_exact_identity_match_grants_membership": True,
             },
         }
         body["content_sha256"] = _digest(body)
@@ -234,6 +261,10 @@ class FrozenBenchmarkStockIndex:
     def _identity(self, canonical: str) -> str:
         if self.identity_key == "canonical_smiles":
             return canonical
+        return self._full_inchikey(canonical)
+
+    @staticmethod
+    def _full_inchikey(canonical: str) -> str:
         molecule = Chem.MolFromSmiles(canonical)
         if molecule is None:
             return ""
@@ -241,6 +272,37 @@ class FrozenBenchmarkStockIndex:
             return str(Chem.MolToInchiKey(molecule) or "")
         except (RuntimeError, ValueError):
             return ""
+
+    def _connectivity_diagnostics(
+        self,
+        full_inchikeys: Iterable[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Report same-connectivity catalog presence without granting closure."""
+
+        if self.identity_key != "full_inchikey":
+            return {}
+        values = sorted({str(value) for value in full_inchikeys if str(value)})
+        diagnostics: dict[str, dict[str, Any]] = {}
+        try:
+            with self._connect(self.index_path) as connection:
+                for full_inchikey in values:
+                    connectivity_block = full_inchikey.split("-", 1)[0]
+                    match = connection.execute(
+                        "SELECT 1 FROM stock "
+                        "WHERE full_inchikey >= ? AND full_inchikey < ? LIMIT 1",
+                        (f"{connectivity_block}-", f"{connectivity_block}."),
+                    ).fetchone()
+                    diagnostics[full_inchikey] = {
+                        "connectivity_block": connectivity_block,
+                        "catalog_contains_same_connectivity": match is not None,
+                        "grants_membership": False,
+                        "reason": "full_inchikey_exact_match_required",
+                    }
+        except sqlite3.Error as exc:
+            raise LiveStockAdapterError(
+                "benchmark_stock_connectivity_diagnostic_failed"
+            ) from exc
+        return diagnostics
 
 
 def load_versioned_inventory_snapshot(

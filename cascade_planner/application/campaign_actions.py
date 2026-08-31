@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 import hashlib
 import json
+from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 
@@ -27,7 +28,8 @@ class CampaignActionKind(str, Enum):
     STOCK_AUDIT = "stock_audit"
     RESOLVE_CONFLICT = "resolve_conflict"
     CHEMENZY_TARGET_EXPAND = "chemenzy_target_expand"
-    CHEMENZY_FRONTIER_EXPAND = "chemenzy_frontier_expand"
+    NATIVE_SHORT_TAIL_EXPAND = "native_short_tail_expand"
+    CODEX_FRONTIER_EXPAND = "codex_frontier_expand"
     CODEX_GLOBAL_ARCHITECTURE = "codex_global_architecture"
     CODEX_REPLAN = "codex_global_replan"
     PROGRAM_DISCOVER = "program_discover"
@@ -36,6 +38,151 @@ class CampaignActionKind(str, Enum):
     PROGRAM_VALIDATE = "program_validate"
     EXPERIMENT_FEEDBACK_INGEST = "experiment_feedback_ingest"
     RECOMPUTE_ROUTE = "recompute_route_closure"
+
+
+ACTION_CLASS_ORDER = (
+    "route_discovery",
+    "deterministic_closure",
+    "scientific_proof",
+    "program_experiment",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignActionKindPolicy:
+    """Canonical scheduling taxonomy for one executable Action kind."""
+
+    action_class: str
+    scheduler_order: int
+    route_action: bool = False
+    result_first_deferred: bool = False
+    closure_stage: int | None = None
+    new_frontier: bool = False
+    program_proof: bool = False
+
+
+CAMPAIGN_ACTION_KIND_POLICIES: Mapping[
+    CampaignActionKind, CampaignActionKindPolicy
+] = MappingProxyType(
+    {
+        CampaignActionKind.RESOLVE_CONFLICT: CampaignActionKindPolicy(
+            "scientific_proof", 0, result_first_deferred=True
+        ),
+        CampaignActionKind.MATERIALIZE: CampaignActionKindPolicy(
+            "deterministic_closure", 1, route_action=True, closure_stage=0
+        ),
+        CampaignActionKind.REACTION_VALIDATE: CampaignActionKindPolicy(
+            "deterministic_closure", 2, closure_stage=1
+        ),
+        CampaignActionKind.STOCK_AUDIT: CampaignActionKindPolicy(
+            "deterministic_closure", 3, route_action=True, closure_stage=2
+        ),
+        CampaignActionKind.ACQUIRE_EVIDENCE: CampaignActionKindPolicy(
+            "scientific_proof", 4, result_first_deferred=True
+        ),
+        CampaignActionKind.BIND_EVIDENCE: CampaignActionKindPolicy(
+            "scientific_proof", 5, result_first_deferred=True
+        ),
+        CampaignActionKind.CONDITION_ENRICH: CampaignActionKindPolicy(
+            "scientific_proof", 6, result_first_deferred=True
+        ),
+        CampaignActionKind.CHEMENZY_TARGET_EXPAND: CampaignActionKindPolicy(
+            "route_discovery", 7, route_action=True, new_frontier=True
+        ),
+        CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: CampaignActionKindPolicy(
+            "route_discovery", 8, route_action=True, new_frontier=True
+        ),
+        CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: CampaignActionKindPolicy(
+            "route_discovery", 9, route_action=True, new_frontier=True
+        ),
+        CampaignActionKind.CODEX_FRONTIER_EXPAND: CampaignActionKindPolicy(
+            "route_discovery", 10, route_action=True, new_frontier=True
+        ),
+        CampaignActionKind.CODEX_REPLAN: CampaignActionKindPolicy(
+            "route_discovery", 11, route_action=True, new_frontier=True
+        ),
+        CampaignActionKind.PROGRAM_DISCOVER: CampaignActionKindPolicy(
+            "program_experiment", 12, result_first_deferred=True
+        ),
+        CampaignActionKind.PROGRAM_REVIEW: CampaignActionKindPolicy(
+            "program_experiment", 13, result_first_deferred=True
+        ),
+        CampaignActionKind.PROGRAM_ADMIT: CampaignActionKindPolicy(
+            "program_experiment", 14, result_first_deferred=True
+        ),
+        CampaignActionKind.PROGRAM_VALIDATE: CampaignActionKindPolicy(
+            "program_experiment",
+            15,
+            result_first_deferred=True,
+            program_proof=True,
+        ),
+        CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST: CampaignActionKindPolicy(
+            "program_experiment",
+            16,
+            result_first_deferred=True,
+            program_proof=True,
+        ),
+        CampaignActionKind.RECOMPUTE_ROUTE: CampaignActionKindPolicy(
+            "deterministic_closure", 17, route_action=True, closure_stage=3
+        ),
+    }
+)
+
+
+def campaign_action_kind_policy(
+    kind: CampaignActionKind | str,
+) -> CampaignActionKindPolicy:
+    """Return the one canonical policy row, rejecting unknown Action kinds."""
+
+    try:
+        normalized = (
+            kind
+            if isinstance(kind, CampaignActionKind)
+            else CampaignActionKind(str(kind or ""))
+        )
+    except ValueError as exc:
+        raise ValueError(f"unsupported campaign action kind: {kind!r}") from exc
+    return CAMPAIGN_ACTION_KIND_POLICIES[normalized]
+
+
+ACTION_KIND_ORDER = MappingProxyType(
+    {
+        kind.value: policy.scheduler_order
+        for kind, policy in CAMPAIGN_ACTION_KIND_POLICIES.items()
+    }
+)
+ROUTE_ACTION_KINDS = frozenset(
+    kind.value
+    for kind, policy in CAMPAIGN_ACTION_KIND_POLICIES.items()
+    if policy.route_action
+)
+RESULT_FIRST_DEFERRED_ACTION_KINDS = frozenset(
+    kind.value
+    for kind, policy in CAMPAIGN_ACTION_KIND_POLICIES.items()
+    if policy.result_first_deferred
+)
+CLOSURE_PIPELINE = tuple(
+    kind.value
+    for kind, policy in sorted(
+        CAMPAIGN_ACTION_KIND_POLICIES.items(),
+        key=lambda item: (
+            item[1].closure_stage
+            if item[1].closure_stage is not None
+            else len(CAMPAIGN_ACTION_KIND_POLICIES)
+        ),
+    )
+    if policy.closure_stage is not None
+)
+NEW_FRONTIER_ACTION_KINDS = frozenset(
+    kind.value
+    for kind, policy in CAMPAIGN_ACTION_KIND_POLICIES.items()
+    if policy.new_frontier
+)
+PROGRAM_PROOF_ACTION_KINDS = frozenset(
+    kind.value
+    for kind, policy in CAMPAIGN_ACTION_KIND_POLICIES.items()
+    if policy.program_proof
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -454,6 +601,29 @@ def compile_action_opportunities(
                         if action_contract
                         else {}
                     ),
+                    # A failed local Builder attempt does not resolve the
+                    # leaf.  The next stochastic attempt must receive a new
+                    # action identity while identical native-provider calls
+                    # remain deduplicated by their provider lane.
+                    **(
+                        {
+                            "frontier_builder_attempt_index": int(
+                                dict(row.get("metadata") or {}).get(
+                                    "frontier_builder_attempt_index"
+                                )
+                                or 1
+                            ),
+                            "frontier_builder_route_family_id": str(
+                                dict(row.get("metadata") or {}).get(
+                                    "frontier_builder_route_family_id"
+                                )
+                                or ""
+                            ),
+                        }
+                        if action_kind
+                        is CampaignActionKind.CODEX_FRONTIER_EXPAND
+                        else {}
+                    ),
                 }
             )
             opportunities.append(
@@ -645,30 +815,49 @@ def _action_mappings(
             return ((CampaignActionKind.BIND_EVIDENCE, "host_evidence_gate", "evidence"),)
         return ((CampaignActionKind.ACQUIRE_EVIDENCE, "evidence_connector", "evidence"),)
     if kind == "expansion":
+        if metadata.get("provider_lanes_exhausted") is True:
+            return ()
         providers = {
             str(value).strip().casefold()
             for value in metadata.get("provider_preferences") or []
             if str(value).strip()
         }
         if not providers:
-            providers = {"chemenzy"}
-        values: list[tuple[CampaignActionKind, str, str]] = []
-        if "chemenzy" in providers:
-            chemenzy_kind = (
-                CampaignActionKind.CHEMENZY_TARGET_EXPAND
+            providers = (
+                {"chemenzy"}
                 if metadata.get("target_level_native_search") is True
-                else CampaignActionKind.CHEMENZY_FRONTIER_EXPAND
+                else {"native_short_tail"}
             )
+        values: list[tuple[CampaignActionKind, str, str]] = []
+        if (
+            metadata.get("target_level_native_search") is True
+            and "chemenzy" in providers
+        ):
             values.append(
                 (
-                    chemenzy_kind,
+                    CampaignActionKind.CHEMENZY_TARGET_EXPAND,
                     "chemenzy",
-                    (
-                        "native_search_target"
-                        if chemenzy_kind
-                        == CampaignActionKind.CHEMENZY_TARGET_EXPAND
-                        else "native_search_frontier"
-                    ),
+                    "native_search_target",
+                )
+            )
+        if metadata.get("target_level_native_search") is not True and providers & {
+            "native_short_tail",
+            "aizynthfinder",
+            "chemenzy",
+        }:
+            values.append(
+                (
+                    CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND,
+                    "native_short_tail",
+                    "native_search_frontier",
+                )
+            )
+        if "codex_frontier_builder" in providers:
+            values.append(
+                (
+                    CampaignActionKind.CODEX_FRONTIER_EXPAND,
+                    "codex_frontier_builder",
+                    "model",
                 )
             )
         if "codex" in providers or "codex_global_director" in providers:
@@ -681,8 +870,8 @@ def _action_mappings(
         if str(metadata.get("frontier_smiles") or ""):
             values.append(
                 (
-                    CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,
-                    "chemenzy",
+                    CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND,
+                    "native_short_tail",
                     "native_search_frontier",
                 )
             )
@@ -717,15 +906,25 @@ def _digest(value: Any) -> str:
 
 
 __all__ = [
+    "ACTION_CLASS_ORDER",
     "ACTION_ESTIMATE_SCHEMA",
+    "ACTION_KIND_ORDER",
     "ACTION_RESULT_SCHEMA",
     "ActionResult",
+    "CAMPAIGN_ACTION_KIND_POLICIES",
     "CAMPAIGN_ACTION_RESOURCE_ESTIMATE_SCHEMA",
+    "CLOSURE_PIPELINE",
     "CampaignAction",
     "CampaignActionKind",
+    "CampaignActionKindPolicy",
     "CampaignActionOpportunity",
+    "NEW_FRONTIER_ACTION_KINDS",
+    "PROGRAM_PROOF_ACTION_KINDS",
+    "RESULT_FIRST_DEFERRED_ACTION_KINDS",
+    "ROUTE_ACTION_KINDS",
     "action_task_kind",
     "bind_scheduled_action",
+    "campaign_action_kind_policy",
     "compile_action_resource_estimate",
     "compile_action_estimate",
     "compile_action_opportunities",

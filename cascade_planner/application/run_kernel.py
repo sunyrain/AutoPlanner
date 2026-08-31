@@ -422,6 +422,25 @@ class RunState:
     def terminal(self) -> bool:
         return self.status in _TERMINAL_STATUSES
 
+    @property
+    def active_task_reservations(self) -> Mapping[str, Mapping[str, Any]]:
+        """Return reservations that may still represent executing work.
+
+        ``in_flight_tasks`` is the durable reservation/settlement projection and
+        intentionally survives an abrupt terminal transition until a worker can
+        report its measured settlement. Terminality nevertheless ends active
+        execution immediately, so presentation and scheduling views must use
+        this projection instead of treating every unsettled reservation as live.
+        """
+
+        return {} if self.terminal else self.in_flight_tasks
+
+    @property
+    def interrupted_task_reservations(self) -> Mapping[str, Mapping[str, Any]]:
+        """Return terminal-run reservations lacking a measured settlement."""
+
+        return self.in_flight_tasks if self.terminal else {}
+
     def to_dict(self) -> dict[str, Any]:
         row = asdict(self)
         row["task_counts"] = dict(self.task_counts)
@@ -440,6 +459,8 @@ class RunState:
         row["acceptance_report"] = dict(self.acceptance_report)
         row["failure_reasons"] = list(self.failure_reasons)
         row["terminal"] = self.terminal
+        row["active_task_count"] = len(self.active_task_reservations)
+        row["interrupted_task_count"] = len(self.interrupted_task_reservations)
         row["semantics"] = {
             "state_is_rebuilt_from_events": True,
             "accepted_expansions_are_unique_ids": True,
@@ -450,6 +471,8 @@ class RunState:
             "task_compute_time_is_sum_of_settled_task_elapsed_time": True,
             "task_checkpoints_do_not_consume_budget_or_grant_scientific_authority": True,
             "queue_empty_is_not_completion": True,
+            "terminal_status_ends_active_task_visibility": True,
+            "unsettled_terminal_reservations_preserve_measured_settlement_history": True,
         }
         row["content_sha256"] = _digest(row)
         return row
@@ -618,32 +641,44 @@ class RunKernel:
             raise ValueError("task_id is required")
         reservation: RunEvent | None = None
         settlement: RunEvent | None = None
+        interruption: RunEvent | None = None
         checkpoints: list[RunEvent] = []
         with self._locked():
             for event in self._read_events():
-                if str(event.payload.get("task_id") or "") != identity:
-                    continue
-                if event.event_type == "task_reserved":
+                event_task_id = str(event.payload.get("task_id") or "")
+                if event.event_type == "task_reserved" and event_task_id == identity:
                     reservation = event
-                elif event.event_type == "task_checkpoint":
+                elif event.event_type == "task_checkpoint" and event_task_id == identity:
                     checkpoints.append(event)
-                elif event.event_type == "task_settled":
+                elif event.event_type == "task_settled" and event_task_id == identity:
                     settlement = event
+                elif (
+                    event.event_type == "state_transition"
+                    and str(event.payload.get("status") or "") in _TERMINAL_STATUSES
+                    and reservation is not None
+                    and settlement is None
+                    and interruption is None
+                ):
+                    interruption = event
         return {
             "schema_version": "autoplanner_task_lifecycle.v1",
             "run_id": self.spec.run_id,
             "task_id": identity,
             "status": (
                 "settled" if settlement is not None
+                else "interrupted" if interruption is not None
                 else "in_flight" if reservation is not None
                 else "absent"
             ),
             "reservation": reservation.to_dict() if reservation else {},
             "checkpoints": [event.to_dict() for event in checkpoints],
             "settlement": settlement.to_dict() if settlement else {},
+            "interruption": interruption.to_dict() if interruption else {},
             "semantics": {
                 "event_log_is_operational_authority": True,
                 "checkpoints_are_operational_observations_only": True,
+                "terminal_transition_ends_unsettled_task_execution": True,
+                "late_measured_settlement_supersedes_interrupted_projection": True,
                 "projection_grants_no_scientific_authority": True,
             },
         }
@@ -716,6 +751,11 @@ class RunKernel:
             yield
         finally:
             _ACTION_RESOURCE_CONTEXT.reset(token)
+
+    def current_action_resource_context(self) -> dict[str, Any]:
+        """Return the active Action binding for child-task recovery."""
+
+        return dict(_ACTION_RESOURCE_CONTEXT.get() or {})
 
     def action_resource_usage(
         self,
@@ -1347,11 +1387,15 @@ class RunKernel:
             "prior_snapshot_sha256": prior_digest,
             "replayed_state_sha256": state.to_dict()["content_sha256"],
             "state_ref": ref.to_dict(),
-            "in_flight_task_count": len(state.in_flight_tasks),
+            "active_task_count": len(state.active_task_reservations),
+            "interrupted_task_count": len(state.interrupted_task_reservations),
             "semantics": {
                 "events_are_operational_authority": True,
                 "snapshot_was_rebuilt": True,
-                "in_flight_tasks_are_recoverable": True,
+                "nonterminal_reservations_are_recoverable": not state.terminal,
+                "terminal_reservations_are_historical_until_measured_settlement": (
+                    state.terminal
+                ),
             },
         }
 
@@ -1490,6 +1534,10 @@ class RunKernel:
             if target not in _STATUS_TRANSITIONS.get(state.status, set()):
                 raise RunKernelError(
                     f"run_status_transition_invalid:{state.status}->{target}"
+                )
+            if target in _REOPENABLE_TERMINAL_STATUSES and state.in_flight_tasks:
+                raise RunKernelError(
+                    "graceful_terminal_transition_requires_settled_tasks"
                 )
         elif event_type == "run_reopened":
             if (
@@ -2107,6 +2155,10 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
             if target not in _STATUS_TRANSITIONS.get(state["status"], set()):
                 raise RunKernelCorruptionError(
                     f"replayed_status_transition_invalid:{state['status']}->{target}"
+                )
+            if target in _REOPENABLE_TERMINAL_STATUSES and state["in_flight_tasks"]:
+                raise RunKernelCorruptionError(
+                    "replayed_graceful_terminal_transition_has_unsettled_tasks"
                 )
             state["status"] = target
             state["failure_reasons"] = list(payload.get("reasons") or [])

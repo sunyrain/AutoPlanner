@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
+
 from cascade_planner.application.action_scheduler import schedule_next_action
 from cascade_planner.application.action_service_policy import (
     ACTION_CLASS_ORDER,
     action_class_for_kind,
 )
-from cascade_planner.application.campaign_actions import compile_action_opportunities
-from cascade_planner.application.campaign_actions import CampaignActionKind
+from cascade_planner.application.campaign_actions import (
+    ACTION_KIND_ORDER,
+    CAMPAIGN_ACTION_KIND_POLICIES,
+    CampaignActionKind,
+    campaign_action_kind_policy,
+    compile_action_opportunities,
+)
 from cascade_planner.application.campaign_trajectory import (
     compile_campaign_snapshot,
     compile_campaign_trajectory,
@@ -467,14 +474,14 @@ def test_action_scheduler_expands_one_deficit_into_provider_choices() -> None:
 
     assert {row["kind"] for row in opportunities["actions"]} == {
         "reaction_validate",
-        "chemenzy_frontier_expand",
+        "native_short_tail_expand",
         "codex_global_replan",
     }
     resources = {
         row["kind"]: row["resource_class"]
         for row in opportunities["actions"]
     }
-    assert resources["chemenzy_frontier_expand"] == "native_search_frontier"
+    assert resources["native_short_tail_expand"] == "native_search_frontier"
 
 
 def test_scheduler_does_not_dispatch_unscoped_codex_replan() -> None:
@@ -547,7 +554,7 @@ def test_paper_short_tail_precedes_scoped_global_replan() -> None:
         },
     )
 
-    assert decision["selected_action"]["kind"] == "chemenzy_frontier_expand"
+    assert decision["selected_action"]["kind"] == "native_short_tail_expand"
     replan = next(
         row
         for row in decision["candidates"]
@@ -576,7 +583,7 @@ def test_round_robin_scheduler_uses_frozen_kind_cursor_not_adaptive_score() -> N
     )
 
     assert decision["scheduler_policy"] == "round_robin"
-    assert decision["selected_action"]["kind"] == "chemenzy_frontier_expand"
+    assert decision["selected_action"]["kind"] == "native_short_tail_expand"
     assert decision["semantics"][
         "round_robin_ignores_adaptive_value_score_for_ordering"
     ] is True
@@ -591,9 +598,52 @@ def test_every_campaign_action_kind_has_one_target_blind_service_class() -> None
 
     assert observed == set(ACTION_CLASS_ORDER)
     assert all(
-        action_class_for_kind(kind.value) != "unclassified"
+        action_class_for_kind(kind.value) in ACTION_CLASS_ORDER
         for kind in CampaignActionKind
     )
+    assert set(CAMPAIGN_ACTION_KIND_POLICIES) == set(CampaignActionKind)
+    assert set(ACTION_KIND_ORDER) == {kind.value for kind in CampaignActionKind}
+
+
+def test_unknown_campaign_action_kind_is_rejected_at_taxonomy_boundary() -> None:
+    with pytest.raises(ValueError, match="unsupported campaign action kind"):
+        campaign_action_kind_policy("invented_action")
+
+
+def test_frontier_builder_attempt_and_route_binding_change_action_identity() -> None:
+    def action(*, route_family_id: str, attempt_index: int) -> dict:
+        frontier = _frontier()
+        frontier["items"] = [frontier["items"][1]]
+        frontier["items"][0]["metadata"] = {
+            "provider_preferences": ["codex_frontier_builder"],
+            "frontier_builder_route_family_id": route_family_id,
+            "frontier_builder_attempt_index": attempt_index,
+        }
+        return next(
+            row
+            for row in compile_action_opportunities(frontier)["actions"]
+            if row["kind"] == CampaignActionKind.CODEX_FRONTIER_EXPAND.value
+        )
+
+    first = action(route_family_id="route:a", attempt_index=1)
+    retry = action(route_family_id="route:a", attempt_index=2)
+    other_route = action(route_family_id="route:b", attempt_index=1)
+
+    assert len({first["action_id"], retry["action_id"], other_route["action_id"]}) == 3
+    assert first["resource_class"] == "model"
+
+
+def test_exhausted_expansion_lanes_remain_visible_without_executable_action() -> None:
+    frontier = _frontier()
+    frontier["items"] = [frontier["items"][1]]
+    frontier["items"][0]["metadata"] = {
+        "provider_preferences": [],
+        "provider_lanes_exhausted": True,
+    }
+
+    opportunities = compile_action_opportunities(frontier)
+
+    assert opportunities["actions"] == []
 
 
 def test_adaptive_minimum_service_prevents_model_flood_from_starving_closure() -> None:

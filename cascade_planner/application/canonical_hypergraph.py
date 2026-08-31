@@ -802,6 +802,13 @@ def _ingest_route_family(
             ),
         ],
     )
+    incoming_policy_budget = dict(row.get("paper_policy_call_budget") or {})
+    existing_policy_budget = dict(existing.get("paper_policy_call_budget") or {})
+    policy_budget = (
+        incoming_policy_budget
+        if incoming_policy_budget
+        else existing_policy_budget
+    )
     aliases = sorted({*existing.get("aliases", []), alias} - {""})
     record = {
         "route_family_id": route_id,
@@ -837,6 +844,55 @@ def _ingest_route_family(
         # bind to any one of these declared milestones without being treated
         # as a silent replacement of the immutable root strategy.
         "strategy_cards": strategy_cards,
+        # Preserve the Director's route-horizon order and Host lineage.  The
+        # normalized digest set above remains the strategy-binding authority;
+        # these full cards are the execution context needed to resolve which
+        # declared horizon applies to a later canonical leaf.
+        "strategy_milestone_cards": _merge_ordered_runtime_rows(
+            existing.get("strategy_milestone_cards"),
+            row.get("strategy_milestone_cards"),
+            stable_keys=("strategy_digest",),
+        ),
+        "strategy_milestone_attempts": _merge_ordered_runtime_rows(
+            existing.get("strategy_milestone_attempts"),
+            row.get("strategy_milestone_attempts"),
+            stable_keys=("task_id",),
+        ),
+        "strategic_milestone_count": max(
+            int(existing.get("strategic_milestone_count") or 0),
+            int(row.get("strategic_milestone_count") or 0),
+        ),
+        "strategy_call_count": max(
+            int(existing.get("strategy_call_count") or 0),
+            int(row.get("strategy_call_count") or 0),
+        ),
+        "route_call_count": max(
+            int(existing.get("route_call_count") or 0),
+            int(row.get("route_call_count") or 0),
+        ),
+        "paper_policy_call_budget": policy_budget,
+        "key_event_critic_call_count": max(
+            int(existing.get("key_event_critic_call_count") or 0),
+            int(row.get("key_event_critic_call_count") or 0),
+        ),
+        "key_event_critic_completed": (
+            bool(row.get("key_event_critic_completed"))
+            if "key_event_critic_completed" in row
+            else bool(existing.get("key_event_critic_completed"))
+        ),
+        "key_event_critic_history": _merge_ordered_runtime_rows(
+            existing.get("key_event_critic_history"),
+            row.get("key_event_critic_history"),
+            stable_keys=("task_id",),
+        ),
+        "pending_key_event_feedback": dict(
+            (
+                row.get("pending_key_event_feedback")
+                if "pending_key_event_feedback" in row
+                else existing.get("pending_key_event_feedback")
+            )
+            or {}
+        ),
         "strategy_id": str(strategy_card.get("strategy_id") or ""),
         "strategy_digest": str(strategy_card.get("strategy_digest") or ""),
         "execution_domain": str(
@@ -846,6 +902,11 @@ def _ingest_route_family(
             row.get("chemical_critic")
             or existing.get("chemical_critic")
             or {}
+        ),
+        "path_repair_transactions": _merge_ordered_runtime_rows(
+            existing.get("path_repair_transactions"),
+            row.get("path_repair_transactions"),
+            stable_keys=("editor_task_id", "transaction_index"),
         ),
         "provider_short_tail_bindings": _merge_json_rows(
             existing.get("provider_short_tail_bindings"),
@@ -1021,7 +1082,9 @@ def _ingest_hypothesis(
     edge_id = f"edge:{audit['edge_digest']}"
     advisory_only = row.get("advisory_only") is True
     provider_template_topology = bool(
-        str(row.get("origin_kind") or "") == "chemenzy" and not operations
+        str(row.get("origin_kind") or "")
+        in {"aizynthfinder", "chemenzy"}
+        and not operations
     )
     critic_is_admission_authority = bool(
         strategy_card_has_content(strategy_card) or operations
@@ -2638,6 +2701,35 @@ def _merge_json_rows(existing: Any, incoming: Any) -> list[dict[str, Any]]:
         row.setdefault("not_reaction_proof", True)
         rows[_digest(row)] = row
     return [rows[key] for key in sorted(rows)]
+
+
+def _merge_ordered_runtime_rows(
+    existing: Any,
+    incoming: Any,
+    *,
+    stable_keys: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    """Merge ordered Director facts without condition-annotation defaults."""
+
+    rows: list[dict[str, Any]] = []
+    positions: dict[str, int] = {}
+    for value in [*(existing or []), *(incoming or [])]:
+        if not isinstance(value, Mapping):
+            continue
+        row = dict(value)
+        stable = tuple(str(row.get(key) or "") for key in stable_keys)
+        identity = (
+            "stable:" + "\0".join(stable)
+            if stable_keys and any(stable)
+            else "content:" + _digest(row)
+        )
+        if identity in positions:
+            index = positions[identity]
+            rows[index] = {**rows[index], **row}
+        else:
+            positions[identity] = len(rows)
+            rows.append(row)
+    return rows
 
 
 def _merge_by_key(existing: Any, incoming: Iterable[Mapping[str, Any]], *, key: str) -> list[dict[str, Any]]:

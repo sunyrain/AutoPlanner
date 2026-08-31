@@ -357,7 +357,7 @@ def test_native_handler_checkpoint_resumes_without_second_provider_call(
         milestones={},
         resource_availability={"native_search_frontier": True},
         available_action_kinds=(
-            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value,
+            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value,
         ),
     )
     action = bind_scheduled_action(decision, input_revision=0)
@@ -376,7 +376,7 @@ def test_native_handler_checkpoint_resumes_without_second_provider_call(
 
     runtime = CampaignActionRuntime(
         kernel,
-        {CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle},
+        {CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: handle},
     )
     original_finalize = runtime._finalize_reserved
 
@@ -399,7 +399,7 @@ def test_native_handler_checkpoint_resumes_without_second_provider_call(
 
     resumed = CampaignActionRuntime(
         _kernel(tmp_path),
-        {CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle},
+        {CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: handle},
     ).execute(action, decision=decision)
 
     assert resumed["status"] == "completed"
@@ -422,14 +422,14 @@ def test_action_history_exposes_guided_frontier_from_durable_outcome(
         milestones={},
         resource_availability={"native_search_frontier": True},
         available_action_kinds=(
-            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND.value,
+            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value,
         ),
     )
     action = bind_scheduled_action(decision, input_revision=0)
     runtime = CampaignActionRuntime(
         kernel,
         {
-            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: lambda _action: {
+            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: lambda _action: {
                 "status": "unresolved",
                 "frontier_smiles": ["CCO"],
                 "proposal_count": 0,
@@ -818,6 +818,161 @@ def test_failed_or_rejected_action_is_not_recorded_as_no_gain(
     assert result["convergence_ledger"]["no_gain_bindings"] == []
 
 
+def test_provider_runtime_pause_preserves_action_for_exact_resume(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    opportunities = _opportunity_set()
+    calls: list[str] = []
+
+    def handle(_action) -> dict:
+        calls.append(_action.execution_id)
+        if len(calls) == 1:
+            return {
+                "status": "runtime_unavailable",
+                "runtime_unavailable": True,
+                "runtime_pause": True,
+                "reason": "provider_auth_unavailable",
+                "changed": False,
+                "model_invocations": 0,
+            }
+        return {"status": "completed", "changed": False}
+
+    runtime = CampaignActionRuntime(
+        kernel,
+        {CampaignActionKind.MATERIALIZE: handle},
+    )
+    first = runtime.run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=3,
+        max_consecutive_no_gain=3,
+    )
+
+    first_action = first["executions"][0]["action"]
+    assert first["termination"] == "runtime_unavailable"
+    assert first["termination_reasons"] == ["provider_auth_unavailable"]
+    assert first["consecutive_no_gain"] == 0
+    assert first["convergence_ledger"][
+        "attempted_action_ids_at_current_revision"
+    ] == []
+    assert kernel.state.status == "paused"
+    assert kernel.task_lifecycle(first_action["task_id"])["status"] == "in_flight"
+
+    kernel.resume(idempotency_key="test:provider-recovered")
+    second = runtime.run_anytime(
+        opportunity_provider=lambda: opportunities,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+        max_consecutive_no_gain=3,
+    )
+
+    second_action = second["executions"][0]["action"]
+    assert calls == [first_action["execution_id"], first_action["execution_id"]]
+    assert second_action["execution_id"] == first_action["execution_id"]
+    assert kernel.task_lifecycle(first_action["task_id"])["status"] == "settled"
+    assert second["convergence_ledger"]["settled_execution_count"] == 1
+
+
+def test_retryable_prerequisite_is_not_recorded_as_no_gain(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    opportunity_set = _no_gain_opportunity_set(count=1)
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.MATERIALIZE: lambda _action: {
+                "status": "completed",
+                "changed": False,
+                "retryable_after_graph_revision": True,
+            }
+        },
+    )
+
+    result = runtime.run_anytime(
+        opportunity_provider=lambda: opportunity_set,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+        max_consecutive_no_gain=1,
+    )
+
+    assert result["consecutive_no_gain"] == 0
+    assert result["convergence_ledger"]["failed_or_rejected_count"] == 1
+    assert result["convergence_ledger"]["no_gain_bindings"] == []
+
+
+def test_anytime_slice_uses_one_scheduler_with_bounded_action_kinds(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    opportunity_set = compile_action_opportunities(
+        {
+            "content_sha256": "bounded-anytime-action-family",
+            "items": [
+                {
+                    "deficit_id": "deficit:materialization:1",
+                    "kind": "materialization",
+                    "object_id": "hypothesis:1",
+                    "entity_ids": ["hypothesis:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "priority": 900.0,
+                    "reason": "materialization_outside_recovery_slice",
+                    "score": {},
+                },
+                {
+                    "deficit_id": "deficit:validation:1",
+                    "kind": "validation",
+                    "object_id": "edge:1",
+                    "entity_ids": ["edge:1"],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": True,
+                    "model_allowed": False,
+                    "priority": 100.0,
+                    "reason": "validation_inside_recovery_slice",
+                    "score": {},
+                },
+            ],
+        }
+    )
+    executed: list[str] = []
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.MATERIALIZE: lambda action: executed.append(
+                action.kind.value
+            )
+            or {"status": "completed", "changed": False},
+            CampaignActionKind.REACTION_VALIDATE: lambda action: executed.append(
+                action.kind.value
+            )
+            or {"status": "completed", "changed": False},
+        },
+    )
+
+    result = runtime.run_anytime(
+        opportunity_provider=lambda: opportunity_set,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+        max_consecutive_no_gain=2,
+        available_action_kinds=(CampaignActionKind.REACTION_VALIDATE,),
+    )
+
+    assert result["execution_count"] == 1
+    assert executed == [CampaignActionKind.REACTION_VALIDATE.value]
+    assert result["executions"][0]["action"]["kind"] == (
+        CampaignActionKind.REACTION_VALIDATE.value
+    )
+
+
 def test_canonical_rejection_report_is_not_persisted_as_no_gain(
     tmp_path: Path,
 ) -> None:
@@ -1041,6 +1196,113 @@ def test_configured_acceptance_is_a_snapshot_and_does_not_stop_action_loop(
     assert calls == 1
     assert result["execution_count"] == 1
     assert result["termination"] == "action_limit"
+    assert result["semantics"]["B4_and_B5_do_not_stop_the_loop"] is True
+
+
+def test_short_tail_closure_and_later_leaf_stay_in_one_anytime_loop(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    state = {"phase": "first_tail", "stock_closed": False}
+
+    def opportunities() -> dict:
+        phase = state["phase"]
+        common = {
+            "object_id": "target:1",
+            "route_family_ids": ["route:1"],
+            "dependency_ids": [],
+            "score": {"expected_portfolio_gain": 1.0},
+        }
+        if phase in {"first_tail", "second_tail"}:
+            suffix = "1" if phase == "first_tail" else "2"
+            item = {
+                **common,
+                "deficit_id": f"deficit:tail:{suffix}",
+                "kind": "expansion",
+                "entity_ids": [f"mol:leaf:{suffix}"],
+                "deterministic": False,
+                "model_allowed": False,
+                "reason": "stock_rejected_target_leaf_requires_short_tail",
+                "metadata": {
+                    "provider_preferences": ["native_short_tail"],
+                    "frontier_smiles": "CCO" if suffix == "1" else "CCN",
+                    "paper_short_tail_eligible": True,
+                },
+            }
+        elif phase == "materialize":
+            item = {
+                **common,
+                "deficit_id": "deficit:materialize:1",
+                "kind": "materialization",
+                "entity_ids": ["hypothesis:1"],
+                "deterministic": True,
+                "model_allowed": False,
+                "reason": "accepted_hypothesis_requires_materialization",
+            }
+        elif phase == "stock":
+            item = {
+                **common,
+                "deficit_id": "deficit:stock:1",
+                "kind": "stock",
+                "entity_ids": ["mol:leaf:closed"],
+                "deterministic": True,
+                "model_allowed": False,
+                "reason": "selected_leaf_requires_trusted_stock_audit",
+            }
+        else:
+            return compile_action_opportunities(
+                {"content_sha256": "single-anytime-done", "items": []}
+            )
+        return compile_action_opportunities(
+            {"content_sha256": f"single-anytime-{phase}", "items": [item]}
+        )
+
+    def handle_short_tail(_action) -> dict:
+        state["phase"] = (
+            "materialize"
+            if state["phase"] == "first_tail"
+            else "done"
+        )
+        return {"status": "completed", "changed": True, "proposal_count": 1}
+
+    def handle_materialize(_action) -> dict:
+        state["phase"] = "stock"
+        return {"status": "completed", "changed": True}
+
+    def handle_stock(_action) -> dict:
+        state["stock_closed"] = True
+        state["phase"] = "second_tail"
+        return {"status": "completed", "changed": True}
+
+    result = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: handle_short_tail,
+            CampaignActionKind.MATERIALIZE: handle_materialize,
+            CampaignActionKind.STOCK_AUDIT: handle_stock,
+        },
+    ).run_anytime(
+        opportunity_provider=opportunities,
+        milestones_provider=lambda: {
+            "B4_stock_boundary": state["stock_closed"]
+        },
+        resource_availability_provider=lambda: {
+            "native_search_frontier": True,
+            "deterministic": True,
+            "stock": True,
+        },
+        max_actions=4,
+        max_consecutive_no_gain=5,
+    )
+
+    assert [row["action"]["kind"] for row in result["executions"]] == [
+        CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value,
+        CampaignActionKind.MATERIALIZE.value,
+        CampaignActionKind.STOCK_AUDIT.value,
+        CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value,
+    ]
+    assert result["termination"] == "action_limit"
+    assert result["semantics"]["single_scheduler_loop"] is True
     assert result["semantics"]["B4_and_B5_do_not_stop_the_loop"] is True
 
 
@@ -1338,7 +1600,7 @@ def test_anytime_loop_runs_bounded_cross_class_cohorts_and_replays(
         return {"status": "completed", "changed": False}
 
     concurrent_kinds = (
-        CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,
+        CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND,
         CampaignActionKind.CODEX_REPLAN,
         CampaignActionKind.ACQUIRE_EVIDENCE,
         CampaignActionKind.REACTION_VALIDATE,
@@ -1467,7 +1729,7 @@ def test_concurrent_cohort_excludes_same_resource_and_fits_wrapper_budget(
     limited = CampaignActionRuntime(
         limited_kernel,
         {
-            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle,
+            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: handle,
             CampaignActionKind.CODEX_REPLAN: handle,
             CampaignActionKind.ACQUIRE_EVIDENCE: handle,
             CampaignActionKind.REACTION_VALIDATE: handle,
@@ -1475,7 +1737,7 @@ def test_concurrent_cohort_excludes_same_resource_and_fits_wrapper_budget(
     ).execute_concurrent_cohort(
         opportunities,
         action_kinds=(
-            CampaignActionKind.CHEMENZY_FRONTIER_EXPAND,
+            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND,
             CampaignActionKind.CODEX_REPLAN,
             CampaignActionKind.ACQUIRE_EVIDENCE,
             CampaignActionKind.REACTION_VALIDATE,

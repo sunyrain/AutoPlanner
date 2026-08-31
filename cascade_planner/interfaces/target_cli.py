@@ -92,7 +92,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
             "proof",
             "paper_synthex",
             "paper_matched_reach",
-            "v9_smoke",
+            "self_correcting_sequential",
         ),
         default="standard",
         help=(

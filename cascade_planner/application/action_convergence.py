@@ -28,6 +28,8 @@ def compile_action_convergence_ledger(
         str(row.get("action_id") or "")
         for row in rows
         if int(row.get("input_revision") or 0) == current_revision
+        and row.get("settled") is True
+        and not _runtime_unavailable(row)
         and str(row.get("action_id") or "")
     }
     no_gain_bindings: dict[str, str] = {}
@@ -36,11 +38,15 @@ def compile_action_convergence_ledger(
     unclassified_boundary_count = 0
     revision_discontinuity_count = 0
     failed_or_rejected_count = 0
+    runtime_unavailable_count = 0
     last_output_revision: int | None = None
     previous_input_revision: int | None = None
     previous_same_revision_cohort = False
     for row in rows:
         if row.get("settled") is not True:
+            continue
+        if _runtime_unavailable(row):
+            runtime_unavailable_count += 1
             continue
         action_id = str(row.get("action_id") or "")
         opportunity_sha256 = str(row.get("opportunity_sha256") or "")
@@ -103,6 +109,7 @@ def compile_action_convergence_ledger(
         "unclassified_boundary_count": unclassified_boundary_count,
         "revision_discontinuity_count": revision_discontinuity_count,
         "failed_or_rejected_count": failed_or_rejected_count,
+        "runtime_unavailable_count": runtime_unavailable_count,
         "attempted_action_ids_at_current_revision": sorted(attempted_current),
         "no_gain_bindings": binding_rows,
         "consecutive_no_gain": consecutive_no_gain,
@@ -119,6 +126,7 @@ def compile_action_convergence_ledger(
             "external_graph_progress_resets_only_the_consecutive_count": True,
             "no_gain_binding_requires_exact_opportunity_digest": True,
             "failed_or_rejected_actions_do_not_count_as_no_gain": True,
+            "runtime_unavailable_actions_are_not_scientific_attempts": True,
             "ledger_creates_no_queue_budget_or_scientific_authority": True,
         },
     }
@@ -138,6 +146,18 @@ def no_gain_binding_map(ledger: Mapping[str, Any]) -> dict[str, str]:
         if str(row.get("action_id") or "")
         and str(row.get("opportunity_sha256") or "")
     }
+
+
+def _runtime_unavailable(row: Mapping[str, Any]) -> bool:
+    handler = dict(row.get("handler_result") or {})
+    return bool(
+        row.get("runtime_unavailable") is True
+        or row.get("runtime_pause") is True
+        or str(row.get("status") or "").casefold() == "runtime_unavailable"
+        or handler.get("runtime_unavailable") is True
+        or handler.get("runtime_pause") is True
+        or str(handler.get("status") or "").casefold() == "runtime_unavailable"
+    )
 
 
 def verified_action_convergence_ledger(

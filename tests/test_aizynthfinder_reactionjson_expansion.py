@@ -70,6 +70,248 @@ def _imports():
     )
 
 
+def test_host_durable_seed_replays_without_model_call_and_keeps_root_maps() -> None:
+    from aizynthfinder.chem import Molecule
+    from aizynthfinder.context.stock.queries import StockQueryMixin
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        ReactionJsonExpansionCandidate,
+        ReactionJsonPolicyResponse,
+        run_reactionjson_branch,
+    )
+
+    class SetStock(StockQueryMixin):
+        def __init__(self, smiles):
+            self.keys = {Molecule(smiles=value).inchi_key for value in smiles}
+
+        def __contains__(self, mol):
+            return mol.inchi_key in self.keys
+
+        def __len__(self):
+            return len(self.keys)
+
+    observed_root_maps = []
+
+    def provider(request):
+        observed_root_maps.append(request.expandable_mapped_smiles)
+        return ReactionJsonPolicyResponse(
+            candidates=(
+                ReactionJsonExpansionCandidate(
+                    candidate_id="durable-seed:1",
+                    product_smiles="CCO",
+                    mapped_product_smiles="[CH3:10][CH2:20][OH:30]",
+                    precursor_smiles=("CC", "O"),
+                    mapped_precursor_smiles=(
+                        "[CH3:10][CH3:20]",
+                        "[OH2:30]",
+                    ),
+                    route_step={
+                        "step_id": "route:1",
+                        "product_smiles": "CCO",
+                        "mapped_product_smiles": "[CH3:10][CH2:20][OH:30]",
+                        "precursor_smiles": ["CC", "O"],
+                        "mapped_precursor_smiles": [
+                            "[CH3:10][CH3:20]",
+                            "[OH2:30]",
+                        ],
+                        "reaction_operations": [{"op": "break_bond", "map_a": 20, "map_b": 30}],
+                    },
+                ),
+            ),
+            model_call_consumed=False,
+            host_replay_seed=True,
+        )
+
+    result = run_reactionjson_branch(
+        target_smiles="CCO",
+        mapped_target_smiles="[CH3:10][CH2:20][OH:30]",
+        strategy_id="durable-seed",
+        strategy_text="resume a host-replayed prefix",
+        candidate_provider=provider,
+        stock_query=SetStock({"CC", "O"}),
+        max_policy_calls=1,
+        max_candidates_per_call=1,
+        max_transforms=2,
+        max_mcts_iterations=4,
+    )
+
+    assert observed_root_maps[0] == ("[CH3:10][CH2:20][OH:30]",)
+    assert result.policy_calls == 0
+    assert result.solved is True
+    assert [row["step_id"] for row in result.route_steps] == ["route:1"]
+
+
+def test_active_product_binding_preserves_duplicate_molecule_occurrences() -> None:
+    from aizynthfinder.chem import TreeMolecule
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        _bind_active_product_occurrence,
+    )
+
+    molecules = (
+        TreeMolecule(parent=None, smiles="CC"),
+        TreeMolecule(parent=None, smiles="CC"),
+    )
+    mapped_molecules = (
+        "[CH3:1][CH3:2]",
+        "[CH3:3][CH3:4]",
+    )
+
+    first_index, first = _bind_active_product_occurrence(
+        molecules=molecules,
+        mapped_molecules=mapped_molecules,
+        product_smiles="CC",
+        mapped_product_smiles=mapped_molecules[0],
+    )
+    second_index, second = _bind_active_product_occurrence(
+        molecules=molecules,
+        mapped_molecules=mapped_molecules,
+        product_smiles="CC",
+        mapped_product_smiles=mapped_molecules[1],
+    )
+
+    assert (first_index, first) == (0, molecules[0])
+    assert (second_index, second) == (1, molecules[1])
+
+
+def test_mcts_cycle_pruning_preserves_parallel_precursor_multiplicity() -> None:
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        ReactionJsonExpansionCandidate,
+        run_reactionjson_branch,
+    )
+
+    class EmptyStock:
+        def __contains__(self, mol) -> bool:
+            del mol
+            return False
+
+        def __len__(self) -> int:
+            return 0
+
+    def candidate_provider(request):
+        if request.depth == 0:
+            return [
+                ReactionJsonExpansionCandidate(
+                    candidate_id="root-split",
+                    product_smiles="CCO",
+                    mapped_product_smiles=request.expandable_mapped_smiles[0],
+                    precursor_smiles=("CC", "O"),
+                    mapped_precursor_smiles=(
+                        "[CH3:1][CH3:2]",
+                        "[OH2:3]",
+                    ),
+                    route_step={"step_id": "root-split"},
+                )
+            ]
+
+        if request.depth == 1:
+            selected_index = request.expandable_smiles.index("O")
+            return [
+                ReactionJsonExpansionCandidate(
+                    candidate_id="expand-first-water-occurrence",
+                    product_smiles="O",
+                    mapped_product_smiles=request.expandable_mapped_smiles[selected_index],
+                    precursor_smiles=("N",),
+                    mapped_precursor_smiles=("[NH3:3]",),
+                    route_step={"step_id": "expand-first-water-occurrence"},
+                )
+            ]
+
+        selected_index = request.expandable_smiles.index("CC")
+        return [
+            ReactionJsonExpansionCandidate(
+                candidate_id="produce-new-water-equivalent",
+                product_smiles="CC",
+                mapped_product_smiles=request.expandable_mapped_smiles[selected_index],
+                precursor_smiles=("C", "O"),
+                mapped_precursor_smiles=("[CH4:1]", "[OH2:4]"),
+                route_step={"step_id": "produce-new-water-equivalent"},
+            )
+        ]
+
+    result = run_reactionjson_branch(
+        target_smiles="CCO",
+        mapped_target_smiles="[CH3:1][CH2:2][OH:3]",
+        strategy_id="precursor-multiplicity",
+        strategy_text="preserve repeated precursor equivalents",
+        candidate_provider=candidate_provider,
+        stock_query=EmptyStock(),
+        max_policy_calls=3,
+        max_candidates_per_call=1,
+        max_transforms=4,
+        max_mcts_iterations=9,
+    )
+
+    assert [row["step_id"] for row in result.route_steps] == [
+        "root-split",
+        "expand-first-water-occurrence",
+        "produce-new-water-equivalent",
+    ]
+    assert result.diagnostics["selected_depth"] == 3
+    assert sorted(row["smiles"] for row in result.open_leaf_states) == [
+        "C",
+        "N",
+        "O",
+    ]
+
+
+def test_mcts_cycle_pruning_still_rejects_a_true_ancestor_return() -> None:
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        ReactionJsonExpansionCandidate,
+        run_reactionjson_branch,
+    )
+
+    class EmptyStock:
+        def __contains__(self, mol) -> bool:
+            del mol
+            return False
+
+        def __len__(self) -> int:
+            return 0
+
+    def candidate_provider(request):
+        if request.depth == 0:
+            return [
+                ReactionJsonExpansionCandidate(
+                    candidate_id="root-split",
+                    product_smiles="CCO",
+                    mapped_product_smiles=request.expandable_mapped_smiles[0],
+                    precursor_smiles=("CC", "O"),
+                    mapped_precursor_smiles=(
+                        "[CH3:1][CH3:2]",
+                        "[OH2:3]",
+                    ),
+                    route_step={"step_id": "root-split"},
+                )
+            ]
+
+        selected_index = request.expandable_smiles.index("CC")
+        return [
+            ReactionJsonExpansionCandidate(
+                candidate_id="return-to-root",
+                product_smiles="CC",
+                mapped_product_smiles=request.expandable_mapped_smiles[selected_index],
+                precursor_smiles=("CCO",),
+                mapped_precursor_smiles=("[CH3:1][CH2:2][OH:4]",),
+                route_step={"step_id": "return-to-root"},
+            )
+        ]
+
+    result = run_reactionjson_branch(
+        target_smiles="CCO",
+        mapped_target_smiles="[CH3:1][CH2:2][OH:3]",
+        strategy_id="true-cycle",
+        strategy_text="reject a true ancestor return",
+        candidate_provider=candidate_provider,
+        stock_query=EmptyStock(),
+        max_policy_calls=2,
+        max_candidates_per_call=1,
+        max_transforms=3,
+        max_mcts_iterations=6,
+    )
+
+    assert [row["step_id"] for row in result.route_steps] == ["root-split"]
+    assert result.diagnostics["selected_depth"] == 1
+
+
 def test_aizynthfinder_reactionjson_policy_preserves_or_candidates_and_backtracks() -> None:
     (
         Molecule,
@@ -175,6 +417,107 @@ def test_aizynthfinder_reactionjson_policy_preserves_or_candidates_and_backtrack
     assert any(request.route_steps for request in requests if request.depth > 0)
 
 
+def test_host_path_rejection_prunes_edge_reopens_parent_and_skips_backpropagation() -> None:
+    (
+        Molecule,
+        Configuration,
+        StockQueryMixin,
+        Policy,
+        Candidate,
+        SearchTree,
+    ) = _imports()
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        ReactionJsonPolicyResponse,
+    )
+
+    class SetStock(StockQueryMixin):
+        def __init__(self, smiles: set[str]) -> None:
+            self.keys = {Molecule(smiles=value).inchi_key for value in smiles}
+
+        def __contains__(self, mol) -> bool:
+            return mol.inchi_key in self.keys
+
+        def __len__(self) -> int:
+            return len(self.keys)
+
+    root_calls = 0
+
+    def candidate_provider(request):
+        nonlocal root_calls
+        if request.depth == 0:
+            root_calls += 1
+            if root_calls == 1:
+                return (
+                    Candidate(
+                        candidate_id="critic-rejected-root",
+                        product_smiles="CCO",
+                        mapped_product_smiles=request.expandable_mapped_smiles[0],
+                        precursor_smiles=("CC", "O"),
+                        mapped_precursor_smiles=(
+                            "[CH3:1][CH3:2]",
+                            "[OH2:3]",
+                        ),
+                        route_step={
+                            "step_id": "critic-rejected-root",
+                            "product_smiles": "CCO",
+                        },
+                    ),
+                )
+            return (
+                Candidate(
+                    candidate_id="alternate-root",
+                    product_smiles="CCO",
+                    mapped_product_smiles=request.expandable_mapped_smiles[0],
+                    precursor_smiles=("C", "O"),
+                    mapped_precursor_smiles=("[CH4:1]", "[OH2:3]"),
+                    route_step={
+                        "step_id": "alternate-root",
+                        "product_smiles": "CCO",
+                    },
+                ),
+            )
+        return ReactionJsonPolicyResponse(
+            rejected_path_step_ids=("critic-rejected-root",),
+            rejection_reason="followup critic rejected the selected key event",
+            model_call_consumed=False,
+        )
+
+    config = Configuration()
+    config.search.max_transforms = 4
+    config.scorers.create_default_scorers()
+    config.stock.load(SetStock({"C", "O"}), "paper")
+    config.stock.select("paper")
+    policy = Policy(
+        "codex_reactionjson",
+        config,
+        candidate_provider=candidate_provider,
+        strategy_id="critic-transaction",
+        strategy_text="retry the parent after rejecting one key-event edge",
+        max_policy_calls=2,
+        max_candidates_per_call=1,
+        initial_mapped_target_smiles="[CH3:1][CH2:2][OH:3]",
+    )
+    config.expansion_policy.load(policy)
+    config.expansion_policy.select("codex_reactionjson")
+    tree = SearchTree(config, root_smiles="CCO")
+
+    assert tree.one_iteration() is False
+    assert tree.last_backpropagated_leaf is None
+    assert tree.root is not None
+    assert tree.root.children_view()["actions"] == []
+    assert tree.root.is_expandable is True
+    assert tree.root.is_expanded is False
+    assert policy.policy_calls == 1
+    assert policy.diagnostics()["path_rejection_count"] == 1
+
+    assert tree.one_iteration() is True
+    assert tree.last_backpropagated_leaf is not None
+    assert [action.metadata["candidate_id"] for action in tree.root.children_view()["actions"]] == [
+        "alternate-root"
+    ]
+    assert policy.policy_calls == 2
+
+
 def test_aizynthfinder_requests_preserve_host_maps_for_new_atoms() -> None:
     from aizynthfinder.chem import Molecule
     from aizynthfinder.context.stock.queries import StockQueryMixin
@@ -229,9 +572,7 @@ def test_aizynthfinder_requests_preserve_host_maps_for_new_atoms() -> None:
     )
 
     assert upstream_requests
-    assert upstream_requests[0].expandable_mapped_smiles == (
-        "[CH3:1][Mg:22][Br:23]",
-    )
+    assert upstream_requests[0].expandable_mapped_smiles == ("[CH3:1][Mg:22][Br:23]",)
 
 
 def test_host_precursor_binding_preserves_the_replayed_stereoisomer() -> None:
@@ -278,9 +619,7 @@ def test_host_precursor_binding_preserves_the_replayed_stereoisomer() -> None:
 
     assert set(bindings.values()) == set(materialized.mapped_precursor_smiles)
     epimeric_precursors = tuple(
-        "C=C(C)[C@H]1CC[C@@H](C)[C@H]1I"
-        if "I" in precursor
-        else precursor
+        "C=C(C)[C@H]1CC[C@@H](C)[C@H]1I" if "I" in precursor else precursor
         for precursor in materialized.precursor_smiles
     )
     with pytest.raises(
@@ -449,6 +788,94 @@ def test_reactionjson_branch_excludes_target_from_stock_zero_step_closure() -> N
     assert result.policy_calls == 1
     assert result.route_steps[0]["step_id"] == "leave-target-out"
     assert result.diagnostics["root_solved"] is False
+
+
+def test_multistep_solved_branch_projects_every_selected_action() -> None:
+    from aizynthfinder.chem import Molecule
+    from aizynthfinder.context.stock.queries import StockQueryMixin
+    from cascade_planner.interfaces.aizynthfinder_reactionjson_expansion import (
+        ReactionJsonExpansionCandidate,
+        run_reactionjson_branch,
+    )
+
+    class SetStock(StockQueryMixin):
+        def __init__(self, smiles: set[str]) -> None:
+            self.keys = {Molecule(smiles=value).inchi_key for value in smiles}
+
+        def __contains__(self, mol) -> bool:
+            return mol.inchi_key in self.keys
+
+        def __len__(self) -> int:
+            return len(self.keys)
+
+    def candidate_provider(request):
+        product = request.expandable_smiles[0]
+        mapped_product = request.expandable_mapped_smiles[0]
+        if request.depth == 0:
+            return [
+                ReactionJsonExpansionCandidate(
+                    candidate_id="solved-path:1",
+                    product_smiles=product,
+                    mapped_product_smiles=mapped_product,
+                    precursor_smiles=("CC", "O"),
+                    mapped_precursor_smiles=(
+                        "[CH3:1][CH3:2]",
+                        "[OH2:3]",
+                    ),
+                    route_step={
+                        "step_id": "solved-path:1",
+                        "product_smiles": "CCO",
+                        "mapped_product_smiles": "[CH3:1][CH2:2][OH:3]",
+                        "precursor_smiles": ["CC", "O"],
+                        "mapped_precursor_smiles": [
+                            "[CH3:1][CH3:2]",
+                            "[OH2:3]",
+                        ],
+                        "reaction_operations": [{"op": "break_bond", "map_a": 2, "map_b": 3}],
+                    },
+                )
+            ]
+        if request.depth == 1:
+            return [
+                ReactionJsonExpansionCandidate(
+                    candidate_id="solved-path:2",
+                    product_smiles=product,
+                    mapped_product_smiles=mapped_product,
+                    precursor_smiles=("C", "C"),
+                    mapped_precursor_smiles=("[CH4:1]", "[CH4:2]"),
+                    route_step={
+                        "step_id": "solved-path:2",
+                        "product_smiles": "CC",
+                        "mapped_product_smiles": "[CH3:1][CH3:2]",
+                        "precursor_smiles": ["C", "C"],
+                        "mapped_precursor_smiles": ["[CH4:1]", "[CH4:2]"],
+                        "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
+                    },
+                )
+            ]
+        return []
+
+    result = run_reactionjson_branch(
+        target_smiles="CCO",
+        mapped_target_smiles="[CH3:1][CH2:2][OH:3]",
+        strategy_id="multistep-solved",
+        strategy_text="project the complete selected solution",
+        candidate_provider=candidate_provider,
+        stock_query=SetStock({"C", "O"}),
+        max_policy_calls=3,
+        max_candidates_per_call=1,
+        max_transforms=3,
+    )
+
+    assert result.solved is True
+    assert [row["step_id"] for row in result.route_steps] == [
+        "solved-path:1",
+        "solved-path:2",
+    ]
+    assert result.open_leaf_states == ()
+    assert result.diagnostics["path_action_count"] == 2
+    assert result.diagnostics["path_route_step_count"] == 2
+    assert result.diagnostics["path_route_projection_complete"] is True
 
 
 def test_unsolved_branch_projects_best_replayed_descendant_not_empty_root() -> None:
@@ -756,9 +1183,7 @@ def test_hybrid_branch_projection_preserves_materialized_chemical_and_biological
                         "product_smiles": selected,
                         "execution_domain": "chemical",
                         "strategy_anchor": True,
-                        "reaction_operations": [
-                            {"op": "break_bond", "map_a": 1, "map_b": 2}
-                        ],
+                        "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
                     },
                 )
             ]
@@ -914,9 +1339,7 @@ def test_director_worker_record_is_host_replayed_before_aiz_action() -> None:
                             "limitations": [],
                             "no_solved_claim": True,
                             "not_parent_route_proof": True,
-                            "reaction_operations": [
-                                {"op": "break_bond", "map_a": 2, "map_b": 3}
-                            ],
+                            "reaction_operations": [{"op": "break_bond", "map_a": 2, "map_b": 3}],
                             "route_json": None,
                         }
                     ],
@@ -951,8 +1374,9 @@ def test_director_worker_record_is_host_replayed_before_aiz_action() -> None:
     )
     assert candidates[0].route_step["reactionjson_audit"]["accepted"] is True
     assert (
-        candidates[0].route_step["reactionjson_audit"]["semantics"]
-        ["deterministic_graph_edit_replay"]
+        candidates[0].route_step["reactionjson_audit"]["semantics"][
+            "deterministic_graph_edit_replay"
+        ]
         is True
     )
     assert adapter.diagnostics[0].rejected_candidates == ()

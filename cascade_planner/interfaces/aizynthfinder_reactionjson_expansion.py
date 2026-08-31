@@ -95,8 +95,22 @@ class ReactionJsonPolicyResponse:
 
     candidates: tuple[ReactionJsonExpansionCandidate, ...] = ()
     model_call_consumed: bool = True
+    host_replay_seed: bool = False
+    rejected_path_step_ids: tuple[str, ...] = ()
+    rejection_reason: str = ""
     stop_search: bool = False
     stop_reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class _AppliedPathRejection:
+    """One atomic Host rejection applied to the selected AiZ path."""
+
+    resume_node: MctsNode
+    rejected_path_step_ids: tuple[str, ...]
+    pruned_step_id: str
+    rejection_reason: str
+    pruned_action_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +140,7 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
         max_policy_calls: int = 25,
         max_candidates_per_call: int = 1,
         request_metadata: Mapping[str, Any] | None = None,
+        initial_mapped_target_smiles: str = "",
     ) -> None:
         super().__init__(key, config)
         if not callable(candidate_provider):
@@ -140,14 +155,17 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
         self.max_policy_calls = int(max_policy_calls)
         self.max_candidates_per_call = int(max_candidates_per_call)
         self.request_metadata = dict(request_metadata or {})
+        self.initial_mapped_target_smiles = str(initial_mapped_target_smiles or "").strip()
         self.policy_calls = 0
         self.provider_callback_count = 0
         self.accepted_actions = 0
         self.duplicate_actions = 0
         self.rejected_candidates: list[dict[str, str]] = []
+        self.path_rejections: list[dict[str, Any]] = []
         self.host_stop_requested = False
         self.host_stop_reason = ""
         self._node: MctsNode | None = None
+        self._pending_path_rejection: tuple[tuple[str, ...], str] | None = None
 
     @property
     def calls_exhausted(self) -> bool:
@@ -189,8 +207,31 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
 
         if isinstance(raw_response, ReactionJsonPolicyResponse):
             if raw_response.candidates and not raw_response.model_call_consumed:
-                raise ReactionJsonPolicyError(
-                    "reactionjson unconsumed policy response cannot contain candidates"
+                if not raw_response.host_replay_seed:
+                    raise ReactionJsonPolicyError(
+                        "reactionjson unconsumed policy response cannot contain candidates"
+                    )
+            rejected_path_step_ids = tuple(
+                dict.fromkeys(
+                    str(value).strip()
+                    for value in raw_response.rejected_path_step_ids
+                    if str(value).strip()
+                )
+            )
+            if rejected_path_step_ids:
+                if raw_response.candidates:
+                    raise ReactionJsonPolicyError(
+                        "reactionjson path rejection cannot contain candidates"
+                    )
+                if raw_response.stop_search:
+                    raise ReactionJsonPolicyError(
+                        "reactionjson path rejection cannot stop the search"
+                    )
+                if self._pending_path_rejection is not None:
+                    raise ReactionJsonPolicyError("reactionjson path rejection was not consumed")
+                self._pending_path_rejection = (
+                    rejected_path_step_ids,
+                    str(raw_response.rejection_reason or "host_rejected_selected_path"),
                 )
             if raw_response.model_call_consumed:
                 self.policy_calls += 1
@@ -206,9 +247,11 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
             self.policy_calls += 1
             proposed = list(raw_response or ())
 
-        mol_by_inchikey = {
-            _molecule_inchikey(str(mol.smiles or "")): mol for mol in active
-        }
+        active_mapped = request.expandable_mapped_smiles
+        if len(active_mapped) != len(active):
+            raise ReactionJsonPolicyError(
+                "reactionjson active molecule map binding cardinality mismatch"
+            )
         actions: list[Any] = []
         priors: list[float] = []
         seen: set[tuple[str, tuple[str, ...]]] = set()
@@ -216,18 +259,30 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
             if len(actions) >= self.max_candidates_per_call:
                 break
             try:
-                product_inchikey = _molecule_inchikey(candidate.product_smiles)
+                _molecule_inchikey(candidate.product_smiles)
             except ReactionJsonPolicyError:
                 self._reject(candidate, "product_not_parseable")
                 continue
-            mol = mol_by_inchikey.get(product_inchikey)
-            if mol is None:
-                self._reject(candidate, "product_not_in_expandable_state")
+            try:
+                occurrence_index, mol = _bind_active_product_occurrence(
+                    molecules=active,
+                    mapped_molecules=active_mapped,
+                    product_smiles=candidate.product_smiles,
+                    mapped_product_smiles=candidate.mapped_product_smiles,
+                )
+            except ReactionJsonPolicyError as exc:
+                self._reject(
+                    candidate,
+                    str(exc),
+                )
                 continue
             mapped_precursors = tuple(
                 str(value).strip() for value in candidate.mapped_precursor_smiles
             )
-            signature = (product_inchikey, tuple(sorted(mapped_precursors)))
+            signature = (
+                _mapped_molecule_identity(candidate.mapped_product_smiles),
+                tuple(sorted(mapped_precursors)),
+            )
             if signature in seen:
                 self.duplicate_actions += 1
                 continue
@@ -245,6 +300,7 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
                 "unmapped_precursor_smiles": list(candidate.precursor_smiles),
                 "mapped_precursor_smiles": list(mapped_precursors),
                 "mapped_product_smiles": candidate.mapped_product_smiles,
+                "active_occurrence_index": occurrence_index,
             }
             actions.append(
                 SmilesBasedRetroReaction(
@@ -274,20 +330,32 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
             "accepted_actions": self.accepted_actions,
             "duplicate_actions": self.duplicate_actions,
             "rejected_candidates": list(self.rejected_candidates),
+            "path_rejection_count": len(self.path_rejections),
+            "path_rejections": list(self.path_rejections),
             "calls_exhausted": self.calls_exhausted,
             "host_stop_requested": self.host_stop_requested,
             "host_stop_reason": self.host_stop_reason,
         }
 
-    def _make_request(
-        self, molecules: Sequence[TreeMolecule]
-    ) -> ReactionJsonExpansionRequest:
+    def _make_request(self, molecules: Sequence[TreeMolecule]) -> ReactionJsonExpansionRequest:
         actions, _nodes = self._node.path_to()
         route_steps = tuple(
             dict(action.metadata.get("autoplanner_route_step") or {})
             for action in actions
             if isinstance(action.metadata.get("autoplanner_route_step"), Mapping)
         )
+        mapped_active = _host_mapped_active_molecules(
+            actions=actions,
+            molecules=molecules,
+        )
+        if not actions and self.initial_mapped_target_smiles:
+            if len(molecules) != 1 or _molecule_inchikey(
+                self.initial_mapped_target_smiles
+            ) != _molecule_inchikey(str(molecules[0].smiles or "")):
+                raise ReactionJsonPolicyError(
+                    "reactionjson initial mapped target identity mismatch"
+                )
+            mapped_active = (self.initial_mapped_target_smiles,)
         return ReactionJsonExpansionRequest(
             strategy_id=self.strategy_id,
             strategy_text=self.strategy_text,
@@ -295,20 +363,80 @@ class AiZynthFinderReactionJsonExpansionStrategy(ExpansionStrategy):
             max_calls=self.max_policy_calls,
             depth=len(actions),
             expandable_smiles=tuple(mol.smiles for mol in molecules),
-            expandable_mapped_smiles=_host_mapped_active_molecules(
-                actions=actions,
-                molecules=molecules,
-            ),
+            expandable_mapped_smiles=mapped_active,
             route_steps=route_steps,
             metadata=dict(self.request_metadata),
         )
 
-    def _reject(
-        self, candidate: ReactionJsonExpansionCandidate, reason: str
-    ) -> None:
-        self.rejected_candidates.append(
-            {"candidate_id": candidate.candidate_id, "reason": reason}
+    def consume_path_rejection(self, node: MctsNode) -> _AppliedPathRejection | None:
+        """Prune the earliest rejected action from the selected path atomically."""
+
+        pending = self._pending_path_rejection
+        if pending is None:
+            return None
+        self._pending_path_rejection = None
+        rejected_path_step_ids, rejection_reason = pending
+        actions, nodes = node.path_to()
+        rejected = set(rejected_path_step_ids)
+        matching_indices = [
+            index
+            for index, action in enumerate(actions)
+            if str(dict(action.metadata.get("autoplanner_route_step") or {}).get("step_id") or "")
+            in rejected
+        ]
+        if not matching_indices:
+            raise ReactionJsonPolicyError(
+                "reactionjson rejected step is absent from the selected AiZ path"
+            )
+        path_index = min(matching_indices)
+        pruned_step_id = str(
+            dict(actions[path_index].metadata.get("autoplanner_route_step") or {}).get("step_id")
+            or ""
         )
+        parent = nodes[path_index]
+        removable_indices = [
+            index
+            for index, action in enumerate(parent._children_actions)
+            if str(dict(action.metadata.get("autoplanner_route_step") or {}).get("step_id") or "")
+            == pruned_step_id
+        ]
+        if not removable_indices:
+            raise ReactionJsonPolicyError("reactionjson rejected AiZ edge is no longer attached")
+        for child_index in reversed(removable_indices):
+            child = parent._children[child_index]
+            if child is not None:
+                child._parent = None
+                child.is_expandable = False
+                child.is_expanded = True
+            for values in (
+                parent._children_actions,
+                parent._children_priors,
+                parent._children_values,
+                parent._children_visitations,
+                parent._children,
+            ):
+                values.pop(child_index)
+        parent.is_expandable = not parent.state.is_terminal
+        parent.is_expanded = bool(parent._children_actions)
+        applied = _AppliedPathRejection(
+            resume_node=parent,
+            rejected_path_step_ids=rejected_path_step_ids,
+            pruned_step_id=pruned_step_id,
+            rejection_reason=rejection_reason,
+            pruned_action_count=len(removable_indices),
+        )
+        self.path_rejections.append(
+            {
+                "rejected_path_step_ids": list(rejected_path_step_ids),
+                "pruned_step_id": pruned_step_id,
+                "rejection_reason": rejection_reason,
+                "pruned_action_count": len(removable_indices),
+            }
+        )
+        return applied
+
+    def _reject(self, candidate: ReactionJsonExpansionCandidate, reason: str) -> None:
+        self.rejected_candidates.append({"candidate_id": candidate.candidate_id, "reason": reason})
 
 
 def _host_mapped_active_molecules(
@@ -380,9 +508,7 @@ def _bind_host_precursor_maps(
     """Bind isomorphic siblings by molecular identity and stable occurrence."""
 
     host_occurrences: dict[str, list[str]] = {}
-    for precursor, mapped in zip(
-        precursor_smiles, mapped_precursor_smiles, strict=True
-    ):
+    for precursor, mapped in zip(precursor_smiles, mapped_precursor_smiles, strict=True):
         key = _molecule_inchikey(precursor)
         host_occurrences.setdefault(key, []).append(mapped)
 
@@ -393,17 +519,40 @@ def _bind_host_precursor_maps(
         occurrence = consumed.get(key, 0)
         candidates = host_occurrences.get(key, [])
         if occurrence >= len(candidates):
-            raise ReactionJsonPolicyError(
-                "reactionjson host precursor identity binding mismatch"
-            )
+            raise ReactionJsonPolicyError("reactionjson host precursor identity binding mismatch")
         bindings[id(molecule)] = candidates[occurrence]
         consumed[key] = occurrence + 1
 
     if any(consumed.get(key, 0) != len(values) for key, values in host_occurrences.items()):
-        raise ReactionJsonPolicyError(
-            "reactionjson host precursor occurrence binding mismatch"
-        )
+        raise ReactionJsonPolicyError("reactionjson host precursor occurrence binding mismatch")
     return bindings
+
+
+def _bind_active_product_occurrence(
+    *,
+    molecules: Sequence[TreeMolecule],
+    mapped_molecules: Sequence[str],
+    product_smiles: str,
+    mapped_product_smiles: str,
+) -> tuple[int, TreeMolecule]:
+    """Bind one candidate to one mapped occurrence, never just an InChIKey."""
+
+    if len(molecules) != len(mapped_molecules):
+        raise ReactionJsonPolicyError(
+            "reactionjson active molecule map binding cardinality mismatch"
+        )
+    mapped_product = _mapped_molecule_identity(mapped_product_smiles)
+    matches = [
+        (index, molecule)
+        for index, (molecule, mapped) in enumerate(zip(molecules, mapped_molecules, strict=True))
+        if _mapped_molecule_identity(mapped) == mapped_product
+    ]
+    if len(matches) != 1:
+        raise ReactionJsonPolicyError("mapped_product_not_unique_expandable_occurrence")
+    index, molecule = matches[0]
+    if _molecule_inchikey(str(molecule.smiles or "")) != _molecule_inchikey(product_smiles):
+        raise ReactionJsonPolicyError("product_not_in_expandable_state")
+    return index, molecule
 
 
 @lru_cache(maxsize=16_384)
@@ -418,9 +567,18 @@ def _molecule_inchikey(smiles: str) -> str:
             raise ValueError("molecule has no InChIKey")
         return inchikey
     except Exception as exc:
-        raise ReactionJsonPolicyError(
-            "reactionjson host precursor identity is invalid"
-        ) from exc
+        raise ReactionJsonPolicyError("reactionjson host precursor identity is invalid") from exc
+
+
+@lru_cache(maxsize=16_384)
+def _mapped_molecule_identity(smiles: str) -> str:
+    """Return a canonical identity that preserves the Host atom-map namespace."""
+
+    molecule = Chem.MolFromSmiles(str(smiles or "").strip())
+    if molecule is None:
+        raise ReactionJsonPolicyError("reactionjson mapped molecule identity is invalid")
+    Chem.AssignStereochemistry(molecule, cleanIt=True, force=True)
+    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 
 class ReactionJsonMctsNode(MctsNode):
@@ -433,6 +591,42 @@ class ReactionJsonMctsNode(MctsNode):
             if callable(setter):
                 setter(self)
         super().expand()
+
+    def _regenerated_blacklisted(self, reaction: Any) -> bool:
+        """Prune occurrence-lineage cycles without merging sibling histories.
+
+        Stock AiZ stores a set of every expandable molecule seen on the path
+        and rejects an action when *any* generated reactant has a key in that
+        set.  That is sound for a single-product neural-policy tree, but too
+        broad for Host-replayed multi-precursor reactions.  A later reaction
+        may legitimately produce another equivalent of a parallel precursor,
+        even after the earlier occurrence has itself been expanded (for
+        example sequential prenyl transfer producing IPP at more than one
+        disconnection).  Molecular multiplicity is part of the retrosynthetic
+        state, not a cycle.
+
+        ``TreeMolecule.parent`` already carries the correct occurrence-level
+        authority.  Reject only a reactant that regenerates the molecule being
+        transformed or one of that occurrence's own ancestors.  Molecules seen
+        solely on a sibling lineage must not blacklist this reaction.
+        """
+
+        if not self._algo_config["prune_cycles_in_search"]:
+            return False
+
+        lineage_keys: set[str] = set()
+        ancestor = reaction.mol
+        while ancestor is not None:
+            key = str(getattr(ancestor, "inchi_key", "") or "")
+            if key:
+                lineage_keys.add(key)
+            ancestor = getattr(ancestor, "parent", None)
+        for reactants in reaction.reactants:
+            for molecule in reactants:
+                key = str(getattr(molecule, "inchi_key", "") or "")
+                if key in lineage_keys:
+                    return True
+        return False
 
 
 class ReactionJsonMctsSearchTree(MctsSearchTree):
@@ -466,6 +660,24 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
         leaf = self.select_leaf()
         leaf.expand()
 
+        def consume_path_rejection(
+            expanded_node: MctsNode,
+        ) -> _AppliedPathRejection | None:
+            for key in self.config.expansion_policy.selection or ():
+                policy = self.config.expansion_policy[key]
+                consumer = getattr(policy, "consume_path_rejection", None)
+                if not callable(consumer):
+                    continue
+                applied = consumer(expanded_node)
+                if applied is not None:
+                    self._graph = None
+                    self.last_backpropagated_leaf = None
+                    return applied
+            return None
+
+        if consume_path_rejection(leaf) is not None:
+            return False
+
         def policy_stopped() -> bool:
             for key in self.config.expansion_policy.selection or ():
                 policy = self.config.expansion_policy[key]
@@ -477,10 +689,7 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
         # flags.  Re-open only unsolved states and only while another LLM call
         # is available; a genuinely terminal stock state remains terminal.
         if not getattr(leaf, "_children_actions", None):
-            if (
-                not leaf.state.is_terminal
-                and not policy_stopped()
-            ):
+            if not leaf.state.is_terminal and not policy_stopped():
                 leaf.is_expandable = True
                 leaf.is_expanded = False
             self.backpropagate(leaf)
@@ -491,11 +700,10 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
             if child:
                 leaf = child
                 child.expand()
+                if consume_path_rejection(child) is not None:
+                    return False
                 if not getattr(child, "_children_actions", None):
-                    if (
-                        not child.state.is_terminal
-                        and not policy_stopped()
-                    ):
+                    if not child.state.is_terminal and not policy_stopped():
                         child.is_expandable = True
                         child.is_expanded = False
                     leaf = child
@@ -504,10 +712,7 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
                 # No applicable instantiated child.  Give the same open node
                 # another UCB/policy opportunity rather than silently closing
                 # the branch before its scientific call ceiling.
-                if (
-                    not leaf.state.is_terminal
-                    and not policy_stopped()
-                ):
+                if not leaf.state.is_terminal and not policy_stopped():
                     leaf.is_expandable = True
                     leaf.is_expanded = False
                 break
@@ -520,6 +725,7 @@ class ReactionJsonMctsSearchTree(MctsSearchTree):
 def run_reactionjson_branch(
     *,
     target_smiles: str,
+    mapped_target_smiles: str = "",
     strategy_id: str,
     strategy_text: str,
     candidate_provider: ReactionJsonCandidateProvider,
@@ -566,6 +772,7 @@ def run_reactionjson_branch(
         strategy_text=strategy_text,
         max_policy_calls=max_policy_calls,
         max_candidates_per_call=max_candidates_per_call,
+        initial_mapped_target_smiles=mapped_target_smiles,
     )
     config.expansion_policy.load(policy)
     config.expansion_policy.select("codex_reactionjson")
@@ -638,9 +845,7 @@ def run_reactionjson_branch(
         "path_route_projection_complete": len(actions) == len(route_steps),
         "selected_open_leaves": len(open_leaf_states),
         "selected_solved": bool(selected.state.is_solved),
-        "selected_realized_strategic_milestones": (
-            _realized_strategy_milestone_count(selected)
-        ),
+        "selected_realized_strategic_milestones": (_realized_strategy_milestone_count(selected)),
         "maximum_realized_strategic_milestones_in_tree": max(
             (_realized_strategy_milestone_count(node) for node in tree.nodes()),
             default=0,
@@ -670,10 +875,7 @@ class FullInchiKeySqliteStockQuery(StockQueryMixin):
             raise FileNotFoundError(f"paper stock index is missing: {self.path}")
         self._connection = sqlite3.connect(str(self.path))
         self._connection.execute("PRAGMA query_only = ON")
-        columns = {
-            str(row[1])
-            for row in self._connection.execute("PRAGMA table_info(stock)")
-        }
+        columns = {str(row[1]) for row in self._connection.execute("PRAGMA table_info(stock)")}
         if "full_inchikey" not in columns:
             raise ValueError("paper stock index lacks stock.full_inchikey")
 
@@ -731,11 +933,7 @@ class TargetExcludedStockQuery(StockQueryMixin):
             inchikey = _molecule_inchikey(str(getattr(mol, "smiles", "") or ""))
         except ReactionJsonPolicyError:
             return False
-        return bool(
-            inchikey
-            and inchikey not in self.excluded_inchikeys
-            and mol in self.source
-        )
+        return bool(inchikey and inchikey not in self.excluded_inchikeys and mol in self.source)
 
     def __len__(self) -> int:
         # Report the backing catalog size.  The one-case exclusion is recorded
