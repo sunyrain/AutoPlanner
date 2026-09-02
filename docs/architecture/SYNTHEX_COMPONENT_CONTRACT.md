@@ -299,13 +299,17 @@ Builder 只有一个配置化分支扩展上限 `max_node_expansions_per_branch`
 
 失败去向：无完整 tail 时保持该父路线未闭合，并记录一次已结算的 provider attempt；不递归制造新的 paper short-tail 叶。冻结论文基线到此结束；增强型 profile 将未闭 leaf 交回同一 Action loop，由 route-bound Builder 在原分支剩余预算内继续。
 
-### 3.14 Model I/O journal（观测，不是科学状态）
+### 3.14 Durable worker journal / Model I/O projection
 
-职责：把每次模型实际输入、wire output、durable artifact/status 追加到 `model-io.jsonl`，供运行时监视与复盘。
+职责：`sequential-director-worker-records.jsonl` 按稳定 task id、完整 task-contract digest 和 durable worker artifact 保存已完成调用；`model-io.jsonl` 追加模型实际输入、wire output 与 schema 状态，供运行时监视与复盘。分支状态不另存 mutable snapshot，而是由有序 worker records 和当前 Host compiler 确定性重建。
 
-拥有的权限：记录和恢复相同 task contract 的 worker call。
+拥有的权限：worker journal 可以重放相同 task contract 的已完成调用；Provider error 和 cancelled record 只保留事故历史，不能作为完成结果重放。schema/semantic rejection 是已完成的模型结果，恢复时必须原样重放并再次经过同一 Host admission，不能借 resume 绕过拒绝。`model-io.jsonl` 只有观察权限。
 
-禁止拥有的权限：日志内容不能作为结构、库存、Critic 或 solved 权威；prompt/model contract digest 改变后不得复用旧记录。
+Provider 暂停合同：任一 transient Provider failure 只标记缺失的最小 task。Sequential Director 必须编译并返回当前 Host-replayed partial plan、真实累计 worker usage 和 `resume_required_task_ids`；Global Director 将其写成仍在 flight 的 RunKernel task checkpoint，但不得写正式 Director cache、生成 proposal audit、进入 canonical ingestion 或 settle task。恢复时使用原 reservation 绑定的冻结 context；成功 journal records 零模型调用重放，失败和从未启动的 task 才可调用 Provider。最终成功 settlement 报告包含重放 records 在内的累计真实用量。
+
+用量投影合同：`RunState.model_totals` 仍只包含 settled usage。暂停期间 target report 与 Web 可以把每个 active task 最新 checkpoint 的 measured usage 加到 settled totals 作只读 `observed` 投影；task settlement 后该 checkpoint 不再叠加，避免双计。partial plan 的路线数只表示 recoverable Host prefix，不表示 canonical admission、accepted expansion、stock closure 或 solved。
+
+禁止拥有的权限：任何 journal/checkpoint 内容都不能作为结构、库存、Critic 或 solved 权威；prompt、model、schema 或 task contract digest 改变后不得复用旧记录；不得再建立第二套 branch checkpoint、扫描其他 run 猜测输出，或把 runtime pause 改写为科学失败。
 
 ### 3.15 Web job registry / live projection（Host 观测面）
 
@@ -321,7 +325,7 @@ Builder 只有一个配置化分支扩展上限 `max_node_expansions_per_branch`
 
 同步合同：需要在网站实时查看的 smoke 必须通过 `/api/v4/jobs` 启动，或显式使用同一 gateway 注册。直接 CLI 启动并把运行索引写入独立输出目录的实验不会自动出现在网站队列；其报告仍有效，但属于另一个运行注册域。`run_scope=blind` 的 benchmark smoke 还必须显式提交 `benchmark_stock_index`、`benchmark_stock_index_sha256` 和 `benchmark_stock_name`；只有 interactive paper-profile 请求才允许从已经绑定的 AiZ config 自动解析冻结库存。
 
-生命周期合同：Web gateway 的 mutable job row 与后台 worker thread 属于当前进程；gateway 重启后，持久运行只恢复为 `historical_snapshot`，已有 `model-io.jsonl` 仍可回放，但不会伪装成已恢复执行。需要跨进程续跑时必须由独立持久 executor/checkpoint 合同负责，不能靠扫描 `results/**` 或复制一份 running 状态来推断。
+生命周期合同：Web gateway 的 mutable job row 与后台 worker thread 属于当前进程；gateway 重启后，任务列表只恢复为 `historical_snapshot`，不能伪装成后台线程仍在运行。真正跨进程续跑必须显式调用同一 run 的 resume 入口，由 RunKernel 原 reservation/context checkpoint 与 Sequential Director worker journal 恢复；`model-io.jsonl` 只负责回放展示。不得靠扫描 `results/**`、复制 running 状态或重建一个 Web job row 推断执行已恢复。
 
 ### 3.16 Analyst（论文存在，当前未实现）
 
@@ -339,6 +343,7 @@ Builder 没有动作/reason 词表和终止通道。worker schema 只接纳一�
 | `stock_closed` | Host/AiZ exact stock | 某个真实叶或整条树满足精确库存条件 | 关闭叶或结束战略搜索 | 化学可行、Critic 通过 |
 | `budget_exhausted` | Host/AiZ runtime | 达到调用/时间/迭代上限 | 保留真实 partial diagnostics | Builder 动作或 solved |
 | `calls_exhausted` | AiZ policy runtime | 达到该 Strategy 的 Builder 调用上限 | 停止继续调用并保留已回放路径 | Builder 动作或 solved |
+| `runtime_unavailable` | Provider/Director runtime | 某个最小 worker task 遇到瞬时 Provider 故障 | checkpoint 当前 Host prefix，保留原 reservation，恢复时只调用缺失 task | 整个 Director 科学失败、0 calls、0 routes |
 | `paper_strategy_sidecar_failed` / `aizynthfinder_strategy_sidecar_failed` | Director | sidecar 客观执行异常 | 保留分支诊断，不伪造路线 | Builder 可主动选择的动作或 solved |
 | replay/contract rejection reason | Worker/compiler/Director | Builder 输出非法或 ReactionJSON 无法回放 | 在剩余预算内重试；耗尽后保留诊断 | Strategy 失败、库存或 solved |
 | `critic_blocked` | Critic | 存在具体化学/Strategy 合同矛盾 | Editor 修复 | 结构无效或库存失败 |
@@ -385,3 +390,6 @@ Builder 没有动作/reason 词表和终止通道。worker schema 只接纳一�
 16. full-route repair 中未列入 `remove_step_ids` 的行，或局部依赖路径以外的 target-side/sibling/suffix 行，是否保留并经过完整 DAG replay？
 17. transactional repair 是否拒绝 unrelated rollback、保留旧权威路线、只保留 live map namespace，并证明 deletion-only 不能提交？
 18. 聚焦测试是否覆盖单行替换、多行/整路线替换、fresh-map 跨步引用、对称 atom-map 的确定性 suffix 重接、多个分子 occurrence 的拒绝，以及连接或立体不匹配边界拒绝？
+19. Provider error 是否只暂停失败的最小 task，并保留当前 Host prefix、真实用量和原 Director reservation？
+20. resume 是否按 task-contract digest 重放所有成功 worker records，只调用失败或尚未启动的 task，并与 uninterrupted run 产生同一最终 plan？
+21. 暂停态 observed usage 是否来自 active task 的最新 Kernel checkpoint，且 settlement 后不会与 `model_totals` 双计？

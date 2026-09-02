@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import warnings
@@ -11,6 +12,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
 )
+from cascade_planner.application.blind_benchmark_contract import canonical_smiles
 from cascade_planner.application.unified_campaign_spec import TargetConstraints
 from cascade_planner.interfaces.live_evidence import (
     HttpEvidenceConnectorConfig,
@@ -135,6 +137,20 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
             "the route-level chemoenzymatic_fusion mode are separately reported "
             "companion arms and never change the paper-independent endpoint"
         ),
+    )
+    solve.add_argument(
+        "--strategy-portfolio-seed",
+        default="",
+        help=(
+            "content-addressed completed Strategy-screen JSON promoted into "
+            "Builder execution; this is reported as known-strategy "
+            "reproduction, not blind Strategy discovery"
+        ),
+    )
+    solve.add_argument(
+        "--strategy-portfolio-seed-sha256",
+        default="",
+        help="required expected SHA-256 for --strategy-portfolio-seed",
     )
     solve.add_argument(
         "--require-complete-route-json",
@@ -941,6 +957,13 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         benchmark_stock_name=args.benchmark_stock_name,
         chemenzy_enabled=not args.no_chemenzy,
     )
+    reviewed_strategy_portfolio, reviewed_strategy_portfolio_sha256 = (
+        _load_reviewed_strategy_portfolio(
+            args.strategy_portfolio_seed,
+            expected_sha256=args.strategy_portfolio_seed_sha256,
+            expected_target_smiles=args.target_smiles,
+        )
+    )
 
     result = gateway.solve_target(
         target_name=args.target_name,
@@ -987,6 +1010,10 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             strategy_search_profile=args.strategy_search_profile,
             strategy_tree_engine=args.strategy_tree_engine,
             strategy_portfolio_mode=args.strategy_portfolio_mode,
+            reviewed_strategy_portfolio=reviewed_strategy_portfolio,
+            reviewed_strategy_portfolio_sha256=(
+                reviewed_strategy_portfolio_sha256
+            ),
             strategy_branch_count=args.strategy_branches,
             strategy_branch_workers=args.strategy_branch_workers,
             stop_on_first_stock_closed_branch=(
@@ -1029,7 +1056,18 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             enable_target_identity=not args.no_target_identity,
             resolve_named_target_identity=not args.no_target_identity,
             blind_audit_root=args.blind_audit_root,
-            blind_audit_allowed_paths=tuple(args.blind_audit_allowed_path),
+            blind_audit_allowed_paths=tuple(
+                dict.fromkeys(
+                    [
+                        *args.blind_audit_allowed_path,
+                        *(
+                            [str(Path(args.strategy_portfolio_seed).resolve())]
+                            if args.strategy_portfolio_seed
+                            else []
+                        ),
+                    ]
+                )
+            ),
             enable_replan=not args.no_replan,
             action_scheduler_policy=args.action_scheduler,
             delivery_boundary=args.delivery_boundary,
@@ -1096,6 +1134,68 @@ def _resolve_objective_compatibility_view(value: str | None) -> str:
         stacklevel=2,
     )
     return str(value)
+
+
+def _load_reviewed_strategy_portfolio(
+    path_value: str,
+    *,
+    expected_sha256: str,
+    expected_target_smiles: str,
+) -> tuple[tuple[dict[str, str], ...], str]:
+    """Load one frozen Strategy-screen portfolio without exposing its file.
+
+    Only the three compact reviewed StrategyCard fields cross into the solver.
+    Route structures, model transcripts and paper metadata remain outside the
+    model context.
+    """
+
+    raw_path = str(path_value or "").strip()
+    raw_digest = str(expected_sha256 or "").strip().lower()
+    if not raw_path:
+        if raw_digest:
+            raise ValueError("strategy_portfolio_seed_path_required")
+        return (), ""
+    if not raw_digest:
+        raise ValueError("strategy_portfolio_seed_sha256_required")
+    path = Path(raw_path).expanduser().resolve()
+    if not path.is_file():
+        raise ValueError("strategy_portfolio_seed_missing")
+    payload_bytes = path.read_bytes()
+    digest = hashlib.sha256(payload_bytes).hexdigest()
+    if digest != raw_digest:
+        raise ValueError("strategy_portfolio_seed_sha256_mismatch")
+    try:
+        payload = json.loads(payload_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("strategy_portfolio_seed_json_invalid") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("strategy_portfolio_seed_object_required")
+    seed_target = str(
+        payload.get("canonical_target_smiles")
+        or payload.get("target_smiles")
+        or ""
+    ).strip()
+    try:
+        target_matches = canonical_smiles(seed_target) == canonical_smiles(
+            expected_target_smiles
+        )
+    except Exception as exc:
+        raise ValueError("strategy_portfolio_seed_target_invalid") from exc
+    if not seed_target or not target_matches:
+        raise ValueError("strategy_portfolio_seed_target_mismatch")
+    raw_cards = payload.get("reviewed_cards") or payload.get("strategy_cards") or []
+    if not isinstance(raw_cards, list) or len(raw_cards) != 3:
+        raise ValueError("strategy_portfolio_seed_requires_three_reviewed_cards")
+    fields = ("strategy_query", "critical_assumption", "critic_checkpoint")
+    cards: list[dict[str, str]] = []
+    for raw_card in raw_cards:
+        if not isinstance(raw_card, dict):
+            raise ValueError("strategy_portfolio_seed_card_invalid")
+        card = {field: str(raw_card.get(field) or "").strip() for field in fields}
+        if any(not card[field] for field in fields):
+            raise ValueError("strategy_portfolio_seed_card_invalid")
+        cards.append(card)
+    return tuple(cards), digest
 
 
 def _parse_chemenzy_stock_paths(values: list[str] | tuple[str, ...]) -> tuple[tuple[str, str], ...]:

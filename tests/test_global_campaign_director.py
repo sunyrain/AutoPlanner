@@ -561,6 +561,95 @@ def test_director_provider_failure_keeps_one_reservation_and_resumes(
     assert kernel.state.model_totals["model_invocations"] == 1
 
 
+def test_director_checkpoints_recoverable_partial_plan_until_resume(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path, calls=12)
+    context = _context(kernel)
+    plan = _plan(context)
+    calls: list[str] = []
+
+    def runner(
+        spec: AgentSpec,
+        _context: CampaignContext,
+        _mode: str,
+        _config: DirectorConfig,
+    ) -> AgentResult:
+        calls.append(spec.agent_id)
+        interrupted = len(calls) == 1
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=(
+                f"{spec.idempotency_key}:"
+                + ("provider-error" if interrupted else "completed")
+            ),
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.FAILED if interrupted else AgentState.SUCCEEDED,
+            output=plan,
+            usage={
+                "model_invocations": 7 if interrupted else 9,
+                "input_tokens": 700 if interrupted else 900,
+                "output_tokens": 70 if interrupted else 90,
+                "provider_failure_count": 1 if interrupted else 0,
+                "resume_required_task_ids": (
+                    ["critic:branch:2"] if interrupted else []
+                ),
+                "provider_runtime_failure": (
+                    {
+                        "reason": "provider_service_unavailable",
+                        "task_id": "critic:branch:2",
+                    }
+                    if interrupted
+                    else {}
+                ),
+            },
+            error=(
+                "model_provider_unavailable:provider_service_unavailable"
+                if interrupted
+                else ""
+            ),
+        )
+
+    director = GlobalCampaignDirector(kernel, runner=runner)
+    partial = director.run(context, mode="initial_architecture")
+
+    assert partial.status == "runtime_unavailable"
+    assert partial.runtime_pause is True
+    assert partial.plan is not None
+    assert partial.resource_usage["model_invocations"] == 7
+    assert partial.resume_required_task_ids == ("critic:branch:2",)
+    assert kernel.state.model_totals["model_invocations"] == 0
+    assert len(kernel.state.in_flight_tasks) == 1
+    lifecycle = kernel.task_lifecycle(partial.task_id)
+    assert lifecycle["status"] == "in_flight"
+    assert len(lifecycle["checkpoints"]) == 1
+    checkpoint = lifecycle["checkpoints"][0]["payload"]
+    assert checkpoint["operational_status"] == "runtime_unavailable"
+    assert checkpoint["metadata"]["model_usage"]["model_invocations"] == 7
+    assert checkpoint["metadata"]["route_skeleton_count"] == 2
+
+    refreshed_context = _context(
+        kernel,
+        previous=context,
+        material_events=("provider_runtime_recovered",),
+    )
+    resumed = director.run(refreshed_context, mode="initial_architecture")
+
+    assert resumed.status == "accepted"
+    assert calls == [partial.task_id, partial.task_id]
+    assert kernel.state.in_flight_tasks == {}
+    assert kernel.state.model_totals["model_invocations"] == 9
+    assert kernel.count_task_reservations(
+        metadata={"director_mode": "initial_architecture"}
+    ) == 1
+
+
 def test_single_call_director_plan_remains_bound_by_output_bytes(
     tmp_path: Path,
 ) -> None:

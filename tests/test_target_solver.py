@@ -2046,6 +2046,80 @@ def test_target_solver_pauses_on_typed_provider_runtime_failure_without_charge(
     ) == 1
 
 
+def test_target_solver_reports_recoverable_partial_director_usage_and_routes(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+
+    def partially_unavailable_runner(
+        spec: AgentSpec,
+        context: Any,
+        mode: str,
+        _config: Any,
+    ) -> AgentResult:
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:recoverable-provider-error",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.FAILED,
+            output=_plan(context, mode),
+            error="model_provider_unavailable:provider_service_unavailable",
+            usage={
+                "model_invocations": 7,
+                "input_tokens": 700,
+                "output_tokens": 70,
+                "provider_failure_count": 1,
+                "resume_required_task_ids": ["critic:branch:2"],
+                "provider_runtime_failure": {
+                    "reason": "provider_service_unavailable",
+                    "task_id": "critic:branch:2",
+                },
+            },
+        )
+
+    result = gateway.solve_target(
+        target_name="recoverable partial director",
+        target_smiles=TARGET,
+        run_id="recoverable-partial-director",
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_chemenzy=False,
+            enable_web_search=False,
+            enable_replan=False,
+            enable_live_benchmark_stock=False,
+        ),
+        director_runner=partially_unavailable_runner,
+    )
+
+    outcome = result["director_outcomes"][0]
+    assert result["stop_decision"]["decision"] == "paused"
+    assert result["model_cost"]["model_invocations"] == 7
+    assert result["model_cost"][
+        "includes_unsettled_checkpoint_observations"
+    ] is True
+    assert outcome["status"] == "runtime_unavailable"
+    assert outcome["runtime_pause"] is True
+    assert outcome["resume_required_task_ids"] == ["critic:branch:2"]
+    assert len(outcome["plan"]["multi_step_skeletons"]) == 3
+    service = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))
+    assert service.kernel.state.model_totals["model_invocations"] == 0
+    director_task_ids = [
+        str(task_id)
+        for task_id in service.kernel.state.in_flight_tasks
+        if str(task_id).startswith("director:")
+    ]
+    assert len(director_task_ids) == 1
+    assert len(
+        service.kernel.task_lifecycle(director_task_ids[0])["checkpoints"]
+    ) == 1
+
+
 def test_initial_director_limits_are_capped_by_run_budget(tmp_path: Path) -> None:
     gateway = CampaignGateway(_paths(tmp_path))
     observed: list[Any] = []

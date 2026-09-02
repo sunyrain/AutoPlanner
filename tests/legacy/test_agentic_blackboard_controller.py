@@ -8727,7 +8727,19 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertNotIn("--search", captured["argv"])
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", captured["argv"])
         self.assertIn("--sandbox", captured["argv"])
-        self.assertIn("workspace-write", captured["argv"])
+        self.assertIn("read-only", captured["argv"])
+        self.assertIn("--ignore-rules", captured["argv"])
+        for feature in (
+            "apps",
+            "plugins",
+            "multi_agent",
+            "shell_tool",
+            "code_mode_host",
+            "browser_use",
+            "computer_use",
+            "in_app_browser",
+        ):
+            self.assertIn(feature, captured["argv"])
         self.assertIn("web_search = false", captured["config"])
         self.assertNotIn("web_search = true", captured["config"])
 

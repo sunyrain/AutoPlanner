@@ -247,6 +247,11 @@ class DirectorConfig:
     # only the Strategy Generator prior; every resulting step still passes
     # the same ReactionJSON/RouteJSON host contracts.
     strategy_portfolio_mode: str = "autoplanner_hybrid"
+    # Optional content-addressed portfolio promoted from a completed
+    # Strategy-only screen.  This is an explicit known-strategy reproduction
+    # input, not a blind-discovery result and not a route/precursor seed.
+    reviewed_strategy_portfolio: tuple[Mapping[str, Any], ...] = ()
+    reviewed_strategy_portfolio_sha256: str = ""
     strategy_branch_count: int = 3
     strategy_branch_workers: int = 1
     stop_on_first_stock_closed_branch: bool = False
@@ -337,6 +342,27 @@ class DirectorConfig:
             "autoplanner_strategy_v2",
         }:
             raise ValueError("director strategy portfolio mode is invalid")
+        if self.reviewed_strategy_portfolio:
+            if len(self.reviewed_strategy_portfolio) != self.strategy_branch_count:
+                raise ValueError(
+                    "reviewed strategy portfolio must match strategy branch count"
+                )
+            required = (
+                "strategy_query",
+                "critical_assumption",
+                "critic_checkpoint",
+            )
+            if any(
+                not isinstance(card, Mapping)
+                or any(not str(card.get(field) or "").strip() for field in required)
+                for card in self.reviewed_strategy_portfolio
+            ):
+                raise ValueError("reviewed strategy portfolio card is invalid")
+            digest = str(self.reviewed_strategy_portfolio_sha256 or "").strip().lower()
+            if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+                raise ValueError("reviewed strategy portfolio hash is invalid")
+        elif self.reviewed_strategy_portfolio_sha256:
+            raise ValueError("reviewed strategy portfolio is required for its hash")
         if self.strategy_branch_workers > self.strategy_branch_count:
             raise ValueError("director strategy branch workers exceed branch count")
         if self.enable_transactional_path_repair and self.allow_editor_route_mutations:
@@ -375,10 +401,14 @@ class DirectorOutcome:
     artifact_sha256: str = ""
     task_id: str = ""
     resource_usage: Mapping[str, Any] = field(default_factory=dict)
+    runtime_unavailable: bool = False
+    runtime_pause: bool = False
+    retryable_after_external_recovery: bool = False
+    resume_required_task_ids: tuple[str, ...] = ()
     schema_version: str = GLOBAL_CAMPAIGN_DIRECTOR_OUTCOME_SCHEMA
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        row = {
             "schema_version": self.schema_version,
             "status": self.status,
             "invoked": self.invoked,
@@ -393,6 +423,20 @@ class DirectorOutcome:
             "task_id": self.task_id,
             "resource_usage": dict(self.resource_usage),
         }
+        if self.runtime_unavailable:
+            row.update(
+                {
+                    "runtime_unavailable": True,
+                    "runtime_pause": self.runtime_pause,
+                    "retryable_after_external_recovery": (
+                        self.retryable_after_external_recovery
+                    ),
+                    "resume_required_task_ids": list(
+                        self.resume_required_task_ids
+                    ),
+                }
+            )
+        return row
 
 
 DirectorRunner = Callable[[AgentSpec, CampaignContext, str, DirectorConfig], AgentResult]
@@ -731,6 +775,21 @@ class GlobalCampaignDirector:
             raw_usage = dict(result.usage or {})
             usage = normalize_director_usage(raw_usage)
             resource_usage = {**raw_usage, **usage}
+            provider_runtime_unavailable = bool(
+                result.state is not AgentState.SUCCEEDED
+                and str(result.error or "").startswith(
+                    "model_provider_unavailable:"
+                )
+            )
+            if provider_runtime_unavailable and isinstance(result.output, Mapping):
+                return self._checkpoint_recoverable_provider_pause(
+                    task_id=task_id,
+                    context=context,
+                    mode=mode,
+                    result=result,
+                    model_usage=usage,
+                    resource_usage=resource_usage,
+                )
             if result.state is AgentState.CANCELLED:
                 elapsed_s = max(0.0, time.monotonic() - started)
                 self.kernel.settle_task(
@@ -869,6 +928,111 @@ class GlobalCampaignDirector:
                     elapsed_s=max(0.0, time.monotonic() - started),
                 )
             raise
+
+    def _checkpoint_recoverable_provider_pause(
+        self,
+        *,
+        task_id: str,
+        context: CampaignContext,
+        mode: str,
+        result: AgentResult,
+        model_usage: Mapping[str, Any],
+        resource_usage: Mapping[str, Any],
+    ) -> DirectorOutcome:
+        """Preserve an operational prefix without admitting a partial plan."""
+
+        # Sequential workers have already fsync'd every successful
+        # Strategy/Builder/Critic/Editor result by stable task id. This
+        # checkpoint projects their deterministic Host state, while the worker
+        # journal remains the only resume authority.
+        partial_plan = GlobalCampaignPlan.from_dict(_require_mapping(result.output))
+        if (
+            partial_plan.mode != mode
+            or partial_plan.run_id != context.run_id
+            or partial_plan.context_sha256 != context.content_sha256
+            or partial_plan.graph_revision != context.revision.graph_revision
+        ):
+            raise GlobalCampaignPlanValidationError(
+                "director_recovery_plan_context_mismatch"
+            )
+        raw_usage = dict(result.usage or {})
+        resume_required_task_ids = tuple(
+            sorted(
+                {
+                    str(value)
+                    for value in raw_usage.get("resume_required_task_ids") or ()
+                    if str(value)
+                }
+            )
+        )
+        checkpoint_ref = self.kernel.artifacts.put_json(
+            {
+                "schema_version": "global_campaign_director_recovery_checkpoint.v1",
+                "run_id": self.kernel.spec.run_id,
+                "task_id": task_id,
+                "mode": mode,
+                "context_sha256": context.content_sha256,
+                "plan": partial_plan.to_dict(),
+                "resource_usage": dict(resource_usage),
+                "resume_required_task_ids": list(resume_required_task_ids),
+                "provider_runtime_failure": dict(
+                    raw_usage.get("provider_runtime_failure") or {}
+                ),
+                "semantics": {
+                    "operational_checkpoint_only": True,
+                    "grants_no_scientific_authority": True,
+                    "worker_journal_is_resume_authority": True,
+                },
+            },
+            logical_name=f"{task_id}-recoverable-partial.json",
+            producer="autoplanner.global_campaign_director",
+        )
+        checkpoints = tuple(
+            self.kernel.state.task_checkpoints.get(task_id) or ()
+        )
+        predecessor_sha256 = (
+            str(checkpoints[-1].get("artifact_sha256") or "")
+            if checkpoints
+            else ""
+        )
+        if predecessor_sha256 != checkpoint_ref.sha256:
+            self.kernel.record_task_checkpoint(
+                task_id=task_id,
+                checkpoint_kind="recoverable_director_prefix",
+                artifact_ref=checkpoint_ref,
+                predecessor_checkpoint_sha256=predecessor_sha256,
+                operational_status="runtime_unavailable",
+                idempotency_key=(
+                    f"checkpoint:{task_id}:{predecessor_sha256[:16]}:"
+                    f"{checkpoint_ref.sha256[:16]}"
+                ),
+                metadata={
+                    "model_usage": dict(model_usage),
+                    "route_family_count": len(partial_plan.route_families),
+                    "route_skeleton_count": len(
+                        partial_plan.multi_step_skeletons
+                    ),
+                    "resume_required_task_ids": list(
+                        resume_required_task_ids
+                    ),
+                },
+            )
+        return DirectorOutcome(
+            status="runtime_unavailable",
+            invoked=True,
+            cache_hit=False,
+            mode=mode,
+            context_sha256=context.content_sha256,
+            plan=partial_plan,
+            reasons=(str(result.error or "provider_unavailable")[:2_000],),
+            artifact_sha256=checkpoint_ref.sha256,
+            task_id=task_id,
+            resource_usage=dict(resource_usage),
+            runtime_unavailable=True,
+            runtime_pause=True,
+            retryable_after_external_recovery=True,
+            resume_required_task_ids=resume_required_task_ids,
+        )
 
     def record_dispositions(
         self,

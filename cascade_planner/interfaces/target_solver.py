@@ -77,7 +77,10 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 from cascade_planner.application.route_innovation_discovery import (
     canonical_innovation_batch,
 )
-from cascade_planner.application.run_kernel import RunKernelBudgetError
+from cascade_planner.application.run_kernel import (
+    RunKernelBudgetError,
+    project_observed_model_totals,
+)
 from cascade_planner.application.unified_campaign_spec import (
     CampaignResourceBudget,
     StockOracleReference,
@@ -323,6 +326,8 @@ class TargetSolveConfig:
     # and to the hybrid chemical/enzyme portfolio for ordinary AutoPlanner
     # runs.  ``enzyme_advantage`` is an explicit separate ablation arm.
     strategy_portfolio_mode: str = "auto"
+    reviewed_strategy_portfolio: tuple[Mapping[str, Any], ...] = ()
+    reviewed_strategy_portfolio_sha256: str = ""
     strategy_branch_count: int = int(
         SYNTHEX_MATCHED_PROFILE_DEFAULTS["strategy_branches"]
     )
@@ -485,6 +490,27 @@ class TargetSolveConfig:
             "autoplanner_strategy_v2",
         }:
             raise ValueError("target solver strategy portfolio mode is invalid")
+        if self.reviewed_strategy_portfolio:
+            if len(self.reviewed_strategy_portfolio) != self.strategy_branch_count:
+                raise ValueError(
+                    "reviewed strategy portfolio must match strategy branch count"
+                )
+            required = (
+                "strategy_query",
+                "critical_assumption",
+                "critic_checkpoint",
+            )
+            if any(
+                not isinstance(card, Mapping)
+                or any(not str(card.get(field) or "").strip() for field in required)
+                for card in self.reviewed_strategy_portfolio
+            ):
+                raise ValueError("reviewed strategy portfolio card is invalid")
+            digest = str(self.reviewed_strategy_portfolio_sha256 or "").strip().lower()
+            if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+                raise ValueError("reviewed strategy portfolio hash is invalid")
+        elif self.reviewed_strategy_portfolio_sha256:
+            raise ValueError("reviewed strategy portfolio is required for its hash")
         if self.native_short_tail_engine not in {
             "auto",
             "aizynthfinder",
@@ -1220,6 +1246,10 @@ def solve_target(
             else "paper_independent"
             if _is_paper_reach_profile(active.execution_profile)
             else "autoplanner_hybrid"
+        ),
+        reviewed_strategy_portfolio=active.reviewed_strategy_portfolio,
+        reviewed_strategy_portfolio_sha256=(
+            active.reviewed_strategy_portfolio_sha256
         ),
         strategy_branch_count=active.strategy_branch_count,
         strategy_branch_workers=active.strategy_branch_workers,
@@ -5705,8 +5735,9 @@ def solve_target(
                 chemenzy_lineage,
             )
         )
+    observed_model_cost = project_observed_model_totals(service.kernel.state)
     resource_envelope = _resource_envelope(
-        model_cost=service.kernel.state.model_totals,
+        model_cost=observed_model_cost,
         native_search=service.kernel.native_search_budget(),
         task_budget=service.kernel.task_budget(),
         run_wall_time_s=service.kernel.state.task_wall_time_s,
@@ -5906,7 +5937,7 @@ def solve_target(
         campaign_summary=_workbench_campaign_summary(
             gates=gates,
             resource_envelope=resource_envelope,
-            model_cost=service.kernel.state.model_totals,
+            model_cost=observed_model_cost,
             stop_decision=stop,
             claim=claim,
             current_disposition=current_disposition,
@@ -5962,7 +5993,7 @@ def solve_target(
         "route_reconciliation": route_reconciliation,
         "quality_state": quality_state,
         "planning_depth": planning_depth,
-        "model_cost": dict(service.kernel.state.model_totals),
+        "model_cost": dict(observed_model_cost),
         "resource_envelope": resource_envelope,
         "attempt_count": service.kernel.state.attempt_count,
         "accepted_expansion_count": service.kernel.state.accepted_expansion_count,
@@ -7111,7 +7142,7 @@ def _automatic_continuation_baseline(service: Any) -> dict[str, Any]:
         "scientific_sha256": str(graph.get("scientific_sha256") or ""),
         "attempt_count": int(state.attempt_count),
         "accepted_expansion_count": int(state.accepted_expansion_count),
-        "model_totals": dict(state.model_totals),
+        "model_totals": dict(project_observed_model_totals(state)),
     }
 
 
@@ -7224,8 +7255,9 @@ def _refresh_terminal_report(
         ),
         paper_equivalent=paper_equivalent,
     )
+    observed_model_cost = project_observed_model_totals(service.kernel.state)
     resource_envelope = _resource_envelope(
-        model_cost=service.kernel.state.model_totals,
+        model_cost=observed_model_cost,
         native_search=service.kernel.native_search_budget(),
         task_budget=service.kernel.task_budget(),
         run_wall_time_s=service.kernel.state.task_wall_time_s,
@@ -7267,7 +7299,7 @@ def _refresh_terminal_report(
         campaign_summary=_workbench_campaign_summary(
             gates=gates,
             resource_envelope=resource_envelope,
-            model_cost=service.kernel.state.model_totals,
+            model_cost=observed_model_cost,
             stop_decision=stop_decision,
             claim=claim,
             current_disposition=current_disposition,
@@ -7299,7 +7331,7 @@ def _refresh_terminal_report(
         "route_reconciliation": route_reconciliation,
         "quality_state": quality_state,
         "planning_depth": planning_depth,
-        "model_cost": dict(service.kernel.state.model_totals),
+        "model_cost": dict(observed_model_cost),
         "resource_envelope": resource_envelope,
         "attempt_count": service.kernel.state.attempt_count,
         "accepted_expansion_count": service.kernel.state.accepted_expansion_count,

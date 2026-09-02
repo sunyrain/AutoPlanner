@@ -58,6 +58,7 @@ def job_projection(value: Mapping[str, Any]) -> dict[str, Any]:
             "target_smiles",
             "status",
             "phase",
+            "runtime_pause",
             "created_at",
             "started_at",
             "finished_at",

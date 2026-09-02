@@ -58,6 +58,7 @@ ALLOWED_WORKER_TASK_TYPES = {
     "route_chemistry_edit",
     "paper_matched_strategy_generator",
     "paper_matched_strategy_critic",
+    "literature_strategy_match_evaluator",
     "paper_matched_route_step",
     "paper_matched_key_event_critic",
     "paper_matched_route_critic",
@@ -80,7 +81,9 @@ PAPER_MATCHED_WORKER_TASK_TYPES = frozenset(
 )
 PATH_REPAIR_WORKER_TASK_TYPES = frozenset({"path_repair_editor"})
 STRICT_CHEMISTRY_WORKER_TASK_TYPES = (
-    PAPER_MATCHED_WORKER_TASK_TYPES | PATH_REPAIR_WORKER_TASK_TYPES
+    PAPER_MATCHED_WORKER_TASK_TYPES
+    | PATH_REPAIR_WORKER_TASK_TYPES
+    | frozenset({"literature_strategy_match_evaluator"})
 )
 STRICT_CHEMISTRY_PERMISSION_PROFILE = "autoplanner-chemistry-worker"
 LOCAL_CHEMISTRY_TOOL_TASK_TYPES = frozenset(
@@ -99,6 +102,7 @@ ALLOWED_WORKER_ARTIFACT_TYPES = {
     "RetrosynthesisProposalReport",
     "StrategyCardReport",
     "StrategyPortfolioReport",
+    "LiteratureStrategyMatchReport",
     "ChemicalStrategyCritique",
     "GlobalCampaignPlan",
     "EvidenceCard",
@@ -2031,6 +2035,17 @@ def _artifact_payload_instruction(
             "precursor SMILES, ReactionJSON operations, conditions, sources, or a complete route. "
             "The three cards must differ in skeletal logic and graph-edit signature."
         )
+    if artifact_type == "LiteratureStrategyMatchReport":
+        return (
+            "Compare the three blind Strategy cards only with the supplied evaluator-only "
+            "paper passages. Return one conservative target-level assessment with exactly "
+            "three card assessments. Use exact only for the same route-defining scaffold "
+            "construction or reorganization logic and key transformation family; use partial "
+            "for a substantive shared strategic element that misses or replaces the paper's "
+            "route-defining event; use non_comparable when the supplied passages do not "
+            "establish a target-specific paper strategy. Do not reward generic plausibility, "
+            "infer missing schemes, browse, or treat this automated evaluation as human review."
+        )
     if artifact_type == "RetrosynthesisProposalReport":
         strategy_first = bool(
             task is not None
@@ -2204,6 +2219,8 @@ def _worker_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
         return _strategy_card_report_payload_json_schema(task)
     if artifact_type == "StrategyPortfolioReport":
         return _strategy_portfolio_report_payload_json_schema(task)
+    if artifact_type == "LiteratureStrategyMatchReport":
+        return _literature_strategy_match_report_payload_json_schema(task)
     if artifact_type == "ChemicalStrategyCritique":
         return _chemical_strategy_critique_payload_json_schema(task)
     if artifact_type == "GlobalCampaignPlan":
@@ -2399,6 +2416,8 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
 
     if task.task_type not in STRICT_CHEMISTRY_WORKER_TASK_TYPES:
         return _worker_output_json_schema(task)
+    if task.task_type == "literature_strategy_match_evaluator":
+        return _literature_strategy_match_report_payload_json_schema(task)
     if task.task_type in {
         "paper_matched_strategy_generator",
         "paper_matched_strategy_critic",
@@ -2963,7 +2982,15 @@ def _materialize_paper_matched_artifact(
     context = dict(task.host_context or {})
     target = str(context.get("target_smiles") or "")
     payload: dict[str, Any]
-    if task.task_type in {
+    if task.task_type == "literature_strategy_match_evaluator":
+        payload = {
+            **result,
+            "schema_version": "literature_strategy_match_report.v1",
+            "case_id": task.case_id,
+            "target_slot_id": str(context.get("target_slot_id") or ""),
+            "provisional_automated_evaluation": True,
+        }
+    elif task.task_type in {
         "paper_matched_strategy_generator",
         "paper_matched_strategy_critic",
     }:
@@ -3682,6 +3709,102 @@ def _strategy_portfolio_report_payload_json_schema(task: WorkerTask) -> dict[str
     )
 
 
+def _literature_strategy_match_report_payload_json_schema(
+    task: WorkerTask,
+) -> dict[str, Any]:
+    target_slot_id = str(task.host_context.get("target_slot_id") or "")
+    card_assessment = _strict_object_schema(
+        {
+            "card_index": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3,
+            },
+            "match_level": {
+                "type": "string",
+                "enum": ["exact", "partial", "none"],
+            },
+            "matched_elements": _string_array_schema(
+                max_items=4,
+                item_max_length=240,
+            ),
+            "missing_or_conflicting_elements": _string_array_schema(
+                max_items=4,
+                item_max_length=240,
+            ),
+            "rationale": _short_text_schema(600),
+        }
+    )
+    return _strict_object_schema(
+        {
+            "schema_version": {
+                "type": "string",
+                "enum": ["literature_strategy_match_report.v1"],
+            },
+            "case_id": {"type": "string", "enum": [task.case_id]},
+            "target_slot_id": {
+                "type": "string",
+                "enum": [target_slot_id],
+            },
+            "comparability": {
+                "type": "string",
+                "enum": [
+                    "comparable",
+                    "insufficient_route_evidence",
+                    "target_identity_ambiguous",
+                ],
+            },
+            "paper_strategy_summary": _short_text_schema(800),
+            "paper_key_transformations": _string_array_schema(
+                max_items=5,
+                item_max_length=280,
+            ),
+            "paper_strategy_classes": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": [
+                        "skeletal_reorganization",
+                        "cycloaddition",
+                        "annulation_or_cyclization",
+                        "radical",
+                        "pericyclic_or_photochemical",
+                        "biomimetic_cascade",
+                        "chiral_pool_derivation",
+                        "biocatalytic",
+                        "cross_coupling_or_fragment_union",
+                        "functional_group_or_redox_sequence",
+                        "other",
+                    ],
+                },
+                "maxItems": 3,
+            },
+            "card_assessments": {
+                "type": "array",
+                "items": card_assessment,
+                "minItems": 3,
+                "maxItems": 3,
+            },
+            "confidence": {
+                "type": "string",
+                "enum": ["low", "medium", "high"],
+            },
+            "evidence_locator_refs": _string_array_schema(
+                max_items=8,
+                item_max_length=180,
+            ),
+            "limitations": _string_array_schema(
+                max_items=3,
+                item_max_length=260,
+            ),
+            "provisional_automated_evaluation": {
+                "type": "boolean",
+                "enum": [True],
+            },
+        }
+    )
+
+
 def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
     if task.task_type in {
         "paper_matched_route_critic",
@@ -4296,6 +4419,9 @@ def _typed_artifact_schema_version(artifact_type: str) -> str:
         "ResearchReport": "research_report.v1",
         "RetrosynthesisProposalReport": "retrosynthesis_proposal_report_artifact.v1",
         "StrategyCardReport": "strategy_card_report_artifact.v1",
+        "LiteratureStrategyMatchReport": (
+            "literature_strategy_match_report_artifact.v1"
+        ),
         "ChemicalStrategyCritique": "chemical_strategy_critique_artifact.v1",
         "GlobalCampaignPlan": "global_campaign_plan_artifact.v1",
         "EvidenceCard": "evidence_card_artifact.v1",

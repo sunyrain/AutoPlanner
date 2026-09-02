@@ -130,6 +130,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--strategy-portfolio-seed",
+        default="",
+        help=(
+            "completed Strategy-screen JSON promoted into Builder execution; "
+            "labels the panel as known-strategy reproduction"
+        ),
+    )
+    parser.add_argument(
         "--strategic-milestones-per-branch",
         type=int,
         choices=range(1, 5),
@@ -339,6 +347,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     if not cases:
         raise SystemExit("No benchmark cases selected")
+    try:
+        strategy_portfolio_seed = _validated_strategy_portfolio_seed(
+            args.strategy_portfolio_seed,
+            cases=cases,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise SystemExit(str(exc)) from exc
     paper_protocol_preflight: dict[str, Any] = {}
     if args.paper_protocol:
         if (
@@ -430,6 +445,9 @@ def main(argv: list[str] | None = None) -> int:
         reasoning_effort=args.reasoning_effort,
         execution_profile=args.execution_profile,
         strategy_portfolio_mode=args.strategy_portfolio_mode,
+        strategy_portfolio_seed=(
+            str(strategy_portfolio_seed) if strategy_portfolio_seed else None
+        ),
         projection_policy=projection_policy,
         worker_count=args.workers,
         visual=args.visual,
@@ -459,6 +477,15 @@ def main(argv: list[str] | None = None) -> int:
         "reasoning_effort": args.reasoning_effort,
         "execution_profile": args.execution_profile,
         "strategy_portfolio_mode": args.strategy_portfolio_mode,
+        "strategy_portfolio_seed": (
+            {
+                "path": str(strategy_portfolio_seed),
+                "file_sha256": _file_sha256(strategy_portfolio_seed),
+                "semantics": "known_strategy_reproduction_not_blind_discovery",
+            }
+            if strategy_portfolio_seed
+            else {}
+        ),
         "strategic_milestones_per_branch": (
             args.strategic_milestones_per_branch
         ),
@@ -596,8 +623,10 @@ def main(argv: list[str] | None = None) -> int:
             for case in cases
         },
         "semantics": {
-            "target_name_and_smiles_only": True,
-            "no_local_pdf_doi_patent_or_route_seed": True,
+            "target_name_and_smiles_only": not bool(strategy_portfolio_seed),
+            "no_local_pdf_doi_patent_or_route_seed": not bool(
+                strategy_portfolio_seed
+            ),
             "isolated_runtime_and_external_evidence_root": True,
             "event_driven_replans_are_run_budget_bounded": True,
             "knowledge_snapshot_is_frozen_before_first_target": True,
@@ -608,6 +637,12 @@ def main(argv: list[str] | None = None) -> int:
             "legacy_objective_mode_does_not_reach_the_solver": True,
             "known_target_manifests_are_allowed_without_route_answer_authority": bool(
                 allowed_prior_target_manifests
+            ),
+            "reviewed_strategy_portfolio_is_not_a_route_or_solved_claim": bool(
+                strategy_portfolio_seed
+            ),
+            "known_strategy_reproduction_is_not_blind_strategy_discovery": bool(
+                strategy_portfolio_seed
             ),
         },
     }
@@ -637,6 +672,7 @@ def main(argv: list[str] | None = None) -> int:
                     self_evo_library_seed=args.self_evo_library_seed,
                     leakage_audit_pack=args.leakage_audit_pack,
                     allowed_prior_target_manifests=allowed_prior_target_manifests,
+                    strategy_portfolio_seed=strategy_portfolio_seed,
                     manifest=manifest,
                     run_dir=output_root / "runs" / case.target_name,
                     resume=False,
@@ -690,6 +726,7 @@ def main(argv: list[str] | None = None) -> int:
             reasoning_effort=args.reasoning_effort,
             execution_profile=args.execution_profile,
             strategy_portfolio_mode=args.strategy_portfolio_mode,
+            strategy_portfolio_seed=strategy_portfolio_seed,
             strategic_milestones_per_branch=(
                 args.strategic_milestones_per_branch
             ),
@@ -1023,6 +1060,7 @@ def _run_case(
     reasoning_effort: str,
     execution_profile: str,
     strategy_portfolio_mode: str = "auto",
+    strategy_portfolio_seed: Path | None = None,
     strategic_milestones_per_branch: int = 1,
     node_expansions_per_branch: int | None = None,
     reactionjson_candidates_per_node: int | None = None,
@@ -1057,6 +1095,7 @@ def _run_case(
         self_evo_library_seed=self_evo_library_seed,
         leakage_audit_pack=leakage_audit_pack,
         allowed_prior_target_manifests=allowed_prior_target_manifests,
+        strategy_portfolio_seed=strategy_portfolio_seed,
         manifest=manifest,
         run_dir=run_dir,
         resume=resume,
@@ -1280,6 +1319,23 @@ def _run_case(
     # budget and must be opt-in outside this matched panel.
     if _is_paper_reach_profile(execution_profile):
         command.append("--no-replan")
+    if strategy_portfolio_seed:
+        seed_sha256 = str(
+            dict(snapshot.get("knowledge") or {}).get(
+                "strategy_portfolio_seed_sha256"
+            )
+            or ""
+        )
+        command.extend(
+            [
+                "--strategy-portfolio-seed",
+                str(strategy_portfolio_seed),
+                "--strategy-portfolio-seed-sha256",
+                seed_sha256,
+                "--blind-audit-allowed-path",
+                str(strategy_portfolio_seed),
+            ]
+        )
     command.extend(_ablation_cli_args(ablation))
     for path in allowed_prior_target_manifests:
         command.extend(["--blind-audit-allowed-path", str(path)])
@@ -1458,6 +1514,7 @@ def _prepare_panel_snapshot(
     resume: bool,
     projection_policy: Mapping[str, Any] | None = None,
     strategy_portfolio_mode: str = "auto",
+    strategy_portfolio_seed: str | None = None,
 ) -> dict[str, Any]:
     snapshot_path = output_root / "snapshots" / "benchmark-snapshot.json"
     seed = _optional_file(self_evo_library_seed, "self_evo_library_seed")
@@ -1465,6 +1522,10 @@ def _prepare_panel_snapshot(
     benchmark_index = _optional_file(benchmark_stock_index, "benchmark_stock_index")
     protocol = _optional_file(paper_protocol, "paper_protocol")
     leakage_pack = _optional_file(leakage_audit_pack, "leakage_audit_pack")
+    reviewed_strategy = _optional_file(
+        strategy_portfolio_seed,
+        "strategy_portfolio_seed",
+    )
     chemenzy_python = _chemenzy_python(chemenzy_env_prefix)
     provider_snapshot = {
         "model": model,
@@ -1494,6 +1555,10 @@ def _prepare_panel_snapshot(
         "paper_protocol_sha256": _file_sha256(protocol) if protocol else "",
         "leakage_audit_pack_path": str(leakage_pack or ""),
         "leakage_audit_pack_sha256": _file_sha256(leakage_pack) if leakage_pack else "",
+        "strategy_portfolio_seed_path": str(reviewed_strategy or ""),
+        "strategy_portfolio_seed_sha256": (
+            _file_sha256(reviewed_strategy) if reviewed_strategy else ""
+        ),
         "allowed_prior_target_manifests": [
             {
                 "path": str(path),
@@ -1557,11 +1622,19 @@ def _prepare_case_snapshot(
     manifest: Path,
     run_dir: Path,
     resume: bool,
+    strategy_portfolio_seed: Path | None = None,
 ) -> dict[str, Any]:
     case_external = output_root / "external" / case.case_id
     case_external.mkdir(parents=True, exist_ok=True)
     seed = _optional_file(self_evo_library_seed, "self_evo_library_seed")
     leakage_pack = _optional_file(leakage_audit_pack, "leakage_audit_pack")
+    reviewed_strategy = _optional_file(
+        str(strategy_portfolio_seed) if strategy_portfolio_seed else None,
+        "strategy_portfolio_seed",
+    )
+    reviewed_strategy_sha = (
+        _file_sha256(reviewed_strategy) if reviewed_strategy else ""
+    )
     self_evo_path = case_external / "self-evo" / "patent-reaction-template-library.json"
     seed_sha = ""
     if seed:
@@ -1581,6 +1654,8 @@ def _prepare_case_snapshot(
             or current.get("panel_snapshot_sha256")
             != str(snapshot.get("content_sha256") or "")
             or current.get("self_evo_library_sha256") != seed_sha
+            or current.get("strategy_portfolio_seed_sha256")
+            != reviewed_strategy_sha
         ):
             raise RuntimeError("blind_case_snapshot_receipt_mismatch")
         return current
@@ -1599,6 +1674,7 @@ def _prepare_case_snapshot(
         additional_allowed_paths=[
             *allowed_prior_target_manifests,
             *([leakage_pack] if leakage_pack else []),
+            *([reviewed_strategy] if reviewed_strategy else []),
         ],
         additional_leakage_needles=leakage_needles,
         target_synonym_not_applicable_reason=synonym_not_applicable,
@@ -1631,6 +1707,7 @@ def _prepare_case_snapshot(
         "case_external_root": str(case_external),
         "self_evo_library_path": str(self_evo_path) if seed else "",
         "self_evo_library_sha256": seed_sha,
+        "strategy_portfolio_seed_sha256": reviewed_strategy_sha,
         "supervisor_preflight": supervisor_preflight,
         "semantics": {
             "case_external_root_is_isolated": True,
@@ -1654,6 +1731,48 @@ def _prior_target_manifest_files(values: list[str]) -> tuple[Path, ...]:
     if len(paths) != len(set(paths)):
         raise SystemExit("allowed_prior_target_manifest_duplicate")
     return tuple(paths)
+
+
+def _validated_strategy_portfolio_seed(
+    value: str,
+    *,
+    cases: list[BlindCase],
+) -> Path | None:
+    """Validate a Strategy-only screen before any provider or registry starts."""
+
+    if not str(value or "").strip():
+        return None
+    if len(cases) != 1:
+        raise ValueError("strategy_portfolio_seed_requires_one_selected_case")
+    path = _optional_file(value, "strategy_portfolio_seed")
+    if path is None:
+        raise ValueError("strategy_portfolio_seed_missing")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("strategy_portfolio_seed_json_invalid") from exc
+    if not isinstance(payload, Mapping):
+        raise ValueError("strategy_portfolio_seed_object_required")
+    seed_target = str(
+        payload.get("canonical_target_smiles")
+        or payload.get("target_smiles")
+        or ""
+    ).strip()
+    if not seed_target or canonical_smiles(seed_target) != cases[0].target_smiles:
+        raise ValueError("strategy_portfolio_seed_target_mismatch")
+    raw_cards = payload.get("reviewed_cards") or payload.get("strategy_cards") or []
+    required = ("strategy_query", "critical_assumption", "critic_checkpoint")
+    if (
+        not isinstance(raw_cards, list)
+        or len(raw_cards) != 3
+        or any(
+            not isinstance(card, Mapping)
+            or any(not str(card.get(field) or "").strip() for field in required)
+            for card in raw_cards
+        )
+    ):
+        raise ValueError("strategy_portfolio_seed_requires_three_reviewed_cards")
+    return path
 
 
 def _summarize_report(

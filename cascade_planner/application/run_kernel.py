@@ -478,6 +478,70 @@ class RunState:
         return row
 
 
+def project_observed_model_totals(
+    state: RunState | Mapping[str, Any],
+) -> dict[str, int | float | bool]:
+    """Add latest in-flight measurements without changing budget authority.
+
+    ``model_totals`` contains settled usage only. A resumable task may have
+    already completed many durable child calls, so its latest task checkpoint
+    is included in this read-only projection until the final settlement moves
+    that cumulative usage into ``model_totals``.
+    """
+
+    row = state.to_dict() if isinstance(state, RunState) else dict(state)
+    settled = dict(row.get("model_totals") or {})
+    projected: dict[str, int | float | bool] = {
+        "model_invocations": int(settled.get("model_invocations") or 0),
+        "visual_invocations": int(settled.get("visual_invocations") or 0),
+        "input_tokens": int(settled.get("input_tokens") or 0),
+        "cached_input_tokens": int(settled.get("cached_input_tokens") or 0),
+        "output_tokens": int(settled.get("output_tokens") or 0),
+        "reasoning_output_tokens": int(
+            settled.get("reasoning_output_tokens") or 0
+        ),
+        "wall_time_s": float(settled.get("wall_time_s") or 0.0),
+    }
+    active_task_ids = {
+        str(task_id) for task_id in dict(row.get("in_flight_tasks") or {})
+    }
+    observed_checkpoint_count = 0
+    for task_id, raw_checkpoints in dict(row.get("task_checkpoints") or {}).items():
+        if str(task_id) not in active_task_ids:
+            continue
+        checkpoints = [
+            dict(value)
+            for value in raw_checkpoints or []
+            if isinstance(value, Mapping)
+        ]
+        if not checkpoints:
+            continue
+        usage = dict(
+            dict(checkpoints[-1].get("metadata") or {}).get("model_usage") or {}
+        )
+        if not usage:
+            continue
+        observed_checkpoint_count += 1
+        for key in (
+            "model_invocations",
+            "visual_invocations",
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+        ):
+            projected[key] = int(projected.get(key) or 0) + max(
+                0, int(usage.get(key) or 0)
+            )
+        projected["wall_time_s"] = float(projected.get("wall_time_s") or 0.0) + max(
+            0.0, float(usage.get("wall_time_s") or 0.0)
+        )
+    if observed_checkpoint_count:
+        projected["in_flight_checkpoint_count"] = observed_checkpoint_count
+        projected["includes_unsettled_checkpoint_observations"] = True
+    return projected
+
+
 @dataclass(frozen=True, slots=True)
 class RunRevision:
     """Immutable public projection of one kernel revision."""
@@ -2682,4 +2746,5 @@ __all__ = [
     "RunSpec",
     "RunState",
     "StopDecision",
+    "project_observed_model_totals",
 ]

@@ -920,16 +920,9 @@ class SequentialStrategyDirectorRunner:
         if provider_runtime_failure:
             usage["provider_runtime_failure"] = provider_runtime_failure
             usage["provider_runtime_failure_did_not_consume_semantic_budget"] = True
-            return _agent_result(
-                spec,
-                state=AgentState.FAILED,
-                output=None,
-                usage=usage,
-                error=(
-                    "model_provider_unavailable:"
-                    + str(provider_runtime_failure.get("reason") or "provider_unavailable")
-                ),
-                mode=mode,
+            usage["resume_required_task_ids"] = list(
+                provider_runtime_failure.get("resume_required_task_ids")
+                or [provider_runtime_failure.get("task_id")]
             )
         if self.cancel_event is not None and self.cancel_event.is_set():
             return _agent_result(
@@ -1020,7 +1013,7 @@ class SequentialStrategyDirectorRunner:
             # Critiques.  If every branch is unusable, the ordinary no-usable
             # result below still fails the Director with the causal reasons.
             usage["paper_policy_partial_branch_failure"] = True
-        if not usable:
+        if not usable and not provider_runtime_failure:
             rejection_reasons = sorted(
                 {
                     str(item.get("reason") or "")
@@ -1054,6 +1047,25 @@ class SequentialStrategyDirectorRunner:
             branches=plan_branches,
             requested_branch_count=config.strategy_branch_count,
         )
+        if provider_runtime_failure:
+            # A transient provider outage is an operational pause, not a
+            # scientific rollback. Every completed worker record is already
+            # fsync'd by stable task id; returning the deterministic Host
+            # projection lets the outer Kernel checkpoint the recoverable
+            # prefix while keeping the Director reservation in flight. A
+            # resume rebuilds this state from the journal and calls only tasks
+            # whose successful record is absent.
+            return _agent_result(
+                spec,
+                state=AgentState.FAILED,
+                output=plan,
+                usage=usage,
+                error=(
+                    "model_provider_unavailable:"
+                    + str(provider_runtime_failure.get("reason") or "provider_unavailable")
+                ),
+                mode=mode,
+            )
         return _agent_result(
             spec,
             state=AgentState.SUCCEEDED,
@@ -1319,15 +1331,35 @@ class SequentialStrategyDirectorRunner:
         task_id: str,
         task_type: str,
     ) -> dict[str, Any]:
+        failure = {
+            "reason": str(reason or "provider_unavailable"),
+            "task_id": str(task_id or ""),
+            "task_type": str(task_type or ""),
+            "retryable_after_external_recovery": True,
+            "semantic_budget_consumed": False,
+        }
         with self._provider_failure_lock:
             if not self._provider_runtime_failure:
-                self._provider_runtime_failure = {
-                    "reason": str(reason or "provider_unavailable"),
-                    "task_id": str(task_id or ""),
-                    "task_type": str(task_type or ""),
-                    "retryable_after_external_recovery": True,
-                    "semantic_budget_consumed": False,
+                self._provider_runtime_failure = dict(failure)
+            failures = [
+                dict(row)
+                for row in self._provider_runtime_failure.get("failures") or []
+                if isinstance(row, Mapping)
+            ]
+            failure_key = (failure["task_id"], failure["reason"])
+            if failure_key not in {
+                (str(row.get("task_id") or ""), str(row.get("reason") or ""))
+                for row in failures
+            }:
+                failures.append(failure)
+            self._provider_runtime_failure["failures"] = failures
+            self._provider_runtime_failure["resume_required_task_ids"] = sorted(
+                {
+                    str(row.get("task_id") or "")
+                    for row in failures
+                    if str(row.get("task_id") or "")
                 }
+            )
             return dict(self._provider_runtime_failure)
 
     def _provider_runtime_failure_snapshot(self) -> dict[str, Any]:
@@ -3241,6 +3273,8 @@ class SequentialStrategyDirectorRunner:
                 "lens": branch_mandates[branch_index % len(branch_mandates)],
                 "strategy_mandate": branch_mandates[branch_index % len(branch_mandates)],
                 "strategy_seed": "",
+                "strategy_seed_source": "generated",
+                "strategy_seed_sha256": "",
                 "steps": [],
                 "open_leaves": deque([target]),
                 "open_leaf_states": deque([{"smiles": target, "mapped_smiles": mapped_target}]),
@@ -3275,6 +3309,45 @@ class SequentialStrategyDirectorRunner:
             for branch_index in range(config.strategy_branch_count)
         ]
         records: list[WorkerRunRecord] = []
+
+        # A Strategy-only screen may explicitly promote its reviewed
+        # three-card portfolio into route construction.  The file is loaded,
+        # target-bound and content-addressed by the host CLI; the model sees
+        # only the same compact StrategyCard fields it would have authored in
+        # this run.  This path skips duplicate Strategy generation/review but
+        # retains every Builder, key-event Critic, Editor and Host gate.
+        promoted_portfolio = bool(config.reviewed_strategy_portfolio)
+        if promoted_portfolio:
+            accepted_cards: list[dict[str, Any]] = []
+            for branch, raw_card in zip(
+                branches,
+                config.reviewed_strategy_portfolio,
+                strict=True,
+            ):
+                card = normalize_strategy_card(
+                    _paper_matched_strategy_card_payload(raw_card)
+                )
+                if (
+                    not _valid_strategy_card(card)
+                    or not _strategy_card_bonds_match_target(
+                        card,
+                        target_smiles=target,
+                        mapped_target_smiles=mapped_target,
+                    )
+                    or _strategy_conflicts(card, accepted_cards)
+                ):
+                    raise ValueError("reviewed strategy portfolio promotion is invalid")
+                accepted_cards.append(card)
+                branch["strategy_card"] = card
+                branch["root_strategy_card"] = dict(card)
+                branch["strategy_seed"] = _strategy_title_from_card(card)
+                branch["strategy_seed_source"] = "reviewed_strategy_screen"
+                branch["strategy_seed_sha256"] = str(
+                    config.reviewed_strategy_portfolio_sha256
+                )
+                branch["lens"] = "Reviewed strategy - " + str(
+                    branch["strategy_seed"]
+                )
 
         # Preserve only one mandatory final Critic for each seeded paper
         # branch. Key-event Critics run for every replayed candidate that
@@ -3321,10 +3394,14 @@ class SequentialStrategyDirectorRunner:
         # Route Builder boundary below.  A graph-edit failure must therefore
         # never erase an already selected strategic hypothesis.
         paper_portfolio_attempted = bool(config.paper_matched_reach_profile and len(branches) == 3)
-        if paper_portfolio_attempted and _node_budget_allows(
+        if (
+            paper_portfolio_attempted
+            and not promoted_portfolio
+            and _node_budget_allows(
             records,
             started=started,
             quota=route_quota,
+            )
         ):
             self._seed_paper_strategy_portfolio(
                 spec,
@@ -3340,7 +3417,8 @@ class SequentialStrategyDirectorRunner:
             if self._provider_runtime_failure_snapshot():
                 return branches, records
             if (
-                config.enable_strategy_portfolio_critic
+                not promoted_portfolio
+                and config.enable_strategy_portfolio_critic
                 and all(branch.get("strategy_card") for branch in branches)
                 and _node_budget_allows(
                     records,
@@ -6882,6 +6960,8 @@ def _public_branch(branch: Mapping[str, Any]) -> dict[str, Any]:
         "branch_index": int(branch.get("branch_index") or 0),
         "lens": str(branch.get("lens") or ""),
         "strategy_seed": str(branch.get("strategy_seed") or ""),
+        "strategy_seed_source": str(branch.get("strategy_seed_source") or "generated"),
+        "strategy_seed_sha256": str(branch.get("strategy_seed_sha256") or ""),
         "strategy_tree_engine": str(branch.get("strategy_tree_engine") or "chemenzy_best_first"),
         "strategy_card": dict(branch.get("strategy_card") or {}),
         "root_strategy_card": dict(
@@ -7217,17 +7297,25 @@ def _structure_profile(smiles: str) -> dict[str, Any]:
 
 
 def _target_topology_profile(smiles: str) -> dict[str, Any]:
-    """Return only deterministic scaffold facts useful to Strategy workers."""
+    """Return graph-derived topology aids without inventing scaffold names.
+
+    RDKit exposes a cycle basis, not the ordered ring-system notation used by
+    synthetic chemists.  Keep the basis explicitly unordered and report only
+    actual ring junctions so Strategy workers cannot turn a sorted size list
+    into a false ``A/B/C/D`` scaffold assignment.
+    """
 
     molecule = Chem.MolFromSmiles(smiles)
     if molecule is None:
         return {}
     rings = [set(ring) for ring in molecule.GetRingInfo().AtomRings()]
-    pair_counts: Counter[tuple[tuple[int, int], int]] = Counter()
+    junction_counts: Counter[tuple[tuple[int, int], int]] = Counter()
     for left_index, left in enumerate(rings):
         for right in rings[left_index + 1 :]:
-            ring_sizes = tuple(sorted((len(left), len(right))))
-            pair_counts[(ring_sizes, len(left & right))] += 1
+            shared_atom_count = len(left & right)
+            if shared_atom_count:
+                cycle_basis_sizes = tuple(sorted((len(left), len(right))))
+                junction_counts[(cycle_basis_sizes, shared_atom_count)] += 1
     ring_neighbors: dict[int, set[int]] = {index: set() for index in range(len(rings))}
     for left_index, left in enumerate(rings):
         for right_index in range(left_index + 1, len(rings)):
@@ -7255,8 +7343,10 @@ def _target_topology_profile(smiles: str) -> dict[str, Any]:
         ]
         ring_systems.append(
             {
-                "ring_count": len(system_rings),
-                "ring_sizes": sorted(len(ring) for ring in system_rings),
+                "cycle_rank": len(system_rings),
+                "cycle_basis_sizes_unordered": sorted(
+                    len(ring) for ring in system_rings
+                ),
                 "atom_count": len(set().union(*system_rings)),
                 "fused_pair_count": sum(value == 2 for value in overlaps),
                 "spiro_pair_count": sum(value == 1 for value in overlaps),
@@ -7265,21 +7355,24 @@ def _target_topology_profile(smiles: str) -> dict[str, Any]:
         )
     ring_systems.sort(
         key=lambda row: (
-            -int(row["ring_count"]),
+            -int(row["cycle_rank"]),
             -int(row["atom_count"]),
-            tuple(row["ring_sizes"]),
+            tuple(row["cycle_basis_sizes_unordered"]),
         )
     )
     return {
-        "ring_sizes": sorted(len(ring) for ring in rings),
+        "cycle_rank": len(rings),
+        "cycle_basis_sizes_unordered": sorted(len(ring) for ring in rings),
         "ring_systems": ring_systems,
-        "ring_pair_topology": [
+        "ring_junction_topology": [
             {
-                "ring_sizes": list(ring_sizes),
+                "cycle_basis_sizes_unordered": list(cycle_basis_sizes),
                 "shared_atom_count": shared_atom_count,
                 "pair_count": pair_count,
             }
-            for (ring_sizes, shared_atom_count), pair_count in sorted(pair_counts.items())
+            for (cycle_basis_sizes, shared_atom_count), pair_count in sorted(
+                junction_counts.items()
+            )
         ],
     }
 
@@ -7460,7 +7553,7 @@ def _paper_strategy_portfolio_prompt(*, target: str, enhanced: bool = True) -> s
         [
             "Act as the paper-matched Strategy Generator and create exactly three independent high-level strategies in this single call.",
             "Internally generate more than three possibilities, compare and attack their weakest chemical assumptions across the paper's four dimensions: scaffold/backbone, one or two key forward reactions, functional-group/protection compatibility, and stereochemical construction or control. Return only the three survivors; do not expose the internal debate.",
-            "Use target_topology_profile.ring_systems to identify the principal ring system. For a fused, bridged, spiro, or otherwise complex polycyclic target, every surviving card must say how that principal scaffold/backbone is constructed, reorganized, or inherited from a specifically simpler scaffold. Installing only a side chain or peripheral ring while silently assuming the same complex core is already available is a late-stage tactic, not a complete Strategy card.",
+            "Use target_topology_profile.ring_systems only as a graph-derived aid for identifying the principal connected ring system. cycle_basis_sizes_unordered is an unordered, non-unique cycle basis, not a chemist's ordered A/B/C/D ring assignment; never rewrite that sorted list as an ordered x/y/z scaffold name. Infer the actual scaffold from campaign_target. For a fused, bridged, spiro, or otherwise complex polycyclic target, every surviving card must say how that principal scaffold/backbone is constructed, reorganized, or inherited from a specifically simpler scaffold. Installing only a side chain or peripheral ring while silently assuming the same complex core is already available is a late-stage tactic, not a complete Strategy card.",
             "For each card, output one strategy_query sentence, one critical_assumption sentence, and one critic_checkpoint sentence. strategy_query identifies the current route horizon: the high-level principal-scaffold construction logic, the reactive-handle motif that enables its first decisive event, and the main stereochemical or functional-group control. It need not enumerate the complete route or every ring closure. critical_assumption names the make-or-break chemical claim. critic_checkpoint is the earliest non-substitutable graph transformation that directly tests that assumption; a downstream event that could succeed while the assumption remains false, or a preparatory handle installation/unmasking, is not a valid checkpoint.",
             "Keep each horizon operational: any proposed multi-bond construction must name a consumable reactive-handle motif and a credible source of regio-, termination-, and stereochemical control. Do not hide several unsupported C-H bond formations or independent reactions inside one named cascade.",
             "The three strategy_query values must differ materially in the principal scaffold's skeletal construction or reorganization and key transformation logic, not merely in a peripheral appendage, reagents, or labels. Do not let all three cards inherit the same unexplained complex core.",
@@ -7506,7 +7599,7 @@ def _paper_strategy_portfolio_critic_prompt(
     return "\n".join(
         [
             "Act as the independent Strategy Critic for one three-card portfolio before Route Builder search begins.",
-            "Use target_topology_profile as deterministic scaffold fact. ring_pair_topology states how many atom pairs rings share, while ring_systems identifies connected principal ring systems; never infer a fused or spiro relationship from ring_sizes alone. Challenge whether each named key construction can plausibly account for the target's backbone and stereochemical burden, whether the stated reactive-handle motif is sufficient at a high level, and whether critical_assumption identifies the real make-or-break claim. Require critic_checkpoint to be the earliest non-substitutable graph transformation that directly tests that claim; reject a downstream event that could occur even if the critical assumption or an earlier required key construction never occurred.",
+            "Use target_topology_profile only as a graph-derived topology aid. ring_junction_topology reports actual shared-atom junctions and ring_systems identifies connected ring systems. cycle_basis_sizes_unordered is an unordered, non-unique cycle basis, not a chemist's ordered A/B/C/D ring assignment; never rewrite the sorted values as an ordered x/y/z scaffold name or infer fused/spiro relationships from them alone. Infer the actual scaffold from campaign_target. Challenge whether each named key construction can plausibly account for the target's backbone and stereochemical burden, whether the stated reactive-handle motif is sufficient at a high level, and whether critical_assumption identifies the real make-or-break claim. Require critic_checkpoint to be the earliest non-substitutable graph transformation that directly tests that claim; reject a downstream event that could occur even if the critical assumption or an earlier required key construction never occurred.",
             "Reject or minimally revise a horizon whose claimed multi-bond event lacks consumable reactive handles, whose regio-, termination-, or stereochemical control is only an adjective, or which hides several unsupported C-H bond formations or independent reactions inside one cascade label.",
             "Review the three cards as a portfolio. For a complex polycyclic target, three cards that install different peripheral groups but all assume the same unexplained principal core are one redundant strategy family and must be replaced with materially different core-construction or core-reorganization logics. Keep useful directions, but do not turn a strategy into a complete route or a required-map checklist.",
             "Copy every acceptable card verbatim when it is chemically and portfolio-level acceptable. A specific chemical contradiction, a non-testing checkpoint, peripheral-only scope, or a shared unexplained complex core is sufficient reason to revise or replace a card; preserve every unchallenged reactive-handle identity, protection or masking requirement, tether or precursor geometry clause, stereochemical-control clause, and sequencing constraint; never paraphrase merely for brevity or style.",

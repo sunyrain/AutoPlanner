@@ -9,6 +9,7 @@ from threading import Event, RLock
 import time
 from typing import Any, Callable, Mapping
 
+from cascade_planner.application.run_kernel import project_observed_model_totals
 from cascade_planner.interfaces.campaign_action_timeline import (
     compile_campaign_action_timeline,
 )
@@ -51,6 +52,7 @@ def run_target_job(
     started = time.monotonic()
     continuation_pass_count = 0
     compact: dict[str, Any] = {}
+    runtime_pause = False
     gateway: CampaignGateway | None = None
     with lock:
         if (
@@ -81,6 +83,7 @@ def run_target_job(
                 else solve_target_request(gateway, request_payload)
             )
             compact = _compact_solve_result(result)
+            runtime_pause = _target_result_runtime_pause(result)
             if cancel_event is not None and cancel_event.is_set():
                 raise TargetSolveCancelled("target_solve_cancelled_by_user")
             accepted = compact.get("accepted") is True
@@ -93,6 +96,7 @@ def run_target_job(
                 and _bool(payload, "auto_continue", True)
                 and stop.get("decision") == "paused"
                 and stop.get("terminal") is not True
+                and not runtime_pause
             )
             if not should_continue:
                 break
@@ -107,8 +111,20 @@ def run_target_job(
                     continuation_pass_count=continuation_pass_count,
                 )
             request_payload = {**payload, "resume": True}
-        status, error = ("complete" if objective_achieved else "unresolved"), ""
-        phase = "complete" if objective_achieved else "unresolved"
+        status, error = (
+            "paused"
+            if runtime_pause
+            else "complete"
+            if objective_achieved
+            else "unresolved"
+        ), ""
+        phase = (
+            "runtime_unavailable"
+            if runtime_pause
+            else "complete"
+            if objective_achieved
+            else "unresolved"
+        )
     except TargetSolveCancelled:
         with lock:
             cancellation_reason = str(
@@ -148,6 +164,7 @@ def run_target_job(
         jobs[job_id].update(
             status=status,
             phase=phase,
+            runtime_pause=runtime_pause,
             finished_at=utc_now(),
             updated_at=utc_now(),
             elapsed_s=elapsed,
@@ -156,6 +173,20 @@ def run_target_job(
             continuation_pass_count=continuation_pass_count,
             **terminal_fields,
         )
+
+
+def _target_result_runtime_pause(result: Mapping[str, Any]) -> bool:
+    if result.get("runtime_pause") is True:
+        return True
+    return any(
+        isinstance(row, Mapping)
+        and (
+            row.get("runtime_pause") is True
+            or row.get("runtime_unavailable") is True
+            or str(row.get("status") or "") == "runtime_unavailable"
+        )
+        for row in result.get("director_outcomes") or ()
+    )
 
 
 def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[str, Any]:
@@ -173,7 +204,9 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         "action_timeline": compile_campaign_action_timeline(()),
         "delivery": _delivery_projection([], job_status=str(job.get("status") or "")),
     }
-    if job_status in {"paused", "historical"}:
+    if job_status == "historical" or (
+        job_status == "paused" and job.get("runtime_pause") is not True
+    ):
         persisted_progress = job.get("progress")
         if isinstance(persisted_progress, Mapping):
             result.update(dict(persisted_progress))
@@ -211,7 +244,9 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
     campaign_decision = str(stop_decision.get("decision") or campaign_status)
     execution_active = bool(execution_active and not campaign_terminal)
     cancellation_available = bool(
-        job.get("cancellation_available") is not False and not campaign_terminal
+        job.get("cancellation_available") is not False
+        and not campaign_terminal
+        and job_status != "paused"
     )
     portfolio = dict(status.get("portfolio") or {})
     frontier = [
@@ -231,7 +266,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         evidence_revision=int(status.get("evidence_revision") or 0),
         attempt_count=int(status.get("attempt_count") or 0),
         accepted_expansion_count=int(status.get("accepted_expansion_count") or 0),
-        model_cost=dict(status.get("model_totals") or {}),
+        model_cost=_model_cost_with_in_flight_checkpoints(status),
         frontier_counts=frontier_counts,
         next_deficit_id=str(
             dict(status.get("stop_decision") or {}).get("next_deficit_id") or ""
@@ -268,6 +303,43 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
                 for row in timeline_stages
             ]
             result["stages"] = stages
+            recoverable_outcomes = [
+                dict(row)
+                for row in value.get("director_outcomes") or []
+                if isinstance(row, Mapping)
+                and str(row.get("status") or "") == "runtime_unavailable"
+                and isinstance(row.get("plan"), Mapping)
+            ]
+            if recoverable_outcomes:
+                recoverable = recoverable_outcomes[-1]
+                partial_plan = dict(recoverable.get("plan") or {})
+                partial_skeleton_count = len(
+                    partial_plan.get("multi_step_skeletons") or []
+                )
+                partial_family_count = len(
+                    partial_plan.get("route_families") or []
+                )
+                projected_portfolio = dict(result.get("portfolio") or {})
+                projected_portfolio["route_count"] = max(
+                    int(projected_portfolio.get("route_count") or 0),
+                    partial_skeleton_count,
+                )
+                result["portfolio"] = projected_portfolio
+                result["recoverable_director_prefix"] = {
+                    "available": True,
+                    "route_family_count": partial_family_count,
+                    "route_skeleton_count": partial_skeleton_count,
+                    "resume_required_task_ids": list(
+                        recoverable.get("resume_required_task_ids") or []
+                    ),
+                    "artifact_sha256": str(
+                        recoverable.get("artifact_sha256") or ""
+                    ),
+                    "semantics": {
+                        "route_count_is_not_canonical_admission": True,
+                        "resume_replays_completed_worker_records": True,
+                    },
+                }
             if stages:
                 result["phase"] = stages[-1]["stage"]
             initial = next(
@@ -368,6 +440,19 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
     )
     result["delivery"] = delivery
     return result
+
+
+def _model_cost_with_in_flight_checkpoints(
+    status: Mapping[str, Any],
+) -> dict[str, int | float | bool]:
+    """Project measured paused work without charging it twice.
+
+    Settled usage remains authoritative in ``model_totals``. A recoverable
+    Director keeps its task in flight, so its latest Kernel checkpoint is the
+    only honest live observation until final settlement replaces it.
+    """
+
+    return project_observed_model_totals(status)
 
 
 def _stage_progress_metrics(row: Mapping[str, Any]) -> dict[str, int | float]:

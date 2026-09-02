@@ -42,11 +42,13 @@ from cascade_planner.agent.codex_worker import (
     _codex_cli_command,
     _configure_strict_chemistry_worker_environment,
     _codex_worker_prompt,
+    _materialize_paper_matched_artifact,
     _normalize_reversible_utf8_mojibake,
     _run_codex_cli_worker,
     _run_worker_command,
     _worker_model_output_json_schema,
     _worker_output_json_schema,
+    preflight_worker_response_schemas,
     _task_allows_cli_search,
     _task_reasoning_effort,
     run_codex_worker,
@@ -219,6 +221,7 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertTrue(
             all("atomic_num" not in variant["properties"] for variant in operation_union)
         )
+
         add_group_variants = [
             variant
             for variant in operation_union
@@ -283,6 +286,75 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             "properties"
         ]["revised_steps"]["items"]["properties"]["reaction_operations"]
         self.assertNotIn("maxItems", editor_operations)
+
+    def test_literature_strategy_match_evaluator_has_compact_provider_schema(self):
+        task = WorkerTask(
+            task_id="literature-evaluator:target-slot-1:1",
+            case_id="opaque-evaluator-case",
+            task_type="literature_strategy_match_evaluator",
+            required_artifact_type="LiteratureStrategyMatchReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=None),
+            host_context={"target_slot_id": "target-slot-1"},
+        )
+
+        preflight_worker_response_schemas([task])
+        schema = _worker_model_output_json_schema(task)
+
+        self.assertEqual(
+            set(schema["properties"]),
+            {
+                "schema_version",
+                "case_id",
+                "target_slot_id",
+                "comparability",
+                "paper_strategy_summary",
+                "paper_key_transformations",
+                "paper_strategy_classes",
+                "card_assessments",
+                "confidence",
+                "evidence_locator_refs",
+                "limitations",
+                "provisional_automated_evaluation",
+            },
+        )
+        self.assertEqual(schema["properties"]["card_assessments"]["minItems"], 3)
+        self.assertEqual(schema["properties"]["card_assessments"]["maxItems"], 3)
+        self.assertNotIn("overall_match", schema["properties"])
+        self.assertNotIn("best_card_index", schema["properties"])
+
+        raw = {
+            "schema_version": "literature_strategy_match_report.v1",
+            "case_id": task.case_id,
+            "target_slot_id": "target-slot-1",
+            "comparability": "comparable",
+            "paper_strategy_summary": "A route-defining annulation.",
+            "paper_key_transformations": ["annulation"],
+            "paper_strategy_classes": ["annulation_or_cyclization"],
+            "card_assessments": [
+                {
+                    "card_index": index,
+                    "match_level": "none",
+                    "matched_elements": [],
+                    "missing_or_conflicting_elements": ["different key event"],
+                    "rationale": "The scaffold construction differs.",
+                }
+                for index in (1, 2, 3)
+            ],
+            "confidence": "high",
+            "evidence_locator_refs": ["passage-1"],
+            "limitations": [],
+            "provisional_automated_evaluation": True,
+        }
+        artifact = _materialize_paper_matched_artifact(
+            task,
+            raw,
+            backend="codex_cli",
+        )
+
+        self.assertEqual(artifact["artifact_type"], "LiteratureStrategyMatchReport")
+        self.assertEqual(artifact["payload"], raw)
 
     def test_path_repair_editor_wire_has_no_route_or_graph_edits(self):
         task = WorkerTask(

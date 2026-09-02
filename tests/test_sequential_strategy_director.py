@@ -664,7 +664,7 @@ def test_paper_matched_strategy_prompt_builds_a_diverse_four_point_portfolio() -
     assert "one critic_checkpoint sentence" in prompt
     assert "compare and attack their weakest chemical assumptions" in prompt
     assert "skeletal construction or reorganization" in prompt
-    assert "principal ring system" in prompt
+    assert "principal connected ring system" in prompt
     assert "same unexplained complex core" in prompt
     assert "It need not enumerate the complete route or every ring closure" in prompt
     assert "chiral-pool" in prompt
@@ -675,7 +675,8 @@ def test_paper_matched_strategy_prompt_builds_a_diverse_four_point_portfolio() -
     assert "unsupported C-H bond formations" in prompt
     assert "Do not output atom-map pairs" in prompt
     assert "mechanistic essay" in prompt
-    assert '"ring_sizes":[5]' in prompt
+    assert '"cycle_basis_sizes_unordered":[5]' in prompt
+    assert "not a chemist's ordered A/B/C/D ring assignment" in prompt
     assert "earliest non-substitutable graph transformation" in prompt
     assert "campaign_target_mapped" not in prompt
     assert "execution_domain=chemical" not in prompt
@@ -702,11 +703,13 @@ def test_strategy_topology_profile_distinguishes_ring_sizes_from_fusion() -> Non
     )
 
     for prompt in (generator_prompt, critic_prompt):
-        assert '"ring_sizes":[5,5,8]' in prompt
+        assert '"cycle_basis_sizes_unordered":[5,5,8]' in prompt
         assert '"ring_systems":[' in prompt
-        assert '"pair_count":1,"ring_sizes":[5,5],"shared_atom_count":0' in prompt
-        assert '"pair_count":2,"ring_sizes":[5,8],"shared_atom_count":2' in prompt
-    assert "never infer a fused or spiro relationship from ring_sizes alone" in (critic_prompt)
+        assert '"pair_count":2,"shared_atom_count":2' in prompt
+        assert '"shared_atom_count":0' not in prompt
+    assert "never rewrite the sorted values as an ordered x/y/z scaffold name" in (
+        critic_prompt
+    )
     assert "shared unexplained complex core" in critic_prompt
     assert "Do not make an acceptable card more specific" in critic_prompt
     assert "named downstream reaction" in critic_prompt
@@ -10454,6 +10457,145 @@ def test_worker_journal_resume_reruns_provider_error_record(tmp_path) -> None:
     assert calls == ["provider_error", "completed"]
     assert result.status == "accepted_draft"
     assert resumed._replayed_worker_record_count == 0
+
+
+def test_director_provider_pause_returns_partial_plan_and_replays_only_missing_tasks(
+    tmp_path,
+) -> None:
+    context = _context()
+    base_spec = _spec(context)
+    spec = replace(
+        base_spec,
+        metadata={
+            **dict(base_spec.metadata),
+            "allowed_workdir": str(tmp_path),
+            "durable_worker_journal": True,
+        },
+    )
+    config = DirectorConfig(
+        minimum_route_families=3,
+        max_route_families=6,
+        max_skeletons=6,
+        max_steps_per_skeleton=25,
+        planning_mode="sequential_branches",
+        strategy_branch_count=3,
+        max_node_expansions_per_branch=1,
+    )
+    provider_failed = False
+    calls: list[str] = []
+    critic_calls = 0
+
+    def executor(task: WorkerTask) -> WorkerRunRecord:
+        nonlocal critic_calls, provider_failed
+        calls.append(task.task_id)
+        if task.required_artifact_type == "ChemicalStrategyCritique":
+            critic_calls += 1
+            if critic_calls == 2 and not provider_failed:
+                provider_failed = True
+                return WorkerRunRecord(
+                    run_id=f"{task.task_id}:provider-error",
+                    task_id=task.task_id,
+                    case_id=task.case_id,
+                    status="provider_error",
+                    output_validation={
+                        "accepted": False,
+                        "reasons": ["provider_service_unavailable"],
+                    },
+                )
+            return _critic_record(task)
+        return _fake_executor(task)
+
+    interrupted = SequentialStrategyDirectorRunner(node_executor=executor)
+    first = interrupted(spec, context, "initial_architecture", config)
+
+    assert first.state is AgentState.FAILED
+    assert first.error == "model_provider_unavailable:provider_service_unavailable"
+    partial_plan = GlobalCampaignPlan.from_dict(first.output)
+    assert len(partial_plan.multi_step_skeletons) == 3
+    assert first.usage["model_invocations"] == 7
+    assert first.usage["provider_failure_count"] == 1
+    assert len(first.usage["resume_required_task_ids"]) == 1
+    failed_task_id = first.usage["resume_required_task_ids"][0]
+    first_call_ids = tuple(calls)
+    completed_task_ids = set(first_call_ids) - {failed_task_id}
+
+    resumed = SequentialStrategyDirectorRunner(node_executor=executor)
+    second = resumed(spec, context, "initial_architecture", config)
+    resumed_provider_calls = calls[len(first_call_ids) :]
+
+    assert second.state is AgentState.SUCCEEDED, second.error
+    assert second.usage["model_invocations"] == 9
+    assert second.usage["replayed_worker_record_count"] == len(completed_task_ids)
+    assert failed_task_id in resumed_provider_calls
+    assert completed_task_ids.isdisjoint(resumed_provider_calls)
+    assert len(resumed_provider_calls) == 2
+
+    clean_dir = tmp_path / "uninterrupted"
+    clean_dir.mkdir()
+    clean_spec = replace(
+        spec,
+        metadata={
+            **dict(spec.metadata),
+            "allowed_workdir": str(clean_dir),
+        },
+    )
+
+    def uninterrupted_executor(task: WorkerTask) -> WorkerRunRecord:
+        if task.required_artifact_type == "ChemicalStrategyCritique":
+            return _critic_record(task)
+        return _fake_executor(task)
+
+    uninterrupted = SequentialStrategyDirectorRunner(
+        node_executor=uninterrupted_executor
+    )(clean_spec, context, "initial_architecture", config)
+    assert uninterrupted.state is AgentState.SUCCEEDED
+    assert second.output == uninterrupted.output
+
+
+def test_worker_journal_replays_schema_rejection_as_completed_result(tmp_path) -> None:
+    context = _context()
+    base_spec = _spec(context)
+    spec = replace(
+        base_spec,
+        metadata={
+            **dict(base_spec.metadata),
+            "allowed_workdir": str(tmp_path),
+            "durable_worker_journal": True,
+        },
+    )
+    task = WorkerTask(
+        task_id="director:resume:branch:1:builder:schema-rejection",
+        case_id="case",
+        task_type="paper_matched_route_step",
+        required_artifact_type="RetrosynthesisProposalReport",
+        input_refs=[],
+        allowed_tools=[],
+        budget=WorkerBudget(reasoning_effort="medium"),
+        objective="stable invalid output",
+        allowed_workdir=str(tmp_path),
+    )
+    calls: list[str] = []
+
+    def rejected_executor(value: WorkerTask) -> WorkerRunRecord:
+        calls.append(value.task_id)
+        return WorkerRunRecord(
+            run_id=f"{value.task_id}:rejected",
+            task_id=value.task_id,
+            case_id=value.case_id,
+            status="rejected_output",
+            output_validation={"accepted": False, "reasons": ["schema_invalid"]},
+        )
+
+    first = SequentialStrategyDirectorRunner(node_executor=rejected_executor)
+    first._prepare_worker_record_journal(spec)
+    original = first._run_journaled_worker(rejected_executor, task)
+    resumed = SequentialStrategyDirectorRunner(node_executor=rejected_executor)
+    resumed._prepare_worker_record_journal(spec)
+    replayed = resumed._run_journaled_worker(rejected_executor, task)
+
+    assert original.status == replayed.status == "rejected_output"
+    assert calls == [task.task_id]
+    assert resumed._replayed_worker_record_count == 1
 
 
 def test_worker_journal_resume_reruns_legacy_capacity_failure_record(tmp_path) -> None:

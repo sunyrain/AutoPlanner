@@ -35,7 +35,11 @@ from cascade_planner.runtime.run_registry_catalog import (
 )
 from cascade_planner.web.v4_api import create_v4_blueprint
 from cascade_planner.web.v4_app import create_v4_app
-from cascade_planner.web.v4_target_runtime import historical_job
+from cascade_planner.web.v4_target_runtime import (
+    _model_cost_with_in_flight_checkpoints,
+    historical_job,
+    live_job_progress,
+)
 from cascade_planner.web.v4_target_runtime import run_target_job
 from cascade_planner.interfaces.target_delivery import delivery_projection
 
@@ -51,6 +55,123 @@ def _gateway(tmp_path: Path) -> CampaignGateway:
         },
     )
     return CampaignGateway(paths)
+
+
+def test_paused_director_progress_includes_latest_unsettled_kernel_checkpoint() -> None:
+    projected = _model_cost_with_in_flight_checkpoints(
+        {
+            "model_totals": {
+                "model_invocations": 2,
+                "input_tokens": 20,
+                "output_tokens": 5,
+            },
+            "in_flight_tasks": {
+                "director:one": {"kind": "model"},
+            },
+            "task_checkpoints": {
+                "director:one": [
+                    {
+                        "metadata": {
+                            "model_usage": {
+                                "model_invocations": 21,
+                                "input_tokens": 2_100,
+                                "output_tokens": 210,
+                            }
+                        }
+                    }
+                ],
+                # A settled task's historical checkpoint must not be added a
+                # second time after its usage entered model_totals.
+                "director:settled": [
+                    {"metadata": {"model_usage": {"model_invocations": 9}}}
+                ],
+            },
+        }
+    )
+
+    assert projected["model_invocations"] == 23
+    assert projected["input_tokens"] == 2_120
+    assert projected["output_tokens"] == 215
+    assert projected["in_flight_checkpoint_count"] == 1
+    assert projected["includes_unsettled_checkpoint_observations"] is True
+
+
+def test_paused_job_reads_recoverable_prefix_from_kernel_checkpoint(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "paused-run"
+    checkpoint = run_dir / ".autoplanner" / "target-solver-checkpoint.json"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "stages": [
+                    {
+                        "stage": "global_campaign",
+                        "status": "runtime_unavailable",
+                    }
+                ],
+                "director_outcomes": [
+                    {
+                        "status": "runtime_unavailable",
+                        "runtime_pause": True,
+                        "resume_required_task_ids": ["critic:branch:2"],
+                        "artifact_sha256": "checkpoint-sha",
+                        "plan": {
+                            "route_families": [{}, {}, {}],
+                            "multi_step_skeletons": [{}, {}, {}],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    job = {
+        "run_id": "paused-run",
+        "status": "paused",
+        "phase": "runtime_unavailable",
+        "runtime_pause": True,
+        "cancellation_available": True,
+        "_status_result": {
+            "run_dir": str(run_dir),
+            "status": {
+                "status": "paused",
+                "stop_decision": {"decision": "paused", "terminal": False},
+                "model_totals": {"model_invocations": 2},
+                "in_flight_tasks": {"director:one": {"kind": "model"}},
+                "task_checkpoints": {
+                    "director:one": [
+                        {
+                            "metadata": {
+                                "model_usage": {"model_invocations": 7}
+                            }
+                        }
+                    ]
+                },
+                "portfolio": {"selected_routes": []},
+                "frontier": [],
+            },
+        },
+    }
+
+    progress = live_job_progress(lambda: None, job)
+
+    assert progress["execution_active"] is False
+    assert progress["cancellation_available"] is False
+    assert progress["model_cost"]["model_invocations"] == 9
+    assert progress["portfolio"]["route_count"] == 3
+    assert progress["recoverable_director_prefix"] == {
+        "available": True,
+        "route_family_count": 3,
+        "route_skeleton_count": 3,
+        "resume_required_task_ids": ["critic:branch:2"],
+        "artifact_sha256": "checkpoint-sha",
+        "semantics": {
+            "route_count_is_not_canonical_admission": True,
+            "resume_replays_completed_worker_records": True,
+        },
+    }
 
 
 def _catalog_manifest(
@@ -2160,6 +2281,57 @@ def test_v4_async_job_automatically_resumes_a_bounded_unaccepted_pass() -> None:
     assert RecordingGateway.calls == [False, True]
     assert value["continuation_pass_count"] == 1
     assert value["result"]["accepted"] is True
+
+
+def test_v4_async_job_waits_for_explicit_resume_after_provider_pause() -> None:
+    class RecordingGateway:
+        calls: list[bool] = []
+
+        def solve_target(self, **kwargs):
+            self.calls.append(bool(kwargs["resume"]))
+            return {
+                "run_id": kwargs["run_id"],
+                "gates": {},
+                "claim": {"accepted_under_configured_policy": False},
+                "model_cost": {"model_invocations": 21},
+                "director_outcomes": [
+                    {
+                        "status": "runtime_unavailable",
+                        "runtime_unavailable": True,
+                        "runtime_pause": True,
+                        "resume_required_task_ids": ["critic:branch:2"],
+                    }
+                ],
+                "stop_decision": {
+                    "decision": "paused",
+                    "terminal": False,
+                },
+            }
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "provider pause", "target_smiles": "CCO"},
+    ).get_json()
+
+    for _ in range(100):
+        value = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+        if value["status"] == "paused":
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("async V4 job did not expose the provider pause")
+
+    assert RecordingGateway.calls == [False]
+    assert value["phase"] == "runtime_unavailable"
+    assert value["runtime_pause"] is True
+    assert value["continuation_pass_count"] == 0
+    assert value["result"]["model_cost"]["model_invocations"] == 21
 
 
 def test_v4_job_list_projects_the_live_checkpoint_stage(tmp_path: Path) -> None:

@@ -575,6 +575,7 @@ def _run_direct_visual_prompt(
     event_log = output_dir / event_log_filename
     stderr_log = output_dir / stderr_log_filename
     last_message = output_dir / last_message_filename
+    last_message.unlink(missing_ok=True)
     stderr_log.write_text("", encoding="utf-8")
     started = time.monotonic()
     errors: list[dict[str, Any]] = []
@@ -715,12 +716,29 @@ def _run_codex_visual_prompt(
         *executable_command,
         "--ask-for-approval",
         "never",
+        "--disable",
+        "apps",
+        "--disable",
+        "plugins",
+        "--disable",
+        "multi_agent",
+        "--disable",
+        "shell_tool",
+        "--disable",
+        "code_mode_host",
+        "--disable",
+        "browser_use",
+        "--disable",
+        "computer_use",
+        "--disable",
+        "in_app_browser",
         "exec",
+        "--ignore-rules",
         "--json",
         "--cd",
         str(output_dir),
         "--sandbox",
-        "workspace-write",
+        "read-only",
         "--color",
         "never",
         "--ephemeral",
@@ -886,6 +904,11 @@ def _codex_visual_infrastructure_failure(
     if "rate limit" in lowered or "rate_limit" in lowered:
         return {
             "reason": "codex_visual_rate_limited",
+            "retry_after_hint": "",
+        }
+    if "selected model is at capacity" in lowered or "model is at capacity" in lowered:
+        return {
+            "reason": "codex_visual_model_capacity",
             "retry_after_hint": "",
         }
     return {}

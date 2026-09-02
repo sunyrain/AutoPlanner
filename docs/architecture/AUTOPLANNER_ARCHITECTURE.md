@@ -1,6 +1,6 @@
 # AutoPlanner 架构总览
 
-更新：2026-08-31
+更新：2026-09-02
 
 状态：本文是当前架构的总入口。它只汇总已经存在的运行路径和明确标注的过渡/目标能力，
 不替代各组件合同，也不从设计文档反推实现完成。
@@ -15,7 +15,10 @@
 
 AutoPlanner 是一个由 **Canonical Host** 承载的 anytime 逆合成系统：模型和搜索器只提出
 候选，Host 负责编译真实结构、维护运行与预算、发布 canonical reaction graph、查询精确库存，
-再把结构闭合、化学验证、证据、条件和审查意见作为互不替代的轴输出。
+再把结构闭合、化学验证、证据、条件、专家路线价值和实验状态作为互不替代的轴输出。
+
+系统的科学目标是发现并保留 route-defining synthetic insight；库存闭合只说明叶节点状态，
+Host replay 只说明结构动作可执行，两者都不能替代关键反应可信度或合成学家的路线价值判断。
 
 当前只有一个生产架构：**Canonical Host + unified Action loop**。论文复现、增强型搜索和
 Program 研究只是同一宿主上的配置或尚未接管主线的研究能力，不能再当成多套版本架构。
@@ -33,6 +36,8 @@ Program 研究只是同一宿主上的配置或尚未接管主线的研究能力
    但不能输出 precursor 事实、库存、停止或 solved。
 5. `RouteJSONCompiler` 在当前 mapped boundary 上回放动作，派生真实 mapped/unmapped precursors、
    stereo 和 provenance。失败留在当前 leaf；成功动作才进入搜索树。
+   每个已完成 worker artifact 同时按稳定 task id 与完整 task-contract digest 写入 durable worker journal；
+   分支状态由这些有序记录和 Host compiler 确定性重建，不另存一份可漂移的 branch snapshot。
 6. 完整战略段经过 Critic/Editor 审查。full-route Editor 输出 dependency-closed `replace_span`；
    transactional Path Repair Editor 只给 rollback directive，Host 保留旧 suffix，Builder 只重建 rollback 到 blocker 的局部依赖路径，
    suffix 经 exact/唯一同构边界重接后全量回放。合格开放叶可交给绑定的 AiZ short-tail；provider
@@ -52,6 +57,13 @@ Program 研究只是同一宿主上的配置或尚未接管主线的研究能力
 `RunKernel`。未收到 measured settlement 的 reservation 会留在事件账本中并投影为 `interrupted`，用于
 保留迟到的真实 token、耗时和 provider receipt；它们在任何 terminal run 中都不属于 active work，
 网页和 Action 时间线不得据此显示“正在思考”。
+
+Provider 瞬时不可用使用同一条恢复链：失败的 worker record 不可重放；已经完成的 Strategy、Builder、
+Critic、Editor record 继续有效。Sequential Director 返回当前 Host-replayed prefix 和缺失 task ids；
+Global Director 只把它写成仍在 flight 的 RunKernel task checkpoint，不写正式 plan cache、不进入
+canonical ingestion，也不结算 Director。显式 resume 恢复原冻结 context，按 journal 重建各分支，并且
+只调用没有成功记录的 task。最终 settlement 一次性登记累计真实用量；暂停期间 report/Web 只把最新
+in-flight checkpoint 的测量值叠加到 settled totals 作观察投影，任务结算后不再叠加，因此不会重复计费。
 
 ## 3. 分层组件图
 
@@ -109,7 +121,7 @@ canonical admission + one hypergraph revision
 
 系统只允许四类运行决定拥有独立权威：
 
-1. **RunKernel**：run、task、attempt、恢复、取消、资源和 execution receipt；
+1. **RunKernel**：run、task、attempt、恢复、取消、资源、in-flight recovery checkpoint 和 execution receipt；
 2. **Canonical hypergraph**：分子 identity、mapped provenance、reaction edge、路线拓扑；
 3. **DeficitFrontier + CampaignActionRuntime**：当前还应做什么，以及下一项 Action；
 4. **Proof/stock/quality compilers**：在当前 revision 上计算路线闭合、最弱边/叶、库存和产品状态。
