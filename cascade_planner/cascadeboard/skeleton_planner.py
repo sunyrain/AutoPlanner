@@ -2,7 +2,7 @@
 
 New inference pipeline:
   1. Model generates route skeleton (type/EC/conditions per slot)
-  2. RetroChimera fills chemical steps, EnzExpand fills enzymatic steps
+  2. Available mainline proposal sources fill chemical and enzymatic steps
   3. Model diagnoses compatibility and issues
   4. User modifies constraints → regenerate (not patch)
 """
@@ -171,7 +171,7 @@ def fill_route_from_skeleton(
     n_routes: int = 1,
     constraints: dict[str, Any] | None = None,
 ) -> list[CascadeBoard]:
-    """Fill a route skeleton with concrete reactions using RetroChimera/EnzExpand.
+    """Fill a route skeleton with concrete reactions from available sources.
 
     When n_routes > 1, expands candidates slot-by-slot with a bounded beam
     rather than varying only the first disconnection and greedily filling the
@@ -637,7 +637,7 @@ def _fill_single_route(
                     pass
 
             if not filled and "retrochimera" in retro_engine:
-                # Chemical step or EnzExpand failed: use RetroChimera
+                # Chemical step or enzymatic proposal sources failed: use RetroChimera.
                 try:
                     cands = retro_engine["retrochimera"].predict(current_product, top_k=10)
                     if anchor:
@@ -670,10 +670,12 @@ def _predict_enzymatic_candidates(
     *,
     include_retrorules: bool = True,
 ) -> list[dict]:
-    """Return enzymatic candidates from the strongest available source."""
+    """Return enzymatic candidates from available active or replay sources."""
     candidates: list[dict] = []
     fetch_k = max(top_k * 3, top_k + 4, 12)
 
+    # Accepted for persisted-run replay and injected engines. The active live
+    # engine does not publish implementations for these historical providers.
     enzyformer = retro_engine.get("enzyformer")
     if enzyformer is not None:
         try:
@@ -682,7 +684,9 @@ def _predict_enzymatic_candidates(
             pass
 
     try:
-        from cascade_planner.cascadeboard.enz_retrieval import retrieve_enzymatic_reactions
+        from cascade_planner.route_tree.enzymatic_retrieval import (
+            retrieve_enzymatic_reactions,
+        )
         candidates.extend(
             retrieve_enzymatic_reactions(
                 product_smiles,
@@ -820,7 +824,7 @@ def plan_with_skeleton(
     """Skeleton-based planning pipeline.
 
     1. Generate skeleton (from model or pre-built)
-    2. Fill reactions with RetroChimera/EnzExpand (linear)
+    2. Fill reactions from the available proposal sources (linear)
     3. Diagnose compatibility
     4. Diagnostic-driven refinement for bottleneck slots
     """

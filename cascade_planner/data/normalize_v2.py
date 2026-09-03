@@ -5,9 +5,9 @@ Also emits a JSON quality report.
 
 Usage:
     python -m cascade_planner.data.normalize_v2 \
-        --in cascade_dataset_v2.json \
-        --out cascade_dataset_v2.normalized.json \
-        --report cascade_dataset_v2.quality.json
+        --in data_external/cascade/cascade_dataset_v2.json \
+        --out data_external/cascade/cascade_dataset_v2.normalized.json \
+        --report data_external/cascade/cascade_dataset_v2.quality.json
 """
 from __future__ import annotations
 

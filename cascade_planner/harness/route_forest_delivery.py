@@ -15,8 +15,14 @@ from typing import Any
 from cascade_planner.harness.route_forest_layout import (
     build_branch_lane_projection,
     build_dependency_layout_projection,
-    canonical_sha256,
 )
+from cascade_planner.harness.v4_program_overlay import (
+    program_overlay_integrity_reasons,
+)
+from cascade_planner.harness.v4_mechanism_hypothesis_overlay import (
+    mechanism_hypothesis_overlay_integrity_reasons,
+)
+from cascade_planner.runtime.canonical_json import canonical_json_sha256
 
 
 DELIVERY_SCHEMA_VERSION = "route_forest_delivery.v1"
@@ -179,11 +185,12 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
     payload: dict[str, Any] = {
         "schema_version": DELIVERY_SCHEMA_VERSION,
         "source_schema_version": str(source.get("schema_version") or ""),
-        "source_forest_sha256": canonical_sha256(source),
+        "source_forest_sha256": canonical_json_sha256(source),
         "case_id": str(source.get("case_id") or ""),
         "target": _copy_mapping(source.get("target")),
         "counts": _copy_mapping(source.get("counts")),
         "campaign_summary": _copy_mapping(source.get("campaign_summary")),
+        "route_closure": _copy_mapping(source.get("route_closure")),
         "primary_branch_id": str(source.get("primary_branch_id") or ""),
         "primary_selection": _copy_mapping(source.get("primary_selection")),
         "semantic_summary": _copy_mapping(source.get("semantic_summary")),
@@ -200,6 +207,8 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
         "branches": branches,
         "modules": _copy_list(source.get("modules")),
         "relationships": _copy_list(source.get("relationships")),
+        "program_overlays": _copy_list(source.get("program_overlays")),
+        "mechanism_hypotheses": _copy_list(source.get("mechanism_hypotheses")),
         "dependency_graph": graph,
         "dependency_layout": layout,
         "branch_lanes": lanes,
@@ -228,6 +237,12 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
             "dependency_trust": (
                 "reaction_step_id_joins_top_level_steps_for_trust_and_visual_encoding"
             ),
+            "program_overlays": (
+                "display_only_multi_edge_shadow_layer_with_canonical_fallback_retained"
+            ),
+            "mechanism_hypotheses": (
+                "display_only_one_hop_anchor_callouts_without_route_authority"
+            ),
             "array_adjacency": "never_creates_an_edge",
             "frontier_ledger": (
                 "digest_bound_fail_closed_closure_projection"
@@ -247,7 +262,7 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
             "embedded_json_escaping": "less_than_u2028_u2029_as_json_unicode_escape",
         },
     }
-    payload["delivery_sha256"] = canonical_sha256(payload)
+    payload["delivery_sha256"] = canonical_json_sha256(payload)
     payload["embedded_json_sha256"] = _sha256_text(_serialize_delivery_json(payload))
     return payload
 
@@ -290,6 +305,24 @@ def route_forest_delivery_integrity_reasons(
             scope="route_forest_delivery",
         )
     )
+    reasons.extend(
+        program_overlay_integrity_reasons(
+            payload.get("program_overlays"),
+            nodes=payload.get("nodes"),
+            steps=payload.get("steps"),
+            branches=payload.get("branches"),
+            scope="route_forest_delivery",
+        )
+    )
+    reasons.extend(
+        mechanism_hypothesis_overlay_integrity_reasons(
+            payload.get("mechanism_hypotheses"),
+            nodes=payload.get("nodes"),
+            steps=payload.get("steps"),
+            branches=payload.get("branches"),
+            scope="route_forest_delivery",
+        )
+    )
     if str(payload.get("schema_version") or "") != DELIVERY_SCHEMA_VERSION:
         reasons.append("invalid_route_forest_delivery_schema")
 
@@ -310,7 +343,7 @@ def route_forest_delivery_integrity_reasons(
     digest_payload.pop("embedded_json_sha256", None)
     delivery_mismatch = not _HEX_SHA256_PATTERN.fullmatch(expected_delivery)
     try:
-        delivery_mismatch = delivery_mismatch or expected_delivery != canonical_sha256(
+        delivery_mismatch = delivery_mismatch or expected_delivery != canonical_json_sha256(
             digest_payload
         )
     except (TypeError, ValueError):
@@ -342,7 +375,7 @@ def route_forest_delivery_integrity_reasons(
         expected_source = str(payload.get("source_forest_sha256") or "")
         source_mismatch = not _HEX_SHA256_PATTERN.fullmatch(expected_source)
         try:
-            source_mismatch = source_mismatch or expected_source != canonical_sha256(
+            source_mismatch = source_mismatch or expected_source != canonical_json_sha256(
                 source_forest
             )
         except (TypeError, ValueError):
@@ -431,6 +464,7 @@ def _route_forest_source_integrity_reasons(
                 "route_consensus",
                 "route_consensus_graph",
                 "route_portfolio_projection",
+                "route_closure",
                 "run_trace",
                 "selected_route_parent_proof",
                 "target",
@@ -441,6 +475,8 @@ def _route_forest_source_integrity_reasons(
                 "modules",
                 "nodes",
                 "relationships",
+                "program_overlays",
+                "mechanism_hypotheses",
                 "steps",
             ),
             string_fields=(
@@ -470,6 +506,24 @@ def _route_forest_source_integrity_reasons(
     reasons.extend(
         _replacement_validation_integrity_reasons(
             source.get("replacement_validation"),
+            steps=source.get("steps"),
+            branches=source.get("branches"),
+            scope="route_forest_source",
+        )
+    )
+    reasons.extend(
+        program_overlay_integrity_reasons(
+            source.get("program_overlays"),
+            nodes=source.get("nodes"),
+            steps=source.get("steps"),
+            branches=source.get("branches"),
+            scope="route_forest_source",
+        )
+    )
+    reasons.extend(
+        mechanism_hypothesis_overlay_integrity_reasons(
+            source.get("mechanism_hypotheses"),
+            nodes=source.get("nodes"),
             steps=source.get("steps"),
             branches=source.get("branches"),
             scope="route_forest_source",
@@ -509,6 +563,7 @@ def _route_forest_delivery_shape_reasons(
             "route_consensus",
             "route_consensus_graph",
             "route_portfolio_projection",
+            "route_closure",
             "run_trace",
             "selected_route_parent_proof",
             "source_revision_context",
@@ -520,6 +575,8 @@ def _route_forest_delivery_shape_reasons(
             "modules",
             "nodes",
             "relationships",
+            "program_overlays",
+            "mechanism_hypotheses",
             "steps",
         ),
         string_fields=(

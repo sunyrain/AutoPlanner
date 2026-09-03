@@ -1,0 +1,1034 @@
+{
+  "critic_status": "reject",
+  "figure_contract": {
+    "archetype": "schematic-led composite",
+    "backend": "python",
+    "core_conclusion": "The route closes the frozen stock boundary but remains a rejected reaction hypothesis.",
+    "status_channels_are_independent": true
+  },
+  "input_report": "D:\\Autoplanner\\canary_runs\\synthexfig1-001-aizmcts-paid-v2\\runs\\opaque case 9c1f431594a7\\target-only-solve-report.json",
+  "paper_equivalent_solved": true,
+  "reaction_validated": false,
+  "route_family_id": "codex:sequential:family:1",
+  "route_index": 0,
+  "run_id": "synthexfig1-001-9c1f431594a7",
+  "schema_version": "stock_closed_route_figure_source.v1",
+  "skeleton_id": "codex:sequential:skeleton:1",
+  "steps": [
+    {
+      "biocatalytic_design_deficits": [],
+      "biocatalytic_step": {},
+      "condition_predictions": [],
+      "execution_domain": "chemical",
+      "hypothesis_only": true,
+      "limitations": [
+        "The mapped edit program defines a valence-consistent pentapolyene precursor state but does not establish a practical initiation handle or acid-promoter system.",
+        "Folded-substrate conformation, cascade termination, alkene geometry, and all fused-junction stereochemical outcomes remain unvalidated.",
+        "Competing proton loss, alkene isomerization, rearrangement, and incomplete cyclization are substantial risks for this hydrocarbon-only cascade."
+      ],
+      "mapped_precursor_smiles": [
+        "[CH2:1]=[C:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH2:14][CH2:15]/[C:16]([CH3:17])=[CH:18]\\[CH2:19][CH3:20]"
+      ],
+      "mapped_product_smiles": "[CH2:1]=[C:2]([CH3:3])[C@H:4]1[CH2:5][CH2:6][C@:7]2([CH3:8])[CH2:9][C@@H:10]3[C@H:11]([CH3:12])[CH2:13][CH2:14][C@@H:15]3/[C:16]([CH3:17])=[CH:18]\\[CH2:19][CH:20]12",
+      "precursor_smiles": [
+        "C=C(C)C=CC=C(C)C=C[C@H](C)CCC/C(C)=C\\CC"
+      ],
+      "product_smiles": "C=C(C)[C@H]1CC[C@]2(C)C[C@@H]3[C@H](C)CC[C@@H]3/C(C)=C\\CC12",
+      "reaction_edit_digest": "79d64a08b1fa3e9ed93847e20fd03145cd73725b9d65cd23f1dfef82598a697e",
+      "reaction_operations": [
+        {
+          "map_a": 4,
+          "map_b": 20,
+          "op": "break_bond"
+        },
+        {
+          "map_a": 7,
+          "map_b": 20,
+          "op": "break_bond"
+        },
+        {
+          "map_a": 10,
+          "map_b": 15,
+          "op": "break_bond"
+        },
+        {
+          "delta": 1,
+          "map_a": 4,
+          "map_b": 5,
+          "op": "change_bond_order"
+        },
+        {
+          "delta": 1,
+          "map_a": 6,
+          "map_b": 7,
+          "op": "change_bond_order"
+        },
+        {
+          "delta": 1,
+          "map_a": 9,
+          "map_b": 10,
+          "op": "change_bond_order"
+        }
+      ],
+      "reactionjson_audit": {
+        "accepted": true,
+        "authority_scope": "external_structure_proposal_replay",
+        "content_sha256": "6b728ec3f1f1e0d07cf3ccdc3d020e4a559cee03e6161e82126785e84e780efd",
+        "expected_precursor_smiles": [],
+        "expected_precursors_match": false,
+        "implicit_valence_completion_maps": [
+          4,
+          5,
+          6,
+          7,
+          9,
+          10,
+          15,
+          20
+        ],
+        "mapped_precursor_smiles": [
+          "[CH2:1]=[C:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH2:14][CH2:15]/[C:16]([CH3:17])=[CH:18]\\[CH2:19][CH3:20]"
+        ],
+        "mapped_product_smiles": "[CH2:1]=[C:2]([CH3:3])[C@H:4]1[CH2:5][CH2:6][C@:7]2([CH3:8])[CH2:9][C@@H:10]3[C@H:11]([CH3:12])[CH2:13][CH2:14][C@@H:15]3/[C:16]([CH3:17])=[CH:18]\\[CH2:19][CH:20]12",
+        "operation_count": 6,
+        "precursor_smiles": [
+          "C=C(C)C=CC=C(C)C=C[C@H](C)CCC/C(C)=C\\CC"
+        ],
+        "primitive_counts": {
+          "add_bond": 0,
+          "add_group": 0,
+          "break_bond": 3,
+          "change_atom": 0,
+          "change_bond_order": 3,
+          "clear_stereocenter": 0,
+          "invert_stereocenter": 0,
+          "remove_group": 0,
+          "set_bond_stereo": 0,
+          "set_explicit_h": 0
+        },
+        "profile": "reactionjson_public_profile.2026-08-17.v1",
+        "schema_version": "reactionjson_replay_audit.v1",
+        "semantics": {
+          "deterministic_graph_edit_replay": true,
+          "provisional_public_profile": true,
+          "replay_grants_no_reaction_proof": true,
+          "replay_grants_no_source_or_condition_authority": true,
+          "unknown_fields_fail_closed": true
+        },
+        "upstream_public_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f"
+      },
+      "required_validation": [
+        "structure",
+        "reaction_feasibility"
+      ],
+      "source_hints": [],
+      "step_id": "codex:branch:1:node:1:candidate:1",
+      "step_kind": "chemical_reaction",
+      "strategic_role": "Retrosynthetic cleavage of C4-C20, C7-C20, and C10-C15 opens all three cascade-formed ring closures. Converting C4-C5, C6-C7, and C9-C10 to alkenes restores an acyclic five-alkene framework consistent with sequential cationic C-C bond formation and cooperative stereocenter generation.",
+      "strategy_anchor": true,
+      "strategy_card": {
+        "biocatalytic_intent": {},
+        "biocatalytic_intent_reasons": [],
+        "content_sha256": "35f623f359834b09e91fdb445dd07b3d22846e8025b317fdee9683ea0556ba3e",
+        "convergence_plan": "Prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments, unite them before the key cascade, and reserve late-stage adjustment only for alkene placement if required; the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization.",
+        "convergence_signature": "prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments  unite them before the key cascade  and reserve late-stage adjustment only for alkene placement if required  the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization",
+        "execution_domain": "chemical",
+        "expected_complexity_drop": "high",
+        "functional_group_conflicts": [
+          "The two target-like alkenes must survive without competitive over-cyclization, isomerization, or uncontrolled proton loss.",
+          "Carbocationic rearrangement, premature termination, and stereochemical erosion are intrinsic selectivity risks.",
+          "The hydrocarbon-only product offers no polar directing or chemoselective handles during the key closure."
+        ],
+        "key_bond_changes": [
+          "map 4-map 20",
+          "map 7-map 20",
+          "map 10-map 15"
+        ],
+        "key_bond_signature": [
+          "map_pair:10:15",
+          "map_pair:20:4",
+          "map_pair:20:7"
+        ],
+        "key_forward_transformation": "Conformation-directed cationic polyene cyclization as the route-defining skeletal event, closing the tricyclic core in a single cascade from an acyclic or minimally cyclized isoprenoid-pattern precursor.",
+        "orthogonality_basis": "This strategy is defined by concerted or stepwise cationic cascade formation of multiple ring-closing C-C bonds from a folded polyene, rather than by a pericyclic cycloaddition, a stepwise annulation, or radical closure.",
+        "protection_policy": "No protecting groups are intrinsic to the target; use a protection-free hydrocarbon-focused design and introduce any temporary activating or leaving-group functionality only outside the cascade design hypothesis.",
+        "reaction_edit_digest": "",
+        "reaction_edit_signature": {},
+        "route_family_id": "",
+        "scaffold_motif": "Densely substituted, all-carbon tricyclic sesquiterpene-like framework containing fused five-, five-, and larger carbocyclic substructures, two alkenes, and six stereocenters.",
+        "schema_version": "strategy_card.v1",
+        "semantics": {
+          "biocatalytic_intent_is_not_an_executable_step": true,
+          "evidence_independent_identity": true,
+          "hypothesis_only": true,
+          "reaction_edit_digest_is_not_reaction_proof": true
+        },
+        "skeleton_change_class": "Cascade polycyclization / tricyclic carbocycle assembly",
+        "stereochemical_plan": "Exploit a preorganized folded polyene conformation so sequential facially selective C-C bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively; treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates.",
+        "stereochemical_signature": "exploit a preorganized folded polyene conformation so sequential facially selective c-c bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively  treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates",
+        "strategic_step_count": 2,
+        "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+        "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+        "strategy_signature": "cationic-polyene-cascade:4-20|7-20|10-15",
+        "structural_signature": "1e4ca7a2005fd2818a707e7e816af32fd5bbbd22a6ebbe067c7e6314b0a0252e",
+        "topology_signature": "densely substituted  all-carbon tricyclic sesquiterpene-like framework containing fused five-  five-  and larger carbocyclic substructures  two alkenes  and six stereocenters  cascade polycyclization / tricyclic carbocycle assembly"
+      },
+      "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+      "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+      "transformation_hypothesis": "Conformation-directed cationic polyene cyclization"
+    },
+    {
+      "biocatalytic_design_deficits": [],
+      "biocatalytic_step": {},
+      "condition_predictions": [],
+      "execution_domain": "chemical",
+      "hypothesis_only": true,
+      "limitations": [
+        "The abstract bond cleavage does not specify the complementary organometallic and leaving-group identities required for a practical forward coupling.",
+        "Alkene migration, allylic rearrangement, and E/Z erosion must be controlled during fragment union.",
+        "Compatibility of the C11 stereocenter with fragment preparation and coupling requires experimental confirmation."
+      ],
+      "mapped_precursor_smiles": [
+        "[CH2:1]=[C:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH3:14]",
+        "[CH3:15]/[C:16]([CH3:17])=[CH:18]\\[CH2:19][CH3:20]"
+      ],
+      "mapped_product_smiles": "[CH2:1]=[C:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH2:14][CH2:15]/[C:16]([CH3:17])=[CH:18]\\[CH2:19][CH3:20]",
+      "precursor_smiles": [
+        "C=C(C)C=CC=C(C)C=C[C@H](C)CC",
+        "CCC=C(C)C"
+      ],
+      "product_smiles": "C=C(C)C=CC=C(C)C=C[C@H](C)CCC/C(C)=C\\CC",
+      "reaction_edit_digest": "5c6eb6ced8ec9ca8861976dbb147606837d75827e9fbb63f083a451529394404",
+      "reaction_operations": [
+        {
+          "map_a": 14,
+          "map_b": 15,
+          "op": "break_bond"
+        }
+      ],
+      "reactionjson_audit": {
+        "accepted": true,
+        "authority_scope": "external_structure_proposal_replay",
+        "content_sha256": "eb3174ae1179db27c490b6d9ea454d923323d49288232fc97d70a9c155290e25",
+        "expected_precursor_smiles": [],
+        "expected_precursors_match": false,
+        "implicit_valence_completion_maps": [
+          14,
+          15
+        ],
+        "mapped_precursor_smiles": [
+          "[CH2:1]=[C:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH3:14]",
+          "[CH3:15]/[C:16]([CH3:17])=[CH:18]\\[CH2:19][CH3:20]"
+        ],
+        "mapped_product_smiles": "[CH2:1]=[C:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH2:14][CH2:15]/[C:16]([CH3:17])=[CH:18]\\[CH2:19][CH3:20]",
+        "operation_count": 1,
+        "precursor_smiles": [
+          "C=C(C)C=CC=C(C)C=C[C@H](C)CC",
+          "CCC=C(C)C"
+        ],
+        "primitive_counts": {
+          "add_bond": 0,
+          "add_group": 0,
+          "break_bond": 1,
+          "change_atom": 0,
+          "change_bond_order": 0,
+          "clear_stereocenter": 0,
+          "invert_stereocenter": 0,
+          "remove_group": 0,
+          "set_bond_stereo": 0,
+          "set_explicit_h": 0
+        },
+        "profile": "reactionjson_public_profile.2026-08-17.v1",
+        "schema_version": "reactionjson_replay_audit.v1",
+        "semantics": {
+          "deterministic_graph_edit_replay": true,
+          "provisional_public_profile": true,
+          "replay_grants_no_reaction_proof": true,
+          "replay_grants_no_source_or_condition_authority": true,
+          "unknown_fields_fail_closed": true
+        },
+        "upstream_public_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f"
+      },
+      "required_validation": [
+        "structure",
+        "reaction_feasibility"
+      ],
+      "source_hints": [],
+      "step_id": "codex:branch:1:node:2:candidate:1",
+      "step_kind": "chemical_reaction",
+      "strategic_role": "Retrosynthetic cleavage of the C14–C15 sigma bond gives two simpler isoprenoid-pattern fragments for late union, preserving every alkene required for the downstream cationic polyene cyclization and avoiding the cascade-defining bond changes.",
+      "strategy_anchor": false,
+      "strategy_card": {
+        "biocatalytic_intent": {},
+        "biocatalytic_intent_reasons": [],
+        "content_sha256": "35f623f359834b09e91fdb445dd07b3d22846e8025b317fdee9683ea0556ba3e",
+        "convergence_plan": "Prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments, unite them before the key cascade, and reserve late-stage adjustment only for alkene placement if required; the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization.",
+        "convergence_signature": "prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments  unite them before the key cascade  and reserve late-stage adjustment only for alkene placement if required  the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization",
+        "execution_domain": "chemical",
+        "expected_complexity_drop": "high",
+        "functional_group_conflicts": [
+          "The two target-like alkenes must survive without competitive over-cyclization, isomerization, or uncontrolled proton loss.",
+          "Carbocationic rearrangement, premature termination, and stereochemical erosion are intrinsic selectivity risks.",
+          "The hydrocarbon-only product offers no polar directing or chemoselective handles during the key closure."
+        ],
+        "key_bond_changes": [
+          "map 4-map 20",
+          "map 7-map 20",
+          "map 10-map 15"
+        ],
+        "key_bond_signature": [
+          "map_pair:10:15",
+          "map_pair:20:4",
+          "map_pair:20:7"
+        ],
+        "key_forward_transformation": "Conformation-directed cationic polyene cyclization as the route-defining skeletal event, closing the tricyclic core in a single cascade from an acyclic or minimally cyclized isoprenoid-pattern precursor.",
+        "orthogonality_basis": "This strategy is defined by concerted or stepwise cationic cascade formation of multiple ring-closing C-C bonds from a folded polyene, rather than by a pericyclic cycloaddition, a stepwise annulation, or radical closure.",
+        "protection_policy": "No protecting groups are intrinsic to the target; use a protection-free hydrocarbon-focused design and introduce any temporary activating or leaving-group functionality only outside the cascade design hypothesis.",
+        "reaction_edit_digest": "",
+        "reaction_edit_signature": {},
+        "route_family_id": "",
+        "scaffold_motif": "Densely substituted, all-carbon tricyclic sesquiterpene-like framework containing fused five-, five-, and larger carbocyclic substructures, two alkenes, and six stereocenters.",
+        "schema_version": "strategy_card.v1",
+        "semantics": {
+          "biocatalytic_intent_is_not_an_executable_step": true,
+          "evidence_independent_identity": true,
+          "hypothesis_only": true,
+          "reaction_edit_digest_is_not_reaction_proof": true
+        },
+        "skeleton_change_class": "Cascade polycyclization / tricyclic carbocycle assembly",
+        "stereochemical_plan": "Exploit a preorganized folded polyene conformation so sequential facially selective C-C bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively; treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates.",
+        "stereochemical_signature": "exploit a preorganized folded polyene conformation so sequential facially selective c-c bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively  treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates",
+        "strategic_step_count": 2,
+        "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+        "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+        "strategy_signature": "cationic-polyene-cascade:4-20|7-20|10-15",
+        "structural_signature": "1e4ca7a2005fd2818a707e7e816af32fd5bbbd22a6ebbe067c7e6314b0a0252e",
+        "topology_signature": "densely substituted  all-carbon tricyclic sesquiterpene-like framework containing fused five-  five-  and larger carbocyclic substructures  two alkenes  and six stereocenters  cascade polycyclization / tricyclic carbocycle assembly"
+      },
+      "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+      "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+      "transformation_hypothesis": "Convergent alkyl–allylic fragment coupling"
+    },
+    {
+      "biocatalytic_design_deficits": [],
+      "biocatalytic_step": {},
+      "condition_predictions": [
+        {
+          "authority_scope": "model_predicted_condition",
+          "catalyst": "Iridium PCP-pincer dehydrogenation catalyst",
+          "enzyme": "",
+          "not_reaction_proof": true,
+          "reagents": [
+            "Iridium PCP-pincer catalyst, tert-butylethylene hydrogen acceptor, p-xylene, 160-180 °C"
+          ]
+        }
+      ],
+      "execution_domain": "chemical",
+      "hypothesis_only": true,
+      "limitations": [
+        "Chemoselective oxidation at map 1-map 2 in the presence of two pre-existing alkenes is a substantial feasibility risk.",
+        "High-temperature dehydrogenation may cause alkene migration, E/Z scrambling, or erosion of the stereogenic center at map 11."
+      ],
+      "mapped_precursor_smiles": [
+        "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH3:14]"
+      ],
+      "mapped_product_smiles": "[CH2:1]=[C:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH3:14]",
+      "precursor_smiles": [
+        "CC[C@@H](C)C=CC(C)=CC=CC(C)C"
+      ],
+      "product_smiles": "C=C(C)C=CC=C(C)C=C[C@H](C)CC",
+      "reaction_edit_digest": "b11abe1792ca8026a07afea52af08a6ac4b31055a52951284383ab8d75682951",
+      "reaction_operations": [
+        {
+          "delta": -1,
+          "map_a": 1,
+          "map_b": 2,
+          "op": "change_bond_order"
+        }
+      ],
+      "reactionjson_audit": {
+        "accepted": true,
+        "authority_scope": "external_structure_proposal_replay",
+        "content_sha256": "d98de27b8fb5a908ce8b3dd5781b6d184de93b9a73495403c0632fd4d90a727f",
+        "expected_precursor_smiles": [],
+        "expected_precursors_match": false,
+        "implicit_valence_completion_maps": [
+          1,
+          2
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH3:14]"
+        ],
+        "mapped_product_smiles": "[CH2:1]=[C:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH3:14]",
+        "operation_count": 1,
+        "precursor_smiles": [
+          "CC[C@@H](C)C=CC(C)=CC=CC(C)C"
+        ],
+        "primitive_counts": {
+          "add_bond": 0,
+          "add_group": 0,
+          "break_bond": 0,
+          "change_atom": 0,
+          "change_bond_order": 1,
+          "clear_stereocenter": 0,
+          "invert_stereocenter": 0,
+          "remove_group": 0,
+          "set_bond_stereo": 0,
+          "set_explicit_h": 0
+        },
+        "profile": "reactionjson_public_profile.2026-08-17.v1",
+        "schema_version": "reactionjson_replay_audit.v1",
+        "semantics": {
+          "deterministic_graph_edit_replay": true,
+          "provisional_public_profile": true,
+          "replay_grants_no_reaction_proof": true,
+          "replay_grants_no_source_or_condition_authority": true,
+          "unknown_fields_fail_closed": true
+        },
+        "upstream_public_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f"
+      },
+      "required_validation": [
+        "structure",
+        "reaction_feasibility"
+      ],
+      "source_hints": [],
+      "step_id": "codex:branch:1:node:3:candidate:1",
+      "step_kind": "chemical_reaction",
+      "strategic_role": "Retrosynthetic reduction of the map 1-map 2 alkene gives a directly adjacent saturated isoprenoid handle while preserving the conjugated diene and the established stereocenter. This is leaf-local, does not reopen the accepted fragment-coupling or cascade steps, and supplies the exact polyene geometry required by the accepted route prefix.",
+      "strategy_anchor": false,
+      "strategy_card": {
+        "biocatalytic_intent": {},
+        "biocatalytic_intent_reasons": [],
+        "content_sha256": "35f623f359834b09e91fdb445dd07b3d22846e8025b317fdee9683ea0556ba3e",
+        "convergence_plan": "Prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments, unite them before the key cascade, and reserve late-stage adjustment only for alkene placement if required; the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization.",
+        "convergence_signature": "prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments  unite them before the key cascade  and reserve late-stage adjustment only for alkene placement if required  the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization",
+        "execution_domain": "chemical",
+        "expected_complexity_drop": "high",
+        "functional_group_conflicts": [
+          "The two target-like alkenes must survive without competitive over-cyclization, isomerization, or uncontrolled proton loss.",
+          "Carbocationic rearrangement, premature termination, and stereochemical erosion are intrinsic selectivity risks.",
+          "The hydrocarbon-only product offers no polar directing or chemoselective handles during the key closure."
+        ],
+        "key_bond_changes": [
+          "map 4-map 20",
+          "map 7-map 20",
+          "map 10-map 15"
+        ],
+        "key_bond_signature": [
+          "map_pair:10:15",
+          "map_pair:20:4",
+          "map_pair:20:7"
+        ],
+        "key_forward_transformation": "Conformation-directed cationic polyene cyclization as the route-defining skeletal event, closing the tricyclic core in a single cascade from an acyclic or minimally cyclized isoprenoid-pattern precursor.",
+        "orthogonality_basis": "This strategy is defined by concerted or stepwise cationic cascade formation of multiple ring-closing C-C bonds from a folded polyene, rather than by a pericyclic cycloaddition, a stepwise annulation, or radical closure.",
+        "protection_policy": "No protecting groups are intrinsic to the target; use a protection-free hydrocarbon-focused design and introduce any temporary activating or leaving-group functionality only outside the cascade design hypothesis.",
+        "reaction_edit_digest": "",
+        "reaction_edit_signature": {},
+        "route_family_id": "",
+        "scaffold_motif": "Densely substituted, all-carbon tricyclic sesquiterpene-like framework containing fused five-, five-, and larger carbocyclic substructures, two alkenes, and six stereocenters.",
+        "schema_version": "strategy_card.v1",
+        "semantics": {
+          "biocatalytic_intent_is_not_an_executable_step": true,
+          "evidence_independent_identity": true,
+          "hypothesis_only": true,
+          "reaction_edit_digest_is_not_reaction_proof": true
+        },
+        "skeleton_change_class": "Cascade polycyclization / tricyclic carbocycle assembly",
+        "stereochemical_plan": "Exploit a preorganized folded polyene conformation so sequential facially selective C-C bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively; treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates.",
+        "stereochemical_signature": "exploit a preorganized folded polyene conformation so sequential facially selective c-c bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively  treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates",
+        "strategic_step_count": 2,
+        "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+        "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+        "strategy_signature": "cationic-polyene-cascade:4-20|7-20|10-15",
+        "structural_signature": "1e4ca7a2005fd2818a707e7e816af32fd5bbbd22a6ebbe067c7e6314b0a0252e",
+        "topology_signature": "densely substituted  all-carbon tricyclic sesquiterpene-like framework containing fused five-  five-  and larger carbocyclic substructures  two alkenes  and six stereocenters  cascade polycyclization / tricyclic carbocycle assembly"
+      },
+      "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+      "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+      "transformation_hypothesis": "Terminal-alkene oxidative dehydrogenation"
+    },
+    {
+      "biocatalytic_design_deficits": [],
+      "biocatalytic_step": {},
+      "condition_predictions": [
+        {
+          "authority_scope": "model_predicted_condition",
+          "catalyst": "Lindlar catalyst",
+          "enzyme": "",
+          "not_reaction_proof": true,
+          "reagents": [
+            "H2 atmosphere",
+            "Lindlar catalyst",
+            "quinoline",
+            "ethyl acetate",
+            "20-25 °C"
+          ]
+        }
+      ],
+      "execution_domain": "chemical",
+      "hypothesis_only": true,
+      "limitations": [
+        "The semihydrogenation may give alkene geometry that requires confirmation because the product SMILES does not specify map 9-map 10 bond stereochemistry.",
+        "Catalyst poisoning, over-reduction, or alkene isomerization must be controlled in the conjugation-prone polyene substrate."
+      ],
+      "mapped_precursor_smiles": [
+        "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[C:9]#[C:10][C@H:11]([CH3:12])[CH2:13][CH3:14]"
+      ],
+      "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH3:14]",
+      "precursor_smiles": [
+        "CC[C@@H](C)C#CC(C)=CC=CC(C)C"
+      ],
+      "product_smiles": "CC[C@@H](C)C=CC(C)=CC=CC(C)C",
+      "reaction_edit_digest": "3be9f9d1858fee5266a5687fb2c22e60234f98a44ea32242010ecd48a17d5c95",
+      "reaction_operations": [
+        {
+          "delta": 1,
+          "map_a": 9,
+          "map_b": 10,
+          "op": "change_bond_order"
+        }
+      ],
+      "reactionjson_audit": {
+        "accepted": true,
+        "authority_scope": "external_structure_proposal_replay",
+        "content_sha256": "1f7494e996e5723ee0e9b352778fc49e5a7778ee46df9080357c156bc12cb779",
+        "expected_precursor_smiles": [],
+        "expected_precursors_match": false,
+        "implicit_valence_completion_maps": [
+          9,
+          10
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[C:9]#[C:10][C@H:11]([CH3:12])[CH2:13][CH3:14]"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[CH:9]=[CH:10][C@H:11]([CH3:12])[CH2:13][CH3:14]",
+        "operation_count": 1,
+        "precursor_smiles": [
+          "CC[C@@H](C)C#CC(C)=CC=CC(C)C"
+        ],
+        "primitive_counts": {
+          "add_bond": 0,
+          "add_group": 0,
+          "break_bond": 0,
+          "change_atom": 0,
+          "change_bond_order": 1,
+          "clear_stereocenter": 0,
+          "invert_stereocenter": 0,
+          "remove_group": 0,
+          "set_bond_stereo": 0,
+          "set_explicit_h": 0
+        },
+        "profile": "reactionjson_public_profile.2026-08-17.v1",
+        "schema_version": "reactionjson_replay_audit.v1",
+        "semantics": {
+          "deterministic_graph_edit_replay": true,
+          "provisional_public_profile": true,
+          "replay_grants_no_reaction_proof": true,
+          "replay_grants_no_source_or_condition_authority": true,
+          "unknown_fields_fail_closed": true
+        },
+        "upstream_public_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f"
+      },
+      "required_validation": [
+        "structure",
+        "reaction_feasibility"
+      ],
+      "source_hints": [],
+      "step_id": "codex:branch:1:node:4:candidate:1",
+      "step_kind": "chemical_reaction",
+      "strategic_role": "Retrosynthetic elevation of the map 9-map 10 alkene to an internal alkyne provides a direct, skeletally invariant precursor. Forward partial hydrogenation can install this isolated alkene while retaining the two pre-existing isoprenoid-pattern alkenes and the map 11 stereocenter required by the downstream terminal-alkene oxidative dehydrogenation.",
+      "strategy_anchor": false,
+      "strategy_card": {
+        "biocatalytic_intent": {},
+        "biocatalytic_intent_reasons": [],
+        "content_sha256": "35f623f359834b09e91fdb445dd07b3d22846e8025b317fdee9683ea0556ba3e",
+        "convergence_plan": "Prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments, unite them before the key cascade, and reserve late-stage adjustment only for alkene placement if required; the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization.",
+        "convergence_signature": "prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments  unite them before the key cascade  and reserve late-stage adjustment only for alkene placement if required  the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization",
+        "execution_domain": "chemical",
+        "expected_complexity_drop": "high",
+        "functional_group_conflicts": [
+          "The two target-like alkenes must survive without competitive over-cyclization, isomerization, or uncontrolled proton loss.",
+          "Carbocationic rearrangement, premature termination, and stereochemical erosion are intrinsic selectivity risks.",
+          "The hydrocarbon-only product offers no polar directing or chemoselective handles during the key closure."
+        ],
+        "key_bond_changes": [
+          "map 4-map 20",
+          "map 7-map 20",
+          "map 10-map 15"
+        ],
+        "key_bond_signature": [
+          "map_pair:10:15",
+          "map_pair:20:4",
+          "map_pair:20:7"
+        ],
+        "key_forward_transformation": "Conformation-directed cationic polyene cyclization as the route-defining skeletal event, closing the tricyclic core in a single cascade from an acyclic or minimally cyclized isoprenoid-pattern precursor.",
+        "orthogonality_basis": "This strategy is defined by concerted or stepwise cationic cascade formation of multiple ring-closing C-C bonds from a folded polyene, rather than by a pericyclic cycloaddition, a stepwise annulation, or radical closure.",
+        "protection_policy": "No protecting groups are intrinsic to the target; use a protection-free hydrocarbon-focused design and introduce any temporary activating or leaving-group functionality only outside the cascade design hypothesis.",
+        "reaction_edit_digest": "",
+        "reaction_edit_signature": {},
+        "route_family_id": "",
+        "scaffold_motif": "Densely substituted, all-carbon tricyclic sesquiterpene-like framework containing fused five-, five-, and larger carbocyclic substructures, two alkenes, and six stereocenters.",
+        "schema_version": "strategy_card.v1",
+        "semantics": {
+          "biocatalytic_intent_is_not_an_executable_step": true,
+          "evidence_independent_identity": true,
+          "hypothesis_only": true,
+          "reaction_edit_digest_is_not_reaction_proof": true
+        },
+        "skeleton_change_class": "Cascade polycyclization / tricyclic carbocycle assembly",
+        "stereochemical_plan": "Exploit a preorganized folded polyene conformation so sequential facially selective C-C bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively; treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates.",
+        "stereochemical_signature": "exploit a preorganized folded polyene conformation so sequential facially selective c-c bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively  treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates",
+        "strategic_step_count": 2,
+        "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+        "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+        "strategy_signature": "cationic-polyene-cascade:4-20|7-20|10-15",
+        "structural_signature": "1e4ca7a2005fd2818a707e7e816af32fd5bbbd22a6ebbe067c7e6314b0a0252e",
+        "topology_signature": "densely substituted  all-carbon tricyclic sesquiterpene-like framework containing fused five-  five-  and larger carbocyclic substructures  two alkenes  and six stereocenters  cascade polycyclization / tricyclic carbocycle assembly"
+      },
+      "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+      "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+      "transformation_hypothesis": "Chemoselective alkyne semihydrogenation"
+    },
+    {
+      "biocatalytic_design_deficits": [],
+      "biocatalytic_step": {},
+      "condition_predictions": [
+        {
+          "authority_scope": "model_predicted_condition",
+          "catalyst": "Pd(PPh3)2Cl2/CuI",
+          "enzyme": "",
+          "not_reaction_proof": true,
+          "reagents": [
+            "Pd(PPh3)2Cl2",
+            "CuI",
+            "triethylamine",
+            "THF",
+            "room temperature"
+          ]
+        }
+      ],
+      "execution_domain": "chemical",
+      "hypothesis_only": true,
+      "limitations": [
+        "The deterministic precursor replay does not encode the vinyl leaving group, which must be selected during forward-route validation.",
+        "Vinyl-partner geometry retention and competing Glaser homocoupling require experimental confirmation."
+      ],
+      "mapped_precursor_smiles": [
+        "[CH:9]#[C:10][C@H:11]([CH3:12])[CH2:13][CH3:14]",
+        "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[CH:7][CH3:8]"
+      ],
+      "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[C:9]#[C:10][C@H:11]([CH3:12])[CH2:13][CH3:14]",
+      "precursor_smiles": [
+        "C#C[C@H](C)CC",
+        "CC=CC=CC(C)C"
+      ],
+      "product_smiles": "CC[C@@H](C)C#CC(C)=CC=CC(C)C",
+      "reaction_edit_digest": "4a6ad0cebc7c5f87945439e6e6c78a8298c8e05ba57184542dde9fb0d7dd9e58",
+      "reaction_operations": [
+        {
+          "map_a": 7,
+          "map_b": 9,
+          "op": "break_bond"
+        }
+      ],
+      "reactionjson_audit": {
+        "accepted": true,
+        "authority_scope": "external_structure_proposal_replay",
+        "content_sha256": "27a6be2d2fa7110f883536a7ca410da3c10617eb8464b5043ddb7ea70ed26df1",
+        "expected_precursor_smiles": [],
+        "expected_precursors_match": false,
+        "implicit_valence_completion_maps": [
+          7,
+          9
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[CH:7][CH3:8]",
+          "[CH:9]#[C:10][C@H:11]([CH3:12])[CH2:13][CH3:14]"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[C:7]([CH3:8])[C:9]#[C:10][C@H:11]([CH3:12])[CH2:13][CH3:14]",
+        "operation_count": 1,
+        "precursor_smiles": [
+          "C#C[C@H](C)CC",
+          "CC=CC=CC(C)C"
+        ],
+        "primitive_counts": {
+          "add_bond": 0,
+          "add_group": 0,
+          "break_bond": 1,
+          "change_atom": 0,
+          "change_bond_order": 0,
+          "clear_stereocenter": 0,
+          "invert_stereocenter": 0,
+          "remove_group": 0,
+          "set_bond_stereo": 0,
+          "set_explicit_h": 0
+        },
+        "profile": "reactionjson_public_profile.2026-08-17.v1",
+        "schema_version": "reactionjson_replay_audit.v1",
+        "semantics": {
+          "deterministic_graph_edit_replay": true,
+          "provisional_public_profile": true,
+          "replay_grants_no_reaction_proof": true,
+          "replay_grants_no_source_or_condition_authority": true,
+          "unknown_fields_fail_closed": true
+        },
+        "upstream_public_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f"
+      },
+      "required_validation": [
+        "structure",
+        "reaction_feasibility"
+      ],
+      "source_hints": [],
+      "step_id": "codex:branch:1:node:5:candidate:1",
+      "step_kind": "chemical_reaction",
+      "strategic_role": "Disconnection of the bond between mapped alkenyl carbon 7 and alkynyl carbon 9 gives a modular vinyl-electrophile/terminal-alkyne coupling logic while retaining the pre-existing alkene geometry and remote stereocenter.",
+      "strategy_anchor": false,
+      "strategy_card": {
+        "biocatalytic_intent": {},
+        "biocatalytic_intent_reasons": [],
+        "content_sha256": "35f623f359834b09e91fdb445dd07b3d22846e8025b317fdee9683ea0556ba3e",
+        "convergence_plan": "Prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments, unite them before the key cascade, and reserve late-stage adjustment only for alkene placement if required; the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization.",
+        "convergence_signature": "prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments  unite them before the key cascade  and reserve late-stage adjustment only for alkene placement if required  the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization",
+        "execution_domain": "chemical",
+        "expected_complexity_drop": "high",
+        "functional_group_conflicts": [
+          "The two target-like alkenes must survive without competitive over-cyclization, isomerization, or uncontrolled proton loss.",
+          "Carbocationic rearrangement, premature termination, and stereochemical erosion are intrinsic selectivity risks.",
+          "The hydrocarbon-only product offers no polar directing or chemoselective handles during the key closure."
+        ],
+        "key_bond_changes": [
+          "map 4-map 20",
+          "map 7-map 20",
+          "map 10-map 15"
+        ],
+        "key_bond_signature": [
+          "map_pair:10:15",
+          "map_pair:20:4",
+          "map_pair:20:7"
+        ],
+        "key_forward_transformation": "Conformation-directed cationic polyene cyclization as the route-defining skeletal event, closing the tricyclic core in a single cascade from an acyclic or minimally cyclized isoprenoid-pattern precursor.",
+        "orthogonality_basis": "This strategy is defined by concerted or stepwise cationic cascade formation of multiple ring-closing C-C bonds from a folded polyene, rather than by a pericyclic cycloaddition, a stepwise annulation, or radical closure.",
+        "protection_policy": "No protecting groups are intrinsic to the target; use a protection-free hydrocarbon-focused design and introduce any temporary activating or leaving-group functionality only outside the cascade design hypothesis.",
+        "reaction_edit_digest": "",
+        "reaction_edit_signature": {},
+        "route_family_id": "",
+        "scaffold_motif": "Densely substituted, all-carbon tricyclic sesquiterpene-like framework containing fused five-, five-, and larger carbocyclic substructures, two alkenes, and six stereocenters.",
+        "schema_version": "strategy_card.v1",
+        "semantics": {
+          "biocatalytic_intent_is_not_an_executable_step": true,
+          "evidence_independent_identity": true,
+          "hypothesis_only": true,
+          "reaction_edit_digest_is_not_reaction_proof": true
+        },
+        "skeleton_change_class": "Cascade polycyclization / tricyclic carbocycle assembly",
+        "stereochemical_plan": "Exploit a preorganized folded polyene conformation so sequential facially selective C-C bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively; treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates.",
+        "stereochemical_signature": "exploit a preorganized folded polyene conformation so sequential facially selective c-c bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively  treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates",
+        "strategic_step_count": 2,
+        "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+        "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+        "strategy_signature": "cationic-polyene-cascade:4-20|7-20|10-15",
+        "structural_signature": "1e4ca7a2005fd2818a707e7e816af32fd5bbbd22a6ebbe067c7e6314b0a0252e",
+        "topology_signature": "densely substituted  all-carbon tricyclic sesquiterpene-like framework containing fused five-  five-  and larger carbocyclic substructures  two alkenes  and six stereocenters  cascade polycyclization / tricyclic carbocycle assembly"
+      },
+      "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+      "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+      "transformation_hypothesis": "Sonogashira-type alkenyl–alkynyl cross-coupling"
+    },
+    {
+      "biocatalytic_design_deficits": [],
+      "biocatalytic_step": {},
+      "condition_predictions": [
+        {
+          "authority_scope": "model_predicted_condition",
+          "catalyst": "Lindlar catalyst",
+          "enzyme": "",
+          "not_reaction_proof": true,
+          "reagents": [
+            "H2, Lindlar catalyst, quinoline, hexane, ambient temperature"
+          ]
+        }
+      ],
+      "execution_domain": "chemical",
+      "hypothesis_only": true,
+      "limitations": [
+        "The target alkene geometry is unspecified; catalyst choice and reaction endpoint must be tuned to avoid over-reduction or diene isomerization.",
+        "The resulting enyne precursor is a hypothesis derived solely from the local bond-order edit."
+      ],
+      "mapped_precursor_smiles": [
+        "[CH3:1][CH:2]([CH3:3])[C:4]#[C:5][CH:6]=[CH:7][CH3:8]"
+      ],
+      "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[CH:7][CH3:8]",
+      "precursor_smiles": [
+        "CC=CC#CC(C)C"
+      ],
+      "product_smiles": "CC=CC=CC(C)C",
+      "reaction_edit_digest": "452cb4456444b7a1aece16ab650d269a79b2fe0addc0149734e38061337578a1",
+      "reaction_operations": [
+        {
+          "delta": 1,
+          "map_a": 4,
+          "map_b": 5,
+          "op": "change_bond_order"
+        }
+      ],
+      "reactionjson_audit": {
+        "accepted": true,
+        "authority_scope": "external_structure_proposal_replay",
+        "content_sha256": "d2de97e220ac348c2c33b1575984e809c1c9d81d12039c209f75a8044c22df41",
+        "expected_precursor_smiles": [],
+        "expected_precursors_match": false,
+        "implicit_valence_completion_maps": [
+          4,
+          5
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[C:4]#[C:5][CH:6]=[CH:7][CH3:8]"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[CH:4]=[CH:5][CH:6]=[CH:7][CH3:8]",
+        "operation_count": 1,
+        "precursor_smiles": [
+          "CC=CC#CC(C)C"
+        ],
+        "primitive_counts": {
+          "add_bond": 0,
+          "add_group": 0,
+          "break_bond": 0,
+          "change_atom": 0,
+          "change_bond_order": 1,
+          "clear_stereocenter": 0,
+          "invert_stereocenter": 0,
+          "remove_group": 0,
+          "set_bond_stereo": 0,
+          "set_explicit_h": 0
+        },
+        "profile": "reactionjson_public_profile.2026-08-17.v1",
+        "schema_version": "reactionjson_replay_audit.v1",
+        "semantics": {
+          "deterministic_graph_edit_replay": true,
+          "provisional_public_profile": true,
+          "replay_grants_no_reaction_proof": true,
+          "replay_grants_no_source_or_condition_authority": true,
+          "unknown_fields_fail_closed": true
+        },
+        "upstream_public_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f"
+      },
+      "required_validation": [
+        "structure",
+        "reaction_feasibility"
+      ],
+      "source_hints": [],
+      "step_id": "codex:branch:1:node:6:candidate:1",
+      "step_kind": "chemical_reaction",
+      "strategic_role": "Retrosynthetic elevation of the map 4-map 5 alkene to an internal alkyne gives an enyne precursor whose selective two-hydrogen reduction restores the C8 conjugated diene used as the alkynyl-coupling partner in the accepted prefix.",
+      "strategy_anchor": false,
+      "strategy_card": {
+        "biocatalytic_intent": {},
+        "biocatalytic_intent_reasons": [],
+        "content_sha256": "35f623f359834b09e91fdb445dd07b3d22846e8025b317fdee9683ea0556ba3e",
+        "convergence_plan": "Prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments, unite them before the key cascade, and reserve late-stage adjustment only for alkene placement if required; the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization.",
+        "convergence_signature": "prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments  unite them before the key cascade  and reserve late-stage adjustment only for alkene placement if required  the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization",
+        "execution_domain": "chemical",
+        "expected_complexity_drop": "high",
+        "functional_group_conflicts": [
+          "The two target-like alkenes must survive without competitive over-cyclization, isomerization, or uncontrolled proton loss.",
+          "Carbocationic rearrangement, premature termination, and stereochemical erosion are intrinsic selectivity risks.",
+          "The hydrocarbon-only product offers no polar directing or chemoselective handles during the key closure."
+        ],
+        "key_bond_changes": [
+          "map 4-map 20",
+          "map 7-map 20",
+          "map 10-map 15"
+        ],
+        "key_bond_signature": [
+          "map_pair:10:15",
+          "map_pair:20:4",
+          "map_pair:20:7"
+        ],
+        "key_forward_transformation": "Conformation-directed cationic polyene cyclization as the route-defining skeletal event, closing the tricyclic core in a single cascade from an acyclic or minimally cyclized isoprenoid-pattern precursor.",
+        "orthogonality_basis": "This strategy is defined by concerted or stepwise cationic cascade formation of multiple ring-closing C-C bonds from a folded polyene, rather than by a pericyclic cycloaddition, a stepwise annulation, or radical closure.",
+        "protection_policy": "No protecting groups are intrinsic to the target; use a protection-free hydrocarbon-focused design and introduce any temporary activating or leaving-group functionality only outside the cascade design hypothesis.",
+        "reaction_edit_digest": "",
+        "reaction_edit_signature": {},
+        "route_family_id": "",
+        "scaffold_motif": "Densely substituted, all-carbon tricyclic sesquiterpene-like framework containing fused five-, five-, and larger carbocyclic substructures, two alkenes, and six stereocenters.",
+        "schema_version": "strategy_card.v1",
+        "semantics": {
+          "biocatalytic_intent_is_not_an_executable_step": true,
+          "evidence_independent_identity": true,
+          "hypothesis_only": true,
+          "reaction_edit_digest_is_not_reaction_proof": true
+        },
+        "skeleton_change_class": "Cascade polycyclization / tricyclic carbocycle assembly",
+        "stereochemical_plan": "Exploit a preorganized folded polyene conformation so sequential facially selective C-C bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively; treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates.",
+        "stereochemical_signature": "exploit a preorganized folded polyene conformation so sequential facially selective c-c bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively  treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates",
+        "strategic_step_count": 2,
+        "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+        "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+        "strategy_signature": "cationic-polyene-cascade:4-20|7-20|10-15",
+        "structural_signature": "1e4ca7a2005fd2818a707e7e816af32fd5bbbd22a6ebbe067c7e6314b0a0252e",
+        "topology_signature": "densely substituted  all-carbon tricyclic sesquiterpene-like framework containing fused five-  five-  and larger carbocyclic substructures  two alkenes  and six stereocenters  cascade polycyclization / tricyclic carbocycle assembly"
+      },
+      "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+      "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+      "transformation_hypothesis": "Chemoselective internal-alkyne semihydrogenation"
+    },
+    {
+      "biocatalytic_design_deficits": [],
+      "biocatalytic_step": {},
+      "condition_predictions": [
+        {
+          "authority_scope": "model_predicted_condition",
+          "catalyst": "Pd(PPh3)2Cl2/CuI",
+          "enzyme": "",
+          "not_reaction_proof": true,
+          "reagents": [
+            "Pd(PPh3)2Cl2",
+            "CuI",
+            "triethylamine",
+            "THF",
+            "ambient temperature"
+          ]
+        }
+      ],
+      "execution_domain": "chemical",
+      "hypothesis_only": true,
+      "limitations": [
+        "Vinyl-halide geometry and suppression of alkyne homocoupling require validation.",
+        "The added bromine atom is a temporary leaving group introduced solely to define the electrophile precursor."
+      ],
+      "mapped_precursor_smiles": [
+        "[CH3:1][CH:2]([CH3:3])[C:4]#[CH:5]",
+        "[CH:6](=[CH:7][CH3:8])[Br:9]"
+      ],
+      "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[C:4]#[C:5][CH:6]=[CH:7][CH3:8]",
+      "precursor_smiles": [
+        "C#CC(C)C",
+        "CC=CBr"
+      ],
+      "product_smiles": "CC=CC#CC(C)C",
+      "reaction_edit_digest": "803278ac331306821ae12be132f6d5781235379b178d13c9377035183758f6a5",
+      "reaction_operations": [
+        {
+          "map_a": 5,
+          "map_b": 6,
+          "op": "break_bond"
+        },
+        {
+          "fragment_smiles": "[*][Br:9]",
+          "map_idx": 6,
+          "op": "add_group"
+        }
+      ],
+      "reactionjson_audit": {
+        "accepted": true,
+        "authority_scope": "external_structure_proposal_replay",
+        "content_sha256": "99108628c0e6df53d67f49c639964573efaf26e8161f91f9947c9c70b016eee0",
+        "expected_precursor_smiles": [],
+        "expected_precursors_match": false,
+        "implicit_valence_completion_maps": [
+          5,
+          6
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[C:4]#[CH:5]",
+          "[CH:6](=[CH:7][CH3:8])[Br:9]"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[C:4]#[C:5][CH:6]=[CH:7][CH3:8]",
+        "operation_count": 2,
+        "precursor_smiles": [
+          "C#CC(C)C",
+          "CC=CBr"
+        ],
+        "primitive_counts": {
+          "add_bond": 0,
+          "add_group": 1,
+          "break_bond": 1,
+          "change_atom": 0,
+          "change_bond_order": 0,
+          "clear_stereocenter": 0,
+          "invert_stereocenter": 0,
+          "remove_group": 0,
+          "set_bond_stereo": 0,
+          "set_explicit_h": 0
+        },
+        "profile": "reactionjson_public_profile.2026-08-17.v1",
+        "schema_version": "reactionjson_replay_audit.v1",
+        "semantics": {
+          "deterministic_graph_edit_replay": true,
+          "provisional_public_profile": true,
+          "replay_grants_no_reaction_proof": true,
+          "replay_grants_no_source_or_condition_authority": true,
+          "unknown_fields_fail_closed": true
+        },
+        "upstream_public_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f"
+      },
+      "required_validation": [
+        "structure",
+        "reaction_feasibility"
+      ],
+      "source_hints": [],
+      "step_id": "codex:branch:1:node:7:candidate:1",
+      "step_kind": "chemical_reaction",
+      "strategic_role": "Disconnect the bond between the alkyne terminus and vinyl carbon (maps 5–6) to reveal a terminal isopropylacetylene fragment and a 1-bromoprop-1-ene electrophile; this directly assembles the required enyne without altering the isoprenoid-like carbon skeleton.",
+      "strategy_anchor": false,
+      "strategy_card": {
+        "biocatalytic_intent": {},
+        "biocatalytic_intent_reasons": [],
+        "content_sha256": "35f623f359834b09e91fdb445dd07b3d22846e8025b317fdee9683ea0556ba3e",
+        "convergence_plan": "Prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments, unite them before the key cascade, and reserve late-stage adjustment only for alkene placement if required; the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization.",
+        "convergence_signature": "prepare a modular isoprenoid-pattern carbon chain from two comparably simple fragments  unite them before the key cascade  and reserve late-stage adjustment only for alkene placement if required  the skeletal event remains highly convergent in complexity even if material convergence occurs before cyclization",
+        "execution_domain": "chemical",
+        "expected_complexity_drop": "high",
+        "functional_group_conflicts": [
+          "The two target-like alkenes must survive without competitive over-cyclization, isomerization, or uncontrolled proton loss.",
+          "Carbocationic rearrangement, premature termination, and stereochemical erosion are intrinsic selectivity risks.",
+          "The hydrocarbon-only product offers no polar directing or chemoselective handles during the key closure."
+        ],
+        "key_bond_changes": [
+          "map 4-map 20",
+          "map 7-map 20",
+          "map 10-map 15"
+        ],
+        "key_bond_signature": [
+          "map_pair:10:15",
+          "map_pair:20:4",
+          "map_pair:20:7"
+        ],
+        "key_forward_transformation": "Conformation-directed cationic polyene cyclization as the route-defining skeletal event, closing the tricyclic core in a single cascade from an acyclic or minimally cyclized isoprenoid-pattern precursor.",
+        "orthogonality_basis": "This strategy is defined by concerted or stepwise cationic cascade formation of multiple ring-closing C-C bonds from a folded polyene, rather than by a pericyclic cycloaddition, a stepwise annulation, or radical closure.",
+        "protection_policy": "No protecting groups are intrinsic to the target; use a protection-free hydrocarbon-focused design and introduce any temporary activating or leaving-group functionality only outside the cascade design hypothesis.",
+        "reaction_edit_digest": "",
+        "reaction_edit_signature": {},
+        "route_family_id": "",
+        "scaffold_motif": "Densely substituted, all-carbon tricyclic sesquiterpene-like framework containing fused five-, five-, and larger carbocyclic substructures, two alkenes, and six stereocenters.",
+        "schema_version": "strategy_card.v1",
+        "semantics": {
+          "biocatalytic_intent_is_not_an_executable_step": true,
+          "evidence_independent_identity": true,
+          "hypothesis_only": true,
+          "reaction_edit_digest_is_not_reaction_proof": true
+        },
+        "skeleton_change_class": "Cascade polycyclization / tricyclic carbocycle assembly",
+        "stereochemical_plan": "Exploit a preorganized folded polyene conformation so sequential facially selective C-C bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively; treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates.",
+        "stereochemical_signature": "exploit a preorganized folded polyene conformation so sequential facially selective c-c bond formation sets the fused-ring junctions and most of the six stereocenters cooperatively  treat the final alkene geometry and the stereochemical relationship at the cascade terminus as key validation gates",
+        "strategic_step_count": 2,
+        "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+        "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+        "strategy_signature": "cationic-polyene-cascade:4-20|7-20|10-15",
+        "structural_signature": "1e4ca7a2005fd2818a707e7e816af32fd5bbbd22a6ebbe067c7e6314b0a0252e",
+        "topology_signature": "densely substituted  all-carbon tricyclic sesquiterpene-like framework containing fused five-  five-  and larger carbocyclic substructures  two alkenes  and six stereocenters  cascade polycyclization / tricyclic carbocycle assembly"
+      },
+      "strategy_digest": "f9bf2497fa0371bd1428e12019f80b0da5466de393b4d323902ca3de2dab9505",
+      "strategy_id": "strategy:f9bf2497fa0371bd1428e120",
+      "transformation_hypothesis": "Sonogashira-type alkenyl–alkynyl cross-coupling"
+    }
+  ],
+  "stock_closed": true,
+  "target_smiles": "C=C(C)[C@H]1CC[C@]2(C)C[C@@H]3[C@H](C)CC[C@@H]3/C(C)=C\\CC12",
+  "terminal_stock_leaf_smiles": [
+    "C#C[C@H](C)CC",
+    "C#CC(C)C",
+    "CC=CBr",
+    "CCC=C(C)C"
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "accepted_capability_count": 3,
+  "accepted_capability_ids": [
+    "hsdh:delta4-3-ketosteroid-to-3-hydroxysteroid",
+    "lipase:polycyclic-steroid-selective-acylation",
+    "sdr:polycyclic-steroid-ketone-screen"
+  ],
+  "candidate_projection_sha256": "655718327df3d7455d2bdf0747cf4b9db853f23418b6284e0b0eedddf326c594",
+  "capability_audit_sha256": "5c381a779c53ebb67f296aa2ce39b1e9815a7aca3bfeee10b1eb6ef0ad170a2d",
+  "content_sha256": "c981f894805ea733dcd46438f43d478dc5a6bdcaa42c7d81feb86d0ebefd1e18",
+  "counts": {
+    "enzyme_candidates": 0,
+    "mechanism_candidates": 0,
+    "no_applicable_enzyme_routes": 3,
+    "routes": 3,
+    "screenable_routes": 3
+  },
+  "observation_sha256": "cfc67cb47d1416550a0bed7b4885aeee9520c018c0b9c9ae56aab648be31ca9a",
+  "rejected_capabilities": [],
+  "route_screens": {
+    "route:0a31bcc4640f7b39b6e5918c510fe233a0f8802cef450ca368aa0207b1a867da": {
+      "discovery": {
+        "candidate_count": 0,
+        "candidates": [],
+        "content_sha256": "b4ea93c360aa2e6d0b541ff1244c218736454f7e8f244b2d89841d1048f9e375",
+        "execution_program_draft_candidate_ids": [],
+        "ingestion_hypotheses": [],
+        "program_draft_candidate_ids": [],
+        "rejected": [],
+        "route_family_id": "candidate-family:route:0a31bcc4640f7b39b6e5918c510fe233a0f8802cef450ca368aa0207b1a867da",
+        "route_id": "route:0a31bcc4640f7b39b6e5918c510fe233a0f8802cef450ca368aa0207b1a867da",
+        "schema_version": "route_innovation_discovery.v1",
+        "semantics": {
+          "analog_matches_are_proposal_only": true,
+          "canonical_ingestion_remains_the_only_scientific_write_path": true,
+          "capabilities_are_data_not_code": true,
+          "enzyme_windows_compile_to_program_drafts_not_reaction_edges": true,
+          "mechanism_generation_and_host_admission_are_separate": true,
+          "target_names_are_not_matching_inputs": true,
+          "whole_cell_and_hybrid_windows_compile_to_program_drafts": true
+        },
+        "window_enumeration": {
+          "count": 10,
+          "maximum": 2048,
+          "truncated": false
+        }
+      },
+      "enzyme_candidate_count": 0,
+      "mechanism_candidate_count": 0,
+      "negative_control_eligible": true,
+      "route_id": "route:0a31bcc4640f7b39b6e5918c510fe233a0f8802cef450ca368aa0207b1a867da",
+      "screen_status": "no_applicable_enzyme_capability"
+    },
+    "route:c4c9a8d4ac1dc116d0f9fad9bce05b03cefe35ef016e055e0115e2b027e8ea82": {
+      "discovery": {
+        "candidate_count": 0,
+        "candidates": [],
+        "content_sha256": "46d49d68026d86ff2f9c2c90c85e4755c6c7b3f743c08ebf48f12b57bf286e59",
+        "execution_program_draft_candidate_ids": [],
+        "ingestion_hypotheses": [],
+        "program_draft_candidate_ids": [],
+        "rejected": [],
+        "route_family_id": "candidate-family:route:c4c9a8d4ac1dc116d0f9fad9bce05b03cefe35ef016e055e0115e2b027e8ea82",
+        "route_id": "route:c4c9a8d4ac1dc116d0f9fad9bce05b03cefe35ef016e055e0115e2b027e8ea82",
+        "schema_version": "route_innovation_discovery.v1",
+        "semantics": {
+          "analog_matches_are_proposal_only": true,
+          "canonical_ingestion_remains_the_only_scientific_write_path": true,
+          "capabilities_are_data_not_code": true,
+          "enzyme_windows_compile_to_program_drafts_not_reaction_edges": true,
+          "mechanism_generation_and_host_admission_are_separate": true,
+          "target_names_are_not_matching_inputs": true,
+          "whole_cell_and_hybrid_windows_compile_to_program_drafts": true
+        },
+        "window_enumeration": {
+          "count": 10,
+          "maximum": 2048,
+          "truncated": false
+        }
+      },
+      "enzyme_candidate_count": 0,
+      "mechanism_candidate_count": 0,
+      "negative_control_eligible": true,
+      "route_id": "route:c4c9a8d4ac1dc116d0f9fad9bce05b03cefe35ef016e055e0115e2b027e8ea82",
+      "screen_status": "no_applicable_enzyme_capability"
+    },
+    "route:dac1299967a83df5a023a13364d8baf5d4ff115de53d58e2000ff9180c347270": {
+      "discovery": {
+        "candidate_count": 0,
+        "candidates": [],
+        "content_sha256": "c979d36b683c98c601ea51f3ec2f3005f5885d2125a5d5c4fa9fbfa54e03e770",
+        "execution_program_draft_candidate_ids": [],
+        "ingestion_hypotheses": [],
+        "program_draft_candidate_ids": [],
+        "rejected": [],
+        "route_family_id": "candidate-family:route:dac1299967a83df5a023a13364d8baf5d4ff115de53d58e2000ff9180c347270",
+        "route_id": "route:dac1299967a83df5a023a13364d8baf5d4ff115de53d58e2000ff9180c347270",
+        "schema_version": "route_innovation_discovery.v1",
+        "semantics": {
+          "analog_matches_are_proposal_only": true,
+          "canonical_ingestion_remains_the_only_scientific_write_path": true,
+          "capabilities_are_data_not_code": true,
+          "enzyme_windows_compile_to_program_drafts_not_reaction_edges": true,
+          "mechanism_generation_and_host_admission_are_separate": true,
+          "target_names_are_not_matching_inputs": true,
+          "whole_cell_and_hybrid_windows_compile_to_program_drafts": true
+        },
+        "window_enumeration": {
+          "count": 15,
+          "maximum": 2048,
+          "truncated": false
+        }
+      },
+      "enzyme_candidate_count": 0,
+      "mechanism_candidate_count": 0,
+      "negative_control_eligible": true,
+      "route_id": "route:dac1299967a83df5a023a13364d8baf5d4ff115de53d58e2000ff9180c347270",
+      "screen_status": "no_applicable_enzyme_capability"
+    }
+  },
+  "schema_version": "candidate_route_innovation_screen.v1",
+  "semantics": {
+    "candidate_graph_is_screening_input_not_scientific_authority": true,
+    "canonical_graph_not_modified": true,
+    "enzyme_matches_are_proposal_only": true,
+    "enzyme_windows_target_program_drafts_not_canonical_edges": true,
+    "program_store_admission_performed": false,
+    "read_only": true,
+    "target_names_are_not_matching_inputs": true,
+    "zero_candidates_is_a_valid_screen_result": true
+  }
+}

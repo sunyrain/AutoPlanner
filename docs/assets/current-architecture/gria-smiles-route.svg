@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1380" height="940" viewBox="0 0 1380 940">
+<defs>
+  <filter id="shadow" x="-10%" y="-20%" width="120%" height="150%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#0B2637" flood-opacity=".12"/></filter>
+  <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#22B8CF"/></marker>
+  <style>
+    text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; }
+    .heading { font-size: 31px; font-weight: 700; letter-spacing: .4px; }
+    .kicker { font-size: 15px; font-weight: 700; letter-spacing: 2px; }
+    .title { font-size: 21px; font-weight: 700; }
+    .sub { font-size: 14px; }
+    .badge { font-size: 12px; font-weight: 700; }
+    .node { filter: url(#shadow); }
+    .label { font-size: 14px; font-weight: 700; }
+  </style>
+</defs>
+<rect width="100%" height="100%" rx="26" fill="#F4F8FA"/>
+<text x="48" y="52" class="kicker" fill="#22B8CF">AUTOPLANNER · SYSTEM ROUTE</text>
+<text x="48" y="94" class="heading" fill="#0D2638">目标路线 · 一个 SMILES 进入 GRIA 之后</text>
+
+      <g class="node">
+        <rect x="50" y="130" width="250" height="92" rx="18" fill="#FFFFFF" stroke="#3977F6" stroke-width="3"/>
+        <rect x="50" y="130" width="8" height="92" rx="4" fill="#3977F6"/>
+
+        <text x="76" y="168" class="title" fill="#173243">SMILES admission</text>
+        <text x="76" y="198" class="sub" fill="#6B7F8C">立体 · 盐型 · 互变体 · 身份</text>
+      </g>
+
+      <g class="node">
+        <rect x="370" y="130" width="300" height="92" rx="18" fill="#FFFFFF" stroke="#3977F6" stroke-width="3"/>
+        <rect x="370" y="130" width="8" height="92" rx="4" fill="#3977F6"/>
+
+        <text x="396" y="168" class="title" fill="#173243">Target ChemicalState</text>
+        <text x="396" y="198" class="sub" fill="#6B7F8C">可区分的合成物质状态</text>
+      </g>
+    <path d="M300,176 L370,176" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><text x="50" y="282" class="kicker" fill="#6B7F8C">PARALLEL PROGRAM GENERATORS</text>
+      <g class="node">
+        <rect x="60" y="310" width="230" height="82" rx="18" fill="#FFFFFF" stroke="#3977F6" stroke-width="3"/>
+        <rect x="60" y="310" width="8" height="82" rx="4" fill="#3977F6"/>
+
+        <text x="86" y="348" class="title" fill="#173243">文献程序</text>
+        <text x="86" y="378" class="sub" fill="#6B7F8C">HTML / PDF / SI</text>
+      </g>
+    <path d="M520,222 L175,310" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+      <g class="node">
+        <rect x="320" y="310" width="230" height="82" rx="18" fill="#FFFFFF" stroke="#E9685B" stroke-width="3"/>
+        <rect x="320" y="310" width="8" height="82" rx="4" fill="#E9685B"/>
+
+        <text x="346" y="348" class="title" fill="#173243">常规化学</text>
+        <text x="346" y="378" class="sub" fill="#6B7F8C">模型 / 规则 / ChemEnzy</text>
+      </g>
+    <path d="M520,222 L435,310" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+      <g class="node">
+        <rect x="580" y="310" width="230" height="82" rx="18" fill="#FFFFFF" stroke="#22A884" stroke-width="3"/>
+        <rect x="580" y="310" width="8" height="82" rx="4" fill="#22A884"/>
+
+        <text x="606" y="348" class="title" fill="#173243">酶与 whole-cell</text>
+        <text x="606" y="378" class="sub" fill="#6B7F8C">单酶 / 级联 / 发酵</text>
+      </g>
+    <path d="M520,222 L695,310" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+      <g class="node">
+        <rect x="840" y="310" width="230" height="82" rx="18" fill="#FFFFFF" stroke="#7759D9" stroke-width="3"/>
+        <rect x="840" y="310" width="8" height="82" rx="4" fill="#7759D9"/>
+
+        <text x="866" y="348" class="title" fill="#173243">机理一跳</text>
+        <text x="866" y="378" class="sub" fill="#6B7F8C">bond edit / critic</text>
+      </g>
+    <path d="M520,222 L955,310" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+      <g class="node">
+        <rect x="1100" y="310" width="230" height="82" rx="18" fill="#FFFFFF" stroke="#E9A23B" stroke-width="3"/>
+        <rect x="1100" y="310" width="8" height="82" rx="4" fill="#E9A23B"/>
+
+        <text x="1126" y="348" class="title" fill="#173243">路线重组</text>
+        <text x="1126" y="378" class="sub" fill="#6B7F8C">共享 ChemicalState</text>
+      </g>
+    <path d="M520,222 L1215,310" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+      <g class="node">
+        <rect x="400" y="460" width="600" height="88" rx="18" fill="#FFFFFF" stroke="#E9685B" stroke-width="3"/>
+        <rect x="400" y="460" width="8" height="88" rx="4" fill="#E9685B"/>
+        <rect x="910" y="474" width="72" height="24" rx="12" fill="#E9685B" opacity=".16"/><text x="946" y="491" text-anchor="middle" class="badge" fill="#E9685B">GATE</text>
+        <text x="426" y="498" class="title" fill="#173243">Unified HostAdmission</text>
+        <text x="426" y="528" class="sub" fill="#6B7F8C">identity → balance → atom map → centre → authority separation</text>
+      </g>
+    <path d="M175,392 L700,460" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M435,392 L700,460" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M695,392 L700,460" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M955,392 L700,460" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M1215,392 L700,460" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+      <g class="node">
+        <rect x="70" y="625" width="320" height="94" rx="18" fill="#FFFFFF" stroke="#22A884" stroke-width="3"/>
+        <rect x="70" y="625" width="8" height="94" rx="4" fill="#22A884"/>
+
+        <text x="96" y="663" class="title" fill="#173243">Transformation Program Graph</text>
+        <text x="96" y="693" class="sub" fill="#6B7F8C">program + operation + claim</text>
+      </g>
+
+      <g class="node">
+        <rect x="470" y="625" width="300" height="94" rx="18" fill="#FFFFFF" stroke="#43B86A" stroke-width="3"/>
+        <rect x="470" y="625" width="8" height="94" rx="4" fill="#43B86A"/>
+        <rect x="680" y="639" width="72" height="24" rx="12" fill="#43B86A" opacity=".16"/><text x="716" y="656" text-anchor="middle" class="badge" fill="#43B86A">RANK</text>
+        <text x="496" y="663" class="title" fill="#173243">Pareto Optimizer</text>
+        <text x="496" y="693" class="sub" fill="#6B7F8C">证据 · 步数 · 风险 · 成本 · 选择性</text>
+      </g>
+
+      <g class="node">
+        <rect x="850" y="625" width="420" height="94" rx="18" fill="#FFFFFF" stroke="#22B8CF" stroke-width="3"/>
+        <rect x="850" y="625" width="8" height="94" rx="4" fill="#22B8CF"/>
+        <rect x="1180" y="639" width="72" height="24" rx="12" fill="#22B8CF" opacity=".16"/><text x="1216" y="656" text-anchor="middle" class="badge" fill="#22B8CF">OUTPUT</text>
+        <text x="876" y="663" class="title" fill="#173243">Route Portfolio</text>
+        <text x="876" y="693" class="sub" fill="#6B7F8C">evidence / shortest / enzyme / novel / fallback</text>
+      </g>
+    <path d="M700,548 L230,625" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M390,672 L470,672" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M770,672 L850,672" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+      <g class="node">
+        <rect x="850" y="790" width="420" height="94" rx="18" fill="#FFFFFF" stroke="#E9A23B" stroke-width="3"/>
+        <rect x="850" y="790" width="8" height="94" rx="4" fill="#E9A23B"/>
+
+        <text x="876" y="828" class="title" fill="#173243">Validation &amp; Experiment Frontier</text>
+        <text x="876" y="858" class="sub" fill="#6B7F8C">request · RunKernel handoff · domain gate</text>
+      </g>
+    <path d="M1060,719 L1060,790" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M850,837 C520,920 100,900 230,719" fill="none" stroke="#22A884" stroke-width="4" stroke-dasharray="10 8" marker-end="url(#arrow)"/><text x="330" y="915" class="label" fill="#168366">exact-boundary dirty hint · 只读子任务重算</text>
+</svg>

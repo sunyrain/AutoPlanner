@@ -1,0 +1,118 @@
+{
+  "arms": [
+    {
+      "arm_id": "external_snapshot_only",
+      "generation_cost_comparable": false,
+      "host_closure_pipeline_identical": true,
+      "input": "frozen public strategic routes"
+    },
+    {
+      "arm_id": "codex_only",
+      "generation_cost_comparable": true,
+      "host_closure_pipeline_identical": true,
+      "input": "target-only manifest"
+    },
+    {
+      "arm_id": "chemenzy_only",
+      "generation_cost_comparable": true,
+      "host_closure_pipeline_identical": true,
+      "input": "target-only manifest"
+    },
+    {
+      "arm_id": "unified_adaptive",
+      "generation_cost_comparable": true,
+      "host_closure_pipeline_identical": true,
+      "input": "target-only manifest"
+    }
+  ],
+  "bindings": {
+    "evaluator_pack_content_sha256": "de02b90c8f4b405ab33f72336c0b90be68929975b4f77dd3ad41bb4acb605abf",
+    "source_snapshot": {
+      "data_base_url": "https://data.synthatlas.xyz",
+      "data_version": "20260809-00e8823-5a1cf6",
+      "index_sha256": "2d23854cf76cdf6bea2e14f2ed5ab3e98cb07582b98cb666bc24d4025d0f76d9",
+      "manifest_counts": {
+        "compounds": 1098,
+        "molecules": 36434,
+        "reactions": 33145,
+        "routes": 3243
+      },
+      "manifest_sha256": "15ebf813335d5f95b216b63b9d9728ab3bc62a4332039728a2857838cdfe7731",
+      "official_repository_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f",
+      "paper_version": "arXiv:2608.07454v1"
+    },
+    "stock_oracle": {
+      "binding_protocol_path": "benchmarks/retrostar190_v4.protocol.json",
+      "binding_protocol_sha256": "5b18d6f96cac04d15e86612f44cb73e0f32d6f588eb82b0e063b71d9e7982fd4",
+      "catalog_name": "Retro*-190 eMolecules ~23M",
+      "index_path": "data_external/retrostar190/retrostar_emolecules_stock.sqlite3",
+      "index_sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c",
+      "member_count": 23081629,
+      "source_md5": "140b886c41c74a9c01ced032edc92fdf",
+      "source_sha256": "a9736a965f85474a9fdabeb6c3f38ad4eaab7e3679b1ea40d05ec91280c997c7",
+      "source_url": "https://zenodo.org/api/records/14032990/files/origin_dict.csv/content"
+    },
+    "target_manifest_content_sha256": "3b7f5799e40a98dfbb4aa3a5f7fc553620cc0fba981ce5a7ba65982e47b3bf96"
+  },
+  "blindness": {
+    "evaluator_pack_must_be_outside_tracked_repository": true,
+    "old_run_cache_forbidden": true,
+    "planner_receives_target_manifest_only": true,
+    "synonyms_and_route_intermediates_are_evaluator_only_leakage_needles": true,
+    "target_names_are_opaque": true
+  },
+  "budget": {
+    "external_arm_valid_comparison": "route_quality_and_host_closure_only",
+    "external_snapshot_generation_cost": "not_observed_and_not_imputed",
+    "live_arm_compute_comparison_requires_full_resource_ledger": true,
+    "planner_facing_per_target": {
+      "max_accepted_expansions": 96,
+      "max_attempt_runs": 192,
+      "max_model_invocations": 3,
+      "max_prompt_context_bytes": 160000,
+      "max_total_input_tokens": 120000,
+      "max_total_output_tokens": 30000,
+      "max_total_wall_time_s": 1800
+    }
+  },
+  "claim_boundary": "The public snapshot arm is a fixed route-input baseline, not a live SynthEx efficiency reproduction. No C3/C4/C6 advantage may be claimed before all frozen arms are executed and audited.",
+  "closure_levels": {
+    "C0": "connected provider route structure",
+    "C1": "canonical host materialization",
+    "C2": "host reaction validation",
+    "C3": "exact source and procedure binding",
+    "C4": "complete exact conditions",
+    "C5": "frozen stock or procurement closure",
+    "C6": "bound experimental program result"
+  },
+  "content_sha256": "7ada6eb09d750e417c016293c263309f5487a79a3d2cfe623ac69a50e171e7b4",
+  "frozen_at": "2026-08-13T08:00:00+00:00",
+  "preflight": {
+    "c0_gate_passed": true,
+    "execution_blocked_if_c0_failure_rate_exceeds": 0.2,
+    "external_route_count": 149,
+    "failure_reasons": {
+      "external_strategy_duplicate_product_step": 1
+    },
+    "host_c0_failed": 1,
+    "host_c0_passed": 148
+  },
+  "schema_version": "strategy_closure_pilot_protocol.v1",
+  "scope": {
+    "kind": "exploratory_matched_pilot",
+    "manual_exclusions": 0,
+    "population_claim_allowed": false,
+    "pre_run_knowledge_exclusions": 0,
+    "route_variant_count": 149,
+    "selection_algorithm": "first_unique_canonical_target_in_public_index_order.v1",
+    "selection_audit_content_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "target_count": 50
+  },
+  "status": "frozen_not_executed",
+  "stopping_rule": {
+    "complete_all_four_arms_for_all_twenty_targets": true,
+    "do_not_scale_before_pilot_failure_taxonomy": true,
+    "no_result_conditioned_target_removal": true,
+    "no_target_specific_rules_after_freeze": true
+  }
+}

@@ -14,6 +14,20 @@ SCRIPT = Path("cascade_planner/harness/route_forest_ui/script.js")
 STYLES = Path("cascade_planner/harness/route_forest_ui/styles.css")
 
 
+def _chromium_path() -> Path | None:
+    return next(
+        (
+            path
+            for path in (
+                Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+                Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+            )
+            if path.is_file()
+        ),
+        None,
+    )
+
+
 def test_camera_uses_one_world_transform_and_never_moves_svg_layer() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
 
@@ -23,7 +37,7 @@ def test_camera_uses_one_world_transform_and_never_moves_svg_layer() -> None:
     assert "translate3d" not in script
     assert "svg.style.transform =" not in script
     assert "viewport.setPointerCapture(event.pointerId)" in script
-    assert script.index("viewport.setPointerCapture(event.pointerId)") < script.index(
+    assert script.index("viewport.setPointerCapture(event.pointerId)") > script.index(
         "Math.hypot(deltaX, deltaY)"
     )
 
@@ -86,47 +100,298 @@ def test_camera_transform_is_the_only_composited_graph_layer() -> None:
 
 def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
+    template = Path("cascade_planner/harness/route_forest_ui/template.html").read_text(
+        encoding="utf-8"
+    )
+    styles = STYLES.read_text(encoding="utf-8")
 
     assert "function preferReadableFocus()" in script
+    assert "if (embeddedRoute) return (lane.step_ids || []).length > 4" in script
+    assert "const minimumReadableZoom = embeddedRoute" in script
+    assert "const targetOnLeft = target" in script
+    assert "host.hidden = false" in script
+    assert "visibleRatio >= .92" in script
     assert "return (lane.step_ids || []).length <= 4" in script
     assert "fitGraph({ readable: preferReadableFocus() })" in script
+    assert "serpentine_long_route.v1" in script
+    assert "maximumLayer >= 12" in script
+    assert "Math.min(7, maximumLayer + 1)" in script
+    assert "serpentineRowTurn" in script
+    assert "function openBranchInFocus(branchId" in script
+    assert "data-lane-branch-id" in script
+    assert "graph-lane-open-control" in script
+    assert "${mechanismRows}${laneOpenControls}" in script
+    assert "overviewOpensFocusedBranch" in script
+    assert 'data-graph-mode="current" aria-pressed="true">当前路线</button>' in template
+    assert "function isPriorityBranch(branchId)" in script
+    assert "state.mode === 'clusters' && isPriorityBranch(row.branchId)" in script
+    assert "priority ? '查看重点分支' : '查看路线'" in script
+    assert "当前路线 · ${middleEllipsis" in script
+    assert ".graph-lane-decoration.is-priority rect" in styles
+    assert ".graph-lane-priority-label" in styles
+
+
+def test_enzyme_program_is_inline_and_keeps_expandable_canonical_baseline() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+
+    assert "function collapsedProgramProjection(" in script
+    assert "expandedProgramIds: new Set" in script
+    assert "hiddenGraphNodeIds.add(reactionGraphId)" in script
+    assert "layout_layer: compactLayer" in script
+    assert "function programFallbackDrawerSvg(" in script
+    assert "programDrawerInset" in script
+    assert "data-program-view=\"${expanded ? 'comparison' : 'replacement'}\"" in script
+    assert "PROGRAM 输入" in script
+    assert "PROGRAM 输出" in script
+    assert "化学基线 ${equivalent} 步完整保留 · 展开对照" in script
+    assert "toggleProgramFallback(" in script
+    assert "program-baseline-toggle" in styles
+    assert "program-comparison-lane" in styles
+    assert "program-fallback-drawer" in styles
+    assert "program-fallback-compact" in styles
+
+
+def test_current_route_edges_use_curves_with_physical_side_ports() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert "const forceOrthogonal = state.edgeStyle !== 'trust'" in script
+    assert "side-port-curves.v4" in script
+    assert "fixed-port-channels.v3" in script
+    assert "data-edge-routing=" in script
+    assert "data-edge-track=" in script
+    assert "data-maximum-edge-tracks=" in script
+    assert "const rowSeparated =" in script
+    assert "packing === 'serpentine_long_route.v1' && rowSeparated" in script
+    assert "`M ${x1} ${y1} V ${channelY} H ${x2} V ${y2}`" in script
+    assert "`M ${x1} ${y1} H ${middle} V ${y2} H ${x2}`" in script
+    assert "function buildEdgeRoutingPlan(" in script
+    assert "function assignPhysicalPortOffsets(" in script
+    assert "function edgePhysicalSides(" in script
+    assert "function collectReactionSidePorts(" in script
+    assert "graph-node-port" in STYLES.read_text(encoding="utf-8")
+    assert "packing === 'serpentine_long_route.v1'" in script
+    assert "maximumNode.w + 34 + Math.min(8, maximumLayerEdgeCount - 1) * 10" in script
+
+
+def test_route_arrows_and_responsive_camera_do_not_scale_with_edge_emphasis() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert 'markerUnits="userSpaceOnUse"' in script
+    assert 'markerUnits="strokeWidth"' not in script
+    assert "cameraMode: 'fit'" in script
+    assert "function resizeGraphViewport()" in script
+    assert "svg.setAttribute('viewBox'" in script
+    assert "new ResizeObserver(handleViewportResize)" in script
+    assert "fitGraph({ readable: preferReadableFocus(), remember: false })" in script
+    assert "fitGraph({ readable: state.mode === 'current' })" not in script
+
+
+def test_mixed_proof_route_labels_use_edge_distribution_not_weakest_only() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert "L1_source_reported: 'L1 文献报道'" in script
+    assert "function routeProofMixLabel(lane)" in script
+    assert "is-mixed-proof" in script
+    assert "`${planner} 步 L0 规划`" in script
+    assert "`${reported} 步 L1 文献`" in script
+    assert "l1_source_reported_edges" in script
+    assert "source_observation_records" in script
+    assert "证据缺口与补证动作" in script
+    assert "unexplained_element_gains" in script
 
 
 def test_reaction_nodes_expose_condition_source_without_opening_inspector() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
     styles = STYLES.read_text(encoding="utf-8")
 
     assert "function inlineConditionText(step)" in script
     assert "来源条件已绑定 · 字段待展开" in script
     assert "预测条件 · 非文献事实" in script
     assert "条件待取证" in script
+    assert "normalizedConditionRows(step)" in script
+    assert "modelConditionPredictionsHtml(step)" in script
+    assert "persisted.sourceRevisionKey === sourceRevisionKey" in script
+    assert "sourceRevisionKey," in script
+    assert "source_observation_records" in script
+    assert 'data-producer-kind="${esc(producerKind)}"' in script
+    assert 'data-producer-color="${esc(originColor)}" style="--origin-color:${esc(originColor)}"' in script
+    assert "reaction-producer-meta node-meta" in script
+    assert "reaction-proof-marker" in script
+    assert "反应框线、左色条、连接线与箭头均表示方案生产者" in script
+    assert "const color = simple ? '#94a3b8' : producerColor(step)" in script
+    assert "const markerId = simple ? 'arrow-neutral' : `arrow-${originClass}`" in script
+    assert 'data-edge-color="${esc(color)}"' in script
+    assert 'style="--edge-color:${esc(color)};--edge-width:${width}px"' in script
+    assert 'opacity="${opacity}"' in script
+    assert 'stroke-opacity="${opacity}"' not in script
+    assert "producer_label || '来源未标记'" in script
+    assert "stroke: var(--edge-color, var(--text-faint));" in styles
+    assert "stroke: var(--tier-color, var(--text-faint));" not in styles
+    assert "filter: drop-shadow(0 0 3px var(--edge-color, var(--accent)));" in styles
+    assert "stroke: var(--origin-color, var(--border-strong));" in styles
+    assert ".graph-node--reaction.producer-codex { --origin-color: #0369a1; }" in styles
+    assert ".graph-node--reaction.producer-chemenzy { --origin-color: #7c3aed; }" in styles
+    assert ".reaction-proof-marker" in styles
+    assert ".graph-node--reaction:hover .node-surface" in styles
+    assert ".graph-node--reaction.is-selected .node-surface" in styles
+    assert "stroke: var(--origin-color, var(--border-strong));" in styles
+    assert 'class="reaction-hit-target"' in script
+    hit_target_index = script.index('class="reaction-hit-target"')
+    assert hit_target_index < script.index('class="node-surface"', hit_target_index)
+    assert "state.detailTab = 'step'" in script
+    assert "if (state.layoutPreset === 'focus') state.layoutPreset = 'review'" in script
     assert 'class="reaction-condition-meta ${conditionClass}"' in script
     assert ".reaction-condition-meta.is-source-exact" in styles
     assert ".reaction-condition-meta.is-model-predicted" in styles
     assert ".reaction-condition-meta.is-missing" in styles
+    assert ".graph-node--reaction .reaction-hit-target" in styles
+    assert "fill: transparent !important" in styles
+
+
+def test_reaction_inspector_groups_full_conditions_and_source_procedure_text() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+
+    assert "function conditionGroupHtml" in script
+    assert "function conditionResolutionHtml" in script
+    assert "data-condition-stage" in script
+    assert "系统继续主动检索并解析原始来源" in script
+    assert "核心反应条件" in script
+    assert "加料、后处理与纯化" in script
+    assert "source-procedure-observation" in script
+    assert "procedure_excerpt" in script
+    assert "来源观察" in script
+    assert ".condition-group" in styles
+    assert ".condition-resolution" in styles
+    assert ".source-procedure-observation" in styles
+    assert "white-space: pre-wrap" in styles
+
+
+def test_workbench_exposes_six_axis_proof_and_product_stage_filters() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+    template = Path("cascade_planner/harness/route_forest_ui/template.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function proofVectorHtml(value)" in script
+    assert "科学 Proof vector" in script
+    assert "路线 Proof vector" in script
+    assert "来源过程" in script
+    assert "失效事实" in script
+    assert "路线已按当前权威降级" in script
+    assert "哈希绑定过程" in script
+    assert "condition_missing_required_groups" in script
+    assert ".proof-vector-grid" in styles
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in styles
+    for stage in ("literature", "conditions", "procurement", "process"):
+        assert f'data-stage-filter="{stage}"' in template
+
+
+def test_workbench_displays_current_and_historical_trajectory_milestones() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+    template = Path("cascade_planner/harness/route_forest_ui/template.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="trajectoryHistoryPanel"' in template
+    assert 'id="trajectoryMilestones"' in template
+    assert "campaignSummary.trajectory_history" in script
+    assert "历史达到 · 当前失效" in script
+    assert "历史达到不恢复已撤销 proof" in script
+    assert '.trajectory-milestone[data-state="current"]' in styles
+    assert '.trajectory-milestone[data-state="historical_only"]' in styles
 
 
 def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
     tmp_path: Path,
 ) -> None:
-    chrome = next(
-        (
-            path
-            for path in (
-                Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-                Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-            )
-            if path.is_file()
-        ),
-        None,
-    )
+    chrome = _chromium_path()
     if chrome is None:
         pytest.skip("Chromium browser unavailable for route UI interaction regression")
 
     workbench = _large_workbench(edge_count=70)
     page = tmp_path / "route-workbench.html"
-    browser_profile = tmp_path / "chromium-profile"
     page.write_text(render_v4_route_workbench_html(workbench), encoding="utf-8")
+    match = None
+    result = None
+    for attempt in range(2):
+        browser_profile = tmp_path / f"chromium-profile-{attempt}"
+        result = subprocess.run(
+            [
+                str(chrome),
+                "--headless=new",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--no-first-run",
+                "--disable-background-networking",
+                "--disable-extensions",
+                "--disable-sync",
+                f"--user-data-dir={browser_profile}",
+                "--run-all-compositor-stages-before-draw",
+                "--virtual-time-budget=4000",
+                "--dump-dom",
+                f"{page.as_uri()}?route_ui_selftest=1",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+        match = re.search(
+            r'<pre[^>]*id="routeUiSelfTest"[^>]*>(.*?)</pre>',
+            result.stdout,
+            re.DOTALL,
+        )
+        if match:
+            break
+    assert result is not None
+    assert match, result.stderr[-2000:]
+    report = json.loads(html.unescape(match.group(1)))
+    assert report["status"] == "passed", report
+    assert report["checks"] == {
+        "proofDrawerDefaultClosed": True,
+        "proofDrawerOverlay": True,
+        "proofDrawerDismiss": True,
+        "drag": True,
+        "singleWorldTransform": True,
+        "zoomAnchor": True,
+        "fit": True,
+        "selection": True,
+        "reactionHitTarget": True,
+        "reactionInspector": True,
+        "fullConditionGroups": True,
+        "sourceProcedure": True,
+        "edgeProducerColorConsistent": True,
+        "reactionProducerTokenConsistent": True,
+        "reactionProducerSurfaceConsistent": True,
+        "reactionProducerPortsConsistent": True,
+        "reactionProducerEdgesConsistent": True,
+        "overviewPriorityMarkerExclusive": True,
+        "overviewOpensFocusedBranch": True,
+        "minimap": True,
+        "largeGraphCulling": True,
+    }
+    assert report["performance"]["renderedObjects"] > 120
+    assert report["performance"]["cameraFrames"] >= 1
+
+
+def test_headless_browser_convergent_edges_receive_distinct_tracks(tmp_path: Path) -> None:
+    chrome = _chromium_path()
+    if chrome is None:
+        pytest.skip("Chromium browser unavailable for route UI edge routing regression")
+
+    page = tmp_path / "convergent-route-workbench.html"
+    browser_profile = tmp_path / "convergent-chromium-profile"
+    page.write_text(
+        render_v4_route_workbench_html(_convergent_workbench()),
+        encoding="utf-8",
+    )
     result = subprocess.run(
         [
             str(chrome),
@@ -139,9 +404,9 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
             "--disable-sync",
             f"--user-data-dir={browser_profile}",
             "--run-all-compositor-stages-before-draw",
-            "--virtual-time-budget=4000",
+            "--virtual-time-budget=2500",
             "--dump-dom",
-            f"{page.as_uri()}?route_ui_selftest=1",
+            page.as_uri(),
         ],
         check=True,
         capture_output=True,
@@ -150,25 +415,30 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
         errors="replace",
         timeout=30,
     )
-    match = re.search(
-        r'<pre[^>]*id="routeUiSelfTest"[^>]*>(.*?)</pre>',
+    maximum = re.search(r'data-maximum-edge-tracks="(\d+)"', result.stdout)
+    assert maximum, result.stderr[-2000:]
+    assert int(maximum.group(1)) >= 4
+    tracks = set(re.findall(r'data-edge-track="([^"]+)"', result.stdout))
+    assert {"1/4", "2/4", "3/4", "4/4"}.issubset(tracks)
+    routed_paths = re.findall(
+        r'<path class="graph-edge[^>]+data-edge-track="[1-4]/4"[^>]*?\sd="([^"]+)"',
         result.stdout,
-        re.DOTALL,
     )
-    assert match, result.stderr[-2000:]
-    report = json.loads(html.unescape(match.group(1)))
-    assert report["status"] == "passed", report
-    assert report["checks"] == {
-        "drag": True,
-        "singleWorldTransform": True,
-        "zoomAnchor": True,
-        "fit": True,
-        "selection": True,
-        "minimap": True,
-        "largeGraphCulling": True,
-    }
-    assert report["performance"]["renderedObjects"] > 120
-    assert report["performance"]["cameraFrames"] >= 1
+    assert len(routed_paths) == 4
+    assert len(set(routed_paths)) == 4
+    port_coordinates = [
+        (float(x), float(y))
+        for x, y in re.findall(
+            r'<circle class="graph-node-port" cx="([0-9.+-]+)" cy="([0-9.+-]+)"',
+            result.stdout,
+        )
+    ]
+    assert len(port_coordinates) >= 5
+    crowded_side_x = max(
+        {x for x, _ in port_coordinates},
+        key=lambda x: sum(port_x == x for port_x, _ in port_coordinates),
+    )
+    assert len({y for x, y in port_coordinates if x == crowded_side_x}) >= 4
 
 
 def _large_workbench(*, edge_count: int) -> dict:
@@ -276,6 +546,37 @@ def _large_workbench(*, edge_count: int) -> dict:
     payload["content_sha256"] = hashlib.sha256(
         json.dumps(
             payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+def _convergent_workbench() -> dict:
+    payload = _large_workbench(edge_count=1)
+    payload["run_id"] = "convergent-edge-routing-regression"
+    payload["target"]["name"] = "convergent edge routing"
+    for index, smiles in enumerate(("CC", "CCC", "CCCC"), start=2):
+        molecule_id = f"m:{index}"
+        payload["molecules"][molecule_id] = {
+            "molecule_id": molecule_id,
+            "canonical_smiles": smiles,
+            "role": "stock_leaf",
+            "is_leaf": True,
+            "stock_closed": False,
+            "stock_observation_id": "",
+            "badges": [],
+        }
+        payload["inspectors"]["molecules"][molecule_id] = {}
+    leaf_ids = ["m:1", "m:2", "m:3", "m:4"]
+    payload["edges"]["edge:0"]["precursor_molecule_ids"] = leaf_ids
+    payload["routes"]["route:large"]["leaf_molecule_ids"] = leaf_ids
+    payload["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            {key: value for key, value in payload.items() if key != "content_sha256"},
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),

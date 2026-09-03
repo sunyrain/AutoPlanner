@@ -1,0 +1,91 @@
+{
+  "schema_version": "statin_current_canonical_replay_receipt.v1",
+  "audit_date": "2026-07-16",
+  "target_name": "fluvastatin",
+  "run_id": "statin-fluvastatin-v4-current-20260716",
+  "source_run": {
+    "report_file_sha256": "181926d2c517f70f2809c19096153279f935ae693404e6cbd31745767c71358d",
+    "report_content_sha256": "426fc48a0990d00efe6ef0a5d34a24cf98bfadd04a6426146516231936bccb10",
+    "accepted_under_configured_policy": false,
+    "achieved_profile": "reaction_validated",
+    "condition_complete": false,
+    "configured_stock_boundary_closed": true,
+    "literature_grounded": false,
+    "process_ready": false,
+    "complete_route_count": 1,
+    "selected_route_count": 5,
+    "minimum_selected_proof_level": 1,
+    "model_invocations": 2,
+    "visual_invocations": 1,
+    "guided_chemenzy_frontiers_completed": 2,
+    "input_tokens": 81255,
+    "output_tokens": 24617,
+    "model_wall_time_s": 552.125,
+    "accepted_expansions": 30
+  },
+  "canonical_graph": {
+    "artifact": "benchmarks/fluvastatin_current_canonical_graph.v1.json",
+    "artifact_file_sha256": "dd87ddcf0dc73521f52a7b313e1fb37d02b8a27a91cf578e8a105cba910e38a1",
+    "content_sha256": "eafddf7ea85e680d21cfe60677cd250b938a742778d9ff38e62df51fc17",
+    "scientific_sha256": "b4dffd856884b9d6126423ca447b4ff1084b86fdf8c2ffb444a8da4bb02ea65b",
+    "revision": 14,
+    "molecules": 44,
+    "edges": 30,
+    "route_families": 5
+  },
+  "workbench": {
+    "artifact": "benchmarks/fluvastatin_current_route_workbench.v1.json",
+    "artifact_file_sha256": "c082b00f40ac51ef3f232780dd793abf94f9d0b0558d6ac4899b0fe23e83f7e7",
+    "content_sha256": "9cb1fe74263db7405376974fba2459386044c0a9e2c63965e313a34b94b1b950",
+    "displayed_routes": 5,
+    "replacement_routes": 2,
+    "accepted": false
+  },
+  "program_store": {
+    "admission_event_artifact": "benchmarks/fluvastatin_current_program_admission_event.v1.json",
+    "admission_event_file_sha256": "d968e9fec98c391144327098e8c7fb046b5626d0f7bb33dd007daef422dc6a97",
+    "admission_event_content_sha256": "ab201cff0f6f21fe0b2350bfe1b21288933f7735bf56cf98c4a277432b2e501c",
+    "projection_sha256": "24fdb289ca3c333b0e482dbd348a842acfcb2300794e7b3f7a61ea4adbc6f1f0",
+    "store_status_sha256": "36450c98aa7861b982bc859275dfc3dda8bb49563f2573103eb020895294edf9",
+    "store_replay_sha256": "5692609b44d10df454f1d6897d3b5cb0897e5a4e32815aa5108184511316ccf4",
+    "event_count": 1,
+    "counts": {
+      "chemical_states": 44,
+      "operation_nodes": 30,
+      "programs": 30,
+      "routes": 5
+    },
+    "projection_oracle_accepted": true,
+    "store_oracle_accepted": true,
+    "event_replay_valid": true,
+    "idempotent_readmission_created": false
+  },
+  "route_program_dual_read": {
+    "overlay_sha256": "8c04f2472a42e0f1668b2ac0dd946e458d686eb488335e99639f6a9761adf675",
+    "oracle_accepted": true,
+    "displayed_routes": 5,
+    "replacement_routes": 2,
+    "edge_references": 17,
+    "distinct_programs": 11,
+    "physical_step_count_mismatches": 0,
+    "proof_condition_and_acceptance_snapshots_preserved": true
+  },
+  "replay_gates": {
+    "run_validate_accepted": true,
+    "run_replay_accepted": true,
+    "event_replay_digest_equal": true,
+    "graph_oracle_equal": true,
+    "snapshot_reproduced": true,
+    "program_store_current_projection_equal": true,
+    "program_store_replay_valid": true
+  },
+  "semantics": {
+    "current_canonical_replay_is_not_route_acceptance": true,
+    "one_complete_exploration_route_is_not_two_route_acceptance": true,
+    "low_proof_and_missing_conditions_remain_visible": true,
+    "program_store_is_shadow_only": true,
+    "edge_ids_remain_production_route_authority": true,
+    "target_name_is_regression_metadata_not_a_runtime_rule": true
+  },
+  "content_sha256": "a2a2cfc5bda019d9e3bdfb5de8bcf5c3166c94fe73327d446adcdc24d8cf07b2"
+}

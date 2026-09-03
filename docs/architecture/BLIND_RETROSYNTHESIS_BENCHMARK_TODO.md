@@ -66,7 +66,8 @@ benchmark-stock policy is not an L3 or procurement claim.
 
 - [x] `autoplanner solve-target --target-smiles ...` invokes the real global
   campaign path; model-free `run` remains unchanged.
-- [x] `solve-case` is explicitly a dossier replay compatibility alias.
+- [x] Dossier execution uses the explicit `replay-dossier` command; the
+  misleading `solve-case` compatibility alias is removed.
 - [x] Atomic checkpoints and `--resume` avoid additional model calls after a
   completed checkpoint. Terminal resume never mutates the historical graph;
   if a newer verifier invalidates its proof, the current disposition is

@@ -4,6 +4,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -28,20 +29,31 @@ from cascade_planner.agent.codex_controller import (
     validate_controller_action,
 )
 from cascade_planner.agent.codex_worker import (
+    STRICT_CHEMISTRY_PERMISSION_PROFILE,
     WorkerBudget,
     WorkerProcessResult,
     WorkerRunRecord,
     WorkerTask,
+    WorkerCancelledError,
     WorkerTimeoutError,
     _api_json_config,
     _codex_cli_runtime_environment,
     _codex_cli_worker_environment,
     _codex_cli_command,
+    _configure_strict_chemistry_worker_environment,
+    _codex_worker_prompt,
+    _materialize_paper_matched_artifact,
+    _normalize_reversible_utf8_mojibake,
+    _run_codex_cli_worker,
     _run_worker_command,
+    _worker_creation_flags,
+    _worker_model_output_json_schema,
     _worker_output_json_schema,
+    preflight_worker_response_schemas,
     _task_allows_cli_search,
     _task_reasoning_effort,
     run_codex_worker,
+    worker_task_from_dict,
 )
 from cascade_planner.agent.evolution_manager import (
     EvolutionCandidate,
@@ -51,6 +63,762 @@ from cascade_planner.agent.evolution_manager import (
 
 
 class CodexWorkerControllerEvolutionTest(unittest.TestCase):
+    def test_worker_creation_flags_hide_windows_console(self):
+        with patch(
+            "cascade_planner.agent.codex_worker.os.name", "nt"
+        ), patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True):
+            self.assertEqual(_worker_creation_flags(), 0x08000000)
+
+        with patch("cascade_planner.agent.codex_worker.os.name", "posix"):
+            self.assertEqual(_worker_creation_flags(), 0)
+
+    def test_worker_repairs_only_reversible_gbk_utf8_mojibake(self):
+        raw = (
+            '{"reaction":"Pauson鈥揔hand","temperature":"80 掳C",'
+            '"note":"正常中文","operation":{"op":"break_bond",'
+            '"map_a":1,"map_b":2}}'
+        )
+
+        repaired, count = _normalize_reversible_utf8_mojibake(raw)
+
+        self.assertEqual(count, 2)
+        self.assertIn('"reaction":"Pauson–Khand"', repaired)
+        self.assertIn('"temperature":"80 °C"', repaired)
+        self.assertIn('"note":"正常中文"', repaired)
+        self.assertIn(
+            '"operation":{"op":"break_bond","map_a":1,"map_b":2}',
+            repaired,
+        )
+
+    def test_paper_matched_worker_schemas_exclude_non_protocol_fields(self):
+        strategy_task = WorkerTask(
+            task_id="paper-strategy",
+            case_id="opaque-case",
+            task_type="paper_matched_strategy_generator",
+            required_artifact_type="StrategyPortfolioReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+        route_task = WorkerTask(
+            task_id="paper-route",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+        critic_task = WorkerTask(
+            task_id="paper-critic",
+            case_id="opaque-case",
+            task_type="paper_matched_route_critic",
+            required_artifact_type="ChemicalStrategyCritique",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+        editor_task = WorkerTask(
+            task_id="paper-editor",
+            case_id="opaque-case",
+            task_type="paper_matched_route_editor",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+
+        strategy_payload = _worker_output_json_schema(strategy_task)[
+            "properties"
+        ]["payload"]
+        strategy_cards = strategy_payload["properties"]["strategy_cards"]
+        self.assertEqual(strategy_cards["minItems"], 3)
+        self.assertEqual(strategy_cards["maxItems"], 3)
+        strategy_card = strategy_cards["items"]
+        self.assertEqual(
+            set(strategy_card["properties"]),
+            {
+                "strategy_query",
+                "critical_assumption",
+                "critic_checkpoint",
+            },
+        )
+        self.assertNotIn("strategy_card", strategy_payload["properties"])
+        self.assertNotIn("selection_rationale", strategy_payload["properties"])
+        self.assertNotIn("limitations", strategy_payload["properties"])
+
+        route_payload = _worker_output_json_schema(route_task)["properties"][
+            "payload"
+        ]
+        route_candidate = route_payload["properties"]["candidates"]["items"]
+        self.assertFalse(
+            {
+                "route_json",
+                "enzyme",
+                "execution_domain",
+                "biocatalytic_step",
+                "evidence_refs",
+                "source_refs",
+                "required_validation",
+            }
+            & set(route_candidate["properties"])
+        )
+        self.assertIn("conditions", route_candidate["properties"])
+        self.assertIn("checkpoint_relation", route_candidate["properties"])
+        self.assertNotIn("catalyst", route_candidate["properties"])
+        self.assertNotIn("step_role", route_candidate["properties"])
+        self.assertNotIn("feasibility_check", route_candidate["properties"])
+        self.assertNotIn("transformation_rationale", route_candidate["properties"])
+        self.assertEqual(route_candidate["properties"]["precursor_smiles"]["maxItems"], 0)
+        self.assertNotIn("builder_action", route_payload["properties"])
+        self.assertNotIn("builder_reason", route_payload["properties"])
+        self.assertEqual(route_payload["properties"]["candidates"]["minItems"], 1)
+        self.assertEqual(route_payload["properties"]["candidates"]["maxItems"], 1)
+
+        critic_payload = _worker_output_json_schema(critic_task)["properties"][
+            "payload"
+        ]
+        assessment = critic_payload["properties"]["step_assessments"]["items"]
+        self.assertNotIn("enzyme_assessment", assessment["properties"])
+        self.assertIn("blocking", assessment["properties"])
+        self.assertIn("blocking_type", assessment["properties"])
+        self.assertIn("condition_assessment", assessment["properties"])
+        self.assertIn("review_slot", assessment["properties"])
+        self.assertNotIn("reaction_edit_digest", assessment["properties"])
+        self.assertNotIn("step_id", assessment["properties"])
+        self.assertNotIn("coupled_step_ids", assessment["properties"])
+        self.assertIn("coupled_blocker_groups", critic_payload["properties"])
+        self.assertIn("route_overall_evaluation", critic_payload["properties"])
+        self.assertNotIn("mechanistic_analysis", assessment["properties"])
+        self.assertNotIn("experimental_variables", critic_payload["properties"])
+
+        editor_payload = _worker_output_json_schema(editor_task)["properties"][
+            "payload"
+        ]
+        editor_candidate = editor_payload["properties"]["candidates"]["items"]
+        self.assertNotIn("repair_status", editor_candidate["properties"])
+        self.assertIn("repair_summary", editor_candidate["properties"])
+        self.assertNotIn("route_patch", editor_candidate["properties"])
+        self.assertNotIn("route_json", editor_candidate["properties"])
+        self.assertIn("replace_span", editor_candidate["properties"])
+        self.assertNotIn("product_smiles", editor_candidate["properties"])
+        span = editor_candidate["properties"]["replace_span"]
+        self.assertEqual(
+            set(span["properties"]),
+            {"remove_step_ids", "revised_steps"},
+        )
+        editor_route_step = span["properties"]["revised_steps"]["items"]
+        self.assertNotIn("step_role", editor_route_step["properties"])
+        self.assertNotIn("mapped_product_smiles", editor_route_step["properties"])
+
+        route_wire = _worker_model_output_json_schema(route_task)
+        self.assertEqual(
+            set(route_wire["properties"]),
+            {
+                "checkpoint_relation",
+                "reaction_intent",
+                "reaction_operations",
+                "conditions",
+            },
+        )
+        self.assertEqual(set(route_wire["required"]), set(route_wire["properties"]))
+        self.assertNotIn("maxItems", route_wire["properties"]["reaction_operations"])
+        operation_union = route_wire["properties"]["reaction_operations"][
+            "items"
+        ]["anyOf"]
+        self.assertTrue(
+            all(
+                set(variant["required"]) == set(variant["properties"])
+                for variant in operation_union
+            )
+        )
+        self.assertTrue(
+            all("atomic_num" not in variant["properties"] for variant in operation_union)
+        )
+
+        add_group_variants = [
+            variant
+            for variant in operation_union
+            if variant["properties"]["op"]["enum"] == ["add_group"]
+        ]
+        self.assertEqual(len(add_group_variants), 1)
+        self.assertEqual(
+            {frozenset(variant["properties"]) for variant in add_group_variants},
+            {
+                frozenset({"op", "map_idx", "fragment_smiles"}),
+            },
+        )
+        add_bond_variants = [
+            variant
+            for variant in operation_union
+            if variant["properties"]["op"]["enum"] == ["add_bond"]
+        ]
+        self.assertEqual(len(add_bond_variants), 1)
+        self.assertEqual(
+            set(add_bond_variants[0]["properties"]),
+            {"op", "map_a", "map_b"},
+        )
+        self.assertTrue(
+            all("order" not in variant["properties"] for variant in operation_union)
+        )
+        stereo_variants = [
+            variant
+            for variant in operation_union
+            if variant["properties"]["op"]["enum"] == ["set_bond_stereo"]
+        ]
+        self.assertEqual(len(stereo_variants), 2)
+        nongeometric = next(
+            variant
+            for variant in stereo_variants
+            if variant["properties"]["stereo"]["enum"] == ["NONE", "ANY"]
+        )
+        geometric = next(
+            variant
+            for variant in stereo_variants
+            if variant["properties"]["stereo"]["enum"]
+            == ["Z", "E", "CIS", "TRANS"]
+        )
+        self.assertNotIn("stereo_atom_maps", nongeometric["properties"])
+        self.assertNotIn("stereo_atom_maps", geometric["properties"])
+        tetrahedral = next(
+            variant
+            for variant in operation_union
+            if variant["properties"]["op"]["enum"]
+            == ["set_tetrahedral_stereo"]
+        )
+        self.assertEqual(
+            set(tetrahedral["properties"]),
+            {"op", "map_idx", "configuration"},
+        )
+        self.assertEqual(
+            tetrahedral["properties"]["configuration"]["enum"],
+            ["R", "S"],
+        )
+
+        editor_wire = _worker_model_output_json_schema(editor_task)
+        editor_operations = editor_wire["properties"]["replace_span"][
+            "properties"
+        ]["revised_steps"]["items"]["properties"]["reaction_operations"]
+        self.assertNotIn("maxItems", editor_operations)
+
+    def test_literature_strategy_match_evaluator_has_compact_provider_schema(self):
+        task = WorkerTask(
+            task_id="literature-evaluator:target-slot-1:1",
+            case_id="opaque-evaluator-case",
+            task_type="literature_strategy_match_evaluator",
+            required_artifact_type="LiteratureStrategyMatchReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=None),
+            host_context={"target_slot_id": "target-slot-1"},
+        )
+
+        preflight_worker_response_schemas([task])
+        schema = _worker_model_output_json_schema(task)
+
+        self.assertEqual(
+            set(schema["properties"]),
+            {
+                "schema_version",
+                "case_id",
+                "target_slot_id",
+                "comparability",
+                "paper_strategy_summary",
+                "paper_key_transformations",
+                "paper_strategy_classes",
+                "card_assessments",
+                "confidence",
+                "evidence_locator_refs",
+                "limitations",
+                "provisional_automated_evaluation",
+            },
+        )
+        self.assertEqual(schema["properties"]["card_assessments"]["minItems"], 3)
+        self.assertEqual(schema["properties"]["card_assessments"]["maxItems"], 3)
+        self.assertNotIn("overall_match", schema["properties"])
+        self.assertNotIn("best_card_index", schema["properties"])
+
+        raw = {
+            "schema_version": "literature_strategy_match_report.v1",
+            "case_id": task.case_id,
+            "target_slot_id": "target-slot-1",
+            "comparability": "comparable",
+            "paper_strategy_summary": "A route-defining annulation.",
+            "paper_key_transformations": ["annulation"],
+            "paper_strategy_classes": ["annulation_or_cyclization"],
+            "card_assessments": [
+                {
+                    "card_index": index,
+                    "match_level": "none",
+                    "matched_elements": [],
+                    "missing_or_conflicting_elements": ["different key event"],
+                    "rationale": "The scaffold construction differs.",
+                }
+                for index in (1, 2, 3)
+            ],
+            "confidence": "high",
+            "evidence_locator_refs": ["passage-1"],
+            "limitations": [],
+            "provisional_automated_evaluation": True,
+        }
+        artifact = _materialize_paper_matched_artifact(
+            task,
+            raw,
+            backend="codex_cli",
+        )
+
+        self.assertEqual(artifact["artifact_type"], "LiteratureStrategyMatchReport")
+        self.assertEqual(artifact["payload"], raw)
+
+    def test_path_repair_editor_wire_has_no_route_or_graph_edits(self):
+        task = WorkerTask(
+            task_id="self-correcting-path-repair",
+            case_id="opaque-case",
+            task_type="path_repair_editor",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+            host_context={"target_smiles": "CCO"},
+        )
+
+        wire = _worker_model_output_json_schema(task)
+        self.assertFalse(wire["additionalProperties"])
+        self.assertEqual(
+            set(wire["properties"]),
+            {
+                "rollback_start_step_id",
+                "rebuild_through_step_id",
+                "additional_coupled_blocker_step_ids",
+                "preserved_suffix_compatible",
+                "repair_goal",
+                "active_constraints",
+            },
+        )
+        payload = _worker_output_json_schema(task)["properties"]["payload"]
+        candidate = payload["properties"]["candidates"]["items"]
+        self.assertFalse(candidate["additionalProperties"])
+        self.assertFalse(
+            candidate["properties"]["repair_directive"]["additionalProperties"]
+        )
+        self.assertEqual(
+            set(candidate["properties"]),
+            {
+                "schema_version",
+                "candidate_id",
+                "no_solved_claim",
+                "not_parent_route_proof",
+                "repair_directive",
+            },
+        )
+        self.assertFalse(
+            {"replace_span", "route_json", "reaction_operations"}
+            & set(candidate["properties"])
+        )
+
+    def test_paper_matched_worker_prompt_uses_lean_role_envelope(self):
+        task = WorkerTask(
+            task_id="paper-route",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+            objective="compact builder objective",
+        )
+
+        prompt = _codex_worker_prompt(task)
+
+        self.assertIn("compact builder objective", prompt)
+        self.assertIn("keep authored fields concise", prompt)
+        self.assertNotIn("Required artifact wrapper", prompt)
+        self.assertNotIn("WorkerTask:", prompt)
+        self.assertNotIn("artifact_payload_instruction", prompt)
+
+    def test_paper_builder_wire_output_is_wrapped_with_host_owned_fields(self):
+        task = WorkerTask(
+            task_id="paper-route",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+            host_context={
+                "target_smiles": "CCO",
+                "selected_product": "CCO",
+            },
+        )
+        wire = {
+            "checkpoint_relation": "preparatory",
+            "reaction_intent": "C-O disconnection exposing two simple fragments.",
+            "reaction_operations": [
+                {"op": "break_bond", "map_a": 2, "map_b": 3}
+            ],
+            "conditions": [],
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(wire), exit_code=0, backend="runner"
+            ),
+        )
+
+        self.assertEqual(record.status, "accepted_draft")
+        artifact = record.output_artifact
+        self.assertEqual(artifact["case_id"], "opaque-case")
+        self.assertEqual(artifact["source"], "codex_cli")
+        payload = artifact["payload"]
+        self.assertEqual(payload["target_smiles"], "CCO")
+        self.assertNotIn("builder_action", payload)
+        self.assertNotIn("builder_reason", payload)
+        candidate = payload["candidates"][0]
+        self.assertEqual(candidate["product_smiles"], "CCO")
+        self.assertEqual(candidate["precursor_smiles"], [])
+        self.assertEqual(candidate["checkpoint_relation"], "preparatory")
+        self.assertEqual(
+            candidate["reaction_family"],
+            "C-O disconnection exposing two simple fragments.",
+        )
+        self.assertNotIn("step_role", candidate)
+        self.assertNotIn("feasibility_check", candidate)
+        self.assertNotIn("transformation_rationale", candidate)
+        self.assertTrue(candidate["no_solved_claim"])
+
+    def test_paper_builder_handoff_wire_is_rejected(self):
+        task = WorkerTask(
+            task_id="paper-route-handoff",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            budget=WorkerBudget(max_tool_calls=0),
+            host_context={
+                "target_smiles": "CCO",
+                "selected_product": "CCO",
+            },
+        )
+        wire = {
+            "decision": {
+                "action": "handoff",
+                "reason": "simple_for_explorative_search",
+            }
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(wire), exit_code=0, backend="runner"
+            ),
+        )
+
+        self.assertEqual(record.status, "rejected_output")
+        self.assertIn(
+            "paper_route_step_reaction_operations_missing",
+            record.output_validation["reasons"],
+        )
+
+    def test_paper_builder_cannot_choose_fail_branch(self):
+        task = WorkerTask(
+            task_id="paper-route-failure",
+            case_id="opaque-case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            budget=WorkerBudget(max_tool_calls=0),
+            host_context={"target_smiles": "CCO", "selected_product": "CCO"},
+        )
+        wire = {
+            "decision": {
+                "action": "fail_branch",
+                "reason": "no_beneficial_strategic_move",
+            }
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(wire), exit_code=0, backend="runner"
+            ),
+        )
+
+        self.assertEqual(record.status, "rejected_output")
+        self.assertIn(
+            "paper_route_step_reaction_operations_missing",
+            record.output_validation["reasons"],
+        )
+
+    def test_other_paper_wire_outputs_receive_only_host_owned_envelopes(self):
+        cases = [
+            (
+                WorkerTask(
+                    task_id="paper-strategies",
+                    case_id="opaque-case",
+                    task_type="paper_matched_strategy_generator",
+                    required_artifact_type="StrategyPortfolioReport",
+                    budget=WorkerBudget(max_tool_calls=0),
+                    host_context={"target_smiles": "CCO"},
+                ),
+                {
+                    "strategy_cards": [
+                        {
+                            "strategy_query": f"strategy {index}",
+                            "critical_assumption": f"assumption {index}",
+                            "critic_checkpoint": f"checkpoint {index}",
+                        }
+                        for index in range(3)
+                    ]
+                },
+            ),
+            (
+                WorkerTask(
+                    task_id="paper-editor",
+                    case_id="opaque-case",
+                    task_type="paper_matched_route_editor",
+                    required_artifact_type="RetrosynthesisProposalReport",
+                    budget=WorkerBudget(max_tool_calls=0),
+                    host_context={"target_smiles": "CCO"},
+                ),
+                {
+                    "repair_summary": "replace the blocked disconnection",
+                    "replace_span": {
+                        "remove_step_ids": ["route:1"],
+                        "revised_steps": [
+                            {
+                                "step_id": "route:1",
+                                "product_smiles": "CCO",
+                                "reaction_family": "C-O cleavage",
+                                "conditions": [],
+                                "catalyst": "",
+                                "reaction_operations": [
+                                    {"op": "break_bond", "map_a": 2, "map_b": 3}
+                                ],
+                            }
+                        ],
+                    },
+                },
+            ),
+            (
+                WorkerTask(
+                    task_id="paper-critic",
+                    case_id="opaque-case",
+                    task_type="paper_matched_route_critic",
+                    required_artifact_type="ChemicalStrategyCritique",
+                    budget=WorkerBudget(max_tool_calls=0),
+                    host_context={
+                        "target_smiles": "CCO",
+                        "route_review_bindings": [
+                            {
+                                "review_slot": "review-001",
+                                "reaction_edit_digest": "d" * 64,
+                                "step_id": "route:1",
+                            }
+                        ],
+                    },
+                ),
+                {
+                    "overall_assessment": "viable",
+                    "route_overall_evaluation": (
+                        "The route is strategically coherent and uses a direct, "
+                        "well-matched disconnection. Its main uncertainty is "
+                        "experimental scope, so it is ready for focused validation."
+                    ),
+                    "strategy_adherence": True,
+                    "step_assessments": [
+                        {
+                            "review_slot": "review-001",
+                            "verdict": "pass",
+                            "blocking": False,
+                            "blocking_type": "none",
+                            "reasons": [],
+                            "condition_assessment": "plausible",
+                            "suggested_revision": "",
+                        }
+                    ],
+                    "route_level_risks": [],
+                    "repair_actions": [],
+                    "coupled_blocker_groups": [],
+                    "limitations": [],
+                },
+            ),
+        ]
+
+        for task, wire in cases:
+            with self.subTest(task_type=task.task_type):
+                self.assertNotIn("host_context", task.to_dict())
+                record = run_codex_worker(
+                    task,
+                    runner=lambda _, wire=wire: WorkerProcessResult(
+                        stdout=json.dumps(wire), exit_code=0, backend="runner"
+                    ),
+                )
+                self.assertEqual(record.status, "accepted_draft")
+                artifact = record.output_artifact
+                self.assertEqual(artifact["case_id"], "opaque-case")
+                self.assertEqual(artifact["input_refs"], [])
+                self.assertEqual(artifact["evidence_refs"], [])
+                self.assertEqual(artifact["validation_status"], "draft")
+                if task.task_type == "paper_matched_route_editor":
+                    candidate = artifact["payload"]["candidates"][0]
+                    self.assertEqual(
+                        candidate["replace_span"]["remove_step_ids"],
+                        ["route:1"],
+                    )
+                    row = candidate["replace_span"]["revised_steps"][0]
+                    self.assertEqual(row["precursor_smiles"], [])
+                    self.assertTrue(row["no_solved_claim"])
+                    self.assertTrue(row["not_parent_route_proof"])
+                if task.task_type == "paper_matched_route_critic":
+                    self.assertTrue(artifact["payload"]["no_reaction_proof"])
+                    self.assertTrue(artifact["payload"]["no_source_authority"])
+
+    def test_strategy_worker_schema_excludes_evidence_metadata(self):
+        task = WorkerTask(
+            task_id="strategy",
+            case_id="opaque-case",
+            task_type="strategic_disconnection_mining",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+
+        schema = _worker_output_json_schema(task)
+        candidate = schema["properties"]["payload"]["properties"]["candidates"][
+            "items"
+        ]
+        prompt = _codex_worker_prompt(task)
+
+        evidence_fields = {
+            "source_channel",
+            "source_refs",
+            "evidence_refs",
+            "evidence_level",
+            "confidence",
+        }
+        self.assertFalse(evidence_fields & set(candidate["properties"]))
+        self.assertEqual(set(candidate["required"]), set(candidate["properties"]))
+        self.assertIn("blind strategy design", prompt)
+        self.assertNotIn("Prefer traceable sources", prompt)
+        self.assertIn("schema_version=retrosynthesis_proposal_report.v1", prompt)
+        self.assertIn("candidate.strategy_card", prompt)
+        self.assertIn("candidate.reaction_operations", prompt)
+
+    def test_route_materialization_schema_does_not_echo_strategy_card(self):
+        task = WorkerTask(
+            task_id="route-step",
+            case_id="opaque-case",
+            task_type="route_step_materialization",
+            required_artifact_type="RetrosynthesisProposalReport",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+
+        schema = _worker_output_json_schema(task)
+        candidate = schema["properties"]["payload"]["properties"]["candidates"][
+            "items"
+        ]
+        prompt = _codex_worker_prompt(task)
+
+        self.assertNotIn("strategy_card", candidate["properties"])
+        self.assertIn("reaction_operations", candidate["properties"])
+        self.assertEqual(candidate["properties"]["precursor_smiles"]["maxItems"], 0)
+        route_step = candidate["properties"]["route_json"]["items"]
+        self.assertEqual(route_step["properties"]["precursor_smiles"]["maxItems"], 0)
+        self.assertIn("do not echo the supplied immutable StrategyCard", prompt)
+        self.assertIn("candidate.precursor_smiles to []", prompt)
+
+    def test_strategy_and_critic_schemas_are_structured_outputs_strict(self):
+        tasks = [
+            WorkerTask(
+                task_id="strategy-card",
+                case_id="opaque-strategy-card",
+                task_type="strategic_disconnection_mining",
+                required_artifact_type="StrategyCardReport",
+                input_refs=[],
+                allowed_tools=[],
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
+            WorkerTask(
+                task_id="strategy",
+                case_id="opaque-case",
+                task_type="strategic_disconnection_mining",
+                required_artifact_type="RetrosynthesisProposalReport",
+                input_refs=[],
+                allowed_tools=[],
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
+            WorkerTask(
+                task_id="critic",
+                case_id="opaque-critic",
+                task_type="route_chemistry_critique",
+                required_artifact_type="ChemicalStrategyCritique",
+                input_refs=[],
+                allowed_tools=[],
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
+        ]
+
+        def assert_strict_object_contract(value):
+            if isinstance(value, dict):
+                if value.get("type") == "object" and value.get(
+                    "additionalProperties"
+                ) is False:
+                    self.assertEqual(
+                        set(value.get("required") or []),
+                        set(dict(value.get("properties") or {})),
+                    )
+                for child in value.values():
+                    assert_strict_object_contract(child)
+            elif isinstance(value, list):
+                for child in value:
+                    assert_strict_object_contract(child)
+
+        for task in tasks:
+            with self.subTest(artifact_type=task.required_artifact_type):
+                assert_strict_object_contract(_worker_output_json_schema(task))
+
+    def test_chemical_strategy_critic_has_closed_no_authority_schema(self):
+        task = WorkerTask(
+            task_id="critic",
+            case_id="opaque-critic",
+            task_type="route_chemistry_critique",
+            required_artifact_type="ChemicalStrategyCritique",
+            input_refs=[],
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+
+        payload = _worker_output_json_schema(task)["properties"]["payload"]
+
+        self.assertFalse(payload["additionalProperties"])
+        self.assertEqual(
+            payload["properties"]["no_reaction_proof"]["enum"], [True]
+        )
+        self.assertEqual(
+            payload["properties"]["no_source_authority"]["enum"], [True]
+        )
+        self.assertEqual(
+            payload["properties"]["step_assessments"]["minItems"], 1
+        )
+
+    def test_global_plan_schema_binds_full_context_ref_not_prompt_digest(self):
+        task = WorkerTask(
+            task_id="director",
+            case_id="case",
+            task_type="global_campaign_direction",
+            required_artifact_type="GlobalCampaignPlan",
+            input_refs=["a" * 64],
+        )
+
+        schema = _worker_output_json_schema(task)
+
+        context_schema = schema["properties"]["payload"]["properties"][
+            "context_sha256"
+        ]
+        self.assertEqual(context_schema["enum"], ["a" * 64])
+
     def test_mock_worker_returns_valid_draft_artifact(self):
         task = WorkerTask(
             task_id="target_research_1",
@@ -155,6 +923,216 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertEqual(record.status, "accepted_draft")
         self.assertNotIn("tool_not_allowed", record.output_validation["reasons"])
 
+    def test_worker_with_unlimited_tool_calls_never_rejects_for_call_count(self):
+        task = WorkerTask(
+            task_id="unlimited_tool_worker",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+            budget=WorkerBudget(max_tool_calls=None),
+        )
+        artifact = {
+            "schema_version": "research_report.draft.v1",
+            "artifact_id": "unlimited_tools",
+            "artifact_type": "ResearchReport",
+            "case_id": "case",
+            "source": "codex_cli",
+            "input_refs": ["target_profile"],
+            "evidence_refs": [],
+            "validation_status": "draft",
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(artifact),
+                exit_code=0,
+                tool_calls=[{"tool": "shell"} for _ in range(50)],
+            ),
+        )
+
+        self.assertEqual(record.status, "accepted_draft")
+        self.assertNotIn(
+            "tool_call_budget_exceeded", record.output_validation["reasons"]
+        )
+
+    def test_failed_local_chemistry_tool_does_not_override_valid_schema(self):
+        task = WorkerTask(
+            task_id="failed_local_chemistry",
+            case_id="case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            budget=WorkerBudget(max_tool_calls=None),
+            host_context={
+                "target_smiles": "[CH3:1][OH:2]",
+                "selected_product": "[CH3:1][OH:2]",
+            },
+        )
+        wire_output = {
+            "checkpoint_relation": "preparatory",
+            "reaction_intent": "Methyl ether cleavage reveals the alcohol.",
+            "reaction_operations": [
+                {"op": "add_group", "map_idx": 2, "fragment_smiles": "[*]C"}
+            ],
+            "conditions": ["BBr3, CH2Cl2"],
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(wire_output),
+                exit_code=0,
+                tool_calls=[
+                    {"tool": "inspect_mapped_smiles", "status": "failed"}
+                ],
+            ),
+        )
+
+        self.assertEqual(record.status, "accepted_draft")
+        self.assertNotIn(
+            "local_chemistry_tool_failed", record.output_validation["reasons"]
+        )
+        self.assertEqual(
+            record.tool_calls,
+            [{"tool": "inspect_mapped_smiles", "status": "failed"}],
+        )
+
+    def test_worker_task_round_trip_preserves_unlimited_tool_calls(self):
+        task = WorkerTask(
+            task_id="unlimited_tool_round_trip",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            budget=WorkerBudget(max_tool_calls=None),
+        )
+
+        restored = worker_task_from_dict(task.to_dict())
+
+        self.assertIsNone(restored.budget.max_tool_calls)
+
+    def test_worker_accepts_valid_codex_output_after_recovered_transport_error(self):
+        task = WorkerTask(
+            task_id="recovered_codex_worker",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+        )
+        artifact = {
+            "schema_version": "research_report.draft.v1",
+            "artifact_id": "recovered",
+            "artifact_type": "ResearchReport",
+            "case_id": "case",
+            "source": "codex_cli",
+            "input_refs": ["target_profile"],
+            "evidence_refs": [],
+            "validation_status": "draft",
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(artifact),
+                stderr="Reconnecting... 5/5 (request timed out)",
+                exit_code=1,
+                backend="codex_cli",
+                metadata={
+                    "event_summary": {
+                        "turn_completed": True,
+                        "last_terminal_event_type": "turn.completed",
+                        "fatal_error": "",
+                    }
+                },
+            ),
+        )
+
+        self.assertEqual(record.status, "accepted_draft")
+        self.assertNotIn(
+            "worker_exit_code_nonzero", record.output_validation["reasons"]
+        )
+
+    def test_worker_only_recovers_disallowed_tool_rejected_before_execution(self):
+        task = WorkerTask(
+            task_id="sandbox_rejected_tool_worker",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+            allowed_tools=["web_search"],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+        artifact = {
+            "schema_version": "research_report.draft.v1",
+            "artifact_id": "sandbox_recovered",
+            "artifact_type": "ResearchReport",
+            "case_id": "case",
+            "source": "codex_cli",
+            "input_refs": ["target_profile"],
+            "evidence_refs": [],
+            "validation_status": "draft",
+        }
+        terminal = {
+            "event_summary": {
+                "turn_completed": True,
+                "last_terminal_event_type": "turn.completed",
+                "fatal_error": "",
+            }
+        }
+
+        rejected_before_launch = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(artifact),
+                exit_code=0,
+                backend="codex_cli",
+                metadata=terminal,
+                tool_calls=[
+                    {
+                        "tool": "shell",
+                        "status": "failed",
+                        "exit_code": -1,
+                        "aggregated_output": "execution error: sandbox launch rejected",
+                    }
+                ],
+            ),
+        )
+        command_ran_and_failed = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(artifact),
+                exit_code=0,
+                backend="codex_cli",
+                metadata=terminal,
+                tool_calls=[
+                    {
+                        "tool": "shell",
+                        "status": "failed",
+                        "exit_code": 1,
+                        "aggregated_output": "command produced output before failure",
+                    }
+                ],
+            ),
+        )
+
+        self.assertEqual(rejected_before_launch.status, "accepted_draft")
+        self.assertNotIn(
+            "tool_not_allowed", rejected_before_launch.output_validation["reasons"]
+        )
+        self.assertNotIn(
+            "tool_call_budget_exceeded",
+            rejected_before_launch.output_validation["reasons"],
+        )
+        self.assertEqual(len(rejected_before_launch.tool_calls), 1)
+        self.assertEqual(command_ran_and_failed.status, "rejected_output")
+        self.assertIn(
+            "tool_not_allowed", command_ran_and_failed.output_validation["reasons"]
+        )
+        self.assertIn(
+            "tool_call_budget_exceeded",
+            command_ran_and_failed.output_validation["reasons"],
+        )
+
     def test_worker_command_timeout_does_not_hang_when_descendant_keeps_pipe_open(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -173,6 +1151,39 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             elapsed = time.monotonic() - started
 
             self.assertLess(elapsed, 4.0)
+            if pid_path.exists():
+                _kill_test_process_tree(int(pid_path.read_text(encoding="utf-8")))
+
+    def test_worker_command_cancellation_terminates_process_tree_promptly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pid_path = root / "descendant.pid"
+            script = (
+                "import pathlib, subprocess, sys, time\n"
+                f"pid_path = pathlib.Path({str(pid_path)!r})\n"
+                "desc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)\n"
+                "pid_path.write_text(str(desc.pid), encoding='utf-8')\n"
+                "time.sleep(30)\n"
+            )
+            cancel_event = threading.Event()
+            timer = threading.Timer(0.2, cancel_event.set)
+            timer.start()
+            started = time.monotonic()
+            try:
+                with self.assertRaises(WorkerCancelledError) as raised:
+                    _run_worker_command(
+                        [sys.executable, "-c", script],
+                        cwd=root,
+                        timeout_s=30.0,
+                        cancel_event=cancel_event,
+                        cancel_backend="fixture_backend",
+                    )
+            finally:
+                timer.cancel()
+            elapsed = time.monotonic() - started
+
+            self.assertLess(elapsed, 4.0)
+            self.assertEqual(raised.exception.backend, "fixture_backend")
             if pid_path.exists():
                 _kill_test_process_tree(int(pid_path.read_text(encoding="utf-8")))
 
@@ -278,10 +1289,54 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertLess(approval_index, exec_index)
         self.assertEqual(command[approval_index + 1], "never")
         self.assertGreater(command.index("--sandbox"), exec_index)
+        self.assertIn("--skip-git-repo-check", command)
         self.assertNotIn("--search", no_search_command)
         self.assertIn("--search", search_command)
         self.assertIn('model_reasoning_effort="medium"', effort_command)
         self.assertLess(search_command.index("--search"), search_command.index("exec"))
+
+    def test_ambient_openai_worker_uses_https_without_websocket_retries(self):
+        with patch.dict(
+            "os.environ",
+            {"AUTOPLANNER_CODEX_WORKER_TRANSPORT": "https"},
+            clear=False,
+        ):
+            command = _codex_cli_command(
+                executable="codex",
+                workdir=Path("/tmp/autoplanner-case"),
+                output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+                schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+                runtime_metadata={
+                    "auth_source": "ambient_codex_cli_snapshot",
+                    "configured_model_provider": "openai",
+                },
+            )
+
+        exec_index = command.index("exec")
+        self.assertIn('model_provider="autoplanner_http"', command[:exec_index])
+        self.assertIn(
+            "model_providers.autoplanner_http.supports_websockets=false",
+            command[:exec_index],
+        )
+
+    def test_https_override_does_not_replace_an_explicit_custom_provider(self):
+        with patch.dict(
+            "os.environ",
+            {"AUTOPLANNER_CODEX_WORKER_TRANSPORT": "https"},
+            clear=False,
+        ):
+            command = _codex_cli_command(
+                executable="codex",
+                workdir=Path("/tmp/autoplanner-case"),
+                output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+                schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+                runtime_metadata={
+                    "auth_source": "ambient_codex_cli_snapshot",
+                    "configured_model_provider": "wellau",
+                },
+            )
+
+        self.assertNotIn('model_provider="autoplanner_http"', command)
 
     def test_codex_cli_command_allows_unsandboxed_worker_modes(self):
         with patch.dict("os.environ", {"AUTOPLANNER_CODEX_WORKER_SANDBOX": "danger-full-access"}, clear=False):
@@ -303,6 +1358,165 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertEqual(danger_command[danger_command.index("--sandbox") + 1], "danger-full-access")
         self.assertIn("--dangerously-bypass-approvals-and-sandbox", bypass_command)
         self.assertNotIn("--sandbox", bypass_command)
+
+    def test_strict_worker_permission_profile_ignores_legacy_escalation_environment(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "AUTOPLANNER_CODEX_WORKER_SANDBOX": "danger-full-access",
+                "AUTOPLANNER_CODEX_WORKER_PROFILE": "unsafe-profile",
+            },
+            clear=False,
+        ):
+            command = _codex_cli_command(
+                executable="codex",
+                workdir=Path("/tmp/autoplanner-case"),
+                output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+                schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+                runtime_metadata={"codex_home": "ephemeral"},
+                search_enabled=False,
+                use_permission_profile=True,
+            )
+
+        self.assertNotIn("--sandbox", command)
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
+        self.assertNotIn("--profile", command)
+        self.assertNotIn("--ignore-user-config", command)
+        self.assertNotIn("--search", command)
+
+    def test_strict_worker_profile_denies_shared_files_and_command_network(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            codex_home = root / "codex_home"
+            model_workspace = root / "model_workspace"
+            audit_root = root / "audit"
+            codex_home.mkdir()
+            model_workspace.mkdir()
+            audit_root.mkdir()
+            (codex_home / "config.toml").write_text(
+                'model_provider = "openai"\n'
+                'sandbox_mode = "danger-full-access"\n'
+                'default_permissions = ":danger-full-access"\n',
+                encoding="utf-8",
+            )
+            configured = _configure_strict_chemistry_worker_environment(
+                {
+                    **os.environ,
+                    "CODEX_HOME": str(codex_home),
+                    "AUTOPLANNER_CODEX_WORKER_SANDBOX": "bypassed",
+                    "AUTOPLANNER_CODEX_SANDBOX": "danger-full-access",
+                    "AUTOPLANNER_CODEX_WORKER_PROFILE": "unsafe-profile",
+                    "PYTHONPATH": str(Path.cwd()),
+                },
+                model_workspace=model_workspace,
+                audit_root=audit_root,
+            )
+            config = (codex_home / "config.toml").read_text(encoding="utf-8")
+
+        self.assertIn(
+            f'default_permissions = "{STRICT_CHEMISTRY_PERMISSION_PROFILE}"',
+            config,
+        )
+        self.assertEqual(
+            config.splitlines()[0],
+            f'default_permissions = "{STRICT_CHEMISTRY_PERMISSION_PROFILE}"',
+        )
+        if os.name == "nt":
+            self.assertIn('[windows]\nsandbox = "unelevated"', config)
+        self.assertNotIn('sandbox_mode = "danger-full-access"', config)
+        self.assertNotIn('default_permissions = ":danger-full-access"', config)
+        self.assertIn('\":root\" = \"deny\"', config)
+        self.assertIn(f'{json.dumps(str(model_workspace))} = "write"', config)
+        self.assertIn(f'{json.dumps(str(audit_root))} = "deny"', config)
+        self.assertIn("enabled = false", config)
+        self.assertNotIn("AUTOPLANNER_CODEX_WORKER_SANDBOX", configured)
+        self.assertNotIn("AUTOPLANNER_CODEX_SANDBOX", configured)
+        self.assertNotIn("AUTOPLANNER_CODEX_WORKER_PROFILE", configured)
+        self.assertNotIn("PYTHONPATH", configured)
+
+    def test_strict_worker_search_is_disabled_independent_of_tool_budget(self):
+        task = WorkerTask(
+            task_id="strict-search",
+            case_id="case",
+            task_type="paper_matched_route_step",
+            required_artifact_type="RetrosynthesisProposalReport",
+            allowed_tools=["web_search", "browser"],
+            budget=WorkerBudget(max_tool_calls=None),
+        )
+
+        self.assertFalse(_task_allows_cli_search(task))
+
+    def test_strict_worker_runs_in_disposable_workspace_but_writes_audit_to_host_root(self):
+        observed = {}
+
+        def runtime_environment(tmp_path, workdir, task):
+            del task
+            codex_home = tmp_path / "codex_home"
+            codex_home.mkdir()
+            (codex_home / "config.toml").write_text("", encoding="utf-8")
+            observed["runtime_workdir"] = workdir
+            return (
+                {**os.environ, "CODEX_HOME": str(codex_home)},
+                {"codex_home": "ephemeral_ambient"},
+            )
+
+        def run_command(command, *, cwd, env, **kwargs):
+            del kwargs
+            observed["command"] = command
+            observed["cwd"] = cwd
+            observed["env"] = env
+            self.assertTrue((cwd / "chemistry_inspection.py").is_file())
+            self.assertTrue((cwd / "chemistry_inspection_mcp.py").is_file())
+            strict_config = (
+                Path(env["CODEX_HOME"]) / "config.toml"
+            ).read_text(encoding="utf-8")
+            self.assertIn("[mcp_servers.chemistry_inspection]", strict_config)
+            self.assertIn("required = true", strict_config)
+            self.assertIn(
+                'enabled_tools = ["inspect_mapped_smiles"]', strict_config
+            )
+            self.assertIn(
+                "[mcp_servers.chemistry_inspection.tools.inspect_mapped_smiles]",
+                strict_config,
+            )
+            self.assertIn('approval_mode = "approve"', strict_config)
+            return (
+                0,
+                '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n',
+                "",
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            audit_root = Path(tmp) / "audit"
+            task = WorkerTask(
+                task_id="strict-isolation",
+                case_id="case",
+                task_type="paper_matched_route_step",
+                required_artifact_type="RetrosynthesisProposalReport",
+                allowed_workdir=str(audit_root),
+                budget=WorkerBudget(timeout_s=5, max_tool_calls=None),
+            )
+            with patch(
+                "cascade_planner.agent.codex_worker._codex_executable_available",
+                return_value=True,
+            ), patch(
+                "cascade_planner.agent.codex_worker._codex_cli_runtime_environment",
+                side_effect=runtime_environment,
+            ), patch(
+                "cascade_planner.agent.codex_worker._run_worker_command",
+                side_effect=run_command,
+            ):
+                result = _run_codex_cli_worker(task)
+
+            event_logs = list((audit_root / "codex_worker_events").glob("*.jsonl"))
+            self.assertEqual(len(event_logs), 1)
+            self.assertEqual(result.metadata["audit_workdir"], str(audit_root.resolve()))
+
+        self.assertEqual(observed["runtime_workdir"], observed["cwd"])
+        self.assertNotEqual(observed["cwd"], audit_root.resolve())
+        self.assertNotIn("--sandbox", observed["command"])
+        self.assertNotIn("--search", observed["command"])
+        self.assertNotIn("AUTOPLANNER_CODEX_WORKER_SANDBOX", observed["env"])
 
     def test_agent_action_batch_schema_uses_supported_json_schema_keywords(self):
         task = WorkerTask(
@@ -416,11 +1630,30 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
+            ambient_home = tmp_path / "ambient"
+            ambient_home.mkdir()
+            (ambient_home / "auth.json").write_text(
+                json.dumps({"auth_mode": "apikey", "OPENAI_API_KEY": "ambient-key"}),
+                encoding="utf-8",
+            )
+            (ambient_home / "config.toml").write_text(
+                'model = "ambient-model"\n'
+                'model_provider = "wellau"\n'
+                '\n'
+                '[model_providers.wellau]\n'
+                'base_url = "https://api.wellau.com/v1"\n'
+                '\n'
+                '[mcp_servers.remote]\n'
+                'url = "https://example.invalid/mcp"\n',
+                encoding="utf-8",
+            )
+            (ambient_home / "installation_id").write_text("ambient-installation", encoding="utf-8")
+            (ambient_home / "models_cache.json").write_text("{}", encoding="utf-8")
             with patch.dict(
                 "os.environ",
                 {
                     "AUTOPLANNER_CODEX_WORKER_AUTH": "ambient",
-                    "CODEX_HOME": str(tmp_path / "should_not_leak"),
+                    "CODEX_HOME": str(ambient_home),
                 },
                 clear=False,
             ):
@@ -430,10 +1663,31 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                     task,
                 )
 
-        self.assertNotIn("CODEX_HOME", env)
+                worker_home = Path(env["CODEX_HOME"])
+                self.assertNotEqual(worker_home, ambient_home)
+                self.assertTrue(worker_home.is_relative_to(tmp_path / "runtime"))
+                self.assertEqual(
+                    json.loads((worker_home / "auth.json").read_text(encoding="utf-8"))["OPENAI_API_KEY"],
+                    "ambient-key",
+                )
+                self.assertEqual(
+                    (worker_home / "config.toml").read_text(encoding="utf-8"),
+                    'model = "ambient-model"\n'
+                    'model_provider = "wellau"\n'
+                    '\n'
+                    '[model_providers.wellau]\n'
+                    'base_url = "https://api.wellau.com/v1"\n',
+                )
+                self.assertEqual(
+                    sorted(metadata["ambient_inputs"]),
+                    ["auth.json", "config.toml", "installation_id"],
+                )
+                self.assertFalse((worker_home / "models_cache.json").exists())
+                self.assertEqual(metadata["config_mode"], "provider_only_snapshot")
+
         self.assertEqual(metadata["provider"], "ambient_codex_cli")
-        self.assertEqual(metadata["auth_source"], "ambient_codex_cli")
-        self.assertEqual(metadata["codex_home"], "ambient")
+        self.assertEqual(metadata["auth_source"], "ambient_codex_cli_snapshot")
+        self.assertEqual(metadata["codex_home"], "ephemeral_ambient")
 
     def test_codex_cli_worker_passes_ephemeral_home_to_subprocess(self):
         task = WorkerTask(

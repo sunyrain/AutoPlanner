@@ -1,0 +1,230 @@
+{
+  "schema_version": "autoplanner_retrostar190_w7_freeze.v1",
+  "freeze_id": "retrostar190-w7-20260806",
+  "created_on": "2026-08-06",
+  "status": "w7_complete_ready_for_w8_full_panel_not_started",
+  "runtime_source": {
+    "branch": "agent/unify-workspace-entrypoints",
+    "commit": "1bff6a3a6b494f832f50e6ad00fdd57616384957",
+    "tree": "52d93638373e8d7dd3bd72c8f136fd167d8aae83",
+    "worktree_clean_when_frozen": true,
+    "critical_file_sha256": {
+      "cascade_planner/application/action_scheduler.py": "cc468dad88373251828f4fcbc326c8cb4a67ceaa4da180c821497676d9cad595",
+      "cascade_planner/application/blind_benchmark_contract.py": "24ff5101988f024a8b0f1aa02e4a723bb8a97b2d5c1b9040fecf24501ec918d9",
+      "cascade_planner/application/campaign_actions.py": "e9c938e81a5f5ea2eebd647925fc996974177dab7f6739a0468ffc5a13cf2e14",
+      "cascade_planner/application/retrosynthesis_run_contract.py": "866f9bbd79015e59aad9dfd9926ebd7b311c6d3cdf2105afd45a7b011ebc5098",
+      "cascade_planner/interfaces/live_stock.py": "e6200fbaf2877b99a43bc42a79492a3c54f47b0cec58b9b2e810517d86f557d8",
+      "cascade_planner/interfaces/target_cli.py": "1af5d257bf25a175c5cd9fc40235bc7c1975306defca7088bf5051c698348975",
+      "cascade_planner/interfaces/target_runtime_dependencies.py": "9db98f796c4ba18357bbdb221ef0f78d72092954b061336092bc89a5411f3dde",
+      "cascade_planner/interfaces/target_solver.py": "b96d5bde6307de5620eec5692309860d160829f6841ff2e8d23c94088efee612",
+      "cascade_planner/orchestration/unified_campaign_runtime.py": "c20fba9a52d12ce6833813c1325cd4de3603ddb53f2552ec68706619a66efe9e",
+      "scripts/run_v4_blind_panel.py": "dc4dc1b0b9dfbb4a7db90a490316a6c6269639a21bfd5b3a15e0ee62711aa86d"
+    }
+  },
+  "benchmark_inputs": {
+    "target_manifest": {
+      "path": "benchmarks/retrostar190_v4.json",
+      "sha256": "2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623",
+      "target_count": 190,
+      "manifest_order_is_panel_order": true
+    },
+    "protocol": {
+      "path": "benchmarks/retrostar190_v4.protocol.json",
+      "sha256": "5b18d6f96cac04d15e86612f44cb73e0f32d6f588eb82b0e063b71d9e7982fd4"
+    },
+    "stock": {
+      "path": "data_external/retrostar190/retrostar_emolecules_stock.sqlite3",
+      "name": "Retro*-190 eMolecules ~23M",
+      "sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c",
+      "member_count": 23081629,
+      "is_search_boundary_not_procurement_authority": true
+    }
+  },
+  "panel_configuration": {
+    "model": "gpt-5.5",
+    "reasoning_effort": "low",
+    "execution_profile": "standard",
+    "objective_mode": "benchmark_search",
+    "objective_mode_is_compatibility_view_not_scheduler_input": true,
+    "ablation": "baseline",
+    "panel_workers": 1,
+    "visual_enabled": false,
+    "coordinator_enabled": false,
+    "initial_director_web_search": true,
+    "target_identity_enabled": true,
+    "target_identity_is_opaque": true,
+    "target_chemenzy_baseline": true,
+    "provider_route_reserve": 16,
+    "host_route_portfolio": 8,
+    "display_route_limit": 4,
+    "max_atom_mapping_reactions": 64,
+    "max_live_stock_molecules_per_action": 32,
+    "max_patent_sources": 3,
+    "max_literature_sources": 4,
+    "chemenzy": {
+      "max_steps": 14,
+      "iterations": 60,
+      "expansion_topk": 100,
+      "timeout_s": 600.0,
+      "guided_frontiers": 5,
+      "guided_iterations": 8,
+      "guided_timeout_s": 90.0,
+      "stock_names": [],
+      "stock_path_overrides": []
+    },
+    "uniform_case_budget": {
+      "max_model_invocations": 3,
+      "max_total_input_tokens": 120000,
+      "max_total_output_tokens": 30000,
+      "max_total_wall_time_s": 1800,
+      "max_prompt_context_bytes": 160000,
+      "max_accepted_expansions": 96,
+      "max_attempt_runs": 192,
+      "max_visual_invocations": 0
+    },
+    "uniform_acceptance_projection": {
+      "minimum_complete_routes": 1,
+      "minimum_edge_proof_level": 2,
+      "minimum_independent_source_groups": 1,
+      "minimum_planning_route_steps": 0,
+      "stock_boundary": "benchmark_search"
+    }
+  },
+  "scheduler": {
+    "algorithm": "deterministic_interpretable_target_blind_v1",
+    "module": "cascade_planner/application/action_scheduler.py",
+    "module_sha256": "cc468dad88373251828f4fcbc326c8cb4a67ceaa4da180c821497676d9cad595",
+    "uses_rng": false,
+    "score_coefficients": {
+      "deterministic_bonus": 30.0,
+      "dependency_penalty_per_dependency": 30.0,
+      "dependency_penalty_cap": 120.0,
+      "expected_route_gain": 90.0,
+      "expected_proof_gain": 80.0,
+      "expected_diversity_gain": 70.0,
+      "cost_penalty": -65.0,
+      "failure_risk_penalty": -85.0
+    },
+    "state_bonuses": {
+      "route_action_before_B1": 120.0,
+      "route_action_before_B4_after_B1": 75.0,
+      "reaction_validate_before_B2": 90.0,
+      "exact_evidence_action_before_B3": 80.0,
+      "proof_action_after_B4_with_open_B2_or_B3": 55.0
+    },
+    "tie_break": [
+      "eligible_first",
+      "schedule_score_descending",
+      "frozen_action_kind_order",
+      "stable_action_id"
+    ],
+    "target_or_dataset_fields_are_not_inputs": true
+  },
+  "environment": {
+    "base_environment_sha256": "0d5204f3178b5d292c19d51b0114e117774795ab454c25ae1f492abb38e6622f",
+    "host_python": {
+      "version": "3.12.10",
+      "rdkit_version": "2023.09.6",
+      "executable_sha256": "4d6f5f81a4bca11191c4c7c6b43632694d0a4ce74e068619d8fdc161d469859a"
+    },
+    "chemenzy_python": {
+      "version": "3.12.13",
+      "rdkit_version": "2026.03.3",
+      "executable_sha256": "a7564ce2b593db9ede125b448afc21ca2ee2717ceea49874e5ffe5e62bceabd9"
+    },
+    "codex_cli_sha256": "83751f15cb6a0a7b97df67752c001e3fe1c20e18ffbfec3ff63567296205eb6c"
+  },
+  "randomness_and_reproducibility": {
+    "host_scheduler_is_deterministic_and_uses_no_rng": true,
+    "provider_seed_control_exposed_by_panel_contract": false,
+    "frozen_seed_set": null,
+    "remote_model_weights_are_bitwise_frozen": false,
+    "remote_provider_sampling_is_bitwise_reproducible": false,
+    "claim": "The host code, configuration, inputs, executables, scheduler coefficients, and stock are content-addressed. Remote model identity is recorded, but remote weights and sampling are not bitwise frozen."
+  },
+  "w7_preflight_evidence": {
+    "root": "results/.autoplanner/w7-freeze-preflight-20260806-b",
+    "snapshot_path": "results/.autoplanner/w7-freeze-preflight-20260806-b/snapshots/benchmark-snapshot.json",
+    "snapshot_content_sha256": "e06a48597a8b4a1aef8ce453100f587037d8f61df855252bcfbfdb9869cbf938",
+    "snapshot_file_sha256": "f871f277b3926d0e48fc521f3dab115c10b7dc4c0c13af83ddfee485b8c51d8e",
+    "panel_status_path": "results/.autoplanner/w7-freeze-preflight-20260806-b/panel-status.json",
+    "panel_status_file_sha256": "957f41a5ea00d72c96faf784cf12bac3ac1a686afb2f45a676d53b329ff62ea7",
+    "selected_target_count": 190,
+    "preflight_passed_count": 190,
+    "preflight_failed_count": 0,
+    "providers_started": false
+  },
+  "verification": {
+    "expanded_w7_regression": {
+      "outcome": "74 passed"
+    },
+    "full_offline_suite": {
+      "command": "python -m pytest -q -k \"not test_new_focused_modules_stay_within_practical_line_budgets\"",
+      "outcome": "2632 passed, 3 skipped, 1 deselected, 2 subtests passed, 11 warnings",
+      "deferred_test": "tests/test_v4_architecture.py::test_new_focused_modules_stay_within_practical_line_budgets"
+    },
+    "final_nirmatrelvir_zero_model_replay": {
+      "executed_at_repository_head": "44b9e27213d94e90c70168bf845333134cac0586",
+      "runtime_critical_files_match_frozen_source": true,
+      "root": "results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f",
+      "report_path": "results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f/runs/w6-nirmatrelvir-current-replay-20260806-f--a71e797af896/target-only-solve-report.json",
+      "report_sha256": "23ce80351c5d9f60134272c153566bf87d2238b7926e1814aa4e59b9c2eb7263",
+      "comparison_path": "results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f/chemenzy-embedding-comparison.json",
+      "comparison_sha256": "87d5d51adf9d69228ea215c1e33b283a82a12b30a6eeb88035f1fe470c90811d",
+      "new_model_invocations": 0,
+      "raw_provider_digest_parity": true,
+      "normalized_route_multiset_parity": true,
+      "standalone_routes": 39,
+      "embedded_routes": 39,
+      "host_selected_routes": 2,
+      "fully_materialized_routes": 2,
+      "host_validated_routes": 0,
+      "stock_closed_routes": 1,
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": false,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": true,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "action_counts": {
+        "chemenzy_target_expand": 1,
+        "codex_global_architecture": 1,
+        "host_materialize": 30,
+        "reaction_validate": 30,
+        "stock_audit": 2,
+        "total": 64
+      }
+    },
+    "historical_positive_smokes": [
+      {
+        "case": "RetroStar-001",
+        "artifact_root": "results/.autoplanner/benchmark190-optimized-20260727/retrostar001-search-only-v2",
+        "B4_stock_boundary": true,
+        "role": "preserved positive baseline; not rerun for W7 parity"
+      },
+      {
+        "case": "RetroStar-002",
+        "artifact_root": "results/.autoplanner/benchmark190-optimized-20260727/retrostar002-003-search-only",
+        "B4_stock_boundary": true,
+        "role": "preserved positive smoke"
+      },
+      {
+        "case": "RetroStar-003",
+        "artifact_root": "results/.autoplanner/benchmark190-optimized-20260727/retrostar002-003-search-only",
+        "B4_stock_boundary": true,
+        "role": "preserved positive smoke"
+      }
+    ]
+  },
+  "scientific_reporting_contract": {
+    "retrostar_primary_metric": "at least one host-admitted target-rooted route whose terminal leaves are all in the frozen stock",
+    "B2_reaction_validation_reported_separately": true,
+    "B3_exact_evidence_reported_separately": true,
+    "B5_configured_scientific_acceptance_reported_separately": true,
+    "no_target_grouping": true,
+    "no_target_specific_tuning": true,
+    "full_190_improvement_claim_allowed_before_W8": false
+  }
+}

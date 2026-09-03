@@ -51,6 +51,7 @@ class CascadeSearchConfig:
     pair_reward_mode: str = "additive"
     pair_reward_tie_epsilon: float = 0.0
     soft_timeout_s: float | None = None
+    continue_after_result_limit: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -137,7 +138,11 @@ class CascadeProgramSearch:
         fallbacks: list[CascadeSearchResult] = []
         seen: set[str] = set()
 
-        while queue and self.stats.expansions < self.config.expansion_budget and len(results) < n_results:
+        while (
+            queue
+            and self.stats.expansions < self.config.expansion_budget
+            and (self.config.continue_after_result_limit or len(results) < n_results)
+        ):
             if self._timed_out():
                 self.stats.stop_reason = "soft_timeout"
                 break
@@ -182,7 +187,7 @@ class CascadeProgramSearch:
 
         self.stats.elapsed_s = time.monotonic() - self._started_at
         if not self.stats.stop_reason:
-            if len(results) >= n_results:
+            if len(results) >= n_results and not self.config.continue_after_result_limit:
                 self.stats.stop_reason = "result_limit"
             elif self.stats.expansions >= self.config.expansion_budget:
                 self.stats.stop_reason = "expansion_budget"
@@ -937,7 +942,7 @@ def _state_no_failures(state: CascadeProgramState) -> bool:
 def _learned_value_active(controller: CascadeSearchController | None) -> bool:
     if controller is None:
         return False
-    return type(controller.value_model).__name__ == "LearnedCascadeValueModel"
+    return bool(getattr(controller.value_model, "is_learned_value_model", False))
 
 
 def _dedupe(values: list[str]) -> list[str]:

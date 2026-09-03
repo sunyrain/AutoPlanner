@@ -56,6 +56,7 @@ from cascade_planner.agent.prior_bridge import (
 )
 from cascade_planner.agent.route_critic import critique_route_payload
 from cascade_planner.agent.failure_policy import predict_failure_risk
+from cascade_planner.route_tree.extensions import RouteTreeExtensions
 
 
 def _canonical(smi: str | None) -> str:
@@ -297,6 +298,7 @@ def _plan_one_target(
     stock_checker=None,
     constraints: dict[str, Any] | None = None,
     trace_collector: Any | None = None,
+    route_tree_extensions: RouteTreeExtensions | None = None,
 ) -> list:
     skeleton_budget, candidate_budget = _prior_adjusted_budget(
         n_results=n_results,
@@ -438,6 +440,23 @@ def _plan_one_target(
             route_tree_budget,
             _env_int("AUTOPLANNER_ROUTE_TREE_MIN_EXPANSION_BUDGET", route_tree_budget),
         )
+        extension_kwargs: dict[str, Any] = {}
+        if route_tree_extensions is not None:
+            if route_tree_extensions.controller_factory is not None:
+                extension_kwargs["controller"] = route_tree_extensions.controller_factory()
+            if route_tree_extensions.source_gate_factory is not None:
+                extension_kwargs["source_gate"] = route_tree_extensions.source_gate_factory()
+            if route_tree_extensions.action_value_advisor_factory is not None:
+                extension_kwargs["action_value_advisor"] = (
+                    route_tree_extensions.action_value_advisor_factory()
+                )
+                extension_kwargs["action_value_advisor_weight"] = float(
+                    route_tree_extensions.action_value_advisor_weight
+                )
+            if route_tree_extensions.candidate_appender is not None:
+                extension_kwargs["proposal_candidate_appender"] = (
+                    route_tree_extensions.candidate_appender
+                )
         route_tree_results = plan_with_route_tree(
             target=target,
             skeletons=route_skeletons,
@@ -449,6 +468,7 @@ def _plan_one_target(
             expansion_budget=route_tree_budget,
             constraints=constraints,
             trace_collector=trace_collector,
+            **extension_kwargs,
         )
         if not route_tree_results and _env_truthy("AUTOPLANNER_ROUTE_TREE_EMPTY_FALLBACK"):
             fallback_results = plan_with_cc_aostar(
@@ -556,6 +576,7 @@ def _plan_one_target_with_policy_retry(
     stock_checker=None,
     constraints: dict[str, Any] | None = None,
     trace_collector: Any | None = None,
+    route_tree_extensions: RouteTreeExtensions | None = None,
 ) -> tuple[list, dict[str, Any]]:
     """Run a base AO* search, then one learned bounded retry if appropriate."""
     base_search_mode = "cc_aostar"
@@ -577,6 +598,7 @@ def _plan_one_target_with_policy_retry(
         stock_checker=stock_checker,
         constraints=constraints,
         trace_collector=trace_collector if base_search_mode == "route_tree" else None,
+        route_tree_extensions=route_tree_extensions,
     )
     base_elapsed = time.time() - t0
     base_payload = route_results_payload(
@@ -653,6 +675,7 @@ def _plan_one_target_with_policy_retry(
         stock_checker=stock_checker,
         constraints=constraints,
         trace_collector=trace_collector if retry_search_mode == "route_tree" else None,
+        route_tree_extensions=route_tree_extensions,
     )
     retry_meta.update({
         "retry_executed": True,
@@ -1004,7 +1027,7 @@ def summarize_target_results(target_results: list[dict[str, Any]], check_stock: 
 
 def run_live_benchmark(
     bench_path: str = "data/benchmark_v2_100.json",
-    output_path: str = "results/v2/live_benchmark.json",
+    output_path: str = "results/shared/cascadeboard/live_benchmark.json",
     model_path: str = "results/shared/skeleton_inpainter/best.pt",
     limit: int | None = None,
     shard_index: int = 0,
@@ -1022,6 +1045,7 @@ def run_live_benchmark(
     constraints: dict[str, Any] | None = None,
     target_log: str = "brief",
     trace_output_path: str | None = None,
+    route_tree_extensions: RouteTreeExtensions | None = None,
 ) -> dict[str, Any]:
     bench = _load_benchmark_entries(bench_path, limit, shard_index, num_shards)
     prior_cache = load_prior_cache(prior_cache_path)
@@ -1093,6 +1117,7 @@ def run_live_benchmark(
                         stock_checker=stock_checker,
                         constraints=constraints,
                         trace_collector=route_tree_trace,
+                        route_tree_extensions=route_tree_extensions,
                     )
                 else:
                     results = _plan_one_target(
@@ -1112,6 +1137,7 @@ def run_live_benchmark(
                         stock_checker=stock_checker,
                         constraints=constraints,
                         trace_collector=route_tree_trace if search_mode == "route_tree" else None,
+                        route_tree_extensions=route_tree_extensions,
                     )
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
@@ -1299,6 +1325,26 @@ def run_live_benchmark(
             "skeleton_retrieval_prior": skeleton_retrieval_prior_metadata(),
             "skeleton_reranker": skeleton_reranker_metadata(),
             "retro_cache_stats": retro_engine_cache_stats(retro_engine),
+            "route_tree_extensions": {
+                "controller": bool(
+                    route_tree_extensions and route_tree_extensions.controller_factory
+                ),
+                "source_gate": bool(
+                    route_tree_extensions and route_tree_extensions.source_gate_factory
+                ),
+                "action_value_advisor": bool(
+                    route_tree_extensions
+                    and route_tree_extensions.action_value_advisor_factory
+                ),
+                "action_value_advisor_weight": float(
+                    route_tree_extensions.action_value_advisor_weight
+                    if route_tree_extensions
+                    else 0.0
+                ),
+                "candidate_appender": bool(
+                    route_tree_extensions and route_tree_extensions.candidate_appender
+                ),
+            },
             "metric_note": (
                 "filled_type_GT uses filled routes plus type-sequence threshold. "
                 "For route_tree, skeleton_type_GT/filled_type_GT use retrosynthesis-order "
@@ -1453,10 +1499,13 @@ def apply_stock_to_targets(targets: list[dict[str, Any]]) -> bool:
     return True
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Run the full live CascadeBoard benchmark")
     ap.add_argument("--bench", default="data/benchmark_v2_100.json")
-    ap.add_argument("--output", default="results/v2/live_benchmark.json")
+    ap.add_argument(
+        "--output",
+        default="results/shared/cascadeboard/live_benchmark.json",
+    )
     ap.add_argument("--merge", nargs="+", default=None, help="Merge existing shard JSON files and exit")
     ap.add_argument("--model", default="results/shared/skeleton_inpainter/best.pt")
     ap.add_argument("--limit", type=int, default=None)
@@ -1484,7 +1533,14 @@ def main() -> None:
         choices=["none", "brief", "json"],
         help="Emit per-target benchmark progress to stderr",
     )
-    args = ap.parse_args()
+    return ap
+
+
+def run_from_args(
+    args: argparse.Namespace,
+    *,
+    route_tree_extensions: RouteTreeExtensions | None = None,
+) -> dict[str, Any]:
 
     if args.merge:
         result = merge_benchmark_outputs(args.merge, args.output)
@@ -1492,7 +1548,7 @@ def main() -> None:
             result["summary"] = summarize_target_results(result["targets"], check_stock=True)
             Path(args.output).write_text(json.dumps(result, indent=2))
         print(json.dumps(result["summary"], indent=2))
-        return
+        return result
 
     constraints = None
     if args.constraints_json:
@@ -1518,8 +1574,14 @@ def main() -> None:
         constraints=constraints,
         target_log=args.target_log,
         trace_output_path=args.trace_output,
+        route_tree_extensions=route_tree_extensions,
     )
     print(json.dumps(result["summary"], indent=2))
+    return result
+
+
+def main() -> None:
+    run_from_args(build_parser().parse_args())
 
 
 if __name__ == "__main__":

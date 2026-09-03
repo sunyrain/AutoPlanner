@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -17,9 +20,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from cascade_planner.baselines.chem_enzy_adapter import (
+    CHEMENZY_WORKER_BOOTSTRAP_ENV,
+    CHEMENZY_WORKER_EASIFA_ENV,
+    CHEMENZY_WORKER_GRAPHVIZ_ENV,
     ChemEnzyBackendAdapter,
     DEFAULT_ONE_STEP_MODELS,
     DEFAULT_STOCKS,
+    install_chemenzy_import_compatibility,
 )
 from cascade_planner.baselines.chem_enzy_budget import (
     budgeted_chemenzy_payload,
@@ -36,10 +43,25 @@ from cascade_planner.cascade_search.enzyme_coverage_sidecar import (
     build_enzyme_coverage_sidecar,
 )
 from cascade_planner.cascade_verifier import load_learned_verifier, predict_learned_verifier, verify_cascade_route
-from cascade_planner.legacy_guard import LEGACY_RESEARCH_ENV, legacy_research_enabled
+from cascade_planner.legacy.guard import LEGACY_RESEARCH_ENV, legacy_research_enabled
 
 
 RDLogger.DisableLog("rdApp.*")
+
+
+def _bootstrap_pandarallel_worker_from_environment() -> bool:
+    """Replay parent import shims in Windows spawn workers before dill loads."""
+
+    if os.environ.get(CHEMENZY_WORKER_BOOTSTRAP_ENV) != "1":
+        return False
+    install_chemenzy_import_compatibility(
+        enable_easifa=os.environ.get(CHEMENZY_WORKER_EASIFA_ENV) == "1",
+        enable_graphviz=os.environ.get(CHEMENZY_WORKER_GRAPHVIZ_ENV) == "1",
+    )
+    return True
+
+
+_bootstrap_pandarallel_worker_from_environment()
 
 
 DEFAULT_LEARNED_VERIFIER_MODEL = Path(
@@ -56,6 +78,7 @@ def main() -> None:
     args = ap.parse_args()
 
     payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
+    _configure_pandarallel_worker_environment(payload)
     embedded_resolution = payload.get("chem_enzy_budget_resolution")
     if isinstance(embedded_resolution, dict):
         budget_resolution = resolution_from_dict(embedded_resolution)
@@ -92,10 +115,43 @@ def main() -> None:
     )
     result = adapter.run_target(config)
     output = _web_payload_from_result(result, payload, config, time.monotonic() - started, vendor_root=Path(args.vendor_root))
+    output["runtime_compatibility"] = {
+        "pandarallel_spawn_bootstrap_configured": True,
+        "worker_import_shims": [
+            "numpy_legacy_aliases",
+            "torchdata_legacy_aliases",
+            "torchtext_legacy_aliases",
+            "dgl_graphbolt_optional_import",
+            "optional_easifa_import",
+            "optional_graphviz_import",
+        ],
+    }
     output["chem_enzy_budget_resolution"] = budget_resolution.to_dict()
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+    temp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+    temp_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+    temp_path.replace(out_path)
+
+
+def _configure_pandarallel_worker_environment(payload: dict[str, Any]) -> None:
+    """Configure import-time compatibility for later Windows spawn workers."""
+
+    os.environ[CHEMENZY_WORKER_BOOTSTRAP_ENV] = "1"
+    os.environ[CHEMENZY_WORKER_EASIFA_ENV] = (
+        "1" if bool(payload.get("enable_easifa", False)) else "0"
+    )
+    os.environ[CHEMENZY_WORKER_GRAPHVIZ_ENV] = (
+        "1" if bool(payload.get("viz", False)) else "0"
+    )
+    os.environ["CHEMENZY_PANDARALLEL_WORKERS"] = str(
+        _as_int(
+            payload.get("pandarallel_workers"),
+            _as_int(os.environ.get("CHEMENZY_PANDARALLEL_WORKERS"), 2, lo=1, hi=8),
+            lo=1,
+            hi=8,
+        )
+    )
 
 
 def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearchConfig:
@@ -125,6 +181,13 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
         "condition_model": payload.get("condition_model", "rcr"),
         "chem_enzy_onmt_tokenizer": onmt_tokenizer,
         "keep_search": True,
+        "stop_on_first_host_admitted_route": bool(
+            payload.get("stop_on_first_host_admitted_route", False)
+        ),
+        # The parent process owns the hard timeout.  Stop native search early
+        # enough to extract, host-audit, and atomically persist any routes
+        # already found instead of losing the whole subprocess at the wall.
+        "search_wall_time_s": _soft_search_wall_time_s(payload.get("timeout_s")),
         "use_filter": payload.get("use_filter", False),
         "use_depth_value_fn": payload.get("use_depth_value_fn", False),
         "include_cascade_expansion_trace": True,
@@ -141,6 +204,33 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
         "legacy_cascade_hooks_requested": legacy_hooks_requested,
         "legacy_cascade_hooks_enabled": legacy_hooks_enabled,
     }
+    raw_stock_paths = payload.get("stock_paths")
+    if isinstance(raw_stock_paths, dict):
+        search_flags["stock_paths"] = {
+            str(name): str(Path(str(path)).expanduser().resolve())
+            for name, path in raw_stock_paths.items()
+            if str(name).strip() and str(path).strip()
+        }
+    max_output_routes = _optional_positive_int(payload.get("max_routes"), hi=100)
+    if max_output_routes is not None:
+        # Iteration/depth/top-k remain hard maxima, not work targets.  Stop
+        # MCTS once a bounded successful-route reserve exists, then host-audit
+        # that reserve before any serial condition/enzyme annotation.  The
+        # reserve prevents one verifier rejection from starving the requested
+        # output portfolio.
+        search_flags["max_output_routes"] = max_output_routes
+        search_flags["max_materialized_routes"] = _as_int(
+            payload.get("max_materialized_routes"),
+            max(4, max_output_routes * 2),
+            lo=max_output_routes,
+            hi=500,
+        )
+        search_flags["max_advisory_materialized_routes"] = _as_int(
+            payload.get("max_advisory_materialized_routes"),
+            max_output_routes,
+            lo=0,
+            hi=100,
+        )
     native_enzyme_plugin = _native_enzyme_plugin_from_payload(payload)
     if native_enzyme_plugin:
         search_flags["native_enzyme_plugin"] = native_enzyme_plugin
@@ -163,6 +253,7 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
         max_iterations=iterations,
         max_depth=max_depth,
         expansion_topk=expansion_topk,
+        random_seed=_as_int(payload.get("chemenzy_seed"), 0, lo=0, hi=2**32 - 1),
         one_step_models=one_step_models,
         search_flags=search_flags,
     )
@@ -170,6 +261,18 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
     if policy_payload:
         config = apply_chem_enzy_search_policy(config, dict(policy_payload))
     return config
+
+
+def _soft_search_wall_time_s(value: Any) -> float | None:
+    """Reserve part of the subprocess wall budget for result persistence."""
+
+    try:
+        hard_limit = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(hard_limit) or hard_limit <= 0:
+        return None
+    return round(max(0.5, hard_limit * 0.7), 3)
 
 
 def _chem_enzy_step_strengthening_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -293,7 +396,26 @@ def _web_payload_from_result(
         if ((route.get("metrics") or {}).get("learned_cascade_verifier") or {}).get("available")
     )
     verifier_gate = _cascade_verifier_gate_enabled(request_payload)
-    routes, verifier_gate_report = _apply_cascade_verifier_gate(raw_routes, enabled=verifier_gate)
+    routes, quarantined_routes, verifier_gate_report = _apply_cascade_verifier_gate(
+        raw_routes,
+        enabled=verifier_gate,
+    )
+    output_limit = _configured_output_route_limit(request_payload, config)
+    output_limit_report = {
+        "enabled": output_limit is not None,
+        "max_routes": output_limit,
+        "eligible_before_limit": len(routes),
+        "quarantined_before_limit": len(quarantined_routes),
+        "eligible_truncated": 0,
+        "quarantined_truncated": 0,
+    }
+    if output_limit is not None:
+        output_limit_report["eligible_truncated"] = max(0, len(routes) - output_limit)
+        output_limit_report["quarantined_truncated"] = max(
+            0, len(quarantined_routes) - output_limit
+        )
+        routes = routes[:output_limit]
+        quarantined_routes = quarantined_routes[:output_limit]
     strict_solved = any(bool((route.get("metrics") or {}).get("route_solved")) for route in routes)
     raw_solved = any(
         bool((route.get("raw_backend_metadata") or {}).get("raw_solved"))
@@ -338,6 +460,7 @@ def _web_payload_from_result(
         "n_results": len(routes),
         "time_s": round(elapsed_s, 3),
         "routes": routes,
+        "quarantined_routes": quarantined_routes,
         "route_set_metrics": {
             "diversity": {
                 "n_routes": len(routes),
@@ -349,6 +472,7 @@ def _web_payload_from_result(
             "route_materialization_admission": _route_materialization_admission_summary(
                 raw_routes
             ),
+            "output_limit": output_limit_report,
         },
         "ui_metadata": {
             "backend": "CascadePlanner",
@@ -356,10 +480,13 @@ def _web_payload_from_result(
             "planner_strategy": "ChemEnzy native multi-step search with AutoPlanner product audit and rule cascade verifier",
             "search_mode": "chem_enzy_native",
             "search_preset": request_payload.get("search_preset", "quick"),
+            "max_routes": output_limit,
             "stock_mode": request_payload.get("stock_mode", "building-block"),
             "max_depth": config.max_depth,
             "iterations": config.max_iterations,
             "expansion_topk": config.expansion_topk,
+            "timeout_s": float(request_payload.get("timeout_s") or 0.0),
+            "random_seed": config.random_seed,
             "condition_prediction_enabled": bool(request_payload.get("enable_condition_prediction", False)),
             "enzyme_assignment_enabled": bool(request_payload.get("enable_enzyme_assignment", False)),
             "chem_enzy_step_strengthening_enabled": bool(
@@ -370,6 +497,13 @@ def _web_payload_from_result(
             "chem_enzy_onmt_tokenizer": config.search_flags.get("chem_enzy_onmt_tokenizer", "char"),
             "one_step_models": config.one_step_models,
             "stock_names": config.stock_names,
+            "stock_paths": dict(config.search_flags.get("stock_paths") or {}),
+            "pandarallel_workers": _as_int(
+                os.environ.get("CHEMENZY_PANDARALLEL_WORKERS"),
+                2,
+                lo=1,
+                hi=8,
+            ),
             "cascade_hooks": {
                 "cost_model": bool(config.search_flags.get("use_cascade_cost_model")),
                 "source_policy": bool(config.search_flags.get("use_cascade_source_policy")),
@@ -408,6 +542,15 @@ def _web_payload_from_result(
             ),
             "native_raw_returned_routes": bool(native_raw_routes),
             "native_raw_n_routes": len(native_raw_routes),
+            "native_search_found_n_routes": int(
+                dict(
+                    (result.raw_backend_metadata or {}).get(
+                        "route_materialization_selection"
+                    )
+                    or {}
+                ).get("raw_route_count")
+                or len(native_raw_routes)
+            ),
             "semisynthesis_rescue_returned_routes": bool(rescue_routes),
             "semisynthesis_rescue_n_routes": len(rescue_routes),
             "best_depth": config.max_depth,
@@ -532,28 +675,82 @@ def _cascade_verifier_gate_enabled(request_payload: dict[str, Any]) -> bool:
     return bool(request_payload.get("enable_rule_verifier_gate") or request_payload.get("cascade_verifier_gate"))
 
 
+_HARD_CASCADE_VERIFIER_REASONS = {
+    "invalid_smiles",
+    "product_mismatch",
+    "route_order_mismatch",
+}
+
+
 def _apply_cascade_verifier_gate(
     routes: list[dict[str, Any]],
     *,
     enabled: bool,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     if not enabled:
-        return routes, {
+        return routes, [], {
             "enabled": False,
             "input_routes": len(routes),
             "kept_routes": len(routes),
             "dropped_routes": 0,
+            "hard_dropped_routes": 0,
+            "soft_warning_routes": 0,
             "default_stage_mode": "stepwise",
             "dropped": [],
         }
 
     kept: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
+    soft_warning_routes: list[dict[str, Any]] = []
     for route in routes:
         metrics = route.get("metrics") or {}
         report = metrics.get("cascade_verifier") or {}
-        if report.get("feasible") is False:
+        reasons = {
+            str(value)
+            for value in (report.get("reason_counts") or {})
+            if str(value)
+        }
+        if not reasons:
+            reasons = {
+                str(finding.get("reason") or "")
+                for finding in report.get("findings") or []
+                if isinstance(finding, dict) and str(finding.get("reason") or "")
+            }
+        hard_reasons = sorted(reasons & _HARD_CASCADE_VERIFIER_REASONS)
+        verifier_failed_without_reason = (
+            report.get("feasible") is False and not reasons
+        )
+        if hard_reasons or verifier_failed_without_reason:
+            route["advisory_only"] = True
+            route["confidence"] = 0.0
+            route["warning_codes"] = sorted(
+                {
+                    "cascade_verifier_hard_rejected",
+                    *reasons,
+                }
+            )
             dropped.append(
+                {
+                    "route_rank": route.get("route_rank"),
+                    "n_steps": route.get("n_steps"),
+                    "score": route.get("score"),
+                    "reason_counts": report.get("reason_counts") or {},
+                    "hard_reasons": hard_reasons or [
+                        "verifier_failed_without_reason"
+                    ],
+                }
+            )
+            continue
+        if report.get("feasible") is False:
+            route["advisory_only"] = False
+            route["reaction_validation_required"] = True
+            route["warning_codes"] = sorted(
+                {
+                    *(str(value) for value in route.get("warning_codes") or []),
+                    *reasons,
+                }
+            )
+            soft_warning_routes.append(
                 {
                     "route_rank": route.get("route_rank"),
                     "n_steps": route.get("n_steps"),
@@ -561,19 +758,30 @@ def _apply_cascade_verifier_gate(
                     "reason_counts": report.get("reason_counts") or {},
                 }
             )
-            continue
         kept.append(route)
 
     for index, route in enumerate(kept):
         route["route_rank"] = index
 
-    return kept, {
+    return kept, [
+        route
+        for route in routes
+        if route.get("advisory_only") is True
+    ], {
         "enabled": True,
         "input_routes": len(routes),
         "kept_routes": len(kept),
         "dropped_routes": len(dropped),
+        "hard_dropped_routes": len(dropped),
+        "soft_warning_routes": len(soft_warning_routes),
         "default_stage_mode": "stepwise",
         "dropped": dropped[:50],
+        "soft_warnings": soft_warning_routes[:50],
+        "semantics": {
+            "route_generation_gate_blocks_only_structural_contract_failures": True,
+            "reaction_material_and_condition_findings_are_deferred_to_host_validation": True,
+            "soft_warning_routes_grant_no_reaction_proof": True,
+        },
     }
 
 
@@ -610,6 +818,17 @@ def _web_step(step: RouteStepCandidate, index: int) -> dict[str, Any]:
         "solvent": str(solvent or ""),
         "condition_predictions": list(step.condition_predictions or []),
         "enzyme_ec_annotations": list(step.enzyme_ec_annotations or []),
+        "catalyst_annotations": list(step.catalyst_annotations or []),
+        "raw_backend_metadata": dict(step.raw_backend_metadata or {}),
+        "chemical_step_equivalent_count": (step.raw_backend_metadata or {}).get(
+            "chemical_step_equivalent_count"
+        ),
+        "replaced_step_ids": list(
+            (step.raw_backend_metadata or {}).get("replaced_step_ids") or []
+        ),
+        "selectivity_objective": str(
+            (step.raw_backend_metadata or {}).get("selectivity_objective") or ""
+        ),
         "enzyme_quality": quality,
         "evidence": {
             "backend": "CascadePlanner",
@@ -1053,7 +1272,12 @@ def _failure_analysis(
         return {"available": False, "diagnosis": [], "retry_suggestions": []}
     target = str(result.target_smiles or request_payload.get("target_smiles") or "")
     target_heavy = _heavy_atoms(target)
-    stock_membership = _target_stock_membership(target, config.stock_names, vendor_root=vendor_root)
+    stock_membership = _target_stock_membership(
+        target,
+        config.stock_names,
+        vendor_root=vendor_root,
+        stock_paths=dict(config.search_flags.get("stock_paths") or {}),
+    )
     categories = [str(row.get("category") or "") for row in failures]
     diagnosis: list[str] = []
     suggestions: list[str] = []
@@ -1105,15 +1329,25 @@ def _failure_analysis(
     }
 
 
-def _target_stock_membership(target_smiles: str, stock_names: list[str], *, vendor_root: Path | None) -> dict[str, Any]:
+def _target_stock_membership(
+    target_smiles: str,
+    stock_names: list[str],
+    *,
+    vendor_root: Path | None,
+    stock_paths: dict[str, str] | None = None,
+) -> dict[str, Any]:
     target_mol = Chem.MolFromSmiles(str(target_smiles or ""))
     if target_mol is None or vendor_root is None:
         return {"available": False, "target_in_selected_stock": False}
     canonical = Chem.MolToSmiles(target_mol, isomericSmiles=True)
-    stock_paths = _stock_paths(vendor_root, stock_names)
+    selected_paths = _stock_paths(
+        vendor_root,
+        stock_names,
+        stock_paths=stock_paths,
+    )
     hits: list[str] = []
     checked: list[str] = []
-    for stock_name, path in stock_paths.items():
+    for stock_name, path in selected_paths.items():
         if not path.exists() or not path.is_file():
             continue
         checked.append(stock_name)
@@ -1132,7 +1366,12 @@ def _target_stock_membership(target_smiles: str, stock_names: list[str], *, vend
     }
 
 
-def _stock_paths(vendor_root: Path, stock_names: list[str]) -> dict[str, Path]:
+def _stock_paths(
+    vendor_root: Path,
+    stock_names: list[str],
+    *,
+    stock_paths: dict[str, str] | None = None,
+) -> dict[str, Path]:
     config_path = vendor_root / "retro_planner" / "config" / "config.yaml"
     if not config_path.exists():
         return {}
@@ -1143,9 +1382,15 @@ def _stock_paths(vendor_root: Path, stock_names: list[str]) -> dict[str, Path]:
     stock_cfg = cfg.get("stocks") or {}
     base = vendor_root / "retro_planner"
     selected = set(stock_names or [])
-    out: dict[str, Path] = {}
+    out: dict[str, Path] = {
+        str(name): Path(str(path)).expanduser().resolve()
+        for name, path in dict(stock_paths or {}).items()
+        if (not selected or str(name) in selected) and str(path).strip()
+    }
     for name, rel in stock_cfg.items():
         if selected and name not in selected:
+            continue
+        if str(name) in out:
             continue
         path = Path(str(rel))
         out[str(name)] = path if path.is_absolute() else base / path
@@ -1153,6 +1398,33 @@ def _stock_paths(vendor_root: Path, stock_names: list[str]) -> dict[str, Path]:
 
 
 def _smiles_in_stock_file(canonical: str, path: Path) -> bool:
+    if path.suffix.lower() in {".sqlite", ".sqlite3", ".db"}:
+        uri = f"file:{path.expanduser().resolve().as_posix()}?mode=ro"
+        with sqlite3.connect(uri, uri=True) as connection:
+            identity_key = ""
+            try:
+                metadata_row = connection.execute(
+                    "SELECT value FROM metadata WHERE key = 'identity_key' LIMIT 1"
+                ).fetchone()
+                identity_key = str(metadata_row[0] if metadata_row else "").strip()
+            except sqlite3.OperationalError:
+                # Historical canonical-SMILES stock files predate the metadata
+                # table.  Their schema remains the compatibility fallback.
+                identity_key = ""
+            if identity_key == "full_inchikey":
+                molecule = Chem.MolFromSmiles(canonical)
+                if molecule is None:
+                    return False
+                lookup_column = "full_inchikey"
+                lookup_value = Chem.MolToInchiKey(molecule)
+            else:
+                lookup_column = "canonical_smiles"
+                lookup_value = canonical
+            row = connection.execute(
+                f"SELECT 1 FROM stock WHERE {lookup_column} = ? LIMIT 1",
+                (lookup_value,),
+            ).fetchone()
+        return row is not None
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             first = line.strip().split(",", 1)[0].strip()
@@ -1174,6 +1446,28 @@ def _safe_float(value: Any, default: float | None = None) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _optional_positive_int(value: Any, *, hi: int) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        return None
+    if out <= 0:
+        return None
+    return min(out, hi)
+
+
+def _configured_output_route_limit(
+    request_payload: dict[str, Any],
+    config: RouteSearchConfig,
+) -> int | None:
+    configured = dict(config.search_flags or {}).get("max_output_routes")
+    if configured is None:
+        configured = request_payload.get("max_routes")
+    return _optional_positive_int(configured, hi=100)
 
 
 def _as_int(value: Any, default: int, *, lo: int, hi: int) -> int:

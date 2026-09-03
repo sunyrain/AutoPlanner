@@ -151,6 +151,8 @@ def load_enzyme_precedents(
         _CACHE[cache_key] = []
         return []
     index_path = _index_path(path)
+    if index_path is not None and limit > 0:
+        index_path = _limited_index_path(index_path, limit)
     if index_path is not None:
         indexed = _load_index(index_path, pool_path=path, max_rows=limit)
         if indexed is not None:
@@ -168,9 +170,9 @@ def load_enzyme_precedents(
         "example_ids_json",
     ]
     table = pq.read_table(path, columns=columns)
-    rows = table.to_pylist()
     if limit > 0:
-        rows = rows[:limit]
+        table = table.slice(0, limit)
+    rows = table.to_pylist()
     precedents: list[EnzymePrecedent] = []
     for row in rows:
         product = str(row.get("product_smiles") or "")
@@ -618,6 +620,12 @@ def _index_path(pool_path: Path) -> Path | None:
     if _env_truthy_default("AUTOPLANNER_ENZYME_PRECEDENT_INDEX_TMP_POOLS", False):
         return pool_path.with_suffix(".enzyme_precedent_index_v2.joblib")
     return None
+
+
+def _limited_index_path(index_path: Path, max_rows: int) -> Path:
+    """Keep sidecar caches separate from the authoritative full index."""
+    limit = max(1, int(max_rows))
+    return index_path.with_name(f"{index_path.stem}.limit-{limit}{index_path.suffix}")
 
 
 def _load_index(index_path: Path, *, pool_path: Path, max_rows: int) -> list[EnzymePrecedent] | None:

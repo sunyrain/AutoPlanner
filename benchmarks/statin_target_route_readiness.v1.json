@@ -1,0 +1,552 @@
+{
+  "content_sha256": "81d08ea76374f1e7a3f24c562d5a3d61af4822c277c015434928920a32e9fa3f",
+  "policy": {
+    "minimum_long_route_steps": 10
+  },
+  "schema_version": "target_route_readiness_catalog.v1",
+  "semantics": {
+    "canonical_graph_and_program_store_not_modified": true,
+    "diagnostic_maxima_may_come_from_different_workbench_snapshots": true,
+    "low_confidence_and_empty_targets_remain_visible": true,
+    "only_verified_attestations_can_raise_authority_tier": true,
+    "portfolio_acceptance_claims_are_not_recomputed_acceptance": true,
+    "read_only_display_projection": true,
+    "target_names_are_identity_not_runtime_rules": true
+  },
+  "summary": {
+    "conditioned_route_observed": 0,
+    "current_canonical_replay_attested": 1,
+    "long_route_observed": 1,
+    "readiness_counts": {
+      "candidate_long_route": 1,
+      "candidate_short_route": 10,
+      "current_canonical_unaccepted": 1
+    },
+    "reported_source_observed": 1,
+    "route_acceptance_attested": 0,
+    "route_observed": 12
+  },
+  "target_count": 12,
+  "targets": [
+    {
+      "aliases": [
+        "CI-981"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "阿托伐他汀",
+      "observations": {
+        "best_proof_level": 0,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 2,
+        "invalid_workbench_count": 0,
+        "long_route_observed": true,
+        "max_complete_route_count": 1,
+        "max_route_steps": 11,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 1,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 3,
+        "workbench_source_refs": [
+          "results/shared/presentation_showcase_20260715/atorvastatin-v4-migrated-closed/route_workbench.json"
+        ]
+      },
+      "readiness": "candidate_long_route",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "atorvastatin",
+      "warning_codes": [
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS"
+      ]
+    },
+    {
+      "aliases": [
+        "fluindostatin",
+        "XU-62-320"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": true,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": [
+          "benchmarks/fluvastatin_current_canonical_replay_receipt.v1.json"
+        ]
+      },
+      "confidence": "medium",
+      "display_name": "氟伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 2,
+        "invalid_workbench_count": 0,
+        "long_route_observed": false,
+        "max_complete_route_count": 1,
+        "max_route_steps": 7,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 3,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 5,
+        "workbench_source_refs": [
+          "results/shared/statin_current_wave1_20260716/artifacts/objects/sha256/61/61c4a65b2dfa1822092d8439cbdb881db63cdc9570c3dedbe2f37a94dbce275b",
+          "results/shared/statin_current_wave1_20260716/artifacts/objects/sha256/b8/b8f756f6c2def080fc3333e6d9aaeae28edf142e4b27392c548976ae0b502229",
+          "results/shared/statin_current_wave1_20260716/artifacts/objects/sha256/ed/ed972ef6e05eef4850d5c1d416ee07b3c98e42abebb6f1b381945e8cc1f476b2",
+          "results/shared/statin_current_wave1_20260716/exports/fluvastatin/route_workbench.json"
+        ]
+      },
+      "readiness": "current_canonical_unaccepted",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "fluvastatin",
+      "warning_codes": [
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS",
+        "CURRENT_REPLAY_NOT_ROUTE_ACCEPTED",
+        "CURRENT_REPLAY_MISSING_CONDITIONS",
+        "CURRENT_REPLAY_NOT_LITERATURE_GROUNDED"
+      ]
+    },
+    {
+      "aliases": [
+        "monacolin K",
+        "mevinolin"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "洛伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 0,
+        "invalid_workbench_count": 0,
+        "long_route_observed": false,
+        "max_complete_route_count": 0,
+        "max_route_steps": 2,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 2,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 2,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/35/35e0d5f2e1a39c41e7e4dd7e64e4dd4859094ff22848b4d9378149999d720613",
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/82/822ba4e9c3bbabaeb90dba79225739f189b14e43f9f4ed1d1d556d130320f197"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "lovastatin",
+      "warning_codes": [
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS"
+      ]
+    },
+    {
+      "aliases": [
+        "itavastatin",
+        "nisvastatin",
+        "NK-104"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "匹伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 2,
+        "invalid_workbench_count": 0,
+        "long_route_observed": false,
+        "max_complete_route_count": 0,
+        "max_route_steps": 7,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 2,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 4,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/99/9956b026028bc0c32be6582d7b7a111c7cc19a3adb7e78259b751702fc78e910",
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/b0/b05ec6b6c01b81eaa7e753e0135ac8336c6581068114c3615feb5b5641bd20a9"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "pitavastatin",
+      "warning_codes": [
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS"
+      ]
+    },
+    {
+      "aliases": [
+        "eptastatin",
+        "CS-514"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "普伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 0,
+        "invalid_workbench_count": 0,
+        "long_route_observed": false,
+        "max_complete_route_count": 1,
+        "max_route_steps": 2,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 2,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 2,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/15/15db7e872f73ed41467116e3019e4e969549b396b9f105c9f3c183fc4686cf8b",
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/1b/1b81bd578cb1548c0f84843f5c9e573a8d14cf330b7344b50fa8058da8a0db51"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "pravastatin",
+      "warning_codes": [
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS"
+      ]
+    },
+    {
+      "aliases": [
+        "S-4522"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "瑞舒伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 2,
+        "invalid_workbench_count": 0,
+        "long_route_observed": false,
+        "max_complete_route_count": 0,
+        "max_route_steps": 3,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 2,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 4,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/11/1136607eb19f8478f13a7591c9b3d2ef7e14f902f47dced25bd51f015bf69632",
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/7c/7c953e17a7f116b6d5e73aa210dc6e48b95c94c35fa851ebb35dd27429d24385"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "rosuvastatin",
+      "warning_codes": [
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS"
+      ]
+    },
+    {
+      "aliases": [
+        "synvinolin",
+        "velostatin",
+        "MK-733"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "辛伐他汀",
+      "observations": {
+        "best_proof_level": 3,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 0,
+        "invalid_workbench_count": 1,
+        "long_route_observed": false,
+        "max_complete_route_count": 5,
+        "max_route_steps": 4,
+        "portfolio_accepted_claim_observed": true,
+        "projection_ready_count": 3,
+        "reported_source_ref_count": 1,
+        "route_observed": true,
+        "workbench_count": 4,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/33/334affd040900de5a3faf8f442ad4c5d1843dc553e9d042b3c7bcd8f272c102b",
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/57/57c977ad957090bf7eb62669e647b8daed674db44b827c95eb99476f70bb24da",
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/c3/c3c6ad8ce5c9e5b76e420f208822a418b15477de8ef61f2cc120290f3d261e72"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "simvastatin",
+      "warning_codes": [
+        "INVALID_SNAPSHOT_PRESENT",
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "PORTFOLIO_ACCEPTED_CLAIM_WITHOUT_CURRENT_REPLAY"
+      ]
+    },
+    {
+      "aliases": [
+        "rivastatin",
+        "BAY w 6228"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "西立伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 2,
+        "invalid_workbench_count": 1,
+        "long_route_observed": false,
+        "max_complete_route_count": 0,
+        "max_route_steps": 4,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 1,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 4,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_rerun_firstwave_20260716/artifacts/objects/sha256/54/541ff228631818abc15d0189a31d1bfb9f314715e6559aab7365376b982f983e"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_first_9",
+      "scope": "withdrawn_historical",
+      "target_name": "cerivastatin",
+      "warning_codes": [
+        "INVALID_SNAPSHOT_PRESENT",
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS"
+      ]
+    },
+    {
+      "aliases": [
+        "compactin",
+        "ML-236B"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "美伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 4,
+        "invalid_workbench_count": 0,
+        "long_route_observed": false,
+        "max_complete_route_count": 1,
+        "max_route_steps": 3,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 2,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 6,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_transport_recovery_mevastatin_20260716/artifacts/objects/sha256/a0/a0153d6aaeae0d4932e429401a16300a975fc867c380a457becc87feae101e37",
+          "results/shared/statins_v4_transport_recovery_mevastatin_20260716/artifacts/objects/sha256/d2/d2669d7d7d8f5417444f59741865830e54eef5cced09ab226aeef743d18ec83a"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_first_9",
+      "scope": "lead_compound",
+      "target_name": "mevastatin",
+      "warning_codes": [
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS"
+      ]
+    },
+    {
+      "aliases": [
+        "PMD-387"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "克利伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 2,
+        "invalid_workbench_count": 0,
+        "long_route_observed": false,
+        "max_complete_route_count": 5,
+        "max_route_steps": 4,
+        "portfolio_accepted_claim_observed": true,
+        "projection_ready_count": 2,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 4,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_transport_recovery_extended_20260716/artifacts/objects/sha256/5f/5f8b6e047fa6cd90bd479a32f2bdef81e5bc8308548ca1c64cb09e1acbf1e277",
+          "results/shared/statins_v4_transport_recovery_extended_20260716/artifacts/objects/sha256/7a/7a889686542dd0474374c72d2c19ee51643951d7234bb52054f0b89172b4d3a2"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_extended_3",
+      "scope": "investigational_historical",
+      "target_name": "crilvastatin",
+      "warning_codes": [
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS",
+        "PORTFOLIO_ACCEPTED_CLAIM_WITHOUT_CURRENT_REPLAY"
+      ]
+    },
+    {
+      "aliases": [
+        "RG-12561"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "达伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 0,
+        "invalid_workbench_count": 0,
+        "long_route_observed": false,
+        "max_complete_route_count": 1,
+        "max_route_steps": 5,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 2,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 2,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_rerun_extended_20260716/artifacts/objects/sha256/2f/2f6569f8d2b1bdc23e4178fd3823790af984ee6deaf2d3fe26fa54e057db1f83",
+          "results/shared/statins_v4_rerun_extended_20260716/artifacts/objects/sha256/b8/b8ccbec4edd761f494dcdc87c005b01c9c3677bd160a55482c16e3e1eaec65b4"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_extended_3",
+      "scope": "investigational_historical",
+      "target_name": "dalvastatin",
+      "warning_codes": [
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS"
+      ]
+    },
+    {
+      "aliases": [
+        "HR-780"
+      ],
+      "authority": {
+        "condition_complete_attested": false,
+        "current_canonical_replay_attested": false,
+        "literature_grounded_attested": false,
+        "route_acceptance_attested": false,
+        "source_refs": []
+      },
+      "confidence": "low",
+      "display_name": "格仑伐他汀",
+      "observations": {
+        "best_proof_level": 2,
+        "condition_observation_edge_count": 0,
+        "empty_workbench_count": 2,
+        "invalid_workbench_count": 0,
+        "long_route_observed": false,
+        "max_complete_route_count": 0,
+        "max_route_steps": 6,
+        "portfolio_accepted_claim_observed": false,
+        "projection_ready_count": 2,
+        "reported_source_ref_count": 0,
+        "route_observed": true,
+        "workbench_count": 4,
+        "workbench_source_refs": [
+          "results/shared/statins_v4_transport_recovery_extended_20260716/artifacts/objects/sha256/07/072e9582274b79865692aa3101d034eff480eb2f14133303b9466cbe024afab1",
+          "results/shared/statins_v4_transport_recovery_extended_20260716/artifacts/objects/sha256/be/be1fdd7f657093631b7c3f1679b55113d90b6f32f86c42bd3bff34d5d6fcf03b"
+        ]
+      },
+      "readiness": "candidate_short_route",
+      "rerun_wave": "v4_extended_3",
+      "scope": "investigational_historical",
+      "target_name": "glenvastatin",
+      "warning_codes": [
+        "CANDIDATE_ONLY_NO_CURRENT_REPLAY",
+        "ONLY_SHORT_ROUTES_OBSERVED",
+        "NO_CONDITION_OBSERVATIONS",
+        "NO_REPORTED_SOURCE_REFS"
+      ]
+    }
+  ]
+}

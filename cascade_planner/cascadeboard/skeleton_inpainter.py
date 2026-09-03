@@ -23,6 +23,8 @@ import torch.nn.functional as F
 from rdkit import Chem, RDLogger
 from rdkit.Chem import AllChem
 
+from cascade_planner.runtime.paths import RuntimePaths
+
 RDLogger.DisableLog("rdApp.*")
 
 # ---------------------------------------------------------------------------
@@ -966,7 +968,7 @@ def compute_loss(
 
 
 def train(
-    data_path: str = "cascade_dataset_v3.json",
+    data_path: str | None = None,
     epochs: int = 200,
     batch_size: int = 64,
     lr: float = 3e-4,
@@ -976,6 +978,12 @@ def train(
     seed: int = 42,
 ):
     """Train the OA-ARM Skeleton Inpainter."""
+    if data_path is None:
+        data_path = str(
+            RuntimePaths.discover().external_data_root
+            / "cascade"
+            / "cascade_dataset_v3.json"
+        )
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -1539,7 +1547,14 @@ if __name__ == "__main__":
 
     # Train
     train_p = sub.add_parser("train")
-    train_p.add_argument("--data", default="cascade_dataset_v3.json")
+    train_p.add_argument(
+        "--data",
+        default=str(
+            RuntimePaths.discover().external_data_root
+            / "cascade"
+            / "cascade_dataset_v3.json"
+        ),
+    )
     train_p.add_argument("--epochs", type=int, default=200)
     train_p.add_argument("--batch-size", type=int, default=64)
     train_p.add_argument("--lr", type=float, default=3e-4)

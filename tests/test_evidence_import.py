@@ -9,6 +9,9 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 )
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.interfaces.evidence_import import import_structured_evidence
+from cascade_planner.interfaces.target_solver_stages import (
+    validate_materialized_edges,
+)
 from cascade_planner.runtime.paths import RuntimePaths
 
 
@@ -129,6 +132,12 @@ def test_import_structured_evidence_binds_two_sources_and_revalidates(
         ),
         encoding="utf-8",
     )
+    service = gateway._open("evidence-import", run_dir=created["run_dir"])
+    initial_validation = validate_materialized_edges(
+        service,
+        atom_mapper=_mapper,
+    )
+    assert initial_validation["validation_command_count"] == 1
 
     result = import_structured_evidence(
         gateway,
@@ -146,6 +155,9 @@ def test_import_structured_evidence_binds_two_sources_and_revalidates(
     assert result["model_invocations"] == 0
     assert result["exact_record_count"] == 2
     assert result["source_binding_count"] == 2
+    assert result["evidence_bound_revalidation_edge_count"] == 1
+    assert result["validation"]["forced_revalidation_edge_count"] == 1
+    assert result["validation"]["validation_command_count"] == 1
     assert len(edge["exact_record_ids"]) == 2
     assert len(edge["independent_source_groups"]) == 2
     assert any(proof.get("accepted") is True for proof in edge["reaction_proofs"])

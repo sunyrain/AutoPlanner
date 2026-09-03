@@ -333,59 +333,10 @@ class RouteTreeRuntime:
 def default_route_tree_runtime() -> RouteTreeRuntime | Any | None:
     if not _env_truthy("AUTOPLANNER_ENABLE_ROUTE_TREE_PLANNER"):
         return None
-    if _env_truthy("AUTOPLANNRELLM_ENABLE") and _env_truthy_default("AUTOPLANNRELLM_LLM_SELECTION", True):
-        base_runtime = _default_route_tree_runtime_without_autoplannrellm()
-        cache_id = (
-            f"autoplannrellm::base={id(base_runtime)}"
-            f"::model={os.environ.get('DEEPSEEK_MODEL') or ''}"
-            f"::cache={os.environ.get('AUTOPLANNRELLM_CACHE') or ''}"
-        )
-        if cache_id in _RUNTIME_CACHE:
-            return _RUNTIME_CACHE[cache_id]
-        try:
-            from AUTOPLANNRELLM.controller import DeepSeekSelectionController
-
-            runtime = DeepSeekSelectionController(fallback_runtime=base_runtime)
-        except Exception:
-            runtime = base_runtime
-        _RUNTIME_CACHE[cache_id] = runtime
-        return runtime
-    return _default_route_tree_runtime_without_autoplannrellm()
+    return _default_route_tree_runtime_from_policy()
 
 
-def _default_route_tree_runtime_without_autoplannrellm() -> RouteTreeRuntime | Any | None:
-    reservoir_path = os.environ.get("AUTOPLANNER_RESERVOIR_DISTILLED_CONTROLLER")
-    if reservoir_path:
-        policy_path = os.environ.get("AUTOPLANNER_ROUTE_TREE_POLICY") or str(DEFAULT_SEARCH_POLICY)
-        action_path = os.environ.get("AUTOPLANNER_ROUTE_TREE_ACTION_POLICY") or ""
-        key = f"reservoir:{reservoir_path}::policy={policy_path}::action={action_path}"
-        if key in _RUNTIME_CACHE:
-            return _RUNTIME_CACHE[key]
-        base_runtime = _default_route_tree_runtime_without_reservoir()
-        if not Path(reservoir_path).exists():
-            from cascade_planner.route_tree.reservoir_distilled import UnavailableReservoirRouteTreeRuntime
-
-            runtime = UnavailableReservoirRouteTreeRuntime("missing_checkpoint", fallback_runtime=base_runtime)
-            _RUNTIME_CACHE[key] = runtime
-            return runtime
-        try:
-            from cascade_planner.route_tree.reservoir_distilled import ReservoirDistilledControllerRuntime
-
-            runtime = ReservoirDistilledControllerRuntime(reservoir_path, fallback_runtime=base_runtime)
-        except Exception as exc:
-            from cascade_planner.route_tree.reservoir_distilled import UnavailableReservoirRouteTreeRuntime
-
-            runtime = UnavailableReservoirRouteTreeRuntime(
-                f"{type(exc).__name__}:load_failed",
-                fallback_runtime=base_runtime,
-            )
-        _RUNTIME_CACHE[key] = runtime
-        return runtime
-
-    return _default_route_tree_runtime_without_reservoir()
-
-
-def _default_route_tree_runtime_without_reservoir() -> RouteTreeRuntime | None:
+def _default_route_tree_runtime_from_policy() -> RouteTreeRuntime | None:
     path = Path(os.environ.get("AUTOPLANNER_ROUTE_TREE_POLICY") or DEFAULT_SEARCH_POLICY)
     action_path = os.environ.get("AUTOPLANNER_ROUTE_TREE_ACTION_POLICY") or ""
     key = f"{path}::action={action_path}"

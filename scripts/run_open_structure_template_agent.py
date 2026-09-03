@@ -23,36 +23,36 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from cascade_planner.harness.open_research_contract import (
+from cascade_planner.research.open_research_contract import (
     OPEN_RESEARCH_JSON_SCHEMAS,
     REQUIRED_OPEN_RESEARCH_ARTIFACTS,
     REQUIRED_OPEN_RESEARCH_JSON_ARTIFACTS,
     validate_open_research_json_payload,
 )
-from cascade_planner.harness.open_research_experience import (
+from cascade_planner.research.open_research_experience import (
     audit_local_pdf_proxy_fallback,
     audit_open_research_boundary,
     extract_open_research_experience,
     write_open_research_manifest,
 )
-from cascade_planner.harness.open_research_retrieval import (
+from cascade_planner.research.open_research_retrieval import (
     prefetch_open_research_evidence,
     retrieval_prefetch_manifest_entry,
     validate_retrieval_prefetch_consumption,
     write_prefetch_checkpoint_seed,
     write_retrieval_prefetch_error,
 )
-from cascade_planner.harness.open_research_seed_consumables import (
+from cascade_planner.research.open_research_seed_consumables import (
     build_local_downstream_seed,
     write_local_downstream_seed_artifacts,
 )
-from cascade_planner.harness.source_detail_resolution import (
+from cascade_planner.research.source_detail_resolution import (
     resolve_source_detail_extraction_pack,
     source_detail_curator_records_path,
     source_detail_resolution_manifest_entry,
     write_source_detail_resolution_error,
 )
-from cascade_planner.harness.source_material_locator import (
+from cascade_planner.research.source_material_locator import (
     locate_source_materials,
     source_material_locator_manifest_entry,
     write_source_material_locator_error,

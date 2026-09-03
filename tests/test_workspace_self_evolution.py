@@ -1,0 +1,252 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+from cascade_planner.application.program_experience_store import (
+    PROGRAM_EXPERIENCE_RECORD_SCHEMA,
+    build_program_experience_library,
+    write_program_experience_library,
+)
+from cascade_planner.application.reaction_template_store import (
+    TEMPLATE_RECORD_SCHEMA,
+    build_template_library,
+    template_digest,
+    write_template_library,
+)
+from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
+from cascade_planner.web.workspace_surface import (
+    _delivered_text_body,
+    compiled_mechanism_hypothesis_attachments,
+    compiled_program_benchmark_catalog,
+    compiled_program_overlay_attachments,
+    inject_workspace_return,
+    result_file_response,
+    self_evolution_catalog,
+)
+
+
+def _template_record(template_id: str, *, successes: int, failures: int) -> dict:
+    row = {
+        "schema_version": TEMPLATE_RECORD_SCHEMA,
+        "template_id": template_id,
+        "status": "active",
+        "maturity": "reuse_validated" if successes else "single_source_observed",
+        "example_count": 1,
+        "independent_source_groups": ["source-group:1"],
+        "source_refs": ["patent:example"],
+        "reaction_smarts": "[C:1]=[O:2]>>[C:1]-[O:2]",
+        "radius": 1,
+        "extractor_version": "test.extractor.v1",
+        "authority_scope": "proposal_memory_only",
+        "examples": {
+            "example:1": {
+                "record_id": "exact:1",
+                "source_ref": "patent:example",
+                "precursor_smiles": ["CC=O"],
+                "product_smiles": "CCO",
+                "conditions": {"reagents": ["NaBH4"], "solvent": ["MeOH"]},
+                "condition_completeness": {"complete": True},
+                "location_refs": ["patent:example:paragraph:1"],
+            }
+        },
+        "successful_edge_digests": [f"success:{index}" for index in range(successes)],
+        "failed_edge_digests": [f"failure:{index}" for index in range(failures)],
+    }
+    row["content_sha256"] = template_digest(row)
+    return row
+
+
+def _mechanism_experience() -> dict:
+    row = {
+        "schema_version": PROGRAM_EXPERIENCE_RECORD_SCHEMA,
+        "experience_id": "program-experience:mechanism-1",
+        "domain": "mechanism",
+        "disposition": "supported",
+        "authority_scope": "proposal_memory_only",
+        "counts": {"positive": 1, "negative": 0, "inconclusive": 0},
+        "observations": {"claim:1": {"polarity": "positive"}},
+    }
+    row["content_sha256"] = strict_canonical_json_sha256(row)
+    return row
+
+
+def test_self_evolution_catalog_distinguishes_retrieval_attempt_and_validation(
+    tmp_path: Path,
+) -> None:
+    memory_root = tmp_path / "self-evo"
+    first = _template_record("template:first", successes=2, failures=0)
+    second = _template_record("template:second", successes=0, failures=1)
+    write_template_library(
+        memory_root / "patent-reaction-template-library.json",
+        build_template_library(
+            {first["template_id"]: first, second["template_id"]: second},
+            generation=4,
+        ),
+    )
+    mechanism = _mechanism_experience()
+    write_program_experience_library(
+        memory_root / "program-experience-library.json",
+        build_program_experience_library({mechanism["experience_id"]: mechanism}, generation=2),
+    )
+
+    result = self_evolution_catalog(
+        SimpleNamespace(paths=SimpleNamespace(external_data_root=tmp_path))
+    )
+
+    assert result["ok"] is True
+    assert result["summary"] == {
+        "reaction_template_count": 2,
+        "retrievable_reaction_template_count": 2,
+        "attempted_reaction_template_count": 2,
+        "replay_validated_reaction_template_count": 1,
+        "successful_reuse_count": 2,
+        "failed_reuse_count": 1,
+        "program_experience_count": 1,
+        "mechanism_experience_count": 1,
+        "mechanism_observation_count": 1,
+    }
+    assert result["reaction_templates"]["integrity"] == "valid"
+    assert result["program_experience"]["domain_counts"] == {"mechanism": 1}
+    projected_template = result["reaction_templates"]["records"][0]
+    assert projected_template["reaction_smarts"] == "[C:1]=[O:2]>>[C:1]-[O:2]"
+    assert projected_template["source_refs"] == ["patent:example"]
+    assert projected_template["examples"][0]["conditions"]["reagents"] == ["NaBH4"]
+    assert projected_template["examples"][0]["product_smiles"] == "CCO"
+    assert result["program_experience"]["records"][0]["observations"] == [
+        {"observation_id": "claim:1", "polarity": "positive"}
+    ]
+    assert "compiled_program_benchmarks" not in result
+
+
+def test_self_evolution_catalog_keeps_absent_libraries_visible(tmp_path: Path) -> None:
+    result = self_evolution_catalog(
+        SimpleNamespace(paths=SimpleNamespace(external_data_root=tmp_path))
+    )
+
+    assert result["ok"] is True
+    assert result["reaction_templates"]["present"] is False
+    assert result["program_experience"]["present"] is False
+    assert result["summary"]["reaction_template_count"] == 0
+    assert result["summary"]["mechanism_experience_count"] == 0
+
+
+def test_historical_route_workbench_delivery_gets_workspace_return_once() -> None:
+    source = '<header class="app-header"><div class="header-actions"></div></header>'
+
+    delivered = inject_workspace_return(source)
+
+    assert 'id="dashboardReturn"' in delivered
+    assert 'href="/v4"' in delivered
+    assert inject_workspace_return(delivered) == delivered
+
+
+def test_non_workbench_html_is_not_modified() -> None:
+    source = '<html><div class="header-actions">report</div></html>'
+
+    assert inject_workspace_return(source) == source
+
+
+def test_historical_route_forest_is_delivered_with_current_interaction_client(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    html_path = tmp_path / "route_forest.html"
+    html_path.write_text("<html>stale generated client</html>", encoding="utf-8")
+    (tmp_path / "explored_route_forest.json").write_text(
+        '{"schema_version":"explored_route_forest.v1","case_id":"historical"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "cascade_planner.web.workspace_surface.render_route_forest_html",
+        lambda forest: f"fresh client for {forest['case_id']}",
+    )
+
+    assert _delivered_text_body(html_path) == "fresh client for historical"
+
+
+def test_non_route_html_keeps_its_stored_client(tmp_path: Path) -> None:
+    html_path = tmp_path / "report.html"
+    html_path.write_text("<html>report</html>", encoding="utf-8")
+    (tmp_path / "explored_route_forest.json").write_text("{}", encoding="utf-8")
+
+    assert _delivered_text_body(html_path) == "<html>report</html>"
+
+
+def test_route_forest_head_matches_the_currently_rendered_get_body(
+    tmp_path: Path, monkeypatch
+) -> None:
+    shared_root = tmp_path / "results" / "shared"
+    case_root = shared_root / "case"
+    case_root.mkdir(parents=True)
+    (case_root / "route_forest.html").write_text("stale", encoding="utf-8")
+    (case_root / "explored_route_forest.json").write_text(
+        '{"case_id":"historical"}', encoding="utf-8"
+    )
+    monkeypatch.setattr("cascade_planner.web.workspace_surface.ROOT", tmp_path)
+    monkeypatch.setattr("cascade_planner.web.workspace_surface.SHARED_RESULTS_DIR", shared_root)
+    monkeypatch.setattr(
+        "cascade_planner.web.workspace_surface.render_route_forest_html",
+        lambda forest: f"<html>fresh {forest['case_id']}</html>",
+    )
+
+    relative = "results/shared/case/route_forest.html"
+    get_response = result_file_response(relative)
+    head_response = result_file_response(relative, head_only=True)
+
+    assert get_response is not None
+    assert head_response is not None
+    assert get_response.get_data(as_text=True) == "<html>fresh historical</html>"
+    assert head_response.content_length == len(get_response.get_data())
+
+
+def test_compiled_program_benchmark_catalog_exposes_bufotalin_six_to_one_fallback() -> None:
+    catalog = compiled_program_benchmark_catalog()
+
+    assert catalog["ok"] is True
+    assert catalog["record_count"] >= 1
+    record = next(
+        value
+        for value in catalog["records"]
+        if value["target_name"] == "bufotalin" and value["chemical_step_equivalent_count"] == 6
+    )
+    assert record["physical_step_count"] == 1
+    assert record["net_step_savings"] == 5
+    assert record["authority_scope"] == "proposal_only"
+    assert record["validation_status"] == "proposed_screen_required"
+    assert record["warning_codes"] == ["EXACT_SUBSTRATE_UNVALIDATED"]
+    assert record["benchmark_run_id"].startswith("program-host-bufotalin-20step-")
+    assert len(record["legacy_run_ids"]) == 2
+    assert record["materialize_url"].endswith("/materialize")
+    assert record["workbench_url"].endswith("/workbench.html")
+    assert record["boundary"]["precursor"]["label"] == "Compound 11"
+    assert record["boundary"]["product"]["label"] == "Compound 28"
+    assert [row["product"]["label"] for row in record["fallback_steps"]] == [
+        "Compound 24",
+        "Compound 25",
+        "Compound 23",
+        "Compound 26",
+        "Compound 27",
+        "Compound 28",
+    ]
+    assert record["host_route"]["route_id"] == "route:bufotalin-20-step-reported-candidate"
+    assert record["host_route"]["baseline_step_count"] == 20
+    assert record["host_route"]["hypothetical_operation_count"] == 15
+    assert len(record["host_route"]["steps"]) == 20
+    assert record["mechanism_hypothesis_count"] == 1
+    attachment = compiled_program_overlay_attachments(record["benchmark_run_id"])[0]
+    assert attachment["schema_version"] == "route_program_attachment.v1"
+    assert attachment["host_route_id"] == record["host_route"]["route_id"]
+    assert len(attachment["host_step_evidence"]) == 20
+    assert sum(row["proof_level"] == 1 for row in attachment["host_step_evidence"]) == 15
+    assert attachment["replaced_edge_ids"] == record["host_route"]["replaced_edge_ids"]
+    assert attachment["semantics"]["route_attachment_not_standalone_route"] is True
+    assert compiled_program_overlay_attachments("unrelated-run") == ()
+    mechanism = compiled_mechanism_hypothesis_attachments(record["benchmark_run_id"])[0]
+    assert mechanism["schema_version"] == "route_mechanism_hypothesis_attachment.v1"
+    assert mechanism["host_route_id"] == record["host_route"]["route_id"]
+    assert mechanism["proposal_depth"] == 1
+    assert mechanism["anchor_edge_ids"] == ["edge:paper:31"]
+    assert mechanism["anchor_source_refs"] == ["doi:10.1016/j.tet.2025.134610"]
+    assert mechanism["semantics"]["anchor_evidence_not_promoted"] is True
+    assert compiled_mechanism_hypothesis_attachments("unrelated-run") == ()

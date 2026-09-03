@@ -6,6 +6,9 @@ param(
     [string]$ArtifactStoreRoot = "",
     [string]$RunIndexPath = "",
     [string]$ExternalDataRoot = "",
+    [ValidateSet("auto", "waitress", "flask")]
+    [string]$Server = "auto",
+    [int]$Threads = 4,
     [switch]$OpenBrowser
 )
 
@@ -35,11 +38,12 @@ $env:AUTOPLANNER_EXTERNAL_DATA_ROOT = $ExternalDataRoot
 $env:AUTOPLANNER_VENDOR_ROOT = Join-Path $RepoRoot "vendor"
 
 $Url = "http://${HostAddress}:${Port}/v4"
-Write-Host "AutoPlanner V4 console: $Url"
+Write-Host "AutoPlanner V4 workspace: $Url"
 Write-Host "Runtime root: $RuntimeRoot"
 Write-Host "Runs root: $RunsRoot"
 Write-Host "Artifact store: $ArtifactStoreRoot"
 Write-Host "External data root: $ExternalDataRoot"
+Write-Host "Server: $Server ($Threads threads)"
 Write-Host "Press Ctrl+C to stop."
 
 if ($OpenBrowser) {
@@ -48,7 +52,7 @@ if ($OpenBrowser) {
 
 Push-Location $RepoRoot
 try {
-    python -m cascade_planner.web.app --host $HostAddress --port $Port
+    python -m cascade_planner serve --host $HostAddress --port $Port --server $Server --threads $Threads
 }
 finally {
     Pop-Location

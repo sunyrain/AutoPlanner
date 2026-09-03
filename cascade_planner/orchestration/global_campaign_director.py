@@ -9,11 +9,13 @@ stock, and completion transition.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
+import threading
 import time
 from typing import Any, Callable, Iterable, Iterator, Mapping
 
@@ -24,7 +26,10 @@ from cascade_planner.agent.codex_worker import (
     WorkerTask,
     run_codex_worker,
 )
-from cascade_planner.application.campaign_context import CampaignContext
+from cascade_planner.application.campaign_context import (
+    CampaignContext,
+    CampaignContextError,
+)
 from cascade_planner.application.run_kernel import RunKernel
 from cascade_planner.orchestration.provider_delegation import (
     complete_chemenzy_delegation,
@@ -33,7 +38,9 @@ from cascade_planner.runtime import (
     AgentResult,
     AgentSpec,
     AgentState,
+    ArtifactRef,
     ArtifactReferenceError,
+    ArtifactStoreError,
     Budget,
 )
 
@@ -48,20 +55,28 @@ DIRECTOR_MODES = frozenset(
 DIRECTOR_DISPOSITIONS = frozenset(
     {"accepted", "rejected", "superseded", "ignored"}
 )
-MATERIAL_REPLAN_EVENTS = frozenset(
+ACTIONABLE_REPLAN_EVENTS = frozenset(
     {
         "critical_edge_rejected",
+        "director_contract_rejected",
+        "director_depth_deficit",
+        "director_topology_rejected",
         "exact_rows_added",
+        "host_validated_edges_added_after_initial_plan",
+        "host_validated_source_route_added",
         "material_evidence_added",
         "new_route_family",
-        "portfolio_stagnation",
+        "provider_search_exhausted_without_proposal",
         "shared_bottleneck_changed",
         "source_material_discovered",
+        "source_procedure_records_added",
         "source_conflict_added",
         "stock_records_added",
         "stock_boundary_changed",
+        "visual_source_candidates_added",
     }
 )
+MATERIAL_REPLAN_EVENTS = ACTIONABLE_REPLAN_EVENTS | {"portfolio_stagnation"}
 _REQUIRED_PLAN_SECTIONS = (
     "route_families",
     "multi_step_skeletons",
@@ -196,6 +211,7 @@ class GlobalCampaignPlan:
 @dataclass(frozen=True, slots=True)
 class DirectorConfig:
     minimum_route_families: int = 2
+    minimum_planning_route_steps: int = 0
     max_route_families: int = 6
     max_skeletons: int = 8
     max_steps_per_skeleton: int = 12
@@ -206,6 +222,58 @@ class DirectorConfig:
     max_initial_architecture_calls: int = 1
     max_event_replan_calls: int = 2
     max_final_portfolio_synthesis_calls: int = 1
+    planning_mode: str = "global_skeleton"
+    # Explicit execution-contract bit for the isolated paper_matched_reach
+    # profile.  Inferring this from a loose combination of strategy settings
+    # allowed legacy/global runners to masquerade as a matched experiment.
+    paper_matched_reach_profile: bool = False
+    # Optional sparse review interrupts. They are explicit profile semantics,
+    # not inferred from the paper-matched flag, so the frozen paper arm keeps
+    # its original Strategy -> Builder -> final Critic call topology.
+    enable_strategy_portfolio_critic: bool = False
+    enable_key_event_critic: bool = False
+    # Optional transactional repair. The frozen paper arm keeps the published
+    # full-route Editor loop; the enhanced architecture asks the Editor only
+    # for a rollback intent and lets the Host reopen a real mapped frontier for
+    # ordinary one-step Builder actions.
+    enable_transactional_path_repair: bool = False
+    # Owns node selection, alternative-action retention, cycle pruning, and
+    # back-propagation for sequential StrategyCard branches.  The paper arm
+    # uses AiZynthFinder's MCTS/UCB tree; the ChemEnzy best-first tree remains
+    # an explicit compatibility engine for ordinary AutoPlanner profiles.
+    strategy_tree_engine: str = "chemenzy_best_first"
+    # Keep the paper-matched three-strategy portfolio independent from the
+    # optional AutoPlanner enzyme-advantage experiment.  This field selects
+    # only the Strategy Generator prior; every resulting step still passes
+    # the same ReactionJSON/RouteJSON host contracts.
+    strategy_portfolio_mode: str = "autoplanner_hybrid"
+    # Optional content-addressed portfolio promoted from a completed
+    # Strategy-only screen.  This is an explicit known-strategy reproduction
+    # input, not a blind-discovery result and not a route/precursor seed.
+    reviewed_strategy_portfolio: tuple[Mapping[str, Any], ...] = ()
+    reviewed_strategy_portfolio_sha256: str = ""
+    strategy_branch_count: int = 3
+    strategy_branch_workers: int = 1
+    stop_on_first_stock_closed_branch: bool = False
+    max_node_expansions_per_branch: int = 25
+    # A paper-matched branch has one target-level StrategyCard.  Enhanced
+    # AutoPlanner arms may re-plan against the exact mapped upstream leaf after
+    # that anchor has been executed, while keeping the same total Route Builder
+    # node budget.  One preserves the paper protocol; values above one enable
+    # hierarchical route-internal strategic milestones.
+    max_strategic_milestones_per_branch: int = 1
+    max_reactionjson_candidates_per_node: int = 3
+    max_route_local_repair_rounds: int = 6
+    max_node_prompt_bytes: int = 24_000
+    max_node_call_timeout_s: float = 600.0
+    critic_call_timeout_s: float = 600.0
+    require_strategy_graph_edits: bool = False
+    # Final-plan RouteJSON contract.  The sequential host compiles it from
+    # one-step ReactionJSON edits; this flag does not force the model to draw
+    # the whole route in every Route Builder call.
+    require_complete_route_json: bool = False
+    allow_editor_route_mutations: bool = False
+    max_provider_requests: int = 3
     model: str = ""
     reasoning_effort: str = "low"
     enable_web_search: bool = False
@@ -228,15 +296,85 @@ class DirectorConfig:
             self.max_output_tokens,
             self.max_tool_calls,
             self.max_initial_architecture_calls,
-            self.max_event_replan_calls,
             self.max_final_portfolio_synthesis_calls,
+            self.strategy_branch_count,
+            self.strategy_branch_workers,
+            self.max_node_expansions_per_branch,
+            self.max_strategic_milestones_per_branch,
+            self.max_reactionjson_candidates_per_node,
+            self.max_node_prompt_bytes,
         ):
             if int(value) <= 0:
                 raise ValueError("director integer limits must be positive")
+        for value in (
+            self.max_event_replan_calls,
+            self.max_route_local_repair_rounds,
+        ):
+            if int(value) < 0:
+                raise ValueError(
+                    "director optional iteration limits must be non-negative"
+                )
+        if self.max_reactionjson_candidates_per_node > 8:
+            raise ValueError("director ReactionJSON candidate limit is invalid")
+        if int(self.max_provider_requests) < 0:
+            raise ValueError("director provider request limit must be non-negative")
         if not math.isfinite(self.max_wall_time_s) or self.max_wall_time_s <= 0:
             raise ValueError("director max_wall_time_s must be finite and positive")
+        for value in (self.max_node_call_timeout_s, self.critic_call_timeout_s):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError("director call timeout must be finite and positive")
         if self.minimum_route_families > self.max_route_families:
             raise ValueError("director minimum route families exceeds maximum")
+        if self.planning_mode not in {"global_skeleton", "sequential_branches"}:
+            raise ValueError("director planning mode is invalid")
+        if self.strategy_tree_engine not in {
+            "chemenzy_best_first",
+            "aizynthfinder_mcts",
+        }:
+            raise ValueError("director strategy tree engine is invalid")
+        if not 1 <= int(self.max_strategic_milestones_per_branch) <= 4:
+            raise ValueError("director strategic milestone limit is invalid")
+        if self.strategy_portfolio_mode not in {
+            "paper_independent",
+            "autoplanner_hybrid",
+            "enzyme_advantage",
+            "chemoenzymatic_fusion",
+            "autoplanner_strategy_v2",
+        }:
+            raise ValueError("director strategy portfolio mode is invalid")
+        if self.reviewed_strategy_portfolio:
+            if len(self.reviewed_strategy_portfolio) != self.strategy_branch_count:
+                raise ValueError(
+                    "reviewed strategy portfolio must match strategy branch count"
+                )
+            required = (
+                "strategy_query",
+                "critical_assumption",
+                "critic_checkpoint",
+            )
+            if any(
+                not isinstance(card, Mapping)
+                or any(not str(card.get(field) or "").strip() for field in required)
+                for card in self.reviewed_strategy_portfolio
+            ):
+                raise ValueError("reviewed strategy portfolio card is invalid")
+            digest = str(self.reviewed_strategy_portfolio_sha256 or "").strip().lower()
+            if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+                raise ValueError("reviewed strategy portfolio hash is invalid")
+        elif self.reviewed_strategy_portfolio_sha256:
+            raise ValueError("reviewed strategy portfolio is required for its hash")
+        if self.strategy_branch_workers > self.strategy_branch_count:
+            raise ValueError("director strategy branch workers exceed branch count")
+        if self.enable_transactional_path_repair and self.allow_editor_route_mutations:
+            raise ValueError(
+                "director Editor modes are mutually exclusive"
+            )
+        if (
+            isinstance(self.minimum_planning_route_steps, bool)
+            or not isinstance(self.minimum_planning_route_steps, int)
+            or not 0 <= self.minimum_planning_route_steps <= self.max_steps_per_skeleton
+        ):
+            raise ValueError("director minimum planning route depth is invalid")
         roles = tuple(str(value).strip() for value in self.child_roles)
         if self.use_coordinator and len(set(roles)) < 2:
             raise ValueError("director coordinator requires distinct child roles")
@@ -262,10 +400,15 @@ class DirectorOutcome:
     reasons: tuple[str, ...] = ()
     artifact_sha256: str = ""
     task_id: str = ""
+    resource_usage: Mapping[str, Any] = field(default_factory=dict)
+    runtime_unavailable: bool = False
+    runtime_pause: bool = False
+    retryable_after_external_recovery: bool = False
+    resume_required_task_ids: tuple[str, ...] = ()
     schema_version: str = GLOBAL_CAMPAIGN_DIRECTOR_OUTCOME_SCHEMA
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        row = {
             "schema_version": self.schema_version,
             "status": self.status,
             "invoked": self.invoked,
@@ -278,7 +421,22 @@ class DirectorOutcome:
             "reasons": list(self.reasons),
             "artifact_sha256": self.artifact_sha256,
             "task_id": self.task_id,
+            "resource_usage": dict(self.resource_usage),
         }
+        if self.runtime_unavailable:
+            row.update(
+                {
+                    "runtime_unavailable": True,
+                    "runtime_pause": self.runtime_pause,
+                    "retryable_after_external_recovery": (
+                        self.retryable_after_external_recovery
+                    ),
+                    "resume_required_task_ids": list(
+                        self.resume_required_task_ids
+                    ),
+                }
+            )
+        return row
 
 
 DirectorRunner = Callable[[AgentSpec, CampaignContext, str, DirectorConfig], AgentResult]
@@ -363,15 +521,102 @@ class GlobalCampaignDirector:
         mode: str,
         force: bool = False,
     ) -> DirectorOutcome:
-        lock_key = _digest(
+        if mode not in DIRECTOR_MODES:
+            raise ValueError("unsupported director mode")
+        if context.run_id != self.kernel.spec.run_id:
+            raise GlobalCampaignDirectorError("director_context_run_mismatch")
+        context = self._recover_in_flight_context(context, mode=mode)
+        lock_key = self._cache_key(context, mode=mode)
+        with self._invocation_lock(lock_key):
+            return self._run_unlocked(context, mode=mode, force=force)
+
+    def _cache_key(self, context: CampaignContext, *, mode: str) -> str:
+        return _digest(
             {
                 "context_sha256": context.content_sha256,
                 "mode": mode,
                 "config_sha256": self.config.to_dict()["content_sha256"],
             }
         )
-        with self._invocation_lock(lock_key):
-            return self._run_unlocked(context, mode=mode, force=force)
+
+    def _recover_in_flight_context(
+        self,
+        context: CampaignContext,
+        *,
+        mode: str,
+    ) -> CampaignContext:
+        """Reuse the immutable context bound to an unfinished Director turn."""
+
+        config_sha256 = str(self.config.to_dict()["content_sha256"])
+        action_scope = self.kernel.current_action_resource_context()
+        action_execution_id = str(
+            action_scope.get("campaign_action_execution_id") or ""
+        )
+        candidates: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        for task_id, raw_reservation in self.kernel.state.in_flight_tasks.items():
+            reservation = dict(raw_reservation or {})
+            metadata = dict(reservation.get("metadata") or {})
+            if (
+                metadata.get("director_mode") != mode
+                or metadata.get("config_sha256") != config_sha256
+            ):
+                continue
+            if action_execution_id and metadata.get(
+                "campaign_action_execution_id"
+            ) != action_execution_id:
+                continue
+            candidates.append((str(task_id), reservation, metadata))
+        if not candidates:
+            return context
+
+        exact = [
+            candidate
+            for candidate in candidates
+            if candidate[2].get("context_sha256") == context.content_sha256
+        ]
+        selected = exact if exact else candidates
+        if len(selected) != 1:
+            raise GlobalCampaignDirectorError(
+                "director_in_flight_context_ambiguous"
+            )
+        task_id, reservation, metadata = selected[0]
+        context_ref_row = metadata.get("director_context_ref")
+        if not isinstance(context_ref_row, Mapping):
+            # Reservations written before durable context binding remain
+            # replayable only when the caller still holds that exact context.
+            if metadata.get("context_sha256") == context.content_sha256:
+                return context
+            raise GlobalCampaignDirectorError(
+                "director_in_flight_context_ref_missing"
+            )
+        try:
+            context_ref = ArtifactRef.from_dict(dict(context_ref_row))
+            restored = CampaignContext.from_dict(
+                self.kernel.artifacts.read_json(context_ref)
+            )
+        except (
+            ArtifactReferenceError,
+            ArtifactStoreError,
+            CampaignContextError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise GlobalCampaignDirectorError(
+                "director_in_flight_context_invalid:"
+                f"{type(exc).__name__}:{str(exc)}"
+            ) from exc
+        expected_task_id = f"director:{self._cache_key(restored, mode=mode)[:24]}"
+        if (
+            restored.run_id != self.kernel.spec.run_id
+            or restored.content_sha256 != metadata.get("context_sha256")
+            or restored.revision.revision
+            != int(reservation.get("input_revision") or 0)
+            or task_id != expected_task_id
+        ):
+            raise GlobalCampaignDirectorError(
+                "director_in_flight_context_binding_invalid"
+            )
+        return restored
 
     def _run_unlocked(
         self,
@@ -394,13 +639,7 @@ class GlobalCampaignDirector:
                 context_sha256=context.content_sha256,
                 reasons=("no_material_replan_trigger",),
             )
-        cache_key = _digest(
-            {
-                "context_sha256": context.content_sha256,
-                "mode": mode,
-                "config_sha256": self.config.to_dict()["content_sha256"],
-            }
-        )
+        cache_key = self._cache_key(context, mode=mode)
         task_id = f"director:{cache_key[:24]}"
         cached = self._load_cached(cache_key)
         if cached is not None:
@@ -432,17 +671,13 @@ class GlobalCampaignDirector:
                 ),
                 artifact_sha256=artifact_sha256,
                 task_id=task_id,
+                resource_usage=dict(
+                    cache_metadata.get("resource_usage")
+                    or cache_metadata.get("model_usage")
+                    or {}
+                ),
             )
-        if task_id in self.kernel.state.in_flight_tasks:
-            return DirectorOutcome(
-                status="in_flight",
-                invoked=False,
-                cache_hit=False,
-                mode=mode,
-                context_sha256=context.content_sha256,
-                reasons=("identical_director_task_requires_recovery",),
-                task_id=task_id,
-            )
+        resume_in_flight = task_id in self.kernel.state.in_flight_tasks
         mode_limit = {
             "initial_architecture": self.config.max_initial_architecture_calls,
             "event_replan": self.config.max_event_replan_calls,
@@ -453,7 +688,7 @@ class GlobalCampaignDirector:
         prior_mode_calls = self.kernel.count_task_reservations(
             metadata={"director_mode": mode},
         )
-        if prior_mode_calls >= mode_limit:
+        if not resume_in_flight and prior_mode_calls >= mode_limit:
             return DirectorOutcome(
                 status="budget_exhausted",
                 invoked=False,
@@ -463,23 +698,39 @@ class GlobalCampaignDirector:
                 reasons=("director_mode_call_budget_exhausted",),
                 task_id=task_id,
             )
-        prompt = director_prompt(context, mode=mode, config=self.config)
+        prompt_builder = getattr(self.runner, "prompt_for", None)
+        prompt = (
+            str(prompt_builder(context, mode, self.config))
+            if callable(prompt_builder)
+            else director_prompt(context, mode=mode, config=self.config)
+        )
         prompt_bytes = len(prompt.encode("utf-8"))
         uses_model = not bool(getattr(self.runner, "model_free", False))
-        self.kernel.reserve_task(
-            task_id=task_id,
-            kind="model" if uses_model else "validation",
-            idempotency_key=f"reserve:{task_id}",
-            input_revision=context.revision.revision,
-            uses_model=uses_model,
-            prompt_context_bytes=prompt_bytes,
-            metadata={
-                "director_mode": mode,
-                "context_sha256": context.content_sha256,
-                "config_sha256": self.config.to_dict()["content_sha256"],
-                "trigger_reasons": trigger_reasons,
-            },
-        )
+        if not resume_in_flight:
+            context_ref = self.kernel.artifacts.put_json(
+                context.to_dict(),
+                logical_name=f"{task_id}-context.json",
+                producer="autoplanner.global_campaign_director",
+            )
+            if context_ref.size_bytes != context.byte_count:
+                raise GlobalCampaignDirectorError(
+                    "director_context_artifact_size_mismatch"
+                )
+            self.kernel.reserve_task(
+                task_id=task_id,
+                kind="model" if uses_model else "validation",
+                idempotency_key=f"reserve:{task_id}",
+                input_revision=context.revision.revision,
+                uses_model=uses_model,
+                prompt_context_bytes=prompt_bytes,
+                metadata={
+                    "director_mode": mode,
+                    "context_sha256": context.content_sha256,
+                    "director_context_ref": context_ref.to_dict(),
+                    "config_sha256": self.config.to_dict()["content_sha256"],
+                    "trigger_reasons": trigger_reasons,
+                },
+            )
         spec = AgentSpec.from_context(
             run_id=self.kernel.spec.run_id,
             agent_id=task_id,
@@ -505,9 +756,13 @@ class GlobalCampaignDirector:
                 "mode": mode,
                 "model": self.config.model,
                 "reasoning_effort": self.config.reasoning_effort,
+                "remaining_model_budget": remaining_model_budget(self.kernel),
                 "no_scientific_authority": True,
                 "allowed_workdir": str(
                     self.kernel.run_dir / ".autoplanner" / "director-workspace"
+                ),
+                "durable_worker_journal": bool(
+                    getattr(self.runner, "durable_worker_journal", False)
                 ),
             },
         )
@@ -517,16 +772,70 @@ class GlobalCampaignDirector:
             result = self.runner(spec, context, mode, self.config)
             if not isinstance(result, AgentResult):
                 raise GlobalCampaignDirectorError("director_runner_result_invalid")
-            usage = normalize_director_usage(result.usage)
+            raw_usage = dict(result.usage or {})
+            usage = normalize_director_usage(raw_usage)
+            resource_usage = {**raw_usage, **usage}
+            provider_runtime_unavailable = bool(
+                result.state is not AgentState.SUCCEEDED
+                and str(result.error or "").startswith(
+                    "model_provider_unavailable:"
+                )
+            )
+            if provider_runtime_unavailable and isinstance(result.output, Mapping):
+                return self._checkpoint_recoverable_provider_pause(
+                    task_id=task_id,
+                    context=context,
+                    mode=mode,
+                    result=result,
+                    model_usage=usage,
+                    resource_usage=resource_usage,
+                )
+            if result.state is AgentState.CANCELLED:
+                elapsed_s = max(0.0, time.monotonic() - started)
+                self.kernel.settle_task(
+                    task_id=task_id,
+                    idempotency_key=f"settle:{task_id}",
+                    status="cancelled",
+                    failure_reasons=(
+                        "delivery_milestone_reached_before_director_completion",
+                    ),
+                    model_usage=usage,
+                    elapsed_s=elapsed_s,
+                )
+                return DirectorOutcome(
+                    status="cancelled_after_delivery",
+                    invoked=True,
+                    cache_hit=False,
+                    mode=mode,
+                    context_sha256=context.content_sha256,
+                    reasons=("delivery_milestone_reached",),
+                    task_id=task_id,
+                    resource_usage=resource_usage,
+                )
             if result.state is not AgentState.SUCCEEDED:
+                if str(result.error or "").startswith("model_provider_unavailable:"):
+                    raise GlobalCampaignDirectorError(str(result.error))
                 raise GlobalCampaignDirectorError(
                     "director_child_failed:" + (result.error or result.state.value)
                 )
             plan = GlobalCampaignPlan.from_dict(_require_mapping(result.output))
-            plan, contract_repairs = repair_global_campaign_plan_contract(plan, context)
+            plan, contract_repairs = repair_global_campaign_plan_contract(
+                plan,
+                context,
+                config=self.config,
+            )
             if plan.mode != mode:
                 raise GlobalCampaignPlanValidationError("director_plan_mode_mismatch")
-            if len(_canonical_bytes(plan.to_dict())) > self.config.max_output_bytes:
+            # ``max_output_bytes`` is a per-child model-output boundary.  In
+            # sequential mode the returned plan is assembled by the host from
+            # many independently bounded Strategy/Builder/Critic artifacts;
+            # applying the single-call limit to that accumulated document
+            # discards valid prefixes after an otherwise successful long run.
+            if (
+                self.config.planning_mode != "sequential_branches"
+                and len(_canonical_bytes(plan.to_dict()))
+                > self.config.max_output_bytes
+            ):
                 raise GlobalCampaignPlanValidationError(
                     "director_plan_output_byte_budget_exceeded"
                 )
@@ -567,6 +876,10 @@ class GlobalCampaignDirector:
                     "authority_scope": "hypothesis_only",
                     "task_id": task_id,
                     "model_usage": usage,
+                    # Keep the complete worker ledger for reporting and cache
+                    # replay. Kernel settlement continues to consume only the
+                    # normalized model accounting fields above.
+                    "resource_usage": resource_usage,
                     "elapsed_s": elapsed_s,
                     "contract_repairs": [dict(row) for row in contract_repairs],
                 },
@@ -590,14 +903,22 @@ class GlobalCampaignDirector:
                 contract_repairs=contract_repairs,
                 artifact_sha256=plan_ref.sha256,
                 task_id=task_id,
+                resource_usage=resource_usage,
             )
         except BaseException as exc:
             usage = normalize_director_usage(result.usage if result else {})
+            provider_runtime_unavailable = (
+                isinstance(exc, GlobalCampaignDirectorError)
+                and str(exc).startswith("model_provider_unavailable:")
+            )
             if uses_model and result is None and usage["model_invocations"] == 0:
                 # Fail conservatively: once the backend boundary was entered,
                 # an unobserved exception must consume one call slot.
                 usage["model_invocations"] = 1
-            if task_id in self.kernel.state.in_flight_tasks:
+            if (
+                not provider_runtime_unavailable
+                and task_id in self.kernel.state.in_flight_tasks
+            ):
                 self.kernel.settle_task(
                     task_id=task_id,
                     idempotency_key=f"settle:{task_id}",
@@ -607,6 +928,111 @@ class GlobalCampaignDirector:
                     elapsed_s=max(0.0, time.monotonic() - started),
                 )
             raise
+
+    def _checkpoint_recoverable_provider_pause(
+        self,
+        *,
+        task_id: str,
+        context: CampaignContext,
+        mode: str,
+        result: AgentResult,
+        model_usage: Mapping[str, Any],
+        resource_usage: Mapping[str, Any],
+    ) -> DirectorOutcome:
+        """Preserve an operational prefix without admitting a partial plan."""
+
+        # Sequential workers have already fsync'd every successful
+        # Strategy/Builder/Critic/Editor result by stable task id. This
+        # checkpoint projects their deterministic Host state, while the worker
+        # journal remains the only resume authority.
+        partial_plan = GlobalCampaignPlan.from_dict(_require_mapping(result.output))
+        if (
+            partial_plan.mode != mode
+            or partial_plan.run_id != context.run_id
+            or partial_plan.context_sha256 != context.content_sha256
+            or partial_plan.graph_revision != context.revision.graph_revision
+        ):
+            raise GlobalCampaignPlanValidationError(
+                "director_recovery_plan_context_mismatch"
+            )
+        raw_usage = dict(result.usage or {})
+        resume_required_task_ids = tuple(
+            sorted(
+                {
+                    str(value)
+                    for value in raw_usage.get("resume_required_task_ids") or ()
+                    if str(value)
+                }
+            )
+        )
+        checkpoint_ref = self.kernel.artifacts.put_json(
+            {
+                "schema_version": "global_campaign_director_recovery_checkpoint.v1",
+                "run_id": self.kernel.spec.run_id,
+                "task_id": task_id,
+                "mode": mode,
+                "context_sha256": context.content_sha256,
+                "plan": partial_plan.to_dict(),
+                "resource_usage": dict(resource_usage),
+                "resume_required_task_ids": list(resume_required_task_ids),
+                "provider_runtime_failure": dict(
+                    raw_usage.get("provider_runtime_failure") or {}
+                ),
+                "semantics": {
+                    "operational_checkpoint_only": True,
+                    "grants_no_scientific_authority": True,
+                    "worker_journal_is_resume_authority": True,
+                },
+            },
+            logical_name=f"{task_id}-recoverable-partial.json",
+            producer="autoplanner.global_campaign_director",
+        )
+        checkpoints = tuple(
+            self.kernel.state.task_checkpoints.get(task_id) or ()
+        )
+        predecessor_sha256 = (
+            str(checkpoints[-1].get("artifact_sha256") or "")
+            if checkpoints
+            else ""
+        )
+        if predecessor_sha256 != checkpoint_ref.sha256:
+            self.kernel.record_task_checkpoint(
+                task_id=task_id,
+                checkpoint_kind="recoverable_director_prefix",
+                artifact_ref=checkpoint_ref,
+                predecessor_checkpoint_sha256=predecessor_sha256,
+                operational_status="runtime_unavailable",
+                idempotency_key=(
+                    f"checkpoint:{task_id}:{predecessor_sha256[:16]}:"
+                    f"{checkpoint_ref.sha256[:16]}"
+                ),
+                metadata={
+                    "model_usage": dict(model_usage),
+                    "route_family_count": len(partial_plan.route_families),
+                    "route_skeleton_count": len(
+                        partial_plan.multi_step_skeletons
+                    ),
+                    "resume_required_task_ids": list(
+                        resume_required_task_ids
+                    ),
+                },
+            )
+        return DirectorOutcome(
+            status="runtime_unavailable",
+            invoked=True,
+            cache_hit=False,
+            mode=mode,
+            context_sha256=context.content_sha256,
+            plan=partial_plan,
+            reasons=(str(result.error or "provider_unavailable")[:2_000],),
+            artifact_sha256=checkpoint_ref.sha256,
+            task_id=task_id,
+            resource_usage=dict(resource_usage),
+            runtime_unavailable=True,
+            runtime_pause=True,
+            retryable_after_external_recovery=True,
+            resume_required_task_ids=resume_required_task_ids,
+        )
 
     def record_dispositions(
         self,
@@ -697,30 +1123,60 @@ class GlobalCampaignDirector:
         lock_root.mkdir(parents=True, exist_ok=True)
         lock_path = lock_root / f"{cache_key[:24]}.lock"
         deadline = time.monotonic() + self.config.max_wall_time_s + 30.0
-        stale_after_s = self.config.max_wall_time_s + 120.0
-        while True:
-            try:
-                lock_path.mkdir()
-                break
-            except FileExistsError:
-                try:
-                    if time.time() - lock_path.stat().st_mtime > stale_after_s:
-                        lock_path.rmdir()
-                        continue
-                except (FileNotFoundError, OSError):
-                    pass
-                if time.monotonic() >= deadline:
-                    raise GlobalCampaignDirectorError(
-                        "director_identical_context_lock_timeout"
-                    )
-                time.sleep(0.02)
+        handle = lock_path.open("a+b")
+        acquired = False
         try:
+            while True:
+                try:
+                    _lock_director_file(handle)
+                    acquired = True
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise GlobalCampaignDirectorError(
+                            "director_identical_context_lock_timeout"
+                        ) from None
+                    time.sleep(0.02)
             yield
         finally:
             try:
-                lock_path.rmdir()
-            except FileNotFoundError:
-                pass
+                if acquired:
+                    _unlock_director_file(handle)
+            finally:
+                handle.close()
+
+
+def _lock_director_file(handle: Any) -> None:
+    """Acquire a non-blocking OS lock that is released on process exit."""
+
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        if not handle.read(1):
+            handle.seek(0)
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock_director_file(handle: Any) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def validate_global_campaign_plan(
@@ -738,8 +1194,9 @@ def validate_global_campaign_plan(
         reasons.append("plan_context_sha256_mismatch")
     if plan.graph_revision != context.revision.graph_revision:
         reasons.append("plan_graph_revision_mismatch")
-    if not limits.minimum_route_families <= len(plan.route_families) <= limits.max_route_families:
-        reasons.append("route_family_count_out_of_bounds")
+    # Portfolio cardinality is an acceptance measurement, not a structural
+    # parsing boundary.  A useful family must survive even when sibling
+    # families are missing; B1 remains false until the configured count is met.
     if len(plan.multi_step_skeletons) > limits.max_skeletons:
         reasons.append("skeleton_count_out_of_bounds")
     if not plan.portfolio_rationale.strip():
@@ -768,6 +1225,10 @@ def validate_global_campaign_plan(
     audits: list[dict[str, Any]] = []
     audits_by_skeleton: dict[str, list[dict[str, Any]]] = {}
     root_edge_by_family: dict[str, tuple[str, ...]] = {}
+    upstream_edges_by_family: dict[
+        str,
+        set[tuple[str, tuple[str, ...]]],
+    ] = {}
     skeleton_family_ids: set[str] = set()
     skeleton_ids: set[str] = set()
     skeleton_molecules: set[str] = set()
@@ -820,22 +1281,42 @@ def validate_global_campaign_plan(
                 audit["reasons"] = sorted(
                     {*audit.get("reasons", []), *topology_reasons}
                 )
-        elif route_family_id and route_family_id not in root_edge_by_family:
-            root_edge_by_family[route_family_id] = root_precursors
-    missing_skeleton_families = sorted(family_ids - skeleton_family_ids)
-    if missing_skeleton_families:
-        reasons.append(
-            "route_families_without_skeletons:" + ",".join(missing_skeleton_families)
-        )
+        elif route_family_id:
+            root_edge_by_family.setdefault(route_family_id, root_precursors)
+            upstream_edges_by_family.setdefault(route_family_id, set()).update(
+                _skeleton_upstream_edge_signatures(
+                    steps,
+                    target_smiles=target,
+                )
+            )
+    # Family metadata without chemistry is retained as an advisory search
+    # direction.  It grants no skeleton, edge, proof, or B1 authority.
     duplicate_root_families: dict[tuple[str, ...], list[str]] = {}
     for family_id, root_precursors in root_edge_by_family.items():
         duplicate_root_families.setdefault(root_precursors, []).append(family_id)
-    duplicate_family_ids = {
-        family_id
-        for values in duplicate_root_families.values()
-        if len(values) > 1
-        for family_id in sorted(values)[1:]
-    }
+    duplicate_family_ids: set[str] = set()
+    for family_ids_with_shared_root in duplicate_root_families.values():
+        if len(family_ids_with_shared_root) <= 1:
+            continue
+        seen_upstream_signatures: set[
+            frozenset[tuple[str, tuple[str, ...]]]
+        ] = set()
+        for index, family_id in enumerate(family_ids_with_shared_root):
+            upstream_signature = frozenset(
+                upstream_edges_by_family.get(family_id, set())
+            )
+            if index == 0:
+                seen_upstream_signatures.add(upstream_signature)
+                continue
+            # A shared target-forming edge is normal in a retrosynthetic
+            # hypergraph.  Reject only a relabelled/truncated duplicate with
+            # no upstream divergence, or an exact duplicate of an already
+            # admitted upstream program.  Distinct upstream chemistry must
+            # survive even when the final convergence step is shared.
+            if not upstream_signature or upstream_signature in seen_upstream_signatures:
+                duplicate_family_ids.add(family_id)
+                continue
+            seen_upstream_signatures.add(upstream_signature)
     if duplicate_family_ids:
         for skeleton in plan.multi_step_skeletons:
             if str(skeleton.get("route_family_id") or "") not in duplicate_family_ids:
@@ -854,12 +1335,15 @@ def validate_global_campaign_plan(
         ]
         if providers and not frontier_smiles:
             reasons.append("provider_frontier_target_missing")
-        if frontier_smiles:
+        if providers and frontier_smiles:
             if frontier_smiles == target:
                 reasons.append("provider_frontier_cannot_be_campaign_target")
             elif frontier_smiles not in skeleton_molecules:
                 reasons.append("provider_frontier_not_in_skeleton")
-            if providers and any(value not in {"chemenzy"} for value in providers):
+            if any(
+                value not in {"chemenzy", "codex_frontier_builder"}
+                for value in providers
+            ):
                 reasons.append("provider_frontier_unknown_provider")
     if reasons:
         raise GlobalCampaignPlanValidationError(";".join(sorted(set(reasons))))
@@ -869,6 +1353,8 @@ def validate_global_campaign_plan(
 def repair_global_campaign_plan_contract(
     plan: GlobalCampaignPlan,
     context: CampaignContext,
+    *,
+    config: DirectorConfig | None = None,
 ) -> tuple[GlobalCampaignPlan, tuple[Mapping[str, Any], ...]]:
     """Repair redundant metadata and remove explicit no-op leaf markers.
 
@@ -880,7 +1366,12 @@ def repair_global_campaign_plan_contract(
     That row is not chemistry and can only create a false ancestor cycle, so it
     is removed when the skeleton still contains at least one real step.  Real
     products and precursors are never rewritten and remain subject to the
-    normal chemistry/topology validators.
+    normal chemistry/topology validators.  A declared route family with no
+    skeleton contains no chemistry at all; dropping that orphan metadata is
+    likewise safe and avoids rejecting otherwise reviewable route programs. A
+    continuation skeleton can be joined to a target-rooted skeleton only when
+    its unique internal root is an unexpanded leaf of exactly one skeleton in
+    the same family and the unchanged combined steps pass the normal DAG check.
     """
 
     target = _canonical_smiles(context.target.get("canonical_smiles"))
@@ -929,6 +1420,17 @@ def repair_global_campaign_plan_contract(
                     }
                 )
         repaired_skeletons.append(row)
+    repaired_skeletons, continuation_repairs = _merge_continuation_skeletons(
+        repaired_skeletons,
+        target_smiles=target,
+        max_steps_per_skeleton=(config or DirectorConfig()).max_steps_per_skeleton,
+    )
+    repairs.extend(continuation_repairs)
+    skeleton_family_ids = {
+        str(skeleton.get("route_family_id") or "")
+        for skeleton in repaired_skeletons
+        if str(skeleton.get("route_family_id") or "")
+    }
     rooted_families: set[str] = set()
     for skeleton in repaired_skeletons:
         family_id = str(skeleton.get("route_family_id") or "")
@@ -947,6 +1449,23 @@ def repair_global_campaign_plan_contract(
     for family in plan.route_families:
         row = dict(family)
         family_id = str(row.get("route_family_id") or "")
+        if family_id and family_id not in skeleton_family_ids:
+            repairs.append(
+                {
+                    "schema_version": "global_campaign_contract_repair.v1",
+                    "field": "route_families",
+                    "route_family_id": family_id,
+                    "reason": "route_family_without_skeleton_retained_as_advisory",
+                    "semantics": {
+                        "chemistry_unchanged": True,
+                        "orphan_metadata_only": True,
+                        "retained_as_advisory_only": True,
+                        "normal_validation_still_required": True,
+                    },
+                }
+            )
+            repaired_families.append(row)
+            continue
         observed = _canonical_smiles(row.get("target_smiles"))
         if observed != target and family_id in rooted_families:
             row["target_smiles"] = target
@@ -997,6 +1516,7 @@ def repair_global_campaign_plan_contract(
         frontier_priorities=retained_priorities,
         campaign_target=target,
         canonicalize=_canonical_smiles,
+        max_requests=(config or DirectorConfig()).max_provider_requests,
     )
     repairs.extend(provider_repairs)
     if not repairs:
@@ -1007,6 +1527,127 @@ def repair_global_campaign_plan_contract(
     payload["multi_step_skeletons"] = repaired_skeletons
     payload["frontier_priorities"] = repaired_priorities
     return GlobalCampaignPlan.from_dict(payload), tuple(repairs)
+
+
+def _merge_continuation_skeletons(
+    skeletons: list[dict[str, Any]],
+    *,
+    target_smiles: str,
+    max_steps_per_skeleton: int,
+) -> tuple[list[dict[str, Any]], list[Mapping[str, Any]]]:
+    """Join an explicitly split route only when its graph boundary is exact."""
+
+    rows = [
+        {
+            **dict(skeleton),
+            "steps": [
+                dict(step)
+                for step in skeleton.get("steps") or []
+                if isinstance(step, Mapping)
+            ],
+        }
+        for skeleton in skeletons
+    ]
+    removed: set[int] = set()
+    repairs: list[Mapping[str, Any]] = []
+    changed = True
+    while changed:
+        changed = False
+        for continuation_index, continuation in enumerate(rows):
+            if continuation_index in removed:
+                continue
+            continuation_steps = continuation["steps"]
+            continuation_products = {
+                _canonical_smiles(step.get("product_smiles"))
+                for step in continuation_steps
+            }
+            if not continuation_steps or target_smiles in continuation_products:
+                continue
+            continuation_root = _continuation_skeleton_root(continuation_steps)
+            if not continuation_root:
+                continue
+            topology_reasons, _root_precursors = _skeleton_topology_reasons(
+                continuation_steps,
+                target_smiles=continuation_root,
+            )
+            if topology_reasons:
+                continue
+            family_id = str(continuation.get("route_family_id") or "")
+            eligible: list[tuple[int, list[dict[str, Any]]]] = []
+            for parent_index, parent in enumerate(rows):
+                if parent_index == continuation_index or parent_index in removed:
+                    continue
+                if not family_id or str(parent.get("route_family_id") or "") != family_id:
+                    continue
+                parent_steps = parent["steps"]
+                parent_products = {
+                    _canonical_smiles(step.get("product_smiles"))
+                    for step in parent_steps
+                }
+                if target_smiles not in parent_products:
+                    continue
+                parent_precursors = {
+                    _canonical_smiles(value)
+                    for step in parent_steps
+                    for value in step.get("precursor_smiles") or []
+                    if _canonical_smiles(value)
+                }
+                parent_leaves = parent_precursors - parent_products
+                if continuation_root not in parent_leaves:
+                    continue
+                combined = [*parent_steps, *continuation_steps]
+                if len(combined) > max_steps_per_skeleton:
+                    continue
+                combined_reasons, _combined_root = _skeleton_topology_reasons(
+                    combined,
+                    target_smiles=target_smiles,
+                )
+                if not combined_reasons:
+                    eligible.append((parent_index, combined))
+            if len(eligible) != 1:
+                continue
+            parent_index, combined = eligible[0]
+            parent = rows[parent_index]
+            parent["steps"] = combined
+            removed.add(continuation_index)
+            repairs.append(
+                {
+                    "schema_version": "global_campaign_contract_repair.v1",
+                    "field": "multi_step_skeletons",
+                    "skeleton_id": str(parent.get("skeleton_id") or ""),
+                    "continuation_skeleton_id": str(
+                        continuation.get("skeleton_id") or ""
+                    ),
+                    "boundary_smiles": continuation_root,
+                    "combined_step_count": len(combined),
+                    "reason": "unique_leaf_continuation_skeleton_merged",
+                    "semantics": {
+                        "chemistry_unchanged": True,
+                        "exact_existing_boundary_required": True,
+                        "ambiguous_or_invalid_continuations_remain_rejected": True,
+                        "normal_validation_still_required": True,
+                    },
+                }
+            )
+            changed = True
+            break
+    return [row for index, row in enumerate(rows) if index not in removed], repairs
+
+
+def _continuation_skeleton_root(steps: list[dict[str, Any]]) -> str:
+    products = {
+        _canonical_smiles(step.get("product_smiles"))
+        for step in steps
+        if _canonical_smiles(step.get("product_smiles"))
+    }
+    precursors = {
+        _canonical_smiles(value)
+        for step in steps
+        for value in step.get("precursor_smiles") or []
+        if _canonical_smiles(value)
+    }
+    roots = products - precursors
+    return next(iter(roots)) if len(roots) == 1 else ""
 
 
 def _validate_step(value: Any, *, skeleton_id: str) -> dict[str, Any]:
@@ -1035,6 +1676,43 @@ def _validate_step(value: Any, *, skeleton_id: str) -> dict[str, Any]:
         reasons.append("required_validation_missing")
     if row.get("hypothesis_only") is not True:
         reasons.append("hypothesis_only_marker_missing")
+    condition_predictions = row.get("condition_predictions")
+    if condition_predictions is None:
+        reasons.append("condition_predictions_missing")
+    else:
+        if (
+            not isinstance(condition_predictions, list)
+            or len(condition_predictions) > 2
+            or any(
+                not isinstance(candidate, Mapping)
+                for candidate in condition_predictions
+            )
+        ):
+            reasons.append("condition_predictions_not_object_list")
+        elif condition_predictions:
+            for candidate in condition_predictions:
+                if (
+                    str(candidate.get("authority_scope") or "")
+                    != "model_predicted_condition"
+                    or candidate.get("not_reaction_proof") is not True
+                ):
+                    reasons.append("condition_prediction_authority_invalid")
+                if candidate.get("source_ref") or candidate.get("source_exact") is True:
+                    reasons.append("condition_prediction_claimed_source_authority")
+                if not any(
+                    candidate.get(key) not in (None, "", [], {})
+                    for key in (
+                        "reagents",
+                        "reagent",
+                        "catalyst",
+                        "base",
+                        "solvent",
+                        "temperature",
+                        "temperature_c",
+                        "time",
+                    )
+                ):
+                    reasons.append("condition_prediction_operational_fields_missing")
     if _forbidden_authority_paths(row):
         reasons.append("step_claimed_scientific_authority")
     return {
@@ -1102,6 +1780,41 @@ def _skeleton_topology_reasons(
     return sorted(set(reasons)), root_precursors
 
 
+def _skeleton_upstream_edge_signatures(
+    raw_steps: Any,
+    *,
+    target_smiles: str,
+) -> set[tuple[str, tuple[str, ...]]]:
+    """Return canonical non-root chemistry used to distinguish route families.
+
+    Multiple route families are allowed to share their target-forming edge or
+    a downstream suffix.  Their diversity comes from at least one upstream
+    transformation, not from a different label on the same target precursor
+    set.
+    """
+
+    signatures: set[tuple[str, tuple[str, ...]]] = set()
+    for value in raw_steps if isinstance(raw_steps, list) else []:
+        if not isinstance(value, Mapping):
+            continue
+        product = _canonical_smiles(value.get("product_smiles"))
+        if not product or product == target_smiles:
+            continue
+        precursors = tuple(
+            sorted(
+                canonical
+                for canonical in (
+                    _canonical_smiles(item)
+                    for item in value.get("precursor_smiles") or []
+                )
+                if canonical
+            )
+        )
+        if precursors:
+            signatures.add((product, precursors))
+    return signatures
+
+
 def director_trigger_reasons(context: CampaignContext, *, mode: str) -> list[str]:
     if mode == "initial_architecture":
         return ["initial_architecture_requested"]
@@ -1118,6 +1831,21 @@ def proposal_ids(plan: GlobalCampaignPlan) -> list[str]:
             if isinstance(step, Mapping) and step.get("step_id"):
                 identities.append(str(step["step_id"]))
     return sorted(set(identities))
+
+
+def director_plan_provenance_sha256(plan: GlobalCampaignPlan) -> str:
+    """Bind canonical proposal origins to plan content, not runtime receipts."""
+
+    payload = plan.to_dict()
+    for provenance_field in (
+        "content_sha256",
+        "plan_id",
+        "run_id",
+        "context_sha256",
+        "graph_revision",
+    ):
+        payload.pop(provenance_field, None)
+    return _digest(payload)
 
 
 def director_prompt(
@@ -1139,15 +1867,17 @@ def director_prompt(
             "Coordinate route families, multi-step skeletons, shared intermediates, evidence acquisition, fallbacks, pivots, and portfolio tradeoffs together.",
             f"Exact campaign target: {target}",
             "Every route_family.target_smiles must equal the exact campaign target; put disconnection precursors only in skeleton step precursor_smiles.",
+            "Every declared route family must have at least one multi-step skeleton; omit an unexpanded family instead of returning metadata without chemistry.",
             "Every skeleton must be a connected retrosynthetic DAG with exactly one root product equal to the exact campaign target. Every non-root product must appear as a precursor of an upstream step in that same skeleton.",
-            f"Return at least {config.minimum_route_families} strategically distinct route families with different target-level precursor sets; superficial renaming is not diversity.",
+            "Do not invoke shell, command execution, local Python, or local files. The host applies RDKit canonicalization and chemistry validation after your structured response; use only permitted live search for source discovery.",
+            f"Return at least {config.minimum_route_families} strategically distinct route families. Families may share a target-forming edge or downstream suffix when their upstream reaction program genuinely diverges; superficial renaming, truncation, or an identical upstream program is not diversity.",
             "Extend each family to plausible purchasable or benchmark-stock leaves. Include all atom-contributing reactants as precursors, but omit catalysts, solvents, counterions, and non-incorporated reagents.",
             "Stop a branch at a terminal leaf. Never represent stock, availability, or an unexpanded leaf with an identity step such as A -> A.",
             "Use valid canonical isomeric SMILES, preserve stereochemistry, avoid ancestor cycles, and do not expand the same product twice inside one skeleton.",
             "Be compact: use no more than two short entries in descriptive lists, avoid repeating rationale across sections, and keep ordinary prose fields below 180 characters.",
             "Source hints are acquisition hints only. Prefer real DOI, patent publication, or primary-source URL identifiers and explicitly expose uncertainty.",
             (
-                "Live search is enabled. Use it for the two highest-priority route families before finalizing the plan. In each source_plan row, put verified DOI, patent publication, or primary-source URL identifiers in source_refs; use an empty list and state the limitation when no identifier was verified. Never invent an identifier."
+                "Live search is enabled. Before finalizing route chemistry, autonomously search the exact structure and any exact-InChIKey structure-resolved identity names in CampaignContext plus distinctive fragments for original synthesis patents or papers; do not use the display label as a chemistry input and do not wait for a supplied publication number. Then search the two highest-priority route families. Put every verified DOI, patent publication, or primary-source URL identifier in source_plan.source_refs and the matching skeleton step source_hints so the host can download the primary source. Use an empty list and state the limitation when no identifier was verified. Never invent an identifier."
                 if web_search_enabled
                 else (
                     "Live search is deferred from this first-route pass. Keep source_plan.source_refs empty unless an identifier already appears in CampaignContext; never invent an identifier. The evidence connector runs independently and any new source material may trigger an evidence-informed global replan."
@@ -1161,10 +1891,41 @@ def director_prompt(
                 if mode == "event_replan"
                 else "This is the initial global architecture pass; prioritize structurally coherent complete families over a large number of speculative variants."
             ),
+            (
+                "A prior skeleton failed host topology. Return each alternative or backup as its own target-rooted connected skeleton; never append a disconnected backup chain to another route. Join every retained upstream chain through an explicit single-reaction edge, and keep stereochemical SMILES identical at shared intermediate boundaries."
+                if mode == "event_replan"
+                and "director_topology_rejected" in context.delta.material_events
+                else ""
+            ),
             "Do not consult local dossiers, replay packs, showcase answers, target fixtures, or prior run artifacts; the CampaignContext and permitted live search are the only target inputs.",
             f"Mode: {mode}",
             f"Limits: at most {config.max_route_families} route families, {config.max_skeletons} skeletons, and {config.max_steps_per_skeleton} steps per skeleton.",
+            (
+                f"Planning-depth contract: at least one single target-rooted, fully connected skeleton MUST itself contain at least {config.minimum_planning_route_steps} explicit single-reaction steps. The required count cannot be split across a main skeleton and an extension/continuation skeleton. This is a planning/display requirement, not proof. Do not satisfy it with identity padding, fictitious intermediates, duplicated chemistry, or artificial splitting; retain credible shorter families as lower-depth alternatives."
+                if config.minimum_planning_route_steps > 0
+                else "No minimum planning depth is configured; choose route depth from the chemistry."
+            ),
+            (
+                f"Before returning the required-depth skeleton, audit it mechanically: it must have at least {config.minimum_planning_route_steps} unique step products; the exact campaign target must be the sole root product; every other step product must occur as a precursor reachable from that root; and no precursor chain may point back to an ancestor."
+                if config.minimum_planning_route_steps > 0
+                else ""
+            ),
+            (
+                "This is a long-route-capable proof run. Fully expand at least one promising family toward simple purchasable or benchmark leaves; include 20+ explicit steps when chemistry requires them. Do not compress a multistep chemical sequence into one reaction step unless it is a genuine one-pot, whole-cell, or biocatalytic program and label that program hypothesis explicitly."
+                if config.max_steps_per_skeleton >= 20
+                else "Keep every proposed step at the single-reaction level within the configured depth bound."
+            ),
+            (
+                f"The prior plan missed the configured {config.minimum_planning_route_steps}-step planning depth. In this replan, make one chemically coherent target-rooted skeleton meet that depth while preserving useful shorter routes; do not pad or fabricate steps."
+                if mode == "event_replan"
+                and config.minimum_planning_route_steps > 0
+                and "director_depth_deficit" in context.delta.material_events
+                else ""
+            ),
             "Each skeleton step requires step_id, product_smiles, precursor_smiles, transformation_hypothesis, required_validation, and hypothesis_only=true.",
+            "For every step whose exact source procedure is not already present in CampaignContext, include condition_predictions with one or two concise, chemically plausible experimental-design candidates (reagents/catalyst/base/solvent/temperature/time as applicable). Every candidate must set authority_scope=model_predicted_condition and not_reaction_proof=true, must not include source_ref, and must never be described as literature fact. These candidates prevent an operationally empty step while the host continues autonomous primary-source retrieval; they grant no proof.",
+            "For every connected skeleton, scan contiguous multi-step intervals as well as individual steps for executable Program replacements. Consider biocatalytic_step, biocatalytic_superstep, whole_cell, hybrid, and one-hop mechanism_extrapolation hypotheses when structurally justified. A replacement must name replaced_step_ids in route order, connect the exact interval boundary states, retain the conventional fallback, and request specialized host validation; it remains proposal-only until those gates pass.",
+            "A step may optionally carry route_innovation. For a genuine enzyme replacement use kind=biocatalytic_step or biocatalytic_superstep plus chemical_step_equivalent_count, replaced_step_ids, enzyme_classes or ec_numbers, selectivity_objective, substrate_scope_basis, precedent_refs, and validation_status=proposed. For a literature-anchored inference use kind=mechanism_extrapolation, hypothesis_depth=1, anchor_edge_ids or anchor_source_refs, mechanistic_rationale, and falsifiable_checks. These are low-confidence execution proposals only; never compress ordinary chemistry or claim that an enzyme/program is validated.",
             "Use frontier_priorities for both host step ordering and local-provider delegation. Select 1-3 nontrivial intermediates or leaves from a fully connected target-rooted skeleton for ChemEnzy by adding its exact step_id as proposal_id, target_smiles, provider_preferences=['chemenzy'], retron_hints, priority, and rationale. Never invent a provider-only proposal_id, never delegate a disconnected sketch or the campaign target itself; Codex owns target-level global strategy.",
             "CampaignContext:",
             json.dumps(context_payload, ensure_ascii=False, sort_keys=True),
@@ -1194,15 +1955,27 @@ def _director_prompt_context(
     mode: str,
 ) -> dict[str, Any]:
     if mode != "event_replan":
-        return context.to_dict()
+        payload = context.to_dict()
+        payload["run_id"] = _prompt_campaign_id(context)
+        payload["target"] = {
+            "canonical_smiles": str(
+                context.target.get("canonical_smiles") or ""
+            )
+        }
+        payload.pop("content_sha256", None)
+        payload["prompt_context_sha256"] = _digest(payload)
+        return payload
     topology = dict(context.topology or {})
     portfolio = dict(context.route_portfolio or {})
     payload = {
         "schema_version": "autoplanner_campaign_context_prompt_view.v1",
-        "run_id": context.run_id,
-        "target": dict(context.target),
+        "run_id": _prompt_campaign_id(context),
+        "target": {
+            "canonical_smiles": str(
+                context.target.get("canonical_smiles") or ""
+            )
+        },
         "revision": context.revision.to_dict(),
-        "context_sha256": context.content_sha256,
         "topology": {
             "target_molecule_id": topology.get("target_molecule_id"),
             "molecules": {
@@ -1337,10 +2110,17 @@ def _director_prompt_context(
             "read_only_projection": True,
             "complete_topology_relationships_preserved": True,
             "verbose_provenance_and_worker_payloads_omitted": True,
-            "full_context_bound_by_context_sha256": True,
+            "full_context_bound_outside_prompt": True,
+            "prompt_projection_has_opaque_identity": True,
         },
     }
+    payload["prompt_context_sha256"] = _digest(payload)
     return payload
+
+
+def _prompt_campaign_id(context: CampaignContext) -> str:
+    target = str(context.target.get("canonical_smiles") or "")
+    return f"campaign-{hashlib.sha256(target.encode('utf-8')).hexdigest()[:12]}"
 
 
 def _selected_fields(value: Any, names: tuple[str, ...]) -> dict[str, Any]:
@@ -1414,6 +2194,8 @@ def run_codex_cli_director_child(
     context: CampaignContext,
     mode: str,
     config: DirectorConfig,
+    *,
+    cancel_event: threading.Event | None = None,
 ) -> AgentResult:
     """Default direct-child adapter over the existing controlled Codex CLI."""
 
@@ -1450,7 +2232,80 @@ def run_codex_cli_director_child(
         codex_auth_mode="ambient_codex_cli",
         model=config.model,
     )
-    record = run_codex_worker(task, use_codex_cli=True)
+    record = run_codex_worker(
+        task,
+        use_codex_cli=True,
+        cancel_event=cancel_event,
+    )
+    return _director_agent_result(spec, mode=mode, record=record)
+
+
+def run_api_json_director_child(
+    spec: AgentSpec,
+    context: CampaignContext,
+    mode: str,
+    config: DirectorConfig,
+) -> AgentResult:
+    """Run a tool-free director pass through a structured, compatible API.
+
+    The generic API worker does not yet host a tool loop or a child-agent
+    coordinator.  Those modes are rejected explicitly instead of silently
+    changing the requested experiment.
+    """
+
+    if director_web_search_enabled(config, mode=mode) or config.use_coordinator:
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:result",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.FAILED,
+            output=None,
+            error="api_json_director_tool_loop_not_implemented",
+            usage={
+                "model_invocations": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "wall_time_s": 0.0,
+            },
+            metadata={
+                "backend": "api_json",
+                "worker_status": "capability_rejected",
+                "mode": mode,
+                "direct_child": True,
+                "tool_loop_supported": False,
+            },
+        )
+    task = WorkerTask(
+        task_id=spec.agent_id,
+        case_id=spec.run_id,
+        task_type="global_campaign_direction",
+        required_artifact_type="GlobalCampaignPlan",
+        input_refs=[context.content_sha256],
+        allowed_tools=[],
+        budget=WorkerBudget(
+            timeout_s=config.max_wall_time_s,
+            max_output_bytes=config.max_output_bytes,
+            max_tool_calls=0,
+            max_worker_runs=1,
+            reasoning_effort=config.reasoning_effort,
+        ),
+        objective=spec.objective,
+        allowed_workdir=str(spec.metadata.get("allowed_workdir") or Path.cwd()),
+        agent_mode="single",
+        codex_auth_mode="api_key",
+        model=config.model,
+    )
+    record = run_codex_worker(task, use_api_json=True)
+    return _director_agent_result(spec, mode=mode, record=record)
+
+
+def _director_agent_result(spec: AgentSpec, *, mode: str, record: Any) -> AgentResult:
     succeeded = record.status == "accepted_draft" and isinstance(
         record.output_artifact, Mapping
     )
@@ -1481,7 +2336,13 @@ def run_codex_cli_director_child(
         capabilities=spec.capabilities,
         write_scope=spec.write_scope,
         budget=spec.budget,
-        state=AgentState.SUCCEEDED if succeeded else AgentState.FAILED,
+        state=(
+            AgentState.SUCCEEDED
+            if succeeded
+            else AgentState.CANCELLED
+            if record.status == "cancelled"
+            else AgentState.FAILED
+        ),
         output=output,
         error="" if succeeded else _director_worker_error(record),
         usage=usage,
@@ -1501,6 +2362,41 @@ def _director_worker_error(record: Any) -> str:
     if fatal:
         return fatal[:4_000]
     return str(record.stderr or record.status)[:4_000]
+
+
+def remaining_model_budget(kernel: RunKernel) -> dict[str, int | float]:
+    """Expose the canonical run ledger remainder to aggregate model runners.
+
+    The sequential policy runner performs many small Codex calls behind one
+    kernel reservation.  Giving it the remaining ledger envelope lets it stop
+    between calls instead of discovering an overrun only when the aggregate
+    task is settled.
+    """
+
+    budget = kernel.spec.limits.model
+    totals = dict(kernel.state.model_totals)
+    return {
+        "model_invocations": max(
+            0,
+            int(budget.max_model_invocations)
+            - int(totals.get("model_invocations") or 0),
+        ),
+        "input_tokens": max(
+            0,
+            int(budget.max_total_input_tokens)
+            - int(totals.get("input_tokens") or 0),
+        ),
+        "output_tokens": max(
+            0,
+            int(budget.max_total_output_tokens)
+            - int(totals.get("output_tokens") or 0),
+        ),
+        "wall_time_s": max(
+            0.0,
+            float(budget.max_total_wall_time_s)
+            - float(totals.get("wall_time_s") or 0.0),
+        ),
+    }
 
 
 def normalize_director_usage(value: Mapping[str, Any] | None) -> dict[str, int | float]:
@@ -1623,10 +2519,13 @@ __all__ = [
     "GlobalCampaignPlan",
     "GlobalCampaignPlanValidationError",
     "ReplayDirectorRunner",
+    "director_plan_provenance_sha256",
     "director_prompt",
     "director_trigger_reasons",
     "normalize_director_usage",
     "proposal_ids",
+    "remaining_model_budget",
+    "run_api_json_director_child",
     "run_codex_cli_director_child",
     "validate_global_campaign_plan",
 ]

@@ -1,5 +1,4 @@
 """Cascade-native search-state, failure, repair, and search contracts."""
-import importlib
 from cascade_planner.cascade_search.cost import (
     CascadeCostBreakdown,
     CascadeCostWeights,
@@ -52,21 +51,7 @@ from cascade_planner.cascade_search.bridge_retriever_v0 import (
     BridgeRetrieverV0,
     BridgeVerifierV0Scorer,
 )
-from cascade_planner.cascade_search.action_value import (
-    LoadedCascadeActionValueModel,
-    SubgoalHintActionScorer,
-)
-from cascade_planner.cascade_search.pair_scorer import (
-    LearnedCascadePairScorer,
-    PAIR_LABEL_NAMES,
-    RuleCascadePairScorer,
-    CascadePairScore,
-    adjacent_downstream_step,
-    build_pair_feature_schema,
-    pair_feature_vector,
-    pair_payload_from_steps,
-    pair_rule_features,
-)
+from cascade_planner.cascade_search.action_value import SubgoalHintActionScorer
 from cascade_planner.cascade_search.repair import (
     CascadeRepairPolicy,
     CascadeRepairRule,
@@ -85,50 +70,6 @@ from cascade_planner.cascade_search.trace import (
     CascadeTraceCollector,
     TRACE_SCHEMA_VERSION,
 )
-from cascade_planner.cascade_search.transition_value import (
-    CascadeTransitionValueNetwork,
-    CascadeTransitionValuePrediction,
-    LoadedCascadeTransitionValueModel,
-    TRANSITION_FAILURE_KINDS,
-    TRANSITION_SCALAR_FEATURES,
-    transition_child_summary,
-    transition_feature_dim,
-    transition_feature_vector,
-    transition_reward,
-)
-V4_ROUTE_LABEL_NAMES = [
-    "gold_quality",
-    "demonstrated_success",
-    "outcome_supported",
-    "condition_supported",
-    "substrate_scope_supported",
-    "rxn_step_supported",
-    "catalyst_supported",
-    "species_supported",
-]
-
-_V4_PRODUCT_VALUE_EXPORTS = {
-    "LoadedV4CascadeProductValue",
-    "V4CascadeProductValueNetwork",
-    "V4RoutePrediction",
-    "build_route_feature_schema",
-    "observable_value_target",
-    "route_feature_vector",
-    "route_label_vector",
-    "route_record_from_native_route",
-    "route_record_from_trace_candidate",
-    "route_record_from_v4",
-}
-
-
-def __getattr__(name: str):
-    if name in _V4_PRODUCT_VALUE_EXPORTS:
-        module = importlib.import_module("cascade_planner.cascade_search.v4_product_value")
-        value = getattr(module, name)
-        globals()[name] = value
-        return value
-    raise AttributeError(name)
-
 from cascade_planner.cascade_search.state import (
     CascadeAction,
     CascadeActionType,
@@ -154,9 +95,7 @@ from cascade_planner.cascade_search.value import (
     ConditionTransitionPrediction,
     EnzymeModuleRanker,
     HeuristicCascadeValueModel,
-    LearnedCascadeValueModel,
     LoadedLearnedVerifierValueModel,
-    RuleCascadeValueModel,
     SourceBudget,
     VerifierAugmentedCascadeValueModel,
 )
@@ -185,7 +124,6 @@ __all__ = [
     "CascadeSubgoalEvidenceProvider",
     "CascadeProgramSearch",
     "CascadeProgramState",
-    "CascadePairScore",
     "CascadePairScorerProtocol",
     "CascadeRepairPlanner",
     "CascadeRepairPolicy",
@@ -199,8 +137,6 @@ __all__ = [
     "CascadeSourcePolicy",
     "CascadeSourcePolicyProtocol",
     "CascadeTransitionValueModelProtocol",
-    "CascadeTransitionValueNetwork",
-    "CascadeTransitionValuePrediction",
     "CascadeValuePrediction",
     "VerifierAugmentedCascadeValueModel",
     "LoadedLearnedVerifierValueModel",
@@ -217,20 +153,13 @@ __all__ = [
     "ConditionTransitionPrediction",
     "EnzymeModuleRanker",
     "HeuristicCascadeValueModel",
-    "LearnedCascadeValueModel",
-    "LearnedCascadePairScorer",
     "LegalCorpusProposalProvider",
-    "LoadedCascadeActionValueModel",
-    "LoadedCascadeTransitionValueModel",
-    "LoadedV4CascadeProductValue",
     "ProposalDiagnostics",
     "ProposalRequest",
     "RedoxLedger",
     "RetroChimeraProposalProvider",
     "RetroKNNProposalProvider",
     "RouteTreeProposalProvider",
-    "RuleCascadePairScorer",
-    "RuleCascadeValueModel",
     "SourceBudget",
     "Stage",
     "StageGraph",
@@ -241,35 +170,13 @@ __all__ = [
     "SubgoalHintActionScorer",
     "TemplateRelevanceProposalProvider",
     "TRACE_SCHEMA_VERSION",
-    "TRANSITION_FAILURE_KINDS",
-    "TRANSITION_SCALAR_FEATURES",
-    "PAIR_LABEL_NAMES",
-    "V4_ROUTE_LABEL_NAMES",
-    "V4CascadeProductValueNetwork",
-    "V4RoutePrediction",
     "annotate_state_failures",
     "apply_cascade_action",
-    "adjacent_downstream_step",
-    "build_pair_feature_schema",
-    "build_route_feature_schema",
     "coerce_to_cascade_action",
     "default_cascade_search_controller",
     "detect_cascade_failures",
-    "observable_value_target",
-    "pair_feature_vector",
-    "pair_payload_from_steps",
-    "pair_rule_features",
     "plan_cascade_program",
-    "route_feature_vector",
-    "route_label_vector",
-    "route_record_from_native_route",
-    "route_record_from_trace_candidate",
-    "route_record_from_v4",
     "route_step_candidate_to_action",
     "score_cascade_state",
     "summarize_condition_state",
-    "transition_child_summary",
-    "transition_feature_dim",
-    "transition_feature_vector",
-    "transition_reward",
 ]

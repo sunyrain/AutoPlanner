@@ -11,6 +11,8 @@ import importlib
 import json
 import math
 import os
+import random
+import sqlite3
 import sys
 import time
 import types
@@ -19,10 +21,12 @@ import traceback
 from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import yaml
+from rdkit import Chem
 
 from cascade_planner.baselines.route_contract import (
     BackendFailure,
@@ -81,7 +85,6 @@ DEFAULT_CONFIG_RELATIVE = Path("retro_planner/config/config.yaml")
 DEFAULT_STOCKS = ["Zinc_Fix-stock"]
 DEFAULT_ONE_STEP_MODELS = [
     "graphfp_models.USPTO-full_remapped",
-    "onmt_models.bionav_one_step",
     "onmt_models.bionav_native_one_step",
 ]
 DEFAULT_ONMT_MODEL_NAME = "onmt_models.bionav_one_step"
@@ -89,6 +92,9 @@ CHEMENZY_ONMT_MODEL_PATH_ENV = "AUTOPLANNER_CHEMENZY_ONMT_MODEL_PATH"
 CHEMENZY_ONMT_TOKENIZER_ENV = "AUTOPLANNER_CHEMENZY_ONMT_TOKENIZER"
 CHEMENZY_ONMT_SOURCE_PREFIX_ENV = "AUTOPLANNER_CHEMENZY_ONMT_SOURCE_PREFIX"
 CHEMENZY_ONMT_PRETOKENIZE_MODE_ENV = "AUTOPLANNER_CHEMENZY_ONMT_PRETOKENIZE_MODE"
+CHEMENZY_WORKER_BOOTSTRAP_ENV = "AUTOPLANNER_CHEMENZY_WORKER_BOOTSTRAP"
+CHEMENZY_WORKER_EASIFA_ENV = "AUTOPLANNER_CHEMENZY_WORKER_ENABLE_EASIFA"
+CHEMENZY_WORKER_GRAPHVIZ_ENV = "AUTOPLANNER_CHEMENZY_WORKER_ENABLE_GRAPHVIZ"
 CHEMENZY_STEP_STRENGTHENING_SCHEMA = "chem_enzy_step_strengthening.v1"
 _RUNTIME_SEARCH_FLAGS = {
     # Row-derived cascade state changes how a target is searched, but it does
@@ -111,6 +117,152 @@ _FATAL_ONE_STEP_MODEL_SELECTION_REASONS = {
 
 
 _WINDOWS_EXTENDED_PATH_THRESHOLD = 248
+
+
+def _seed_runtime_state(seed: int) -> dict[str, Any]:
+    """Seed supported RNGs without enabling incompatible global determinism modes."""
+    seed = int(seed)
+    random.seed(seed)
+    binding: dict[str, Any] = {
+        "schema_version": "chemenzy_runtime_seed_binding.v1",
+        "random_seed": seed,
+        "python_random_seeded": True,
+        "numpy_seeded": False,
+        "torch_seeded": False,
+        "torch_cuda_seeded": False,
+        "python_hash_seed": os.environ.get("PYTHONHASHSEED", ""),
+        "python_hash_seed_matches": os.environ.get("PYTHONHASHSEED") == str(seed),
+        "deterministic_algorithms_enabled": False,
+    }
+    try:
+        import numpy as np
+
+        np.random.seed(seed)
+        binding["numpy_seeded"] = True
+    except (ImportError, AttributeError, ValueError):
+        pass
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+        binding["torch_seeded"] = True
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+            binding["torch_cuda_seeded"] = True
+    except (ImportError, AttributeError, RuntimeError, ValueError):
+        pass
+    return binding
+
+
+class _SqliteStockMembership:
+    """Read-only stock membership with a small per-search mutation overlay."""
+
+    def __init__(self, path: Path | str) -> None:
+        self.path = Path(path).expanduser().resolve()
+        self._connection: sqlite3.Connection | None = None
+        self._added: set[str] = set()
+        self._removed: set[str] = set()
+        self._identity_cache: dict[str, str] = {}
+        self.identity_key = self._read_identity_key()
+
+    def _connect(self) -> sqlite3.Connection:
+        if self._connection is None:
+            uri = f"file:{self.path.as_posix()}?mode=ro"
+            self._connection = sqlite3.connect(uri, uri=True)
+        return self._connection
+
+    def __contains__(self, value: object) -> bool:
+        key = str(value)
+        if key in self._removed:
+            return False
+        if key in self._added:
+            return True
+        identity = self._identity(key)
+        column = (
+            "full_inchikey"
+            if self.identity_key == "full_inchikey"
+            else "canonical_smiles"
+        )
+        row = self._connect().execute(
+            f"SELECT 1 FROM stock WHERE {column} = ? LIMIT 1",
+            (identity,),
+        ).fetchone()
+        return row is not None
+
+    def _read_identity_key(self) -> str:
+        try:
+            row = self._connect().execute(
+                "SELECT value FROM metadata WHERE key = 'identity_key'"
+            ).fetchone()
+        except sqlite3.Error:
+            row = None
+        value = str(row[0] if row else "canonical_smiles")
+        return value if value in {"canonical_smiles", "full_inchikey"} else "canonical_smiles"
+
+    def _identity(self, smiles: str) -> str:
+        if self.identity_key == "canonical_smiles":
+            return smiles
+        cached = self._identity_cache.get(smiles)
+        if cached is not None:
+            return cached
+        molecule = Chem.MolFromSmiles(smiles)
+        identity = str(Chem.MolToInchiKey(molecule) or "") if molecule is not None else ""
+        self._identity_cache[smiles] = identity
+        return identity
+
+    def add(self, value: str) -> None:
+        key = str(value)
+        self._removed.discard(key)
+        self._added.add(key)
+
+    def discard(self, value: str) -> None:
+        key = str(value)
+        self._added.discard(key)
+        self._removed.add(key)
+
+    def __len__(self) -> int:
+        base = int(
+            self._connect().execute("SELECT COUNT(*) FROM stock").fetchone()[0]
+        )
+        return max(0, base + len(self._added) - len(self._removed))
+
+    def __deepcopy__(self, _memo: dict[int, Any]) -> "_SqliteStockMembership":
+        return type(self)(self.path)
+
+
+def _install_sqlite_stock_runtime(api: Any, vendor_config: Mapping[str, Any]) -> None:
+    """Use indexed membership for benchmark stocks instead of CSV preprocessing."""
+
+    stocks = dict(vendor_config.get("stocks") or {})
+    sqlite_paths = {
+        str(name): Path(str(path)).expanduser().resolve()
+        for name, path in stocks.items()
+        if str(path).lower().endswith((".sqlite", ".sqlite3", ".db"))
+    }
+    if not sqlite_paths:
+        return
+    original_loader = api.prepare_stock_dataset_using_filter
+
+    def load_stock(filename: str, limit_dict: Any = None) -> Any:
+        path = Path(str(filename)).expanduser()
+        if path.suffix.lower() in {".sqlite", ".sqlite3", ".db"}:
+            return _SqliteStockMembership(path)
+        return original_loader(filename, limit_dict)
+
+    api.prepare_stock_dataset_using_filter = load_stock
+    original_multi = api.prepare_starting_molecules_for_multi_stock
+
+    def load_multi(filenames: list[str], limit_dict: Any = None) -> Any:
+        if len(filenames) == 1 and Path(str(filenames[0])).suffix.lower() in {
+            ".sqlite",
+            ".sqlite3",
+            ".db",
+        }:
+            return load_stock(filenames[0], limit_dict)
+        return original_multi(filenames, limit_dict)
+
+    api.prepare_starting_molecules_for_multi_stock = load_multi
+    api.RSPlanner._calculate_stocks_property = lambda _self: None
 
 
 def _normal_absolute_path(path: Path | str) -> Path:
@@ -323,6 +475,7 @@ class ChemEnzyBackendAdapter:
     def _run_with_planner(self, planner: Any, config: RouteSearchConfig) -> BaselineRunResult:
         annotation_failures: list[BackendFailure] = []
         annotation_metadata: dict[str, Any] = {}
+        seed_binding = _seed_runtime_state(config.random_seed)
         started = time.monotonic()
         policy_trace = chem_enzy_policy_trace_from_search_flags(config.search_flags)
         availability_report = config.search_flags.get("one_step_model_availability")
@@ -354,6 +507,8 @@ class ChemEnzyBackendAdapter:
                     )
                 ],
                 raw_backend_metadata={
+                    "random_seed": config.random_seed,
+                    "runtime_seed_binding": seed_binding,
                     "elapsed_s": round(time.monotonic() - started, 3),
                     "exception_traceback": traceback_text,
                     **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
@@ -387,6 +542,8 @@ class ChemEnzyBackendAdapter:
                     )
                 ],
                 raw_backend_metadata={
+                    "random_seed": config.random_seed,
+                    "runtime_seed_binding": seed_binding,
                     "elapsed_s": round(elapsed_s, 3),
                     **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
                     **({"one_step_model_availability": availability_report} if availability_report is not None else {}),
@@ -397,6 +554,18 @@ class ChemEnzyBackendAdapter:
                     "starting_molecule_exclusions": _guidance_terminal_exclusion_stats(guidance_stats),
                 },
             )
+
+        _ensure_search_stop_metadata(raw_result, config=config)
+        raw_result, materialization_selection = _bounded_materialization_result(
+            raw_result,
+            config=config,
+        )
+        # The vendor attribute predictor reads ``planner.result`` directly.
+        # Keep it aligned with the bounded result so condition and enzyme
+        # models do not serially annotate hundreds of routes that the host
+        # will discard immediately afterward.
+        if getattr(planner, "result", None) is not raw_result:
+            planner.result = raw_result
 
         if self._attributes_enabled():
             annotation_started = time.monotonic()
@@ -439,10 +608,13 @@ class ChemEnzyBackendAdapter:
             routes=routes,
             failures=annotation_failures,
             raw_backend_metadata={
+                "random_seed": config.random_seed,
+                "runtime_seed_binding": seed_binding,
                 "elapsed_s": round(elapsed_s, 3),
                 "total_elapsed_s": round(time.monotonic() - started, 3),
                 "iter": raw_result.get("iter"),
                 "first_succ_time": _finite_or_none(raw_result.get("first_succ_time")),
+                "search_stop": dict(raw_result.get("search_stop") or {}),
                 "rxn_annotation": annotation_metadata,
                 "cascade_expansion_trace": trace_metadata,
                 **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
@@ -453,11 +625,13 @@ class ChemEnzyBackendAdapter:
                 **({"chem_enzy_guidance": guidance_stats} if guidance_stats is not None else {}),
                 "starting_molecule_exclusions": _guidance_terminal_exclusion_stats(guidance_stats),
                 "route_materialization_admission": materialization_admission,
+                "route_materialization_selection": materialization_selection,
             },
         )
 
     def _build_planner(self, search_config: RouteSearchConfig) -> Any:
         search_config = chem_enzy_step_strengthened_config(search_config)
+        seed_binding = _seed_runtime_state(search_config.random_seed)
         vendor_config = self._vendor_config(search_config)
         selected_one_step_models = list(search_config.one_step_models or DEFAULT_ONE_STEP_MODELS)
         selected_one_step_models, availability_report = _prune_unavailable_one_step_models(
@@ -481,13 +655,19 @@ class ChemEnzyBackendAdapter:
             vendor_root=self.vendor_root,
         )
         with _vendor_pythonpath(self.vendor_root):
-            _patch_numpy_legacy_aliases()
-            _patch_torchdata_legacy_aliases()
-            _patch_torchtext_legacy_aliases()
-            _patch_dgl_graphbolt_optional_import()
-            _patch_optional_easifa_import(self.enable_easifa)
-            _patch_optional_graphviz_import(bool(search_config.search_flags.get("viz", False)))
+            install_chemenzy_import_compatibility(
+                enable_easifa=self.enable_easifa,
+                enable_graphviz=bool(search_config.search_flags.get("viz", False)),
+            )
             api = importlib.import_module("retro_planner.api")
+            _install_sqlite_stock_runtime(api, vendor_config)
+            _install_bounded_vendor_mcts(
+                max_success_routes=vendor_config.get("max_success_routes"),
+                max_search_wall_time_s=vendor_config.get("max_search_wall_time_s"),
+                stop_on_first_host_admitted_route=vendor_config.get(
+                    "stop_on_first_host_admitted_route"
+                ),
+            )
             mol_tree_module = importlib.import_module("retro_planner.search_frame.mcts_star.mol_tree")
             install_canonical_ancestor_cycle_filter(mol_tree_module)
             _patch_onmt_tokenizer(api, str(vendor_config.get("chem_enzy_onmt_tokenizer") or "char"))
@@ -527,6 +707,7 @@ class ChemEnzyBackendAdapter:
                 planner._autoplanner_literature_plugin_state = literature_plugin_state
             if guidance_state is not None:
                 planner._autoplanner_guided_policy_state = guidance_state
+            planner._autoplanner_runtime_seed_binding = seed_binding
             return planner
 
     def _attributes_enabled(self) -> bool:
@@ -536,22 +717,51 @@ class ChemEnzyBackendAdapter:
         search_config = chem_enzy_step_strengthened_config(search_config)
         config = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
         selected_stocks = search_config.stock_names or DEFAULT_STOCKS
+        selected_stock_set = set(selected_stocks)
         config["stocks"] = {
             name: path
             for name, path in (config.get("stocks") or {}).items()
-            if name in set(selected_stocks)
+            if name in selected_stock_set
         }
+        for name, path in dict(search_config.search_flags.get("stock_paths") or {}).items():
+            name = str(name).strip()
+            path = str(path).strip()
+            if name in selected_stock_set and path:
+                config["stocks"][name] = path
         if not config["stocks"]:
             raise ValueError(f"selected stock names not found in ChemEnzy config: {selected_stocks}")
         config["gpu"] = int(search_config.search_flags.get("gpu", self.gpu))
         config["iterations"] = int(search_config.max_iterations)
         config["max_depth"] = int(search_config.max_depth)
         config["expansion_topk"] = int(search_config.expansion_topk)
+        config["random_seed"] = int(search_config.random_seed)
         config["pred_condition"] = bool(self.enable_condition_prediction)
         config["enzyme_assign"] = bool(self.enable_enzyme_assignment)
         config["organic_enzyme_rxn_classification"] = bool(self.enable_enzyme_assignment)
         config["viz"] = bool(search_config.search_flags.get("viz", False))
         config["keep_search"] = bool(search_config.search_flags.get("keep_search", True))
+        configured_success_limit = search_config.search_flags.get(
+            "max_success_routes",
+            search_config.search_flags.get("max_materialized_routes"),
+        )
+        config["max_success_routes"] = (
+            max(1, int(configured_success_limit))
+            if configured_success_limit not in (None, "", 0, "0")
+            else None
+        )
+        configured_search_wall_time = search_config.search_flags.get(
+            "search_wall_time_s"
+        )
+        config["max_search_wall_time_s"] = (
+            max(0.1, float(configured_search_wall_time))
+            if configured_search_wall_time not in (None, "", 0, "0")
+            else None
+        )
+        config["stop_on_first_host_admitted_route"] = bool(
+            search_config.search_flags.get(
+                "stop_on_first_host_admitted_route", False
+            )
+        )
         config["use_filter"] = bool(search_config.search_flags.get("use_filter", config.get("use_filter", False)))
         config["stock_limit_dict"] = search_config.search_flags.get("stock_limit_dict")
         config["use_depth_value_fn"] = bool(
@@ -1118,6 +1328,89 @@ def _format_onmt_source_for_tokenizer(target: str, tokenizer: str, smi_tokenizer
     return f"{prefix} {tokenized}".strip()
 
 
+def _install_bounded_vendor_mcts(
+    *,
+    max_success_routes: Any,
+    max_search_wall_time_s: Any = None,
+    stop_on_first_host_admitted_route: Any = False,
+) -> None:
+    """Inject the tracked bounded loop into an otherwise untouched vendor tree."""
+
+    from cascade_planner.baselines.chem_enzy_bounded_mcts import (
+        bounded_mol_planner,
+    )
+
+    module = importlib.import_module(
+        "retro_planner.search_frame.mcts_star.molmcts_star"
+    )
+    limit = (
+        max(1, int(max_success_routes))
+        if max_success_routes not in (None, "", 0, "0")
+        else None
+    )
+    wall_limit = (
+        max(0.1, float(max_search_wall_time_s))
+        if max_search_wall_time_s not in (None, "", 0, "0")
+        else None
+    )
+    # prepare_molstar_planner imports mol_planner inside the factory, so the
+    # returned closure freezes this per-planner limit even when later planner
+    # instances choose another reserve size.
+    module.mol_planner = partial(
+        bounded_mol_planner,
+        max_success_routes=limit,
+        max_search_wall_time_s=wall_limit,
+        success_route_acceptor=(
+            _host_admits_syn_route
+            if bool(stop_on_first_host_admitted_route)
+            else None
+        ),
+    )
+
+
+def _ensure_search_stop_metadata(
+    raw_result: dict[str, Any] | None,
+    *,
+    config: RouteSearchConfig,
+) -> None:
+    """Backfill stop telemetry for older vendor API projections."""
+
+    if not raw_result or raw_result.get("search_stop"):
+        return
+    flags = dict(config.search_flags or {})
+    configured_reserve = flags.get(
+        "max_success_routes",
+        flags.get("max_materialized_routes"),
+    )
+    reserve = (
+        max(1, int(configured_reserve))
+        if configured_reserve not in (None, "", 0, "0")
+        else None
+    )
+    executed = max(0, int(raw_result.get("iter") or 0))
+    observed = len(raw_result.get("all_succ_routes") or [])
+    configured_wall_time = flags.get("search_wall_time_s")
+    reserve_reached = bool(reserve and observed >= reserve)
+    raw_result["search_stop"] = {
+        "reason": (
+            "success_route_limit_reached"
+            if reserve_reached and executed < int(config.max_iterations)
+            else "iteration_limit"
+        ),
+        "configured_iteration_limit": int(config.max_iterations),
+        "executed_iterations": executed,
+        "configured_success_route_limit": reserve,
+        "observed_success_route_count": observed,
+        "configured_search_wall_time_s": (
+            float(configured_wall_time)
+            if configured_wall_time not in (None, "", 0, "0")
+            else None
+        ),
+        "stopped_early": executed < int(config.max_iterations),
+        "telemetry_backfilled_by_host": True,
+    }
+
+
 def _as_model_path_list(model_path: Path | str | Iterable[Path | str]) -> list[str]:
     if isinstance(model_path, (str, os.PathLike)):
         raw = str(model_path)
@@ -1130,6 +1423,118 @@ def _absolute_checkpoint_path(value: str) -> str:
     if not path.is_absolute():
         path = path.resolve()
     return str(path)
+
+
+def _bounded_materialization_result(
+    raw_result: dict[str, Any],
+    *,
+    config: RouteSearchConfig,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Host-audit the successful reserve before expensive route annotation.
+
+    ChemEnzy can return thousands of successful route trees when
+    ``keep_search`` is enabled.  Condition and enzyme prediction is then run
+    serially over every route.  The host only consumes a small proposal pool,
+    so pre-audit the already-ranked raw trees and retain an admitted reserve
+    plus a small advisory sample before invoking those expensive models.
+    """
+
+    flags = dict(config.search_flags or {})
+    try:
+        admitted_limit = int(flags.get("max_materialized_routes") or 0)
+    except (TypeError, ValueError):
+        admitted_limit = 0
+    try:
+        advisory_limit = int(flags.get("max_advisory_materialized_routes") or 0)
+    except (TypeError, ValueError):
+        advisory_limit = 0
+    admitted_limit = max(0, admitted_limit)
+    advisory_limit = max(0, advisory_limit)
+
+    dict_routes = list(raw_result.get("all_succ_dict_routes") or [])
+    route_objects = list(raw_result.get("all_succ_routes") or [])
+    raw_route_count = len(dict_routes)
+    base_metadata = {
+        "schema_version": "chemenzy_route_materialization_selection.v1",
+        "enabled": admitted_limit > 0,
+        "raw_route_count": raw_route_count,
+        "max_host_admitted_routes": admitted_limit or None,
+        "max_advisory_routes": advisory_limit,
+        "search_budget_unchanged": True,
+        "configured_iteration_cap_unchanged": True,
+        "successful_route_reserve_can_stop_search_early": bool(
+            flags.get("max_success_routes") or admitted_limit
+        ),
+        "host_filter_precedes_annotation": True,
+        "annotation_is_post_search": True,
+    }
+    if admitted_limit <= 0 or raw_route_count <= admitted_limit:
+        return raw_result, {
+            **base_metadata,
+            "preaudit_scanned_count": 0,
+            "selected_route_count": raw_route_count,
+            "truncated_route_count": 0,
+            "selection_exhaustive": True,
+        }
+
+    aligned = len(route_objects) == raw_route_count
+    if not aligned:
+        selected_count = min(
+            raw_route_count,
+            admitted_limit + advisory_limit,
+        )
+        selected_indices = list(range(selected_count))
+        preaudit_scanned_count = 0
+        admitted_indices = selected_indices
+        advisory_indices: list[int] = []
+    else:
+        admitted_indices = []
+        advisory_indices = []
+        preaudit_scanned_count = 0
+        for route_index, dict_route in enumerate(dict_routes):
+            steps = _flatten_chem_enzy_dict_route(dict_route)
+            admission = audit_materialized_chem_enzy_route(
+                steps,
+                route_index=route_index,
+            )
+            preaudit_scanned_count += 1
+            if admission.get("accepted") is True:
+                admitted_indices.append(route_index)
+                if len(admitted_indices) >= admitted_limit:
+                    break
+            elif len(advisory_indices) < advisory_limit:
+                advisory_indices.append(route_index)
+        selected_indices = [*admitted_indices, *advisory_indices]
+        if not selected_indices:
+            selected_indices = list(
+                range(min(raw_route_count, max(1, advisory_limit)))
+            )
+
+    bounded = dict(raw_result)
+    bounded_dict_routes = [dict_routes[index] for index in selected_indices]
+    bounded["all_succ_dict_routes"] = bounded_dict_routes
+    if aligned:
+        bounded_route_objects = [route_objects[index] for index in selected_indices]
+        bounded["all_succ_routes"] = bounded_route_objects
+        if bounded_route_objects:
+            bounded["routes"] = bounded_route_objects[0]
+    if bounded_dict_routes:
+        bounded["dict_routes"] = bounded_dict_routes[0]
+
+    selected_count = len(selected_indices)
+    metadata = {
+        **base_metadata,
+        "route_lists_aligned": aligned,
+        "preaudit_scanned_count": preaudit_scanned_count,
+        "selected_route_count": selected_count,
+        "selected_host_admitted_count": len(admitted_indices),
+        "selected_advisory_count": len(advisory_indices),
+        "truncated_route_count": max(0, raw_route_count - selected_count),
+        "selection_exhaustive": preaudit_scanned_count >= raw_route_count,
+        "selected_raw_route_indices": selected_indices,
+    }
+    bounded["route_materialization_selection"] = metadata
+    return bounded, metadata
 
 
 def route_candidates_from_chem_enzy_result(raw_result: dict[str, Any], *, target_smiles: str) -> list[RouteCandidate]:
@@ -1237,6 +1642,21 @@ def audit_materialized_chem_enzy_route(
         "host_audit_authority": True,
         "raw_solved_is_not_host_solved_authority": True,
     }
+
+
+def _host_admits_syn_route(route: Any) -> bool:
+    """Apply the final host structural gate to a native successful route."""
+
+    dict_route = getattr(route, "dict_route", None)
+    if dict_route is None:
+        converter = getattr(route, "route_to_dict", None)
+        if not callable(converter):
+            return False
+        dict_route = converter()
+    if not isinstance(dict_route, dict):
+        return False
+    steps = _flatten_chem_enzy_dict_route(dict_route)
+    return audit_materialized_chem_enzy_route(steps).get("accepted") is True
 
 
 def _materialized_route_admission_summary(
@@ -1516,6 +1936,7 @@ def _planner_signature(config: RouteSearchConfig) -> str:
         "max_iterations": int(config.max_iterations),
         "max_depth": int(config.max_depth),
         "expansion_topk": int(config.expansion_topk),
+        "random_seed": int(config.random_seed),
         "one_step_models": list(config.one_step_models or DEFAULT_ONE_STEP_MODELS),
         "search_flags": search_flags,
     }
@@ -1605,6 +2026,27 @@ def _patch_optional_graphviz_import(enable_viz: bool) -> None:
     graphviz_mod = types.ModuleType("graphviz")
     graphviz_mod.Digraph = _NoOpDigraph
     sys.modules["graphviz"] = graphviz_mod
+
+
+def install_chemenzy_import_compatibility(
+    *,
+    enable_easifa: bool = False,
+    enable_graphviz: bool = False,
+) -> None:
+    """Install the import shims needed by the launcher and spawned workers.
+
+    Windows pandarallel uses ``multiprocessing`` with the ``spawn`` context.
+    Those child interpreters do not inherit the parent's in-memory module
+    patches, so the launcher replays this same bounded compatibility bootstrap
+    before dill imports the vendor stock-preparation closure.
+    """
+
+    _patch_numpy_legacy_aliases()
+    _patch_torchdata_legacy_aliases()
+    _patch_torchtext_legacy_aliases()
+    _patch_dgl_graphbolt_optional_import()
+    _patch_optional_easifa_import(enable_easifa)
+    _patch_optional_graphviz_import(enable_graphviz)
 
 
 def _normalize_source_policy_paths(policy_config: dict[str, Any]) -> None:

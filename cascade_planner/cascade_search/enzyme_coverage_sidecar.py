@@ -17,6 +17,7 @@ class EnzymeCoverageSidecarConfig:
     top_k: int = 8
     bridge_top_k: int = 8
     max_ec_contexts: int = 2
+    max_precedent_rows: int = 12_000
     enable_sp_v1: bool = True
 
 
@@ -36,6 +37,7 @@ def build_enzyme_coverage_sidecar(
         "top_k": int(cfg.top_k),
         "bridge_top_k": int(cfg.bridge_top_k),
         "max_ec_contexts": int(cfg.max_ec_contexts),
+        "max_precedent_rows": int(cfg.max_precedent_rows),
         "error": "",
     }
     try:
@@ -44,7 +46,17 @@ def build_enzyme_coverage_sidecar(
         ec1s = _bridge_ec1s(bridge_hits)[: max(0, int(cfg.max_ec_contexts))]
         contexts = [{"context_id": "root_no_ec", "ec1": 0}]
         contexts.extend({"context_id": f"bridge_ec{ec1}", "ec1": int(ec1)} for ec1 in ec1s)
-        scorer = EnzymeSPVerifierV1Scorer() if cfg.enable_sp_v1 else None
+        scorer = None
+        scorer_error = ""
+        if cfg.enable_sp_v1:
+            try:
+                scorer = EnzymeSPVerifierV1Scorer()
+            except Exception as exc:  # optional learned verifier
+                # Enzyme precedent retrieval is still useful as an advisory
+                # layer when the learned substrate/product verifier artifact
+                # is unavailable.  Keep those candidates visible and mark
+                # them unverified instead of aborting the complete sidecar.
+                scorer_error = f"{type(exc).__name__}: {exc}"
         context_rows = []
         all_candidates = []
         for context in contexts:
@@ -53,6 +65,7 @@ def build_enzyme_coverage_sidecar(
                 target,
                 ec_class=str(ec1) if ec1 else "",
                 top_k=cfg.top_k,
+                max_rows=max(0, int(cfg.max_precedent_rows)) or None,
             )
             scored = [
                 _candidate_payload(target, row, scorer=scorer, context_id=str(context["context_id"]), ec1=ec1)
@@ -68,6 +81,11 @@ def build_enzyme_coverage_sidecar(
             )
             all_candidates.extend(scored)
         accepted = [row for row in all_candidates if (row.get("enzyme_sp_verifier_v1") or {}).get("accepted")]
+        advisory = [
+            row
+            for row in all_candidates
+            if row.get("enzyme_sp_verifier_v1") is None
+        ]
         report.update(
             {
                 "bridge_hit_count": len(bridge_hits),
@@ -75,7 +93,10 @@ def build_enzyme_coverage_sidecar(
                 "bridge_hits": [hit.to_dict() for hit in bridge_hits[: cfg.bridge_top_k]],
                 "contexts": context_rows,
                 "candidate_count": len(all_candidates),
+                "sp_v1_requested": bool(cfg.enable_sp_v1),
                 "sp_v1_enabled": bool(scorer),
+                "sp_v1_available": bool(scorer),
+                "sp_v1_error": scorer_error,
                 "sp_v1_accepted_count": len(accepted),
                 "sp_v1_rejected_count": sum(1 for row in all_candidates if (row.get("enzyme_sp_verifier_v1") or {}).get("accepted") is False),
                 "top_accepted_candidates": sorted(
@@ -86,6 +107,15 @@ def build_enzyme_coverage_sidecar(
                     ),
                     reverse=True,
                 )[: cfg.top_k],
+                "top_advisory_candidates": sorted(
+                    advisory,
+                    key=lambda row: float(row.get("score") or 0.0),
+                    reverse=True,
+                )[: cfg.top_k],
+                "semantics": {
+                    "advisory_candidates_are_not_sp_v1_verified": True,
+                    "missing_learned_verifier_does_not_erase_enzyme_precedent": True,
+                },
             }
         )
     except Exception as exc:  # pragma: no cover - sidecar must not break route search

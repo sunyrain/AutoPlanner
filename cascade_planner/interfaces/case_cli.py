@@ -8,9 +8,7 @@ from typing import Any
 from cascade_planner.runtime.paths import RuntimePaths
 
 
-CASE_COMMANDS = frozenset(
-    {"compile-case", "replay-case", "solve-case", "replay-dossier"}
-)
+CASE_COMMANDS = frozenset({"compile-case", "replay-case", "replay-dossier"})
 
 
 def add_case_commands(sub: argparse._SubParsersAction) -> None:
@@ -40,24 +38,19 @@ def add_case_commands(sub: argparse._SubParsersAction) -> None:
         help="use the installed local RXNMapper for dossier steps without maps",
     )
 
-    solve = sub.add_parser(
-        "solve-case",
-        help="compatibility alias: replay a supplied exact-source dossier (not blind solve)",
-    )
     replay_dossier = sub.add_parser(
         "replay-dossier",
         help="compile, replay, close, and export one supplied exact-source dossier",
     )
-    for parser in (solve, replay_dossier):
-        parser.add_argument("--dossier", type=Path, required=True)
-        parser.add_argument("--run-id")
-        parser.add_argument("--run-dir")
-        parser.add_argument("--output-dir")
-        parser.add_argument(
-            "--map-missing",
-            action="store_true",
-            help="use the installed local RXNMapper for dossier steps without maps",
-        )
+    replay_dossier.add_argument("--dossier", type=Path, required=True)
+    replay_dossier.add_argument("--run-id")
+    replay_dossier.add_argument("--run-dir")
+    replay_dossier.add_argument("--output-dir")
+    replay_dossier.add_argument(
+        "--map-missing",
+        action="store_true",
+        help="use the installed local RXNMapper for dossier steps without maps",
+    )
 
 
 def dispatch_case_command(
@@ -65,7 +58,7 @@ def dispatch_case_command(
     *,
     paths: RuntimePaths,
 ) -> dict[str, Any]:
-    if args.command in {"solve-case", "replay-dossier"}:
+    if args.command == "replay-dossier":
         from .case_runner import run_case_dossier
 
         return run_case_dossier(

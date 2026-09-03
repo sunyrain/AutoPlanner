@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 from typing import Any, Mapping
 
 from cascade_planner.baselines.chem_enzy_runtime import diagnose_chem_enzy_runtime
@@ -20,6 +21,7 @@ def select_chemenzy_runtime(
     env_prefix: str | Path | None,
     timeout_s: float,
     vendor_root: str | Path | None = None,
+    one_step_models: tuple[str, ...] | list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Resolve one runtime without overriding explicit operator intent."""
 
@@ -30,10 +32,22 @@ def select_chemenzy_runtime(
         selected = explicit or environment_prefix
         source = "target_solve_config" if explicit else "environment"
         environment[_ENV_SOURCE] = source
-        report = _diagnose(selected, vendor_root, environment, timeout_s)
+        report = _diagnose(
+            selected,
+            vendor_root,
+            environment,
+            timeout_s,
+            one_step_models=one_step_models,
+        )
         return report, _runtime_discovery(source, selected, [report])
 
-    default_report = _diagnose(None, vendor_root, environment, timeout_s)
+    default_report = _diagnose(
+        None,
+        vendor_root,
+        environment,
+        timeout_s,
+        one_step_models=one_step_models,
+    )
     if default_report.get("production_ready") is True:
         selected = str(default_report.get("env_prefix") or "")
         return default_report, _runtime_discovery(
@@ -41,17 +55,28 @@ def select_chemenzy_runtime(
         )
 
     attempts = [default_report]
-    for candidate in _registered_conda_prefixes(environment):
-        if candidate == Path(str(default_report.get("env_prefix") or "")):
-            continue
-        discovered = dict(environment)
-        discovered[_ENV_SOURCE] = "conda_auto_discovery"
-        report = _diagnose(candidate, vendor_root, discovered, timeout_s)
-        attempts.append(report)
-        if report.get("production_ready") is True:
-            return report, _runtime_discovery(
-                "conda_auto_discovery", str(candidate), attempts
+    attempted_prefixes = {Path(str(default_report.get("env_prefix") or ""))}
+    discovery_groups = (
+        ("conda_auto_discovery", _registered_conda_prefixes(environment)),
+        ("host_python_auto_discovery", _host_python_prefixes()),
+    )
+    for source, candidates in discovery_groups:
+        for candidate in candidates:
+            if candidate in attempted_prefixes:
+                continue
+            attempted_prefixes.add(candidate)
+            discovered = dict(environment)
+            discovered[_ENV_SOURCE] = source
+            report = _diagnose(
+                candidate,
+                vendor_root,
+                discovered,
+                timeout_s,
+                one_step_models=one_step_models,
             )
+            attempts.append(report)
+            if report.get("production_ready") is True:
+                return report, _runtime_discovery(source, str(candidate), attempts)
     return default_report, _runtime_discovery("unresolved", "", attempts)
 
 
@@ -60,6 +85,8 @@ def _diagnose(
     vendor_root: str | Path | None,
     environ: Mapping[str, str],
     timeout_s: float,
+    *,
+    one_step_models: tuple[str, ...] | list[str] | None,
 ) -> dict[str, Any]:
     return diagnose_chem_enzy_runtime(
         env_prefix=env_prefix,
@@ -67,6 +94,7 @@ def _diagnose(
         environ=environ,
         capability_probe=True,
         capability_probe_timeout_s=timeout_s,
+        one_step_models=one_step_models,
     )
 
 
@@ -106,6 +134,19 @@ def _registered_conda_prefixes(environ: Mapping[str, str]) -> list[Path]:
             pass
     valid = [value for value in candidates if _candidate_python_exists(value)]
     return sorted(valid, key=lambda value: _candidate_rank(value, current))[:8]
+
+
+def _host_python_prefixes() -> list[Path]:
+    """Return the current host interpreter prefix as a final probed fallback."""
+
+    candidates = {
+        Path(sys.prefix).expanduser(),
+        Path(sys.executable).expanduser().resolve().parent,
+    }
+    return sorted(
+        (value for value in candidates if _candidate_python_exists(value)),
+        key=lambda value: str(value).lower(),
+    )
 
 
 def _candidate_python_exists(prefix: Path) -> bool:
@@ -159,6 +200,7 @@ def _runtime_discovery(
         "semantics": {
             "explicit_configuration_never_silently_overridden": True,
             "auto_discovery_is_bounded": True,
+            "all_auto_discovered_runtimes_require_capability_probe": True,
         },
     }
 

@@ -10,6 +10,7 @@ forward substrate side and ``CandidateAction.product`` as the forward product.
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -61,7 +62,10 @@ class EnzymeSPVerifierV1Scorer:
         model_threshold = _artifact_threshold(artifact)
         self.threshold = float(threshold if threshold is not None else model_threshold)
 
-        from scripts.train_enzyme_sp_verifier_v1 import SideFeatureCache, build_matrix
+        from cascade_planner.cascade_search.enzyme_sp_features import (
+            SideFeatureCache,
+            build_matrix,
+        )
 
         self._cache = SideFeatureCache()
         self._build_matrix = build_matrix
@@ -92,7 +96,16 @@ class EnzymeSPVerifierV1Scorer:
             "label_weight": 1.0,
         }
         matrix, *_ = self._build_matrix([row], self._cache)
-        score = float(self.model.predict_proba(matrix)[0, 1])
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "X does not have valid feature names, but LGBMClassifier "
+                    "was fitted with feature names"
+                ),
+                category=UserWarning,
+            )
+            score = float(self.model.predict_proba(matrix)[0, 1])
         return EnzymeSPVerifierV1Score(
             substrate_smiles=row["substrate_smiles"],
             product_smiles=row["product_smiles"],

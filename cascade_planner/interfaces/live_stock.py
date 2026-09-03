@@ -8,12 +8,16 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
+import re
+import sqlite3
 from typing import Any, Callable, Iterable, Mapping
 
 import requests
+from rdkit import Chem
 
 from cascade_planner.application.blind_benchmark_contract import canonical_smiles
 from cascade_planner.application.retrosynthesis_workers import (
@@ -22,6 +26,14 @@ from cascade_planner.application.retrosynthesis_workers import (
 
 
 PUBCHEM_VENDOR_ADAPTER_VERSION = "autoplanner.pubchem_vendor_catalog.v1"
+STANDARD_STOCK_CATALOG_NAME = "ZINC+eMolecules"
+STANDARD_STOCK_INDEX_RELATIVE_PATH = Path(
+    "data_external/synthatlas/zinc_synthelite_20260223_full_inchikey.sqlite3"
+)
+STANDARD_STOCK_INDEX_SHA256 = (
+    "4d2f601ddd5af10b1c179ec583062d3ba3136553e285944d125e7b5ce19b5a65"
+)
+STANDARD_STOCK_MEMBER_COUNT = 39_478_827
 _PUG_PROPERTY_URL = (
     "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/property/"
     "CanonicalSMILES,IsomericSMILES/JSON"
@@ -34,6 +46,291 @@ JsonRequester = Callable[..., tuple[int, bytes, Mapping[str, Any]]]
 
 class LiveStockAdapterError(RuntimeError):
     """The generic live catalog could not be frozen within its hard bounds."""
+
+
+class FrozenBenchmarkStockIndex:
+    """Resolve benchmark membership from a content-addressed SQLite index.
+
+    The index is shared read-only across isolated benchmark cases.  It supplies
+    only stock-boundary membership and cannot propose reactions or routes.
+    """
+
+    schema_version = "frozen_benchmark_stock_index.v1"
+    adapter_version = "autoplanner.frozen_benchmark_stock_index.v1"
+
+    def __init__(
+        self,
+        index_path: str | Path,
+        *,
+        expected_sha256: str,
+        catalog_name: str = "",
+    ) -> None:
+        path = Path(index_path).expanduser().resolve()
+        expected = str(expected_sha256 or "").strip().lower()
+        if not path.is_file():
+            raise LiveStockAdapterError("benchmark_stock_index_missing")
+        if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise LiveStockAdapterError("benchmark_stock_index_sha256_required")
+        actual = _file_sha256(path)
+        if actual != expected:
+            raise LiveStockAdapterError("benchmark_stock_index_sha256_mismatch")
+        metadata = self._read_metadata(path)
+        if metadata.get("schema_version") != self.schema_version:
+            raise LiveStockAdapterError("benchmark_stock_index_schema_invalid")
+        source_sha256 = str(metadata.get("source_sha256") or "").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", source_sha256):
+            raise LiveStockAdapterError("benchmark_stock_source_sha256_missing")
+        if (
+            metadata.get("complete") != "true"
+            or int(metadata.get("member_count") or 0) < 1
+        ):
+            raise LiveStockAdapterError("benchmark_stock_index_incomplete")
+        self.index_path = path
+        self.index_sha256 = actual
+        self.source_sha256 = source_sha256
+        self.catalog_name = (
+            str(catalog_name or "").strip()
+            or str(metadata.get("catalog_name") or "").strip()
+            or "frozen-benchmark-stock"
+        )
+        self.member_count = int(metadata.get("member_count") or 0)
+        self.created_at = str(metadata.get("created_at") or "")
+        self.rdkit_version = str(metadata.get("rdkit_version") or "")
+        self.identity_key = str(
+            metadata.get("identity_key") or "canonical_smiles"
+        )
+        if self.identity_key not in {"canonical_smiles", "full_inchikey"}:
+            raise LiveStockAdapterError("benchmark_stock_identity_key_invalid")
+
+    def __call__(
+        self,
+        smiles_values: Iterable[str],
+        *,
+        max_molecules: int = 24,
+    ) -> dict[str, Any]:
+        if max_molecules < 1:
+            raise ValueError("benchmark stock lookup limit must be positive")
+        canonical_values = sorted(
+            {
+                canonical
+                for value in smiles_values
+                if (canonical := canonical_smiles(value))
+            }
+        )
+        truncated = len(canonical_values) > max_molecules
+        selected = canonical_values[:max_molecules]
+        full_inchikeys = {
+            canonical: self._full_inchikey(canonical)
+            for canonical in selected
+        }
+        found = self._lookup(selected)
+        connectivity_diagnostics = self._connectivity_diagnostics(
+            [
+                full_inchikeys[canonical]
+                for canonical in selected
+                if canonical not in found and full_inchikeys[canonical]
+            ]
+        )
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        members = [
+            {
+                "canonical_smiles": canonical,
+                "identity_key": self.identity_key,
+                "full_inchikey": full_inchikeys[canonical],
+                "membership_verified": True,
+                "membership_proof_sha256": hashlib.sha256(
+                    f"{self.index_sha256}:{canonical}".encode("utf-8")
+                ).hexdigest(),
+                "catalog_uri": str(self.index_path),
+            }
+            for canonical in selected
+            if canonical in found
+        ]
+        misses = [
+            {
+                "canonical_smiles": canonical,
+                "identity_key": self.identity_key,
+                "full_inchikey": full_inchikeys[canonical],
+                "reason": "molecule_not_in_frozen_benchmark_stock_index",
+                **(
+                    {
+                        "connectivity_diagnostic": connectivity_diagnostics[
+                            full_inchikeys[canonical]
+                        ]
+                    }
+                    if full_inchikeys[canonical] in connectivity_diagnostics
+                    else {}
+                ),
+            }
+            for canonical in selected
+            if canonical not in found
+        ]
+        body = {
+            "schema_version": VERSIONED_BENCHMARK_CATALOG_SCHEMA,
+            "adapter_version": self.adapter_version,
+            "catalog_name": self.catalog_name,
+            "catalog_version": self.index_sha256,
+            "retrieved_at": timestamp,
+            "source": {
+                "name": self.catalog_name,
+                "boundary": "benchmark_search",
+                "index_path": str(self.index_path),
+                "index_sha256": self.index_sha256,
+                "source_sha256": self.source_sha256,
+                "source_member_count": self.member_count,
+                "identity_key": self.identity_key,
+                "rdkit_version": self.rdkit_version,
+                "immutable_content_addressed": True,
+                "commercial_orderability_claimed": False,
+            },
+            "requested_molecule_count": len(canonical_values),
+            "queried_molecule_count": len(selected),
+            "truncated": truncated,
+            "members": members,
+            "misses": misses,
+            "semantics": {
+                "frozen_benchmark_membership_only": True,
+                "read_only_shared_index": True,
+                "not_a_reaction_or_route_provider": True,
+                "not_procurement_authority": True,
+                "connectivity_diagnostic_is_non_authoritative": True,
+                "only_exact_identity_match_grants_membership": True,
+            },
+        }
+        body["content_sha256"] = _digest(body)
+        return body
+
+    @classmethod
+    def _read_metadata(cls, path: Path) -> dict[str, str]:
+        try:
+            with cls._connect(path) as connection:
+                rows = connection.execute(
+                    "SELECT key, value FROM metadata ORDER BY key"
+                ).fetchall()
+                stock_table = connection.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'stock'"
+                ).fetchone()
+                stock_columns = {
+                    str(row[1])
+                    for row in connection.execute("PRAGMA table_info(stock)").fetchall()
+                }
+        except sqlite3.Error as exc:
+            raise LiveStockAdapterError("benchmark_stock_index_unreadable") from exc
+        if not stock_table:
+            raise LiveStockAdapterError("benchmark_stock_index_table_missing")
+        metadata = {str(key): str(value) for key, value in rows}
+        identity_key = str(metadata.get("identity_key") or "canonical_smiles")
+        if identity_key not in stock_columns:
+            raise LiveStockAdapterError("benchmark_stock_identity_column_missing")
+        return metadata
+
+    @staticmethod
+    def _connect(path: Path) -> sqlite3.Connection:
+        connection = sqlite3.connect(
+            f"file:{path.as_posix()}?mode=ro",
+            uri=True,
+            timeout=30.0,
+        )
+        connection.execute("PRAGMA query_only = ON")
+        return connection
+
+    def _lookup(self, values: list[str]) -> set[str]:
+        if not values:
+            return set()
+        identities = {
+            value: self._identity(value)
+            for value in values
+        }
+        query_values = [value for value in identities.values() if value]
+        if not query_values:
+            return set()
+        placeholders = ",".join("?" for _ in query_values)
+        column = (
+            "full_inchikey"
+            if self.identity_key == "full_inchikey"
+            else "canonical_smiles"
+        )
+        try:
+            with self._connect(self.index_path) as connection:
+                rows = connection.execute(
+                    f"SELECT {column} FROM stock "
+                    f"WHERE {column} IN ({placeholders})",
+                    query_values,
+                ).fetchall()
+        except sqlite3.Error as exc:
+            raise LiveStockAdapterError("benchmark_stock_index_lookup_failed") from exc
+        found = {str(row[0]) for row in rows}
+        return {
+            smiles
+            for smiles, identity in identities.items()
+            if identity in found
+        }
+
+    def _identity(self, canonical: str) -> str:
+        if self.identity_key == "canonical_smiles":
+            return canonical
+        return self._full_inchikey(canonical)
+
+    @staticmethod
+    def _full_inchikey(canonical: str) -> str:
+        molecule = Chem.MolFromSmiles(canonical)
+        if molecule is None:
+            return ""
+        try:
+            return str(Chem.MolToInchiKey(molecule) or "")
+        except (RuntimeError, ValueError):
+            return ""
+
+    def _connectivity_diagnostics(
+        self,
+        full_inchikeys: Iterable[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Report same-connectivity catalog presence without granting closure."""
+
+        if self.identity_key != "full_inchikey":
+            return {}
+        values = sorted({str(value) for value in full_inchikeys if str(value)})
+        diagnostics: dict[str, dict[str, Any]] = {}
+        try:
+            with self._connect(self.index_path) as connection:
+                for full_inchikey in values:
+                    connectivity_block = full_inchikey.split("-", 1)[0]
+                    match = connection.execute(
+                        "SELECT 1 FROM stock "
+                        "WHERE full_inchikey >= ? AND full_inchikey < ? LIMIT 1",
+                        (f"{connectivity_block}-", f"{connectivity_block}."),
+                    ).fetchone()
+                    diagnostics[full_inchikey] = {
+                        "connectivity_block": connectivity_block,
+                        "catalog_contains_same_connectivity": match is not None,
+                        "grants_membership": False,
+                        "reason": "full_inchikey_exact_match_required",
+                    }
+        except sqlite3.Error as exc:
+            raise LiveStockAdapterError(
+                "benchmark_stock_connectivity_diagnostic_failed"
+            ) from exc
+        return diagnostics
+
+
+@lru_cache(maxsize=1)
+def standard_stock_catalog_builder() -> FrozenBenchmarkStockIndex:
+    """Return the one frozen benchmark-stock authority used by the main pipeline."""
+
+    index_path = (
+        Path(__file__).resolve().parents[2] / STANDARD_STOCK_INDEX_RELATIVE_PATH
+    )
+    builder = FrozenBenchmarkStockIndex(
+        index_path,
+        expected_sha256=STANDARD_STOCK_INDEX_SHA256,
+        catalog_name=STANDARD_STOCK_CATALOG_NAME,
+    )
+    if builder.identity_key != "full_inchikey":
+        raise LiveStockAdapterError("standard_stock_identity_key_mismatch")
+    if builder.member_count != STANDARD_STOCK_MEMBER_COUNT:
+        raise LiveStockAdapterError("standard_stock_member_count_mismatch")
+    return builder
 
 
 def load_versioned_inventory_snapshot(
@@ -59,6 +356,30 @@ def load_versioned_inventory_snapshot(
     if not isinstance(row.get("offers"), list):
         raise LiveStockAdapterError("inventory_snapshot_offers_invalid")
     return row
+
+
+class FrozenInventorySnapshotBuilder:
+    """Callable resolver bound to the exact bytes of one inventory snapshot."""
+
+    def __init__(self, path: str | Path) -> None:
+        resolved = Path(path).expanduser().resolve()
+        self.snapshot = load_versioned_inventory_snapshot(resolved)
+        self.snapshot_sha256 = _file_sha256(resolved)
+        material = {
+            "schema_version": "stock_oracle_binding.v1",
+            "kind": "frozen_inventory_snapshot",
+            "oracle_id": f"inventory-snapshot:{self.snapshot_sha256[:24]}",
+            "snapshot_sha256": self.snapshot_sha256,
+            "snapshot_schema_version": str(
+                self.snapshot.get("schema_version") or ""
+            ),
+            "outputs_require_content_addressing": True,
+        }
+        material["content_sha256"] = _digest(material)
+        self.stock_oracle_binding = material
+
+    def __call__(self, _smiles: Any, **_kwargs: Any) -> dict[str, Any]:
+        return dict(self.snapshot)
 
 
 def build_pubchem_vendor_catalog(
@@ -248,9 +569,24 @@ def _digest(value: Any) -> str:
     ).hexdigest()
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 __all__ = [
+    "FrozenBenchmarkStockIndex",
+    "FrozenInventorySnapshotBuilder",
     "LiveStockAdapterError",
     "PUBCHEM_VENDOR_ADAPTER_VERSION",
+    "STANDARD_STOCK_CATALOG_NAME",
+    "STANDARD_STOCK_INDEX_RELATIVE_PATH",
+    "STANDARD_STOCK_INDEX_SHA256",
+    "STANDARD_STOCK_MEMBER_COUNT",
     "build_pubchem_vendor_catalog",
     "load_versioned_inventory_snapshot",
+    "standard_stock_catalog_builder",
 ]

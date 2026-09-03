@@ -3,13 +3,16 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
 from cascade_planner.application.campaign_context import (
     CampaignContext,
     CampaignContextCompiler,
+    CampaignContextError,
     CampaignContextTooLargeError,
 )
 from cascade_planner.application.retrosynthesis_run_contract import (
@@ -19,14 +22,23 @@ from cascade_planner.application.run_kernel import RunKernel, RunLimits, RunSpec
 from cascade_planner.orchestration.global_campaign_director import (
     DirectorConfig,
     GlobalCampaignDirector,
+    GlobalCampaignDirectorError,
     GlobalCampaignPlan,
     GlobalCampaignPlanValidationError,
     ReplayDirectorRunner,
+    director_plan_provenance_sha256,
     director_trigger_reasons,
     director_prompt,
     director_web_search_enabled,
     repair_global_campaign_plan_contract,
+    run_api_json_director_child,
     validate_global_campaign_plan,
+)
+from cascade_planner.orchestration.provider_delegation import (
+    complete_chemenzy_delegation,
+)
+from cascade_planner.orchestration.retrosynthesis_service import (
+    RetrosynthesisCampaignService,
 )
 from cascade_planner.runtime import AgentResult, AgentSpec, AgentState
 
@@ -55,6 +67,43 @@ def _kernel(tmp_path: Path, *, calls: int = 3) -> RunKernel:
     )
     kernel.start()
     return kernel
+
+
+def test_paper_profile_can_disable_director_provider_delegation() -> None:
+    priorities, repairs = complete_chemenzy_delegation(
+        skeletons=(),
+        frontier_priorities=(
+            {
+                "priority_id": "priority:leaf",
+                "target_smiles": "CCO",
+                "provider_preferences": ["chemenzy", "other-provider"],
+            },
+        ),
+        campaign_target="CCOC(C)=O",
+        canonicalize=lambda value: str(value or ""),
+        max_requests=0,
+    )
+
+    assert DirectorConfig(max_provider_requests=0).max_provider_requests == 0
+    with pytest.raises(ValueError, match="provider request limit"):
+        DirectorConfig(max_provider_requests=-1)
+    with pytest.raises(ValueError, match="strategy portfolio mode"):
+        DirectorConfig(strategy_portfolio_mode="mixed_into_paper_arm")
+    assert priorities[0]["provider_preferences"] == ["other-provider"]
+    assert repairs[0]["reason"] == (
+        "provider_delegation_disabled_by_execution_profile"
+    )
+    assert repairs[0]["semantics"][
+        "provider_search_deferred_until_stock_rejected_leaf"
+    ] is True
+
+
+def test_director_config_allows_only_one_editor_writer() -> None:
+    with pytest.raises(ValueError, match="Editor modes are mutually exclusive"):
+        DirectorConfig(
+            enable_transactional_path_repair=True,
+            allow_editor_route_mutations=True,
+        )
 
 
 def _context(
@@ -106,6 +155,18 @@ def _context(
     )
 
 
+def test_campaign_context_round_trip_rejects_tampered_payload(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    assert CampaignContext.from_dict(context.to_dict()) == context
+
+    tampered = json.loads(json.dumps(context.to_dict()))
+    tampered["budget_state"]["active_task_count"] = 999
+    with pytest.raises(CampaignContextError, match="digest_invalid"):
+        CampaignContext.from_dict(tampered)
+
+
 def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str, Any]:
     target = "not-a-smiles" if invalid_smiles else "CCOC(=O)N"
     return {
@@ -150,6 +211,16 @@ def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str
                         "source_hints": ["amide coupling"],
                         "required_validation": ["identity", "element_balance"],
                         "hypothesis_only": True,
+                        "condition_predictions": [
+                            {
+                                "reagents": ["coupling reagent"],
+                                "solvent": "polar aprotic solvent",
+                                "temperature_c": 25,
+                                "time": "screen",
+                                "authority_scope": "model_predicted_condition",
+                                "not_reaction_proof": True,
+                            }
+                        ],
                     },
                     {
                         "step_id": "proposal:amide:2",
@@ -160,6 +231,16 @@ def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str
                         "source_hints": [],
                         "required_validation": ["identity", "precedent"],
                         "hypothesis_only": True,
+                        "condition_predictions": [
+                            {
+                                "reagents": ["carboxylation reagent"],
+                                "solvent": "aprotic solvent",
+                                "temperature_c": 25,
+                                "time": "screen",
+                                "authority_scope": "model_predicted_condition",
+                                "not_reaction_proof": True,
+                            }
+                        ],
                     },
                 ],
             },
@@ -177,6 +258,16 @@ def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str
                         "source_hints": [],
                         "required_validation": ["identity", "precedent"],
                         "hypothesis_only": True,
+                        "condition_predictions": [
+                            {
+                                "reagents": ["assembly reagent"],
+                                "solvent": "polar solvent",
+                                "temperature_c": 25,
+                                "time": "screen",
+                                "authority_scope": "model_predicted_condition",
+                                "not_reaction_proof": True,
+                            }
+                        ],
                     }
                 ],
             },
@@ -255,6 +346,38 @@ def _plan(context: CampaignContext, *, invalid_smiles: bool = False) -> dict[str
     }
 
 
+def test_director_plan_provenance_ignores_runtime_binding_but_not_chemistry(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    first = GlobalCampaignPlan.from_dict(_plan(context))
+    rebound_payload = json.loads(json.dumps(first.to_dict()))
+    rebound_payload.pop("content_sha256", None)
+    rebound_payload.update(
+        {
+            "plan_id": "plan:rebound",
+            "run_id": "campaign-replayed",
+            "context_sha256": "f" * 64,
+            "graph_revision": 99,
+        }
+    )
+    rebound = GlobalCampaignPlan.from_dict(rebound_payload)
+
+    assert director_plan_provenance_sha256(first) == (
+        director_plan_provenance_sha256(rebound)
+    )
+
+    changed_payload = json.loads(json.dumps(rebound.to_dict()))
+    changed_payload.pop("content_sha256", None)
+    changed_payload["multi_step_skeletons"][0]["steps"][0][
+        "transformation_hypothesis"
+    ] = "different proposed transformation"
+    changed = GlobalCampaignPlan.from_dict(changed_payload)
+    assert director_plan_provenance_sha256(first) != (
+        director_plan_provenance_sha256(changed)
+    )
+
+
 def _runner(plan: dict[str, Any]):
     calls: list[AgentSpec] = []
 
@@ -282,6 +405,7 @@ def _runner(plan: dict[str, Any]):
                 "input_tokens": 2_000,
                 "output_tokens": 1_000,
                 "wall_time_s": 2.5,
+                "actual_route_builder_policy_calls": 7,
             },
             metadata={"backend": "deterministic_fake", "direct_child": True},
         )
@@ -326,6 +450,12 @@ def test_context_delta_and_byte_budget_are_host_enforced(tmp_path: Path) -> None
             kernel=kernel,
             hypergraph={"nodes": [{"id": "n:1"}]},
         )
+    audit_view = CampaignContextCompiler(max_context_bytes=100).compile(
+        kernel=kernel,
+        hypergraph={"nodes": [{"id": "n:1"}]},
+        enforce_limit=False,
+    )
+    assert audit_view.byte_count > 100
 
 
 def test_director_coordinates_global_families_through_one_kernel_call_and_cache(
@@ -348,9 +478,324 @@ def test_director_coordinates_global_families_through_one_kernel_call_and_cache(
     assert len(first.plan.multi_step_skeletons) == 2
     assert len(first.plan.shared_intermediates) == 1
     assert all(row["accepted"] is True for row in first.proposal_audits)
+    assert first.resource_usage["actual_route_builder_policy_calls"] == 7
+    assert second.resource_usage["actual_route_builder_policy_calls"] == 7
     assert kernel.state.attempt_count == 0
     assert kernel.state.model_totals["model_invocations"] == 1
     assert kernel.state.accepted_expansion_count == 0
+
+
+def test_director_provider_failure_keeps_one_reservation_and_resumes(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    plan = _plan(context)
+    calls: list[tuple[str, str]] = []
+
+    def runner(
+        spec: AgentSpec,
+        supplied_context: CampaignContext,
+        _mode: str,
+        _config: DirectorConfig,
+    ) -> AgentResult:
+        calls.append((spec.agent_id, supplied_context.content_sha256))
+        if len(calls) == 1:
+            return AgentResult(
+                run_id=spec.run_id,
+                agent_id=spec.agent_id,
+                parent_agent_id=spec.parent_agent_id,
+                attempt=spec.attempt,
+                idempotency_key=f"{spec.idempotency_key}:provider-error",
+                context_hash=spec.context_hash,
+                capabilities=spec.capabilities,
+                write_scope=spec.write_scope,
+                budget=spec.budget,
+                state=AgentState.FAILED,
+                output=None,
+                usage={
+                    "model_invocations": 0,
+                    "provider_failure_count": 1,
+                },
+                error="model_provider_unavailable:provider_auth_unavailable",
+            )
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:completed",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.SUCCEEDED,
+            output=plan,
+            usage={"model_invocations": 1, "input_tokens": 20, "output_tokens": 5},
+        )
+
+    director = GlobalCampaignDirector(kernel, runner=runner)
+    with pytest.raises(
+        GlobalCampaignDirectorError,
+        match="model_provider_unavailable:provider_auth_unavailable",
+    ):
+        director.run(context, mode="initial_architecture")
+
+    assert len(kernel.state.in_flight_tasks) == 1
+    refreshed_context = _context(
+        kernel,
+        previous=context,
+        material_events=("provider_runtime_recovered",),
+    )
+    assert refreshed_context.content_sha256 != context.content_sha256
+    resumed = director.run(refreshed_context, mode="initial_architecture")
+
+    assert resumed.status == "accepted"
+    assert len(calls) == 2
+    assert calls[0] == calls[1]
+    assert resumed.context_sha256 == context.content_sha256
+    assert kernel.state.in_flight_tasks == {}
+    assert kernel.count_task_reservations(
+        metadata={"director_mode": "initial_architecture"}
+    ) == 1
+    assert kernel.state.model_totals["model_invocations"] == 1
+
+
+def test_director_checkpoints_recoverable_partial_plan_until_resume(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path, calls=12)
+    context = _context(kernel)
+    plan = _plan(context)
+    calls: list[str] = []
+
+    def runner(
+        spec: AgentSpec,
+        _context: CampaignContext,
+        _mode: str,
+        _config: DirectorConfig,
+    ) -> AgentResult:
+        calls.append(spec.agent_id)
+        interrupted = len(calls) == 1
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=(
+                f"{spec.idempotency_key}:"
+                + ("provider-error" if interrupted else "completed")
+            ),
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.FAILED if interrupted else AgentState.SUCCEEDED,
+            output=plan,
+            usage={
+                "model_invocations": 7 if interrupted else 9,
+                "input_tokens": 700 if interrupted else 900,
+                "output_tokens": 70 if interrupted else 90,
+                "provider_failure_count": 1 if interrupted else 0,
+                "resume_required_task_ids": (
+                    ["critic:branch:2"] if interrupted else []
+                ),
+                "provider_runtime_failure": (
+                    {
+                        "reason": "provider_service_unavailable",
+                        "task_id": "critic:branch:2",
+                    }
+                    if interrupted
+                    else {}
+                ),
+            },
+            error=(
+                "model_provider_unavailable:provider_service_unavailable"
+                if interrupted
+                else ""
+            ),
+        )
+
+    director = GlobalCampaignDirector(kernel, runner=runner)
+    partial = director.run(context, mode="initial_architecture")
+
+    assert partial.status == "runtime_unavailable"
+    assert partial.runtime_pause is True
+    assert partial.plan is not None
+    assert partial.resource_usage["model_invocations"] == 7
+    assert partial.resume_required_task_ids == ("critic:branch:2",)
+    assert kernel.state.model_totals["model_invocations"] == 0
+    assert len(kernel.state.in_flight_tasks) == 1
+    lifecycle = kernel.task_lifecycle(partial.task_id)
+    assert lifecycle["status"] == "in_flight"
+    assert len(lifecycle["checkpoints"]) == 1
+    checkpoint = lifecycle["checkpoints"][0]["payload"]
+    assert checkpoint["operational_status"] == "runtime_unavailable"
+    assert checkpoint["metadata"]["model_usage"]["model_invocations"] == 7
+    assert checkpoint["metadata"]["route_skeleton_count"] == 2
+
+    refreshed_context = _context(
+        kernel,
+        previous=context,
+        material_events=("provider_runtime_recovered",),
+    )
+    resumed = director.run(refreshed_context, mode="initial_architecture")
+
+    assert resumed.status == "accepted"
+    assert calls == [partial.task_id, partial.task_id]
+    assert kernel.state.in_flight_tasks == {}
+    assert kernel.state.model_totals["model_invocations"] == 9
+    assert kernel.count_task_reservations(
+        metadata={"director_mode": "initial_architecture"}
+    ) == 1
+
+
+def test_single_call_director_plan_remains_bound_by_output_bytes(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    raw["portfolio_rationale"] = "oversized " * 100
+    _, runner = _runner(raw)
+    director = GlobalCampaignDirector(
+        kernel,
+        runner=runner,
+        config=DirectorConfig(max_output_bytes=100),
+    )
+
+    with pytest.raises(
+        GlobalCampaignPlanValidationError,
+        match="director_plan_output_byte_budget_exceeded",
+    ):
+        director.run(context, mode="initial_architecture")
+
+
+def test_host_compiled_sequential_plan_is_not_rejected_by_single_call_byte_limit(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    raw["portfolio_rationale"] = "host accumulated " * 100
+    _, runner = _runner(raw)
+    director = GlobalCampaignDirector(
+        kernel,
+        runner=runner,
+        config=DirectorConfig(
+            planning_mode="sequential_branches",
+            max_output_bytes=100,
+        ),
+    )
+
+    outcome = director.run(context, mode="initial_architecture")
+
+    assert outcome.status == "accepted"
+    assert outcome.plan is not None
+    assert len(json.dumps(outcome.plan.to_dict()).encode("utf-8")) > 100
+
+
+def test_director_rejects_an_operationally_empty_reaction_step(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    raw["multi_step_skeletons"][0]["steps"][0].pop("condition_predictions")
+
+    audits = validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+    step = next(row for row in audits if row["proposal_id"] == "proposal:amide:1")
+
+    assert step["accepted"] is False
+    assert "condition_predictions_missing" in step["reasons"]
+
+
+def test_settled_initial_architecture_is_not_rescheduled_when_all_proposals_reject(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    calls: list[str] = []
+
+    def rejected_plan_runner(
+        spec: AgentSpec,
+        context: CampaignContext,
+        mode: str,
+        _config: DirectorConfig,
+    ) -> AgentResult:
+        raw = _plan(context)
+        for skeleton in raw["multi_step_skeletons"]:
+            for step in skeleton["steps"]:
+                step.pop("condition_predictions", None)
+        calls.append(mode)
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:result",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.SUCCEEDED,
+            output=raw,
+            usage={"model_invocations": 1, "wall_time_s": 0.1},
+        )
+
+    service = RetrosynthesisCampaignService(
+        kernel,
+        director_runner=rejected_plan_runner,
+    )
+    outcome = service.run_global_director(
+        mode="initial_architecture",
+        idempotency_key="initial-all-rejected",
+    )
+    graph = service.graph_store.load()
+    target_id = str(graph["target_molecule_id"])
+
+    assert outcome.status == "accepted"
+    assert calls == ["initial_architecture"]
+    assert outcome.proposal_audits
+    assert all(row["accepted"] is False for row in outcome.proposal_audits)
+    assert graph["hypotheses"] == {}
+    settled = graph["action_signals"][
+        f"director-attempt:initial_architecture:{target_id}"
+    ]
+    assert settled["status"] == "resolved"
+    assert settled["metadata"]["host_admitted_proposal_count"] == 0
+    assert settled["metadata"]["host_rejected_proposal_count"] == len(
+        outcome.proposal_audits
+    )
+    assert all(
+        row["kind"] != "architecture"
+        for row in graph["deficit_frontier"]["items"]
+    )
+
+    service.publish_action_signals(
+        (
+            {
+                "signal_id": "event-deficit:replan:new-evidence",
+                "kind": "replan",
+                "status": "open",
+                "object_id": target_id,
+                "entity_ids": [target_id],
+                "route_family_ids": [],
+                "dependency_ids": [],
+                "deterministic": False,
+                "model_allowed": True,
+                "reason": "new_canonical_event_requires_replan",
+                "metadata": {"material_events": ["new_evidence"]},
+            },
+        ),
+        idempotency_key="publish-event-replan-after-settled-architecture",
+    )
+    revised = service.graph_store.load()
+    frontier_kinds = [
+        str(row.get("kind") or "")
+        for row in revised["deficit_frontier"]["items"]
+    ]
+    assert "architecture" not in frontier_kinds
+    assert "replan" in frontier_kinds
 
 
 def test_event_replan_without_material_change_is_ignored_without_model(
@@ -557,6 +1002,50 @@ def test_director_rejects_duplicate_target_level_route_family_chemistry(
     assert all("route_family_root_not_distinct" in row["reasons"] for row in duplicate)
 
 
+def test_director_allows_shared_target_edge_when_upstream_program_diverges(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    second = raw["multi_step_skeletons"][1]
+    second["steps"][0]["precursor_smiles"] = ["CCOC(=O)O", "N"]
+    second["steps"].append(
+        {
+            "step_id": "proposal:ester:2",
+            "product_smiles": "CCOC(=O)O",
+            "precursor_smiles": ["CCOC(=O)Cl"],
+            "transformation_hypothesis": "hydrolysis of an alternative acid feed",
+            "strategic_role": "upstream divergent supply",
+            "source_hints": [],
+            "required_validation": ["identity", "precedent"],
+            "hypothesis_only": True,
+            "condition_predictions": [
+                {
+                    "reagents": ["hydrolysis reagent"],
+                    "solvent": "aqueous solvent",
+                    "temperature_c": 25,
+                    "time": "screen",
+                    "authority_scope": "model_predicted_condition",
+                    "not_reaction_proof": True,
+                }
+            ],
+        }
+    )
+
+    audits = validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+
+    shared_root_family = [
+        row for row in audits if row["skeleton_id"] == "skeleton:ester"
+    ]
+    assert shared_root_family
+    assert all(row["accepted"] is True for row in shared_root_family)
+    assert all(
+        "route_family_root_not_distinct" not in row["reasons"]
+        for row in shared_root_family
+    )
+
+
 def test_director_output_cannot_grant_scientific_authority(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path)
     context = _context(kernel)
@@ -605,6 +1094,33 @@ def test_director_does_not_repair_family_without_exact_target_root(tmp_path: Pat
 
     assert repairs == ()
     assert unrepaired.route_families[0]["target_smiles"] == "CCOC(=O)O"
+
+
+def test_director_retains_route_family_without_skeleton_as_advisory(tmp_path: Path) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    raw["route_families"].append(
+        {
+            **raw["route_families"][0],
+            "route_family_id": "family:orphan-metadata",
+            "diversity_basis": "declared but never expanded",
+        }
+    )
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    assert "family:orphan-metadata" in {
+        row["route_family_id"] for row in repaired.route_families
+    }
+    assert any(
+        row["reason"] == "route_family_without_skeleton_retained_as_advisory"
+        and row["semantics"]["retained_as_advisory_only"] is True
+        for row in repairs
+    )
+    assert validate_global_campaign_plan(repaired, context)
 
 
 def test_director_removes_identity_leaf_marker_without_rewriting_chemistry(
@@ -688,6 +1204,76 @@ def test_director_completes_chemenzy_metadata_for_codex_selected_non_root_step(
     assert validate_global_campaign_plan(repaired, context)
 
 
+def test_director_downgrades_campaign_target_provider_request_to_host_priority(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    priority = raw["frontier_priorities"][0]
+    priority["target_smiles"] = context.target["canonical_smiles"]
+    priority["provider_preferences"] = ["chemenzy"]
+    priority["retron_hints"] = ["preserve host scheduling intent"]
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    repaired_priority = repaired.frontier_priorities[0]
+    assert repaired_priority["target_smiles"] == context.target["canonical_smiles"]
+    assert repaired_priority["provider_preferences"] == []
+    assert repaired_priority["retron_hints"] == ["preserve host scheduling intent"]
+    assert any(
+        row["reason"] == "campaign_target_provider_downgraded_to_host_priority"
+        for row in repairs
+    )
+    assert validate_global_campaign_plan(repaired, context)
+
+
+def test_director_downgrades_unbound_provider_target_to_host_priority(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    priority = raw["frontier_priorities"][0]
+    priority["proposal_id"] = "proposal:not-in-any-skeleton"
+    priority["target_smiles"] = ""
+    priority["provider_preferences"] = ["chemenzy"]
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    repaired_priority = repaired.frontier_priorities[0]
+    assert repaired_priority["provider_preferences"] == []
+    assert any(
+        row["reason"] == "unbound_provider_target_downgraded_to_host_priority"
+        for row in repairs
+    )
+    assert validate_global_campaign_plan(repaired, context)
+
+
+def test_director_accepts_builder_continuation_but_rejects_retired_short_tail(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    priority = raw["frontier_priorities"][0]
+    priority["proposal_id"] = "proposal:amide:2"
+    priority["target_smiles"] = "CCOC(=O)O"
+    priority["provider_preferences"] = ["codex_frontier_builder"]
+
+    assert validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+
+    priority["provider_preferences"] = ["native_short_tail"]
+    with pytest.raises(
+        GlobalCampaignPlanValidationError,
+        match="provider_frontier_unknown_provider",
+    ):
+        validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+
+
 def test_director_resolves_chemenzy_request_to_shared_intermediate(
     tmp_path: Path,
 ) -> None:
@@ -745,6 +1331,26 @@ def test_concurrent_identical_context_invokes_runner_once(tmp_path: Path) -> Non
     assert kernel.state.model_totals["model_invocations"] == 1
 
 
+def test_existing_unlocked_director_lock_file_does_not_block_resume(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    calls, runner = _runner(_plan(context))
+    director = GlobalCampaignDirector(kernel, runner=runner)
+    cache_key = director._cache_key(context, mode="initial_architecture")
+    lock_root = director.director_dir / "locks"
+    lock_root.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_root / f"{cache_key[:24]}.lock"
+    lock_path.write_bytes(b"\0")
+
+    outcome = director.run(context, mode="initial_architecture")
+
+    assert outcome.invoked is True
+    assert len(calls) == 1
+    assert lock_path.is_file()
+
+
 def test_replay_runner_is_model_free_and_schema_identical(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path, calls=0)
     context = _context(kernel)
@@ -758,6 +1364,72 @@ def test_replay_runner_is_model_free_and_schema_identical(tmp_path: Path) -> Non
     assert outcome.plan.to_dict()["schema_version"] == "global_campaign_plan.v1"
     assert len(replay.calls) == 1
     assert kernel.state.model_totals["model_invocations"] == 0
+
+
+def test_api_json_director_runner_uses_provider_neutral_tool_free_backend(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    spec = AgentSpec(
+        run_id=context.run_id,
+        agent_id="director:api-json",
+        role="global_campaign_director",
+        objective="Return a typed global campaign plan.",
+        idempotency_key="director:api-json:1",
+        context_hash=context.content_sha256,
+        metadata={"allowed_workdir": str(tmp_path)},
+    )
+    record = SimpleNamespace(
+        status="accepted_draft",
+        output_artifact={"payload": {"schema_version": "global_campaign_plan.v1"}},
+        usage={"input_tokens": 11, "output_tokens": 7},
+        elapsed_s=0.25,
+        metadata={},
+        backend="api_json",
+        stderr="",
+    )
+    with patch(
+        "cascade_planner.orchestration.global_campaign_director.run_codex_worker",
+        return_value=record,
+    ) as worker:
+        result = run_api_json_director_child(
+            spec,
+            context,
+            "initial_architecture",
+            DirectorConfig(model="local-openai-compatible-model"),
+        )
+
+    task = worker.call_args.args[0]
+    assert worker.call_args.kwargs == {"use_api_json": True}
+    assert task.allowed_tools == []
+    assert task.agent_mode == "single"
+    assert task.model == "local-openai-compatible-model"
+    assert task.budget.max_tool_calls == 0
+    assert result.state is AgentState.SUCCEEDED
+    assert result.metadata["backend"] == "api_json"
+
+
+def test_api_json_director_runner_rejects_unimplemented_tool_loop(tmp_path: Path) -> None:
+    context = _context(_kernel(tmp_path))
+    spec = AgentSpec(
+        run_id=context.run_id,
+        agent_id="director:api-json-tools",
+        role="global_campaign_director",
+        objective="Search and coordinate.",
+        idempotency_key="director:api-json-tools:1",
+        context_hash=context.content_sha256,
+    )
+
+    result = run_api_json_director_child(
+        spec,
+        context,
+        "event_replan",
+        DirectorConfig(enable_web_search=True),
+    )
+
+    assert result.state is AgentState.FAILED
+    assert result.error == "api_json_director_tool_loop_not_implemented"
+    assert result.metadata["tool_loop_supported"] is False
 
 
 def test_director_defers_web_tools_until_evidence_informed_replan(
@@ -778,6 +1450,27 @@ def test_director_defers_web_tools_until_evidence_informed_replan(
         mode="event_replan",
         config=config,
     )
+    assert "do not wait for a supplied publication number" in director_prompt(
+        context,
+        mode="event_replan",
+        config=config,
+    )
+    assert "include condition_predictions" in director_prompt(
+        context,
+        mode="event_replan",
+        config=config,
+    )
+    assert "authority_scope=model_predicted_condition" in director_prompt(
+        context,
+        mode="event_replan",
+        config=config,
+    )
+    replan_prompt = director_prompt(context, mode="event_replan", config=config)
+    assert "source-consistent alternative skeleton" in replan_prompt
+    assert "add a distinct target-rooted source-consistent family" in replan_prompt
+    assert "never force the source onto the old edge" in replan_prompt
+    assert "source_plan.source_refs" in replan_prompt
+    assert "Never invent an identifier" in replan_prompt
 
     opted_in = DirectorConfig(
         enable_web_search=True,
@@ -786,6 +1479,189 @@ def test_director_defers_web_tools_until_evidence_informed_replan(
     assert (
         director_web_search_enabled(opted_in, mode="initial_architecture") is True
     )
+
+
+def test_director_contract_scans_contiguous_spans_for_program_replacements(
+    tmp_path: Path,
+) -> None:
+    prompt = director_prompt(
+        _context(_kernel(tmp_path)),
+        mode="initial_architecture",
+        config=DirectorConfig(max_steps_per_skeleton=24),
+    )
+
+    assert "scan contiguous multi-step intervals" in prompt
+    assert "biocatalytic_step" in prompt
+    assert "biocatalytic_superstep" in prompt
+    assert "whole_cell" in prompt
+    assert "hybrid" in prompt
+    assert "mechanism_extrapolation" in prompt
+    assert "replaced_step_ids" in prompt
+    assert "conventional fallback" in prompt
+    assert "specialized host validation" in prompt
+
+
+def test_director_prompt_does_not_expose_display_target_name(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+
+    initial = director_prompt(
+        context,
+        mode="initial_architecture",
+        config=DirectorConfig(),
+    )
+    replan = director_prompt(
+        context,
+        mode="event_replan",
+        config=DirectorConfig(enable_web_search=True),
+    )
+
+    assert "example target" not in initial
+    assert "example target" not in replan
+    assert context.target["canonical_smiles"] in initial
+    assert context.target["canonical_smiles"] in replan
+
+
+def test_director_long_route_profile_requests_explicit_uncompressed_steps(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    prompt = director_prompt(
+        context,
+        mode="initial_architecture",
+        config=DirectorConfig(max_steps_per_skeleton=24),
+    )
+
+    assert "long-route-capable proof run" in prompt
+    assert "include 20+ explicit steps when chemistry requires them" in prompt
+    assert "Do not compress a multistep chemical sequence" in prompt
+    assert "may share a target-forming edge" in prompt
+    assert "The host applies RDKit canonicalization" in prompt
+
+
+def test_director_enforces_configured_planning_depth_without_claiming_proof(
+    tmp_path: Path,
+) -> None:
+    context = _context(
+        _kernel(tmp_path),
+        material_events=("director_depth_deficit",),
+    )
+    config = DirectorConfig(
+        minimum_planning_route_steps=20,
+        max_steps_per_skeleton=24,
+    )
+
+    prompt = director_prompt(context, mode="event_replan", config=config)
+
+    assert "MUST itself contain at least 20 explicit single-reaction steps" in prompt
+    assert "cannot be split across a main skeleton" in prompt
+    assert "at least 20 unique step products" in prompt
+    assert "no precursor chain may point back to an ancestor" in prompt
+    assert "planning/display requirement, not proof" in prompt
+    assert "prior plan missed the configured 20-step planning depth" in prompt
+    assert "do not pad or fabricate steps" in prompt
+    with pytest.raises(ValueError, match="planning route depth"):
+        DirectorConfig(
+            minimum_planning_route_steps=20,
+            max_steps_per_skeleton=12,
+        )
+
+
+def test_director_safely_merges_unique_same_family_leaf_continuation(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    parent = raw["multi_step_skeletons"][0]
+    continuation_step = parent["steps"].pop()
+    raw["multi_step_skeletons"].append(
+        {
+            "skeleton_id": "skeleton:amide:continuation",
+            "route_family_id": "family:amide",
+            "summary": "split upstream continuation",
+            "steps": [continuation_step],
+        }
+    )
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+        config=DirectorConfig(max_steps_per_skeleton=12),
+    )
+
+    skeletons = {
+        row["skeleton_id"]: row for row in repaired.multi_step_skeletons
+    }
+    assert "skeleton:amide:continuation" not in skeletons
+    assert len(skeletons["skeleton:amide"]["steps"]) == 2
+    assert any(
+        row["reason"] == "unique_leaf_continuation_skeleton_merged"
+        and row["combined_step_count"] == 2
+        for row in repairs
+    )
+    assert validate_global_campaign_plan(
+        repaired,
+        context,
+        DirectorConfig(max_steps_per_skeleton=12),
+    )
+
+
+def test_director_does_not_merge_unrelated_or_over_depth_continuation(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    raw["multi_step_skeletons"].append(
+        {
+            "skeleton_id": "skeleton:unrelated-continuation",
+            "route_family_id": "family:amide",
+            "summary": "unrelated chemistry",
+            "steps": [
+                {
+                    "step_id": "proposal:unrelated",
+                    "product_smiles": "CCC",
+                    "precursor_smiles": ["CC", "C"],
+                    "transformation_hypothesis": "unrelated split",
+                    "required_validation": ["identity"],
+                    "hypothesis_only": True,
+                }
+            ],
+        }
+    )
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+        config=DirectorConfig(max_steps_per_skeleton=12),
+    )
+
+    assert any(
+        row["skeleton_id"] == "skeleton:unrelated-continuation"
+        for row in repaired.multi_step_skeletons
+    )
+    assert not any(
+        row["reason"] == "unique_leaf_continuation_skeleton_merged"
+        for row in repairs
+    )
+
+
+def test_director_topology_replan_requests_connected_alternative_skeletons(
+    tmp_path: Path,
+) -> None:
+    context = _context(
+        _kernel(tmp_path),
+        material_events=("director_topology_rejected",),
+    )
+
+    prompt = director_prompt(
+        context,
+        mode="event_replan",
+        config=DirectorConfig(max_steps_per_skeleton=24),
+    )
+
+    assert "A prior skeleton failed host topology" in prompt
+    assert "never append a disconnected backup chain" in prompt
 
 
 def test_proposal_dispositions_preserve_superseded_and_ignored_history(

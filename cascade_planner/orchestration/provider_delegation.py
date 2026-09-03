@@ -25,6 +25,33 @@ def complete_chemenzy_delegation(
     """
 
     priorities = [dict(value) for value in frontier_priorities]
+    if max(0, int(max_requests)) == 0:
+        repairs: list[dict[str, Any]] = []
+        for index, priority in enumerate(priorities):
+            providers = [
+                str(value).strip()
+                for value in priority.get("provider_preferences") or []
+                if str(value).strip()
+            ]
+            retained = [value for value in providers if value.casefold() != "chemenzy"]
+            if len(retained) == len(providers):
+                continue
+            priorities[index]["provider_preferences"] = retained
+            repairs.append(
+                {
+                    "schema_version": "global_campaign_contract_repair.v1",
+                    "field": "frontier_priorities.provider_delegation",
+                    "priority_id": str(priority.get("priority_id") or ""),
+                    "proposal_id": str(priority.get("proposal_id") or ""),
+                    "reason": "provider_delegation_disabled_by_execution_profile",
+                    "semantics": {
+                        "chemistry_unchanged": True,
+                        "host_priority_preserved": True,
+                        "provider_search_deferred_until_stock_rejected_leaf": True,
+                    },
+                }
+            )
+        return priorities, repairs
     candidates: dict[str, dict[str, Any]] = {}
     for skeleton in skeletons:
         family_id = str(skeleton.get("route_family_id") or "")
@@ -58,6 +85,62 @@ def complete_chemenzy_delegation(
             }
 
     repairs: list[dict[str, Any]] = []
+    for index, priority in enumerate(priorities):
+        providers = {
+            str(value).strip().lower()
+            for value in priority.get("provider_preferences") or []
+            if str(value).strip()
+        }
+        target = canonicalize(priority.get("target_smiles"))
+        if "chemenzy" not in providers:
+            continue
+        proposal_id = str(priority.get("proposal_id") or "")
+        candidate = candidates.get(proposal_id)
+        candidate_targets = {
+            str(value.get("canonical_product") or "") for value in candidates.values()
+        }
+        invalid_provider_target = not target or (
+            target != campaign_target and target not in candidate_targets
+        )
+        if candidate is not None and (target == campaign_target or invalid_provider_target):
+            priorities[index]["target_smiles"] = candidate["canonical_product"]
+            priorities[index]["route_family_ids"] = list(candidate["route_family_ids"])
+            reason = (
+                "campaign_target_provider_rebound_to_selected_non_root_candidate"
+                if target == campaign_target
+                else "invalid_provider_target_rebound_to_selected_non_root_candidate"
+            )
+            replacement = candidate["canonical_product"]
+        elif target == campaign_target or invalid_provider_target:
+            priorities[index]["provider_preferences"] = [
+                value
+                for value in priority.get("provider_preferences") or []
+                if str(value).strip().lower() != "chemenzy"
+            ]
+            reason = (
+                "campaign_target_provider_downgraded_to_host_priority"
+                if target == campaign_target
+                else "unbound_provider_target_downgraded_to_host_priority"
+            )
+            replacement = target
+        else:
+            continue
+        repairs.append(
+            {
+                "schema_version": "global_campaign_contract_repair.v1",
+                "field": "frontier_priorities.provider_delegation",
+                "priority_id": str(priority.get("priority_id") or ""),
+                "proposal_id": proposal_id,
+                "reason": reason,
+                "replacement_canonical_smiles": replacement,
+                "semantics": {
+                    "chemistry_unchanged": True,
+                    "host_priority_preserved": True,
+                    "campaign_target_not_delegated": candidate is None,
+                    "normal_validation_still_required": True,
+                },
+            }
+        )
     completed = sum(
         _is_complete_chemenzy_request(row, campaign_target, canonicalize)
         for row in priorities

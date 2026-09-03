@@ -24,8 +24,12 @@ This boundary is enforced by `RuntimePaths`, `ArtifactStore`, and `RunIndex`.
   chemistry, evidence, stock, or route-completion authority.
 - RunIndex accelerates queries. It can be deleted and rebuilt from immutable
   manifests without changing any scientific artifact.
-- Run compatibility files are mutable projections for old readers. Editing one
-  does not edit the CAS object it was materialized from.
+- Run compatibility files are mutable projections for old readers. Their
+  writer is legacy-only at
+  `cascade_planner.legacy.runtime.run_manifest_compatibility`; active
+  `runtime.run_storage` owns only immutable publication, index rebuild, and
+  storage statistics. Editing a compatibility file does not edit the CAS
+  object it was materialized from.
 - Resolver cache entries are namespaced by parser authority and service
   endpoints. Successful entries are reused; failed entries expire and can only
   cause conservative rejection.
@@ -45,11 +49,22 @@ legacy launchers retain compatibility temporarily and must be migrated in P7/P9.
 Credentials, source values, and key paths must not appear in metrics, prompts,
 run manifests, artifact metadata, logs, or exceptions.
 
+The external experiment HTTP bridge stores only the configured token variable
+name and an authentication-context digest. The Bearer value is read from that
+host environment variable immediately before a request, is redacted from
+provider status text, and is never written to RunKernel events, CAS objects,
+pointers, operation results, or provider envelopes.
+
 ## Retention and garbage collection
 
 - Run manifest pointers automatically pin their manifest object.
 - Scientific artifacts referenced by retained manifests must be supplied as
   explicit GC pins until transitive manifest pin discovery lands.
+- Explicit Program admission indexes its historical graph and projection refs
+  with `shadow_program_admission_*` authority scopes.  This pins their bytes
+  for GC but grants no proof, route, or completion authority; the immutable
+  run-local admission event remains the replay binding.  GC also replays these
+  events directly, so recreating an empty RunIndex cannot orphan Program refs.
 - GC is a dry run by default and reports candidate digests, ages, and bytes.
 - Deletion requires explicit confirmation and revalidates every candidate
   digest immediately before removing it.

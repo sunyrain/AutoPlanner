@@ -16,12 +16,37 @@ from typing import Any, Iterable, Mapping
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.application.condition_predictions import (
+    CONDITION_PREDICTION_RESULT_SCHEMA,
+    normalize_condition_predictions,
+)
+from cascade_planner.application.chemical_strategy_critic import (
+    critique_strategy_candidate,
+)
+from cascade_planner.application.biocatalytic_step_contract import (
+    normalize_biocatalytic_step,
+)
+from cascade_planner.application.reaction_condition_records import (
+    audit_condition_completeness,
+    build_source_procedure_record,
+    normalize_source_conditions,
+)
 from cascade_planner.application.worker_runtime import (
     WorkerArtifactReader,
     WorkerBudget,
     WorkerCommand,
     WorkerHandlerSpec,
     WorkerRuntimeError,
+)
+from cascade_planner.application.route_innovations import (
+    merge_route_innovations,
+    normalize_route_innovation,
+)
+from cascade_planner.application.strategy_contract import (
+    normalize_reaction_operations,
+    normalize_strategy_card,
+    reaction_edit_digest,
+    strategy_card_has_content,
 )
 from cascade_planner.harness.reaction_step_verifier import verify_reaction_step
 from cascade_planner.application.reaction_proof_versions import (
@@ -65,21 +90,25 @@ _SOURCE_KINDS = {
     "codex_claim",
 }
 _CONDITION_KEYS = (
+    "addition_order",
+    "atmosphere",
+    "base",
+    "catalyst",
+    "concentration",
+    "equivalents",
+    "oxidant",
+    "pressure",
+    "purification",
+    "reductant",
+    "reagents",
+    "scale",
+    "solvent",
     "temperature",
     "temperature_c",
-    "solvent",
-    "reagents",
-    "catalyst",
     "time",
     "yield",
     "yield_percent",
-    "atmosphere",
-    "pressure",
-    "concentration",
-    "addition_order",
     "workup",
-    "purification",
-    "scale",
 )
 _TRUSTED_EXTRACTION_PRODUCERS = {
     "deterministic_structure_parser",
@@ -104,6 +133,12 @@ def build_retrosynthesis_worker_handlers() -> dict[str, WorkerHandlerSpec]:
             f"{WORKER_SET_VERSION}+{CURRENT_REACTION_VALIDATOR_VERSION}",
             "validation",
             validate_reaction_worker,
+        ),
+        WorkerHandlerSpec(
+            "record_condition_predictions",
+            WORKER_SET_VERSION,
+            "other",
+            record_condition_predictions_worker,
         ),
         WorkerHandlerSpec(
             "discover_sources",
@@ -154,6 +189,11 @@ def materialization_commands_for_global_plan(
     executed once while retaining every global-plan provenance reference.
     """
     grouped: dict[str, dict[str, Any]] = {}
+    family_details = {
+        str(value.get("route_family_id") or ""): dict(value)
+        for value in plan.get("route_families") or []
+        if isinstance(value, Mapping)
+    }
     for skeleton in plan.get("multi_step_skeletons") or []:
         if not isinstance(skeleton, Mapping):
             continue
@@ -164,24 +204,61 @@ def materialization_commands_for_global_plan(
                 continue
             product = str(step.get("product_smiles") or "").strip()
             precursors = _string_list(step.get("precursor_smiles"))
+            operations = normalize_reaction_operations(
+                step.get("reaction_operations") or ()
+            )
+            family = family_details.get(route_family_id, {})
+            # The route-family card is the frozen policy authority.  A step
+            # may carry a copied card for provenance, but it must not silently
+            # replace the family identity. ReactionJSON edits are edge-level
+            # provenance and are carried separately in ``reaction_edit_digest``.
+            source_card = family.get("strategy_card") or step.get("strategy_card") or {}
+            strategy_card = normalize_strategy_card(
+                source_card,
+                route_family_id=route_family_id,
+            )
+            strategy_ref = strategy_card if strategy_card_has_content(strategy_card) else {}
             identity = _digest(
                 {
                     "product_smiles": product,
                     "precursor_smiles_multiset": sorted(precursors),
+                    "reaction_edit_digest": reaction_edit_digest(operations),
                 }
             )
-            grouped.setdefault(
+            payload = grouped.setdefault(
                 identity,
                 {
                     "product_smiles": product,
                     "precursor_smiles": precursors,
                     "reagent_smiles": _string_list(step.get("reagent_smiles")),
+                    "condition_predictions": [],
+                    "biocatalytic_steps": [],
+                    "reaction_operations": [dict(value) for value in operations],
+                    "reactionjson_audit": dict(step.get("reactionjson_audit") or {}),
+                    "strategy_cards": [],
                     "existing_edge_digests": sorted(
                         {str(value) for value in existing_edge_digests if str(value)}
                     ),
                     "proposal_refs": [],
                 },
-            )["proposal_refs"].append(
+            )
+            payload["condition_predictions"] = _merge_annotation_rows(
+                payload.get("condition_predictions"),
+                step.get("condition_predictions"),
+            )
+            if isinstance(step.get("biocatalytic_step"), Mapping) and step.get(
+                "biocatalytic_step"
+            ):
+                payload["biocatalytic_steps"] = _merge_digest_rows(
+                    payload.get("biocatalytic_steps"),
+                    [step.get("biocatalytic_step")],
+                )
+            if strategy_card_has_content(strategy_card):
+                payload["strategy_cards"] = _merge_strategy_cards(
+                    payload.get("strategy_cards"),
+                    [strategy_card],
+                )
+            payload["proposal_refs"].append(
                 {
                     "origin_kind": "codex_global_director",
                     "route_family_id": route_family_id,
@@ -189,6 +266,15 @@ def materialization_commands_for_global_plan(
                     "step_id": str(step.get("step_id") or ""),
                     "transformation_hypothesis": str(
                         step.get("transformation_hypothesis") or ""
+                    ),
+                    "strategy_id": str(strategy_ref.get("strategy_id") or ""),
+                    "strategy_digest": str(
+                        strategy_ref.get("strategy_digest") or ""
+                    ),
+                    "reaction_edit_digest": reaction_edit_digest(operations),
+                    "strategy_anchor": step.get("strategy_anchor") is True,
+                    "execution_domain": str(
+                        step.get("execution_domain") or "chemical"
                     ),
                 }
             )
@@ -205,15 +291,84 @@ def materialization_commands_for_global_plan(
         work_identity = _digest(
             {"edge_identity": identity, "proposal_refs": payload["proposal_refs"]}
         )
+        command_identity = _digest(
+            {
+                "work_identity": work_identity,
+                "input_revision": int(input_revision),
+                "dependency_revisions": dict(dependency_revisions or {}),
+            }
+        )
         commands.append(
             WorkerCommand(
-                command_id=f"materialize:{work_identity[:24]}",
+                command_id=f"materialize:{command_identity[:24]}",
                 run_id=run_id,
                 worker_type="materialize_candidate",
                 input_revision=int(input_revision),
-                idempotency_key=f"materialize:{work_identity}",
+                idempotency_key=f"materialize:{command_identity}",
                 payload=payload,
                 budget=WorkerBudget(task_kind="proposal"),
+                dependency_revisions=dict(dependency_revisions or {}),
+            )
+        )
+    return tuple(commands)
+
+
+def condition_prediction_commands_for_edges(
+    predictions: Iterable[Mapping[str, Any]],
+    *,
+    run_id: str,
+    input_revision: int,
+    dependency_revisions: Mapping[str, str | int] | None = None,
+    maximum_candidates: int = 2,
+) -> tuple[WorkerCommand, ...]:
+    """Bind raw predictor output to canonical edge digests for replayable ingestion."""
+
+    commands: list[WorkerCommand] = []
+    for value in predictions:
+        if not isinstance(value, Mapping):
+            continue
+        row = dict(value)
+        edge_digest = str(row.get("edge_digest") or "").strip()
+        reaction_smiles = str(row.get("reaction_smiles") or "").strip()
+        if not edge_digest or ">>" not in reaction_smiles:
+            continue
+        identity = _digest(
+            {
+                "edge_digest": edge_digest,
+                "reaction_smiles": reaction_smiles,
+                "raw_predictions": row.get("raw_predictions") or [],
+                "prediction_error": str(row.get("prediction_error") or ""),
+                "condition_model": str(row.get("condition_model") or ""),
+                "input_revision": int(input_revision),
+                "dependency_revisions": {
+                    str(key): value
+                    for key, value in sorted(
+                        dict(dependency_revisions or {}).items()
+                    )
+                },
+            }
+        )
+        commands.append(
+            WorkerCommand(
+                command_id=f"conditions:{identity[:24]}",
+                run_id=run_id,
+                worker_type="record_condition_predictions",
+                input_revision=int(input_revision),
+                idempotency_key=f"conditions:{identity}",
+                payload={
+                    "edge_digest": edge_digest,
+                    "reaction_smiles": reaction_smiles,
+                    "raw_predictions": row.get("raw_predictions") or [],
+                    "prediction_error": str(row.get("prediction_error") or ""),
+                    "condition_model": str(row.get("condition_model") or ""),
+                    "prediction_producer": str(
+                        row.get("prediction_producer") or "condition_enrichment"
+                    ),
+                    "maximum_candidates": max(
+                        1, min(2, int(maximum_candidates or 2))
+                    ),
+                },
+                budget=WorkerBudget(task_kind="other", uses_model=False),
                 dependency_revisions=dict(dependency_revisions or {}),
             )
         )
@@ -241,10 +396,45 @@ def materialization_commands_for_proposals(
         precursors = _string_list(
             row.get("precursor_smiles") or row.get("reactant_smiles")
         )
+        operations = normalize_reaction_operations(
+            row.get("reaction_operations") or ()
+        )
+        # Preserve the frozen policy identity from the canonical graph. The
+        # per-edge ReactionJSON edit remains in the payload and proposal refs.
+        raw_strategy_cards = [
+            dict(value)
+            for value in row.get("strategy_cards") or []
+            if isinstance(value, Mapping)
+        ]
+        if not raw_strategy_cards and isinstance(row.get("strategy_card"), Mapping):
+            raw_strategy_cards = [dict(row.get("strategy_card") or {})]
+        strategy_cards = _merge_strategy_cards(
+            (),
+            [
+                normalize_strategy_card(
+                    value,
+                    route_family_id=str(row.get("route_family_id") or ""),
+                )
+                for value in raw_strategy_cards
+            ],
+        )
+        scalar_strategy_card = normalize_strategy_card(
+            row.get("strategy_card") or {},
+            route_family_id=str(row.get("route_family_id") or ""),
+        )
+        strategy_card = (
+            scalar_strategy_card
+            if strategy_card_has_content(scalar_strategy_card)
+            else strategy_cards[0]
+            if strategy_cards
+            else {}
+        )
+        strategy_ref = strategy_card if strategy_card_has_content(strategy_card) else {}
         identity = _digest(
             {
                 "product_smiles": product,
                 "precursor_smiles_multiset": sorted(precursors),
+                "reaction_edit_digest": reaction_edit_digest(operations),
             }
         )
         candidate_audit = audit_retrosynthetic_candidate(product, precursors)
@@ -257,6 +447,12 @@ def materialization_commands_for_proposals(
                 "precursor_smiles": precursors,
                 "reagent_smiles": _string_list(row.get("reagent_smiles")),
                 "condition_predictions": [],
+                "biocatalytic_steps": [],
+                "route_innovations": [],
+                "reaction_operations": [dict(value) for value in operations],
+                "reactionjson_audit": dict(row.get("reactionjson_audit") or {}),
+                "strategy_cards": [],
+                "route_innovation_reject_reasons": [],
                 "existing_edge_digests": existing,
                 "ancestor_smiles": sorted(
                     {
@@ -284,16 +480,91 @@ def materialization_commands_for_proposals(
                     row.get("proposal_id") or row.get("step_id") or ""
                 ),
                 "route_family_id": str(row.get("route_family_id") or ""),
+                "canonical_route_family_ids": sorted(
+                    {
+                        str(value)
+                        for value in row.get("canonical_route_family_ids") or []
+                        if str(value)
+                    }
+                    | (
+                        {str(row.get("canonical_route_family_id"))}
+                        if row.get("canonical_route_family_id")
+                        else set()
+                    )
+                ),
                 "skeleton_id": str(row.get("skeleton_id") or ""),
                 "transformation_hypothesis": str(
                     row.get("transformation_hypothesis") or ""
                 ),
+                "strategy_id": str(strategy_ref.get("strategy_id") or ""),
+                "strategy_digest": str(strategy_ref.get("strategy_digest") or ""),
+                "reaction_edit_digest": reaction_edit_digest(operations),
+                "strategy_anchor": row.get("strategy_anchor") is True,
+                "execution_domain": str(
+                    row.get("execution_domain") or "chemical"
+                ),
+                "provider_reaction_metadata": (
+                    dict(row.get("provider_reaction_metadata") or {})
+                    if isinstance(row.get("provider_reaction_metadata"), Mapping)
+                    else {}
+                ),
             }
+        )
+        if strategy_cards:
+            payload["strategy_cards"] = _merge_strategy_cards(
+                payload.get("strategy_cards"),
+                strategy_cards,
+            )
+        raw_innovations = [
+            dict(value)
+            for value in row.get("route_innovations") or []
+            if isinstance(value, Mapping)
+        ]
+        singular_innovation = row.get("route_innovation") or row.get("innovation")
+        if not raw_innovations and isinstance(singular_innovation, Mapping):
+            raw_innovations = [dict(singular_innovation)]
+        elif not raw_innovations and (
+            row.get("innovation_kind") or row.get("proposal_basis")
+        ):
+            raw_innovations = [row]
+        normalized_innovations: list[dict[str, Any]] = []
+        for raw_innovation in raw_innovations:
+            normalized, innovation_reasons = normalize_route_innovation(
+                {
+                    **row,
+                    "route_innovation": raw_innovation,
+                }
+            )
+            if innovation_reasons:
+                payload["route_innovation_reject_reasons"].extend(
+                    innovation_reasons
+                )
+            elif normalized:
+                normalized_innovations.append(normalized)
+        payload["route_innovations"] = merge_route_innovations(
+            payload.get("route_innovations"),
+            normalized_innovations,
         )
         payload["condition_predictions"] = _merge_annotation_rows(
             payload.get("condition_predictions"),
             row.get("condition_predictions"),
         )
+        raw_biocatalytic_steps = [
+            dict(value)
+            for value in row.get("biocatalytic_steps") or []
+            if isinstance(value, Mapping) and value
+        ]
+        if (
+            not raw_biocatalytic_steps
+            and isinstance(row.get("biocatalytic_step"), Mapping)
+            and row.get("biocatalytic_step")
+        ):
+            raw_biocatalytic_steps = [dict(row.get("biocatalytic_step") or {})]
+        if raw_biocatalytic_steps:
+            payload["biocatalytic_steps"] = _merge_digest_rows(
+                payload.get("biocatalytic_steps"),
+                raw_biocatalytic_steps,
+            )
     commands: list[WorkerCommand] = []
     for identity, payload in sorted(grouped.items()):
         payload["proposal_refs"] = sorted(
@@ -307,13 +578,20 @@ def materialization_commands_for_proposals(
         work_identity = _digest(
             {"edge_identity": identity, "proposal_refs": payload["proposal_refs"]}
         )
+        command_identity = _digest(
+            {
+                "work_identity": work_identity,
+                "input_revision": int(input_revision),
+                "dependency_revisions": dict(dependency_revisions or {}),
+            }
+        )
         commands.append(
             WorkerCommand(
-                command_id=f"materialize:{work_identity[:24]}",
+                command_id=f"materialize:{command_identity[:24]}",
                 run_id=run_id,
                 worker_type="materialize_candidate",
                 input_revision=int(input_revision),
-                idempotency_key=f"materialize:{work_identity}",
+                idempotency_key=f"materialize:{command_identity}",
                 payload=payload,
                 budget=WorkerBudget(task_kind="proposal"),
                 dependency_revisions=dict(dependency_revisions or {}),
@@ -374,14 +652,40 @@ def materialize_candidate_worker(
     precursors = _string_list(
         payload.get("precursor_smiles") or payload.get("reactant_smiles")
     )
+    mapped_reaction_smiles = next(
+        (
+            str(
+                dict(proposal_ref.get("provider_reaction_metadata") or {}).get(
+                    "mapped_reaction_smiles"
+                )
+                or ""
+            )
+            for proposal_ref in payload.get("proposal_refs") or []
+            if isinstance(proposal_ref, Mapping)
+            and str(
+                dict(proposal_ref.get("provider_reaction_metadata") or {}).get(
+                    "mapped_reaction_smiles"
+                )
+                or ""
+            )
+        ),
+        "",
+    )
     audit = audit_retrosynthetic_candidate(
         product,
         precursors,
         forbidden_return_smiles=_string_list(
             payload.get("ancestor_smiles") or payload.get("forbidden_return_smiles")
         ),
+        mapped_reaction_smiles=mapped_reaction_smiles,
+        mapped_product_smiles=dict(payload.get("reactionjson_audit") or {}).get(
+            "mapped_product_smiles"
+        ),
+        reaction_operations=payload.get("reaction_operations") or (),
+        reactionjson_audit=dict(payload.get("reactionjson_audit") or {}),
     )
     reasons = list(audit.get("reasons") or [])
+    reasons.extend(payload.get("route_innovation_reject_reasons") or [])
     edge_digest = str(audit.get("edge_digest") or "")
     existing = {
         str(value)
@@ -390,6 +694,91 @@ def materialize_candidate_worker(
     }
     if edge_digest in existing:
         reasons.append("duplicate_reaction_edge")
+
+    strategy_cards = [
+        card
+        for value in payload.get("strategy_cards") or []
+        if isinstance(value, Mapping)
+        for card in (normalize_strategy_card(value),)
+        if strategy_card_has_content(card)
+    ]
+    if not strategy_cards and isinstance(payload.get("strategy_card"), Mapping):
+        strategy_cards = [
+            normalize_strategy_card(
+                payload.get("strategy_card") or {},
+            )
+        ]
+    biocatalytic_steps: list[dict[str, Any]] = []
+    for raw_step in payload.get("biocatalytic_steps") or []:
+        if not isinstance(raw_step, Mapping):
+            continue
+        raw_record = dict(raw_step)
+        catalyst = dict(raw_record.get("catalyst_hypothesis") or {})
+        normalized_step, _design_reasons = normalize_biocatalytic_step(
+            raw_record,
+            execution_domain=str(
+                raw_record.get("execution_domain") or "enzymatic"
+            ),
+            product_smiles=product,
+            precursor_smiles=precursors,
+            enzyme_label=str(catalyst.get("enzyme_label") or ""),
+            step_id=str(raw_record.get("step_id") or ""),
+        )
+        if normalized_step:
+            biocatalytic_steps.append(normalized_step)
+    biocatalytic_steps = _merge_digest_rows((), biocatalytic_steps)
+    critic = critique_strategy_candidate(
+        product_smiles=product,
+        precursor_smiles=precursors,
+        strategy_card=strategy_cards[0] if strategy_cards else {},
+        reaction_operations=payload.get("reaction_operations") or (),
+        reactionjson_audit=dict(payload.get("reactionjson_audit") or {}),
+        reaction_family=" | ".join(
+            str(value.get("transformation_hypothesis") or "")
+            for value in payload.get("proposal_refs") or []
+            if isinstance(value, Mapping)
+        ),
+        conditions=[
+            item
+            for prediction in payload.get("condition_predictions") or []
+            if isinstance(prediction, Mapping)
+            for item in prediction.get("reagents") or []
+        ],
+        catalyst=" | ".join(
+            str(value.get("catalyst") or "")
+            for value in payload.get("condition_predictions") or []
+            if isinstance(value, Mapping)
+        ),
+        enzyme=" | ".join(
+            str(value.get("enzyme") or "")
+            for value in payload.get("condition_predictions") or []
+            if isinstance(value, Mapping)
+        ),
+        is_strategy_defining_step=any(
+            value.get("strategy_anchor") is True
+            for value in payload.get("proposal_refs") or []
+            if isinstance(value, Mapping)
+        ),
+    )
+    proposal_refs = [
+        dict(value)
+        for value in payload.get("proposal_refs") or []
+        if isinstance(value, Mapping)
+    ]
+    provider_template_topology = bool(
+        not payload.get("reaction_operations")
+        and any(
+            str(value.get("origin_kind") or "")
+            in {"aizynthfinder", "chemenzy"}
+            for value in proposal_refs
+        )
+    )
+    critic_is_admission_authority = bool(
+        any(strategy_card_has_content(card) for card in strategy_cards)
+        or payload.get("reaction_operations")
+    ) and not provider_template_topology
+    if critic_is_admission_authority:
+        reasons.extend(critic.get("blocking_reasons") or [])
 
     canonical_reagents: list[str] = []
     raw_reagents = _string_list(payload.get("reagent_smiles"))
@@ -413,6 +802,27 @@ def materialize_candidate_worker(
         "condition_predictions": _merge_annotation_rows(
             (), payload.get("condition_predictions")
         ),
+        "biocatalytic_steps": biocatalytic_steps,
+        "route_innovations": merge_route_innovations(
+            (), payload.get("route_innovations") or []
+        ),
+        "strategy_cards": strategy_cards,
+        "reaction_operations": [
+            dict(value)
+            for value in payload.get("reaction_operations") or []
+            if isinstance(value, Mapping)
+        ],
+        "reaction_edit_digest": reaction_edit_digest(
+            payload.get("reaction_operations") or ()
+        ),
+        "reactionjson_audit": dict(payload.get("reactionjson_audit") or {}),
+        "mapped_reaction_smiles": mapped_reaction_smiles,
+        "chemical_strategy_critic": critic,
+        "admission_semantics": {
+            "provider_template_topology": provider_template_topology,
+            "reaction_credibility_reported_separately": provider_template_topology,
+            "critic_is_admission_authority": critic_is_admission_authority,
+        },
         "reaction_smiles": (
             ".".join(audit.get("precursor_smiles_multiset") or [])
             + ">>"
@@ -425,11 +835,7 @@ def materialize_candidate_worker(
         "authority_scope": "search_admission_only",
         "accepted": accepted,
         "reasons": reasons,
-        "proposal_refs": [
-            dict(value)
-            for value in payload.get("proposal_refs") or []
-            if isinstance(value, Mapping)
-        ],
+        "proposal_refs": proposal_refs,
     }
     return {
         "status": "completed" if accepted else "rejected",
@@ -438,6 +844,59 @@ def materialize_candidate_worker(
         # One accepted hyperedge is one accepted expansion regardless of its
         # precursor count.  Rejected work reports no expansion ids.
         "accepted_expansion_ids": [edge_digest] if accepted else [],
+    }
+
+
+def record_condition_predictions_worker(
+    command: WorkerCommand,
+    artifacts: WorkerArtifactReader,
+) -> dict[str, Any]:
+    """Normalize advisory conditions while stripping any spoofed authority."""
+
+    del artifacts
+    payload = dict(command.payload)
+    edge_digest = str(payload.get("edge_digest") or "")
+    reaction_smiles = str(payload.get("reaction_smiles") or "")
+    maximum = max(1, min(2, int(payload.get("maximum_candidates") or 2)))
+    predictions = normalize_condition_predictions(
+        payload.get("raw_predictions"),
+        max_candidates=maximum,
+        default_model=str(payload.get("condition_model") or ""),
+        producer=str(payload.get("prediction_producer") or "condition_enrichment"),
+    )
+    error = str(payload.get("prediction_error") or "")
+    reasons: list[str] = []
+    if error:
+        reasons.append("condition_predictor_failed")
+    if not predictions:
+        reasons.append("condition_prediction_empty")
+    result_payload = {
+        "schema_version": CONDITION_PREDICTION_RESULT_SCHEMA,
+        "edge_digest": edge_digest,
+        "reaction_smiles": reaction_smiles,
+        "condition_predictions": predictions,
+        "diagnostics": {
+            "attempted": True,
+            "returned_candidate_count": len(predictions),
+            "maximum_candidates": maximum,
+            "condition_model": str(payload.get("condition_model") or ""),
+            "prediction_producer": str(
+                payload.get("prediction_producer") or "condition_enrichment"
+            ),
+            "failure_reasons": sorted(set(reasons)),
+            "error": error[:1_000],
+        },
+        "semantics": {
+            "prediction_is_not_reaction_proof": True,
+            "prediction_is_not_source_evidence": True,
+            "source_procedure_supersedes_prediction": True,
+        },
+    }
+    return {
+        "status": "completed" if predictions else "partial",
+        "payload": result_payload,
+        "failure_reasons": sorted(set(reasons)),
+        "material_events": ["condition_predictions_added"] if predictions else [],
     }
 
 
@@ -450,6 +909,29 @@ def _merge_annotation_rows(existing: Any, incoming: Any) -> list[dict[str, Any]]
         row.setdefault("authority_scope", "model_predicted_condition")
         row.setdefault("not_reaction_proof", True)
         rows[_digest(row)] = row
+    return [rows[key] for key in sorted(rows)]
+
+
+def _merge_digest_rows(existing: Any, incoming: Any) -> list[dict[str, Any]]:
+    """Merge canonical structured annotations without rewriting authority."""
+
+    rows: dict[str, dict[str, Any]] = {}
+    for value in [*(existing or []), *(incoming or [])]:
+        if not isinstance(value, Mapping):
+            continue
+        row = dict(value)
+        key = str(row.get("content_sha256") or _digest(row))
+        rows[key] = row
+    return [rows[key] for key in sorted(rows)]
+
+
+def _merge_strategy_cards(existing: Any, incoming: Any) -> list[dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for value in [*(existing or []), *(incoming or [])]:
+        if not isinstance(value, Mapping):
+            continue
+        card = normalize_strategy_card(value)
+        rows[str(card["strategy_digest"])] = card
     return [rows[key] for key in sorted(rows)]
 
 
@@ -489,24 +971,70 @@ def validate_reaction_worker(
         ),
         "condition_candidate": dict(payload.get("condition_candidate") or {}),
         "evidence_bindings": list(payload.get("evidence_bindings") or []),
+        "reaction_operations": [
+            dict(value)
+            for value in candidate.get("reaction_operations") or []
+            if isinstance(value, Mapping)
+        ],
+        "reactionjson_audit": dict(candidate.get("reactionjson_audit") or {}),
+        "biocatalytic_steps": [
+            dict(value)
+            for value in candidate.get("biocatalytic_steps") or []
+            if isinstance(value, Mapping)
+        ],
     }
     exact_source_records = [
         dict(row)
         for row in payload.get("exact_source_records") or []
         if isinstance(row, Mapping)
     ]
-    proof = verify_reaction_step(
-        step,
-        graph_and_stock_closed=payload.get("graph_and_stock_closed") is True,
-        trusted_precedent_binding=dict(payload.get("trusted_precedent_binding") or {}),
-        procurement_binding=dict(payload.get("procurement_binding") or {}),
-        trusted_stock_providers=dict(payload.get("trusted_stock_providers") or {}),
-        source_supported_multicentre=_exact_records_support_edge(
-            exact_source_records,
-            str(candidate.get("edge_digest") or ""),
-        ),
-        exact_source_records=exact_source_records,
+    source_procedure_records = [
+        dict(row)
+        for row in payload.get("source_procedure_records") or []
+        if isinstance(row, Mapping)
+    ]
+    source_bindings = [
+        dict(row)
+        for row in payload.get("source_bindings") or []
+        if isinstance(row, Mapping)
+    ]
+    proof = dict(
+        verify_reaction_step(
+            step,
+            graph_and_stock_closed=payload.get("graph_and_stock_closed") is True,
+            trusted_precedent_binding=dict(
+                payload.get("trusted_precedent_binding") or {}
+            ),
+            procurement_binding=dict(payload.get("procurement_binding") or {}),
+            trusted_stock_providers=dict(
+                payload.get("trusted_stock_providers") or {}
+            ),
+            source_supported_multicentre=_exact_records_support_edge(
+                exact_source_records,
+                str(candidate.get("edge_digest") or ""),
+            ),
+            exact_source_records=exact_source_records,
+            source_procedure_records=source_procedure_records,
+            source_bindings=source_bindings,
+        )
     )
+    proof["exact_record_ids"] = sorted(
+        str(row.get("record_id") or "")
+        for row in exact_source_records
+        if str(row.get("record_id") or "")
+    )
+    proof["procedure_record_ids"] = sorted(
+        str(row.get("procedure_record_id") or "")
+        for row in source_procedure_records
+        if str(row.get("procedure_record_id") or "")
+    )
+    proof["source_binding_ids"] = sorted(
+        str(row.get("binding_id") or "")
+        for row in source_bindings
+        if str(row.get("binding_id") or "")
+    )
+    proof.pop("proof_digest", None)
+    proof["proof_digest"] = _digest(proof)
     validated = proof.get("accepted") is True
     state = proof_state(
         structural_materialized=True,
@@ -777,6 +1305,7 @@ def extract_exact_source_worker(
                 "schema_version": "exact_source_extraction_result.v1",
                 "source_binding": binding,
                 "exact_records": [],
+                "procedure_records": [],
                 "rejected_rows": [],
                 "conflicts": [],
             },
@@ -809,6 +1338,7 @@ def extract_exact_source_worker(
         }
 
     accepted: list[dict[str, Any]] = []
+    accepted_procedures: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     for index, raw in enumerate(extraction_row.get("rows") or []):
         if not isinstance(raw, Mapping):
@@ -827,8 +1357,14 @@ def extract_exact_source_worker(
                     row.get("location_ref"),
                     row.get("example"),
                     row.get("page"),
-                    *(row.get("evidence_refs") or []),
                 )
+                if str(value or "").strip()
+            }
+        )
+        evidence_refs = sorted(
+            {
+                str(value).strip()
+                for value in row.get("evidence_refs") or []
                 if str(value or "").strip()
             }
         )
@@ -840,13 +1376,14 @@ def extract_exact_source_worker(
         if reasons:
             rejected.append({"row_index": index, "reasons": sorted(set(reasons))})
             continue
-        conditions = _normalized_conditions(
+        conditions = normalize_source_conditions(
             row.get("condition_candidate") or row.get("conditions") or {}
         )
         identity = {
             "binding_id": binding["binding_id"],
             "edge_digest": audit["edge_digest"],
             "location_refs": location_refs,
+            "evidence_refs": evidence_refs,
             "conditions": conditions,
         }
         exact_record = {
@@ -872,11 +1409,11 @@ def extract_exact_source_worker(
             "route_family_id": str(row.get("route_family_id") or ""),
             "independence_group": binding["independence_group"],
             "location_refs": location_refs,
+            "evidence_refs": evidence_refs,
             "conditions": conditions,
-            "condition_completeness": _condition_completeness(conditions),
-            "procedure_authority_scope": (
-                "source_exact_reaction_procedure" if conditions else ""
-            ),
+            "condition_completeness": audit_condition_completeness(conditions),
+            "procedure_authority_scope": "",
+            "procedure_record_ids": [],
             "relation_type": "exact",
             "provenance": binding["provenance"],
             "extraction_artifact_sha256": extraction_sha256,
@@ -891,7 +1428,22 @@ def extract_exact_source_worker(
             ),
             "authority_scope": "source_exact_structure_observation",
             "not_reaction_validation": True,
+            "semantics": {
+                "conditions_are_compatibility_projection_only": True,
+                "procedure_authority_requires_separate_hash_bound_record": True,
+            },
         }
+        procedure_record = build_source_procedure_record(
+            exact_record=exact_record,
+            extraction_row=row,
+            source_binding=binding,
+            extraction_artifact_sha256=extraction_sha256,
+        )
+        if procedure_record:
+            exact_record["procedure_record_ids"] = [
+                procedure_record["procedure_record_id"]
+            ]
+            accepted_procedures.append(procedure_record)
         exact_record["content_sha256"] = _digest(exact_record)
         accepted.append(exact_record)
 
@@ -924,6 +1476,8 @@ def extract_exact_source_worker(
     material_events = []
     if accepted:
         material_events.extend(["exact_rows_added", "material_evidence_added"])
+    if accepted_procedures:
+        material_events.append("source_procedure_records_added")
     if conflicts:
         material_events.append("source_conflict_added")
     existing_edge_digests = {
@@ -954,6 +1508,7 @@ def extract_exact_source_worker(
             "schema_version": "exact_source_extraction_result.v1",
             "source_binding": binding,
             "exact_records": accepted,
+            "procedure_records": accepted_procedures,
             "rejected_rows": rejected,
             "conflicts": conflicts,
         },
@@ -1263,9 +1818,15 @@ def audit_benchmark_leaf_stock_worker(
     except ValueError as exc:
         return {"status": "rejected", "payload": {}, "failure_reasons": [str(exc)]}
     max_age_days = _finite_nonnegative(payload.get("max_age_days"), default=30.0)
+    immutable_catalog = (
+        dict(catalog.get("source") or {}).get("immutable_content_addressed") is True
+    )
     if as_of < retrieved_at:
         reasons.append("benchmark_catalog_from_future")
-    elif (as_of - retrieved_at).total_seconds() / 86_400.0 > max_age_days:
+    elif (
+        not immutable_catalog
+        and (as_of - retrieved_at).total_seconds() / 86_400.0 > max_age_days
+    ):
         reasons.append("benchmark_catalog_stale")
     adapter_version = str(catalog.get("adapter_version") or "")
     catalog_version = str(catalog.get("catalog_version") or "")
@@ -1281,10 +1842,20 @@ def audit_benchmark_leaf_stock_worker(
         row = dict(raw)
         canonical = _canonical_smiles(row.get("canonical_smiles"))
         response_sha256 = str(row.get("response_sha256") or "").lower()
+        membership_proof_sha256 = str(
+            row.get("membership_proof_sha256") or ""
+        ).lower()
+        vendor_record_valid = (
+            int(row.get("vendor_count") or 0) > 0
+            and bool(re.fullmatch(r"[0-9a-f]{64}", response_sha256))
+        )
+        frozen_membership_valid = (
+            row.get("membership_verified") is True
+            and bool(re.fullmatch(r"[0-9a-f]{64}", membership_proof_sha256))
+        )
         if (
             not canonical
-            or int(row.get("vendor_count") or 0) <= 0
-            or not re.fullmatch(r"[0-9a-f]{64}", response_sha256)
+            or not (vendor_record_valid or frozen_membership_valid)
         ):
             reasons.append(f"benchmark_catalog_member_invalid:{index}")
             continue
@@ -1322,6 +1893,12 @@ def audit_benchmark_leaf_stock_worker(
                     "cid": int(member.get("cid") or 0),
                     "vendor_count": int(member.get("vendor_count") or 0),
                     "response_sha256": str(member.get("response_sha256") or ""),
+                    "membership_verified": (
+                        member.get("membership_verified") is True
+                    ),
+                    "membership_proof_sha256": str(
+                        member.get("membership_proof_sha256") or ""
+                    ),
                     "artifact_hash_verified": True,
                     "commercial_orderability_claimed": False,
                 },
@@ -1340,7 +1917,11 @@ def audit_benchmark_leaf_stock_worker(
             accepted=accepted,
             payload=boundary.to_dict(),
             reasons=boundary.reasons,
-            source_refs=(str(member.get("source_url") or ""),) if member else (),
+            source_refs=(
+                str(member.get("source_url") or member.get("catalog_uri") or ""),
+            )
+            if member
+            else (),
         ).to_dict()
         audit = {
             "schema_version": DEEP_LEAF_AUDIT_SCHEMA,
@@ -1356,6 +1937,7 @@ def audit_benchmark_leaf_stock_worker(
             "reasons": [] if accepted else list(boundary.reasons),
             "semantics": {
                 "benchmark_membership_only": True,
+                "immutable_content_addressed_catalog": immutable_catalog,
                 "commercial_orderability_claimed": False,
                 "every_selected_leaf_has_a_record": True,
             },
@@ -1450,45 +2032,6 @@ def _conflict(
     }
     row["content_sha256"] = _digest(row)
     return row
-
-
-def _normalized_conditions(value: Any) -> dict[str, Any]:
-    row = dict(value) if isinstance(value, Mapping) else {}
-    return {
-        key: _json_value(row[key])
-        for key in sorted(row)
-        if key in _CONDITION_KEYS and row[key] not in (None, "", [])
-    }
-
-
-def _condition_completeness(conditions: Mapping[str, Any]) -> dict[str, Any]:
-    """Audit whether source-located conditions are operationally complete."""
-
-    present = {
-        str(key)
-        for key, value in dict(conditions).items()
-        if value not in (None, "", [])
-    }
-    required_groups = {
-        "agents": {"reagents", "catalyst"},
-        "solvent": {"solvent"},
-        "temperature": {"temperature", "temperature_c"},
-        "time": {"time"},
-    }
-    missing = sorted(
-        name
-        for name, alternatives in required_groups.items()
-        if not (present & alternatives)
-    )
-    return {
-        "schema_version": "reaction_condition_completeness.v1",
-        "complete": not missing,
-        "missing_required_groups": missing,
-        "present_fields": sorted(present),
-        "yield_reported": bool(present & {"yield", "yield_percent"}),
-        "workup_reported": "workup" in present,
-        "purification_reported": "purification" in present,
-    }
 
 
 def _condition_value(value: Any) -> str:

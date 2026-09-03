@@ -8,9 +8,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from cascade_planner.eval.native_route_pool_contract import (
+    product_audit_delta,
+    ranked_product_metrics,
+    read_json_rows,
+    routes_for_target,
+    summarize_product_audit,
+)
 from cascade_planner.eval.product_route_feasibility_audit import build_product_route_feasibility_audit
-from cascade_planner.eval.rerank_native_routes_with_v4_value import _read_rows, _routes_for_target
-from cascade_planner.eval.rerank_native_routes_with_product_audit import _audit_delta, _audit_summary, _ranked_product_metrics
 
 
 TRIAGE_CLASSES = {"triage_semisynthesis", "triage_late_stage", "triage_fragment"}
@@ -26,7 +31,7 @@ def select_safe_union_routes(
 ) -> dict[str, Any]:
     native_payload = json.loads(native_run.read_text(encoding="utf-8"))
     union_payload = json.loads(union_run.read_text(encoding="utf-8"))
-    benchmark_rows = _read_rows(benchmark) if benchmark else None
+    benchmark_rows = read_json_rows(benchmark) if benchmark else None
 
     native_audit = build_product_route_feasibility_audit(native_payload, benchmark_rows=benchmark_rows)
     union_audit = build_product_route_feasibility_audit(union_payload, benchmark_rows=benchmark_rows)
@@ -41,12 +46,12 @@ def select_safe_union_routes(
         native_audit_target = (native_audit.get("targets") or [{}])[ordinal] if ordinal < len(native_audit.get("targets") or []) else {}
         union_audit_target = union_audit_index.get(target_key)
         if union_target is None or union_audit_target is None:
-            selected = _with_routes(native_target, _routes_for_target(native_target))
+            selected = _with_routes(native_target, routes_for_target(native_target))
             decision = {"target_key": target_key, "selected": "native", "reason": "union_missing"}
         else:
             keep_union, reason = _keep_union(native_audit_target, union_audit_target)
             selected_source = union_target if keep_union else native_target
-            selected = _with_routes(selected_source, _routes_for_target(selected_source))
+            selected = _with_routes(selected_source, routes_for_target(selected_source))
             decision = {"target_key": target_key, "selected": "union" if keep_union else "native", "reason": reason}
         selected_targets.append(selected)
         decisions.append(decision)
@@ -62,7 +67,7 @@ def select_safe_union_routes(
         },
         "summary": {
             "targets": len(selected_targets),
-            "total_routes": sum(len(_routes_for_target(target)) for target in selected_targets),
+            "total_routes": sum(len(routes_for_target(target)) for target in selected_targets),
             "selected_union_targets": sum(1 for row in decisions if row["selected"] == "union"),
             "selected_native_targets": sum(1 for row in decisions if row["selected"] == "native"),
         },
@@ -82,13 +87,13 @@ def select_safe_union_routes(
             "benchmark": str(benchmark) if benchmark else None,
         },
         "summary": selected_payload["summary"],
-        "native_audit_summary": _audit_summary(native_audit),
-        "union_audit_summary": _audit_summary(union_audit),
-        "selected_audit_summary": _audit_summary(selected_audit),
-        "native_ranked_product_metrics": _ranked_product_metrics(native_audit),
-        "union_ranked_product_metrics": _ranked_product_metrics(union_audit),
-        "selected_ranked_product_metrics": _ranked_product_metrics(selected_audit),
-        "delta_selected_minus_native": _audit_delta(native_audit, selected_audit),
+        "native_audit_summary": summarize_product_audit(native_audit),
+        "union_audit_summary": summarize_product_audit(union_audit),
+        "selected_audit_summary": summarize_product_audit(selected_audit),
+        "native_ranked_product_metrics": ranked_product_metrics(native_audit),
+        "union_ranked_product_metrics": ranked_product_metrics(union_audit),
+        "selected_ranked_product_metrics": ranked_product_metrics(selected_audit),
+        "delta_selected_minus_native": product_audit_delta(native_audit, selected_audit),
         "decision_counts": dict(Counter(row["selected"] for row in decisions)),
         "reason_counts": dict(Counter(row["reason"] for row in decisions)),
         "decisions": decisions,

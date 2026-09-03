@@ -5,18 +5,19 @@ This module validates a deliberately tiny manifest and audits the tracked
 repository before a benchmark starts.  It has no route-generation behavior and
 therefore cannot grant chemistry or acceptance authority.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
 import json
-from pathlib import Path
 import re
 import subprocess
-from typing import Any, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 from rdkit import Chem, RDLogger
-
 
 RDLogger.DisableLog("rdApp.*")
 BLIND_CASE_SCHEMA = "blind_retrosynthesis_case.v1"
@@ -39,6 +40,7 @@ _ACCEPTANCE_FIELDS = frozenset(
         "minimum_complete_routes",
         "minimum_edge_proof_level",
         "minimum_independent_source_groups",
+        "minimum_planning_route_steps",
         "stock_boundary",
     }
 )
@@ -50,6 +52,10 @@ _BUDGET_FIELDS = frozenset(
         "max_total_wall_time_s",
         "max_accepted_expansions",
         "max_attempt_runs",
+        "max_native_search_invocations",
+        "min_target_native_search_invocations",
+        "max_frontier_native_search_invocations",
+        "allow_frontier_native_search_borrowing",
         "max_prompt_context_bytes",
     }
 )
@@ -124,15 +130,24 @@ class BlindCase:
         boundary = str(self.acceptance.get("stock_boundary") or "")
         if boundary and boundary not in _BOUNDARIES:
             raise BlindBenchmarkError("blind_stock_boundary_invalid")
+        planning_depth = self.acceptance.get("minimum_planning_route_steps", 0)
+        if (
+            isinstance(planning_depth, bool)
+            or not isinstance(planning_depth, int)
+            or not 0 <= planning_depth <= 24
+        ):
+            raise BlindBenchmarkError("blind_minimum_planning_route_steps_invalid")
         if _forbidden_paths(self.to_dict()):
             raise BlindBenchmarkError("blind_case_contains_forbidden_route_material")
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> "BlindCase":
+    def from_dict(cls, value: Mapping[str, Any]) -> BlindCase:
         row = dict(value)
         unknown = sorted(set(row) - _CASE_FIELDS)
         if unknown:
-            raise BlindBenchmarkError("blind_case_fields_forbidden:" + ",".join(unknown))
+            raise BlindBenchmarkError(
+                "blind_case_fields_forbidden:" + ",".join(unknown)
+            )
         return cls(
             case_id=str(row.get("case_id") or ""),
             target_name=str(row.get("target_name") or ""),
@@ -163,7 +178,9 @@ def load_blind_manifest(path: str | Path) -> tuple[BlindCase, ...]:
         raise BlindBenchmarkError("blind_manifest_not_object")
     unknown = sorted(set(value) - {"schema_version", "cases"})
     if unknown:
-        raise BlindBenchmarkError("blind_manifest_fields_forbidden:" + ",".join(unknown))
+        raise BlindBenchmarkError(
+            "blind_manifest_fields_forbidden:" + ",".join(unknown)
+        )
     if value.get("schema_version") != BLIND_MANIFEST_SCHEMA:
         raise BlindBenchmarkError("blind_manifest_schema_invalid")
     raw_cases = value.get("cases")
@@ -189,6 +206,8 @@ def audit_blind_preflight(
     run_dir: str | Path,
     manifest_path: str | Path | None = None,
     additional_allowed_paths: Iterable[str | Path] = (),
+    additional_leakage_needles: Mapping[str, Iterable[str]] | None = None,
+    target_synonym_not_applicable_reason: str = "",
 ) -> dict[str, Any]:
     """Prove target absence in the tracked tree and require a fresh run path."""
 
@@ -199,22 +218,40 @@ def audit_blind_preflight(
         reasons.append("repository_root_missing")
     if destination.exists() and any(destination.iterdir()):
         reasons.append("blind_run_directory_not_fresh")
-    allowed = {
-        Path(value).resolve()
-        for value in additional_allowed_paths
-    }
+    prior_allowed = {Path(value).resolve() for value in additional_allowed_paths}
+    known_target_reproduction = _known_target_reproduction_authorized(
+        case,
+        prior_allowed,
+    )
+    allowed = set(prior_allowed)
     if manifest_path is not None:
         allowed.add(Path(manifest_path).resolve())
-    needles = {"target_smiles": case.target_smiles}
+    target_molecule = Chem.MolFromSmiles(case.target_smiles)
+    target_inchikey = Chem.MolToInchiKey(target_molecule) if target_molecule else ""
+    needles = {
+        "target_smiles": case.target_smiles,
+        "target_inchikey": target_inchikey,
+    }
     target_name = case.target_name.strip()
-    if target_name.casefold() not in {
-        "blind target",
-        "blind molecule",
-        "opaque target",
-        "target",
-        "unknown target",
-    }:
+    if not _opaque_target_identity(target_name):
         needles["target_name"] = target_name
+    extra_needles: dict[str, list[str]] = {}
+    for kind, values in dict(additional_leakage_needles or {}).items():
+        if kind not in {
+            "target_synonym",
+            "key_intermediate_smiles",
+            "key_intermediate_inchikey",
+        }:
+            raise BlindBenchmarkError(f"blind_leakage_needle_kind_invalid:{kind}")
+        extra_needles[kind] = sorted(
+            {str(value).strip() for value in values if len(str(value).strip()) >= 5}
+        )
+    synonym_not_applicable = str(target_synonym_not_applicable_reason or "").strip()
+    if synonym_not_applicable and len(synonym_not_applicable) < 8:
+        raise BlindBenchmarkError("blind_synonym_not_applicable_reason_invalid")
+    opaque_identity = _opaque_target_identity(target_name)
+    if synonym_not_applicable and not opaque_identity:
+        reasons.append("target_synonym_audit_not_applicable_for_named_target")
     matches: list[dict[str, Any]] = []
     if root.is_dir():
         for path in _tracked_files(root):
@@ -228,21 +265,45 @@ def audit_blind_preflight(
             except (OSError, UnicodeDecodeError):
                 continue
             lowered = text.casefold()
-            for kind, needle in needles.items():
+            scan_values = [
+                *needles.items(),
+                *(
+                    (kind, needle)
+                    for kind, values in extra_needles.items()
+                    for needle in values
+                ),
+            ]
+            for kind, needle in scan_values:
                 if len(needle) < 5:
                     continue
-                haystack = text if kind == "target_smiles" else lowered
-                query = needle if kind == "target_smiles" else needle.casefold()
+                if kind.startswith("key_intermediate") and _inventory_only_path(
+                    path, root=root
+                ):
+                    continue
+                exact_text = kind in {"target_smiles", "key_intermediate_smiles"}
+                haystack = text if exact_text else lowered
+                query = needle if exact_text else needle.casefold()
                 if query in haystack:
                     matches.append(
                         {
                             "kind": kind,
+                            "needle_sha256": hashlib.sha256(
+                                needle.encode("utf-8")
+                            ).hexdigest(),
                             "path": path.relative_to(root).as_posix(),
                             "content_sha256": _file_digest(path),
                         }
                     )
     if matches:
-        reasons.append("target_material_already_present_in_repository")
+        if any(
+            str(row.get("kind") or "").startswith("key_intermediate") for row in matches
+        ):
+            reasons.append("evaluator_answer_material_already_present_in_repository")
+        if any(
+            not str(row.get("kind") or "").startswith("key_intermediate")
+            for row in matches
+        ) and not known_target_reproduction:
+            reasons.append("target_material_already_present_in_repository")
     payload = {
         "schema_version": BLIND_PREFLIGHT_SCHEMA,
         "case": case.to_dict(),
@@ -250,7 +311,14 @@ def audit_blind_preflight(
         "run_dir": str(destination),
         "fresh_run_directory": "blind_run_directory_not_fresh" not in reasons,
         "repository_absence_attested": not matches and root.is_dir(),
-        "repository_matches": sorted(matches, key=lambda row: (row["path"], row["kind"])),
+        "known_target_reproduction_authorized": known_target_reproduction,
+        "repository_matches": sorted(
+            matches, key=lambda row: (row["path"], row["kind"])
+        ),
+        "additional_leakage_needle_counts": {
+            kind: len(values) for kind, values in sorted(extra_needles.items())
+        },
+        "target_synonym_not_applicable_reason": synonym_not_applicable,
         "forbidden_input_fields": _forbidden_paths(case.to_dict()),
         "accepted": not reasons,
         "reasons": sorted(set(reasons)),
@@ -258,7 +326,19 @@ def audit_blind_preflight(
             "target_only_input": True,
             "old_run_cache_forbidden": True,
             "absence_is_checked_before_model_work": True,
+            "target_name_smiles_and_inchikey_checked": True,
+            "synonym_and_intermediate_needles_require_an_evaluator_only_pack": True,
+            "target_synonym_needles_checked": bool(extra_needles.get("target_synonym"))
+            or bool(synonym_not_applicable),
+            "target_synonym_audit_not_applicable": bool(synonym_not_applicable),
+            "key_intermediate_needles_checked": bool(
+                extra_needles.get("key_intermediate_smiles")
+                or extra_needles.get("key_intermediate_inchikey")
+            ),
+            "additional_needle_values_are_not_emitted": True,
+            "inventory_membership_is_not_route_answer_knowledge": True,
             "preflight_grants_no_chemistry_authority": True,
+            "known_target_reproduction_does_not_attest_repository_absence": True,
         },
     }
     payload["content_sha256"] = _digest(payload)
@@ -272,6 +352,59 @@ def canonical_smiles(value: Any) -> str:
     return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 
+def _opaque_target_identity(value: str) -> bool:
+    normalized = str(value or "").strip().casefold()
+    return normalized in {
+        "blind target",
+        "blind molecule",
+        "opaque target",
+        "target",
+        "unknown target",
+    } or any(
+        normalized.startswith(prefix)
+        for prefix in (
+            "opaque benchmark target ",
+            "opaque benchmark molecule ",
+            "opaque target ",
+        )
+    )
+
+
+def _known_target_reproduction_authorized(
+    case: BlindCase,
+    prior_paths: Iterable[Path],
+) -> bool:
+    """Recognize a validated prior target manifest, never a route artifact."""
+
+    target = canonical_smiles(case.target_smiles)
+    for path in prior_paths:
+        try:
+            prior_cases = load_blind_manifest(path)
+        except (BlindBenchmarkError, OSError, ValueError):
+            continue
+        if any(canonical_smiles(row.target_smiles) == target for row in prior_cases):
+            return True
+    return False
+
+
+def _inventory_only_path(path: Path, *, root: Path) -> bool:
+    """Stock membership alone does not reveal an intermediate's route role."""
+
+    try:
+        parts = tuple(value.casefold() for value in path.relative_to(root).parts)
+    except ValueError:
+        parts = tuple(value.casefold() for value in path.parts)
+    pairs = set(zip(parts, parts[1:], strict=False))
+    return bool(
+        pairs
+        & {
+            ("data", "stock"),
+            ("data", "inventory"),
+            ("data", "inventories"),
+        }
+    )
+
+
 def _validate_options(
     values: Mapping[str, Any],
     allowed: frozenset[str],
@@ -281,7 +414,9 @@ def _validate_options(
         raise BlindBenchmarkError(f"blind_{label}_not_object")
     unknown = sorted(set(values) - allowed)
     if unknown:
-        raise BlindBenchmarkError(f"blind_{label}_fields_forbidden:" + ",".join(unknown))
+        raise BlindBenchmarkError(
+            f"blind_{label}_fields_forbidden:" + ",".join(unknown)
+        )
 
 
 def _forbidden_paths(value: Any, *, path: str = "$") -> list[str]:

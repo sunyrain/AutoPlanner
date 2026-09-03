@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from cascade_planner.harness.route_forest_layout import canonical_sha256
+from cascade_planner.runtime.canonical_json import canonical_json_sha256
 
 
 def frontier_ledger(
@@ -19,6 +19,12 @@ def frontier_ledger(
             continue
         stock_closed = node.get("stock_closed") is True
         observation_id = str(node.get("stock_observation_id") or "")
+        authority_scope = str(node.get("stock_authority_scope") or "")
+        procurement_authority = authority_scope in {
+            "procurement_offer_verified",
+            "procurement_stock_observation",
+            "in_house_stock_observation",
+        }
         current = molecules_by_smiles.setdefault(
             smiles,
             {
@@ -39,7 +45,9 @@ def frontier_ledger(
         if stock_closed and observation_id:
             current["stock"].update(
                 {
-                    "host_replay_verified": True,
+                    "host_replay_verified": (
+                        node.get("stock_observation_accepted") is True
+                    ),
                     "current_observation_ids": sorted(
                         {*current["stock"]["current_observation_ids"], observation_id}
                     ),
@@ -47,7 +55,7 @@ def frontier_ledger(
                         {*current["stock"]["closure_job_ids"], f"stock:{molecule_id}"}
                     ),
                     "benchmark_search_boundary_closed": True,
-                    "procurement_boundary_closed": True,
+                    "procurement_boundary_closed": procurement_authority,
                 }
             )
     edges_by_signature: dict[str, dict[str, Any]] = {}
@@ -76,6 +84,9 @@ def frontier_ledger(
         if isinstance(value, Mapping)
     ]
     complete_routes = [route for route in routes if route.get("complete") is True]
+    procurement_routes = [
+        route for route in routes if route.get("procurement_closed") is True
+    ]
     edges = [
         dict(value)
         for value in dict(source.get("edges") or {}).values()
@@ -90,6 +101,21 @@ def frontier_ledger(
         molecule_id
         for molecule_id in reachable_leaves
         if dict(nodes_by_id.get(molecule_id) or {}).get("stock_closed") is True
+    }
+    procurement_closed_leaves = {
+        molecule_id
+        for molecule_id in stock_closed_leaves
+        if str(
+            dict(nodes_by_id.get(molecule_id) or {}).get(
+                "stock_authority_scope"
+            )
+            or ""
+        )
+        in {
+            "procurement_offer_verified",
+            "procurement_stock_observation",
+            "in_house_stock_observation",
+        }
     }
     accepted = dict(source.get("portfolio") or {}).get("accepted") is True
     ledger = {
@@ -106,7 +132,15 @@ def frontier_ledger(
             "selected_routes": len(routes),
             "complete_routes": len(complete_routes),
             "l0_break_suggestion_edges": sum(
-                int(edge.get("proof_level") or 0) < 2 for edge in edges
+                int(edge.get("proof_level") or 0) == 0 for edge in edges
+            ),
+            "l1_source_reported_edges": sum(
+                int(edge.get("proof_level") or 0) == 1
+                and "paper_si" in set(edge.get("source_kinds") or [])
+                for edge in edges
+            ),
+            "l1_materialized_edges": sum(
+                int(edge.get("proof_level") or 0) == 1 for edge in edges
             ),
             "expanded_work_molecules": len(nodes_by_id),
             "reachable_molecules": len(nodes_by_id),
@@ -118,17 +152,19 @@ def frontier_ledger(
             ),
             "stock_closed_leaves": len(stock_closed_leaves),
             "reachable_leaves": len(reachable_leaves),
-            "benchmark_only_stock_leaves": 0,
-            "procurement_boundary_leaves": len(stock_closed_leaves),
+            "benchmark_only_stock_leaves": len(
+                stock_closed_leaves - procurement_closed_leaves
+            ),
+            "procurement_boundary_leaves": len(procurement_closed_leaves),
             "l4_procurement_edges": 0,
         },
         "closure": {
             "any_benchmark_route_closed": bool(complete_routes),
             "all_explored_benchmark_closed": bool(routes)
             and len(complete_routes) == len(routes),
-            "any_procurement_route_closed": bool(complete_routes),
+            "any_procurement_route_closed": bool(procurement_routes),
             "all_explored_procurement_closed": bool(routes)
-            and len(complete_routes) == len(routes),
+            and len(procurement_routes) == len(routes),
             "l3_parent_solved": accepted,
             "l4_procurement_ready": accepted,
         },
@@ -137,7 +173,7 @@ def frontier_ledger(
             "aggregate_counts_never_authorize_stage_membership": True,
         },
     }
-    ledger["content_sha256"] = canonical_sha256(ledger)
+    ledger["content_sha256"] = canonical_json_sha256(ledger)
     return ledger
 
 
@@ -151,7 +187,7 @@ def selected_route_proof(source: Mapping[str, Any]) -> dict[str, Any]:
     route_rows = [
         {
             "route_id": str(route.get("route_id") or ""),
-            "edge_set_sha256": canonical_sha256(
+            "edge_set_sha256": canonical_json_sha256(
                 sorted(str(value) for value in route.get("edge_ids") or [])
             ),
             "selected_hyperedge_ids": [
@@ -159,7 +195,7 @@ def selected_route_proof(source: Mapping[str, Any]) -> dict[str, Any]:
             ],
             "weakest_edge_proof_level": int(route.get("proof_level") or 0),
             "benchmark_closed": True,
-            "procurement_ready": True,
+            "procurement_ready": route.get("process_ready") is True,
         }
         for route in routes
     ]
@@ -169,11 +205,15 @@ def selected_route_proof(source: Mapping[str, Any]) -> dict[str, Any]:
         "accepted": accepted,
         "benchmark_solved": accepted,
         "procurement_ready": accepted,
-        "any_procurement_route_ready": bool(routes),
+        "any_procurement_route_ready": any(
+            row["procurement_ready"] is True for row in route_rows
+        ),
         "minimum_complete_routes": max(1, len(routes)),
         "distinct_complete_route_count": len(routes),
         "benchmark_route_count": len(routes),
-        "procurement_route_count": len(routes),
+        "procurement_route_count": sum(
+            row["procurement_ready"] is True for row in route_rows
+        ),
         "routes": route_rows,
         "reasons": [] if accepted else ["canonical_v4_portfolio_not_accepted"],
         "semantics": {

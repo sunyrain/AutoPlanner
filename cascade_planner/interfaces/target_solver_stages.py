@@ -10,6 +10,14 @@ from typing import Any, Callable, Iterable, Mapping
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalIngestionBatch,
 )
+from cascade_planner.application.canonical_identity import hypothesis_identity
+from cascade_planner.application.condition_predictions import (
+    edge_has_complete_source_procedure,
+    edge_has_usable_condition_prediction,
+    normalize_condition_predictions,
+    predict_conditions_many,
+    reaction_smiles_for_edge,
+)
 from cascade_planner.application.proof_policy import (
     stock_boundary_matches,
 )
@@ -26,19 +34,47 @@ from cascade_planner.application.reaction_mapping import (
     ReactionMappingError,
     map_reactions_locally,
 )
-from cascade_planner.application.worker_runtime import WorkerBudget, WorkerCommand
+from cascade_planner.application.worker_runtime import (
+    WorkerBudget,
+    WorkerCommand,
+    WorkerResult,
+)
 from cascade_planner.application.retrosynthesis_workers import (
+    condition_prediction_commands_for_edges,
     materialization_commands_for_proposals,
 )
-from cascade_planner.interfaces.live_stock import build_pubchem_vendor_catalog
+from cascade_planner.application.unified_campaign_spec import (
+    stock_oracle_reference_from_builder,
+)
+from cascade_planner.cascadeboard.route_recovery import canonical_smiles
+from cascade_planner.interfaces.live_stock import standard_stock_catalog_builder
 from cascade_planner.orchestration.retrosynthesis_service import (
     RetrosynthesisCampaignService,
 )
-from cascade_planner.source_locators import canonical_traceable_source_ref
+from cascade_planner.source_locators import (
+    traceable_source_refs_in_text,
+)
 
 
 StockCatalogBuilder = Callable[..., Mapping[str, Any]]
 InventorySnapshotBuilder = Callable[..., Mapping[str, Any]]
+
+
+def _assert_stock_oracle_builder_binding(
+    service: RetrosynthesisCampaignService,
+    *,
+    builder: Any,
+    boundary: str,
+) -> None:
+    campaign_spec = service.kernel.spec.campaign_spec
+    if campaign_spec is None:
+        return
+    expected = campaign_spec.stock_oracle
+    if expected.binding.get("kind") == "compatibility_unbound":
+        return
+    observed = stock_oracle_reference_from_builder(builder, boundary=boundary)
+    if expected.to_dict()["content_sha256"] != observed.to_dict()["content_sha256"]:
+        raise ValueError("stock_oracle_runtime_binding_mismatch")
 
 
 def _stable_digest(value: Any) -> str:
@@ -53,18 +89,217 @@ def _stable_digest(value: Any) -> str:
     ).hexdigest()
 
 
-def validate_materialized_edges(
+def enrich_materialized_edge_conditions(
+    service: RetrosynthesisCampaignService,
+    *,
+    predictor: Any | None,
+    enabled: bool = True,
+    max_reactions: int = 48,
+    top_k: int = 2,
+    condition_model: str = "rcr",
+    edge_ids: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Fill advisory condition gaps on every canonical materialized edge.
+
+    The scan is intentionally producer-independent.  Exact, complete source
+    procedures suppress prediction; model suggestions never suppress evidence
+    retrieval or raise reaction proof.
+    """
+
+    graph = service.graph_store.load()
+    selected_edge_ids = {
+        str(value) for value in edge_ids if str(value).strip()
+    }
+    pending = [
+        dict(edge)
+        for _, edge in sorted(dict(graph.get("edges") or {}).items())
+        if isinstance(edge, Mapping)
+        and (
+            not selected_edge_ids
+            or str(edge.get("edge_id") or "") in selected_edge_ids
+        )
+        and edge.get("status") == "materialized"
+        and not edge_has_complete_source_procedure(graph, edge)
+        and not edge_has_usable_condition_prediction(edge)
+    ]
+    limit = max(1, int(max_reactions or 1))
+    selected = pending[:limit]
+    base = {
+        "stage": "condition_enrichment",
+        "pending_edge_count": len(pending),
+        "selected_edge_count": len(selected),
+        "truncated": len(pending) > len(selected),
+        "top_k": max(1, min(2, int(top_k or 2))),
+        "condition_model": str(condition_model or "rcr"),
+        "producer_independent": True,
+        "semantics": {
+            "all_materialized_edge_producers_share_this_stage": True,
+            "source_complete_procedure_supersedes_prediction": True,
+            "prediction_is_not_reaction_proof": True,
+            "prediction_is_not_source_evidence": True,
+        },
+    }
+    if not enabled:
+        return {**base, "status": "skipped", "reason": "condition_enrichment_disabled"}
+    if not selected:
+        return {**base, "status": "reused_or_empty", "reason": "no_condition_gaps"}
+    if predictor is None:
+        return {
+            **base,
+            "status": "unavailable",
+            "reason": "condition_predictor_not_available",
+        }
+    reactions_by_edge = {
+        str(edge.get("edge_id") or ""): reaction_smiles_for_edge(edge)
+        for edge in selected
+    }
+    raw_by_reaction, errors_by_reaction = predict_conditions_many(
+        predictor,
+        reactions_by_edge.values(),
+        top_k=base["top_k"],
+    )
+    prediction_rows = []
+    for edge in selected:
+        edge_id = str(edge.get("edge_id") or "")
+        reaction = reactions_by_edge.get(edge_id, "")
+        prediction_rows.append(
+            {
+                "edge_digest": str(edge.get("edge_digest") or ""),
+                "reaction_smiles": reaction,
+                "raw_predictions": normalize_condition_predictions(
+                    raw_by_reaction.get(reaction),
+                    max_candidates=base["top_k"],
+                    default_model=base["condition_model"],
+                    producer="canonical_condition_enrichment",
+                ),
+                "prediction_error": errors_by_reaction.get(reaction) or "",
+                "condition_model": base["condition_model"],
+                "prediction_producer": "canonical_condition_enrichment",
+            }
+        )
+    actionable_rows = [
+        row for row in prediction_rows if row.get("raw_predictions")
+    ]
+    if not actionable_rows:
+        failed_ids = sorted(
+            str(edge.get("edge_id") or "") for edge in selected
+        )
+        return {
+            **base,
+            "status": "partial",
+            "reason": "condition_prediction_empty",
+            "condition_command_count": 0,
+            "enriched_edge_count": 0,
+            "failed_edge_count": len(failed_ids),
+            "enriched_edge_ids": [],
+            "failed_edge_ids": failed_ids,
+            "prediction_errors": {
+                edge_id: errors_by_reaction[reaction]
+                for edge_id, reaction in sorted(reactions_by_edge.items())
+                if reaction in errors_by_reaction
+            },
+            "execution": {
+                "status": "not_executed",
+                "reason": "empty_predictions_do_not_mutate_canonical_graph",
+                "changed": False,
+            },
+            "semantics": {
+                **base["semantics"],
+                "failed_prediction_is_recorded_by_action_outcome": True,
+                "empty_prediction_does_not_advance_graph_revision": True,
+            },
+        }
+    revision = service.kernel.revision
+    commands = condition_prediction_commands_for_edges(
+        actionable_rows,
+        run_id=service.kernel.spec.run_id,
+        input_revision=revision.graph_revision,
+        dependency_revisions={
+            "graph_revision": revision.graph_revision,
+            "evidence_revision": revision.evidence_revision,
+        },
+        maximum_candidates=base["top_k"],
+    )
+    execution = service.execute_commands(
+        commands,
+        idempotency_key=f"solve-target:conditions:{revision.graph_revision}",
+        include_scheduled=False,
+    )
+    updated = service.graph_store.load()
+    enriched_ids = sorted(
+        str(edge.get("edge_id") or "")
+        for edge in selected
+        if edge_has_usable_condition_prediction(
+            dict(
+                dict(updated.get("edges") or {}).get(
+                    str(edge.get("edge_id") or "")
+                )
+                or {}
+            )
+        )
+    )
+    failed_ids = sorted(
+        str(edge.get("edge_id") or "")
+        for edge in selected
+        if str(edge.get("edge_id") or "") not in set(enriched_ids)
+    )
+    return {
+        **base,
+        "status": "completed" if not failed_ids else "partial",
+        "condition_command_count": len(commands),
+        "enriched_edge_count": len(enriched_ids),
+        "failed_edge_count": len(failed_ids),
+        "enriched_edge_ids": enriched_ids,
+        "failed_edge_ids": failed_ids,
+        "prediction_errors": {
+            edge_id: errors_by_reaction[reaction]
+            for edge_id, reaction in sorted(reactions_by_edge.items())
+            if reaction in errors_by_reaction
+        },
+        "execution": execution,
+    }
+
+
+PREPARED_MATERIALIZED_EDGE_VALIDATION_SCHEMA = (
+    "prepared_materialized_edge_validation.v1"
+)
+
+
+def prepare_materialized_edge_validation(
     service: RetrosynthesisCampaignService,
     *,
     atom_mapper: ReactionMapper | None = None,
     max_reactions: int = 48,
+    edge_ids: Iterable[str] = (),
+    revalidate_edge_ids: Iterable[str] = (),
 ) -> dict[str, Any]:
+    """Execute validation workers against one frozen graph without publishing it."""
+
     graph = service.graph_store.load()
-    pending = [
-        dict(edge)
-        for edge in graph["edges"].values()
-        if not active_reaction_proofs(edge.get("reaction_proofs") or [])
-    ]
+    selected_edge_ids = {
+        str(value) for value in edge_ids if str(value).strip()
+    }
+    forced_edge_ids = {
+        str(value) for value in revalidate_edge_ids if str(value).strip()
+    }
+    requested_edge_ids = selected_edge_ids | forced_edge_ids
+    pending = sorted(
+        [
+            dict(edge)
+            for edge in graph["edges"].values()
+            if (
+                (
+                    not requested_edge_ids
+                    or str(edge.get("edge_id") or "") in requested_edge_ids
+                )
+                and (
+                    not active_reaction_proofs(edge.get("reaction_proofs") or [])
+                    or str(edge.get("edge_id") or "") in forced_edge_ids
+                )
+            )
+        ],
+        key=lambda edge: str(edge.get("edge_id") or ""),
+    )
     reactions = {
         str(edge["edge_id"]): (
             ".".join(str(value) for value in edge.get("precursor_smiles") or [])
@@ -107,11 +342,30 @@ def validate_materialized_edges(
         if not mapped_reaction:
             continue
         edge = edge_by_id[edge_id]
-        exact_records = [
-            graph["exact_records"][record_id]
+        exact_record_ids = sorted(
+            str(record_id)
             for record_id in edge.get("exact_record_ids") or []
             if record_id in graph["exact_records"]
+        )
+        exact_records = [
+            graph["exact_records"][record_id]
+            for record_id in exact_record_ids
         ]
+        procedure_records = [
+            graph["procedure_records"][record_id]
+            for record_id in sorted(
+                str(value) for value in edge.get("procedure_record_ids") or []
+            )
+            if record_id in graph["procedure_records"]
+        ]
+        source_bindings = [
+            graph["source_bindings"][binding_id]
+            for binding_id in sorted(
+                str(value) for value in edge.get("source_binding_ids") or []
+            )
+            if binding_id in graph["source_bindings"]
+        ]
+        exact_record_digest = _stable_digest(exact_record_ids)[:16]
         commands.append(
             _command(
                 service,
@@ -123,29 +377,150 @@ def validate_materialized_edges(
                         "edge_digest": edge["edge_digest"],
                         "product_smiles": edge["product_smiles"],
                         "precursor_smiles": edge["precursor_smiles"],
+                        "reaction_operations": [
+                            dict(value)
+                            for value in edge.get("reaction_operations") or []
+                            if isinstance(value, Mapping)
+                        ],
+                        "reactionjson_audit": dict(
+                            edge.get("reactionjson_audit") or {}
+                        ),
+                        "biocatalytic_steps": [
+                            dict(value)
+                            for value in edge.get("biocatalytic_steps") or []
+                            if isinstance(value, Mapping)
+                        ],
                     },
                     "mapped_reaction_smiles": mapped_reaction,
                     "exact_source_records": exact_records,
+                    "source_procedure_records": procedure_records,
+                    "source_bindings": source_bindings,
                     "validator_version": CURRENT_REACTION_VALIDATOR_VERSION,
                 },
                 task_kind="validation",
                 suffix=(
                     f"{str(edge['edge_digest'])[:24]}:"
-                    f"{CURRENT_REACTION_VALIDATOR_VERSION.rsplit('.', 1)[-1]}"
+                    f"{CURRENT_REACTION_VALIDATOR_VERSION.rsplit('.', 1)[-1]}:"
+                    f"{exact_record_digest}"
                 ),
             )
         )
-    execution = (
-        service.execute_commands(
-            commands,
+    service.terminalize_global_budget_if_reached(
+        idempotency_key=(
+            "solve-target:validation:prepare-budget:"
+            f"{int(graph.get('revision') or 0)}"
+        )
+    )
+    results: list[WorkerResult] = []
+    material_events: set[str] = set()
+    stopped_reasons: list[str] = []
+    skipped_command_count = 0
+    if service.kernel.state.status == "budget_exhausted":
+        skipped_command_count = len(commands)
+        stopped_reasons.extend(service.kernel.state.failure_reasons)
+    else:
+        for command in commands:
+            batch = service.workers.execute_pipeline(command)
+            results.extend(batch.results)
+            material_events.update(batch.material_events)
+    prepared = {
+        "schema_version": PREPARED_MATERIALIZED_EDGE_VALIDATION_SCHEMA,
+        "status": (
+            "budget_exhausted"
+            if service.kernel.state.status == "budget_exhausted"
+            else "prepared"
+        ),
+        "input_graph_revision": int(graph.get("revision") or 0),
+        "input_evidence_revision": int(service.kernel.state.evidence_revision),
+        "input_scientific_sha256": str(graph.get("scientific_sha256") or ""),
+        "forced_edge_ids": sorted(forced_edge_ids),
+        "edge_rows": {
+            edge_id: dict(edge_by_id[edge_id]) for edge_id in sorted(edge_by_id)
+        },
+        "reactions_by_edge": {
+            edge_id: reactions[edge_id] for edge_id in sorted(reactions)
+        },
+        "mapping": mapping,
+        "commands": [command.to_dict() for command in commands],
+        "worker_results": [result.to_dict() for result in results],
+        "material_events": sorted(material_events),
+        "skipped_command_count": skipped_command_count,
+        "stopped_reasons": sorted(set(stopped_reasons)),
+        "semantics": {
+            "graph_input_is_frozen": True,
+            "worker_execution_grants_no_canonical_authority": True,
+            "canonical_publication_is_deferred_to_stable_action_order": True,
+        },
+    }
+    prepared["content_sha256"] = _stable_digest(prepared)
+    return prepared
+
+
+def commit_materialized_edge_validation(
+    service: RetrosynthesisCampaignService,
+    prepared: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Publish prepared validation receipts and summarize the canonical result."""
+
+    prepared_row = dict(prepared)
+    supplied_sha256 = str(prepared_row.pop("content_sha256", ""))
+    if (
+        prepared_row.get("schema_version")
+        != PREPARED_MATERIALIZED_EDGE_VALIDATION_SCHEMA
+        or not supplied_sha256
+        or supplied_sha256 != _stable_digest(prepared_row)
+    ):
+        raise ValueError("prepared_materialized_edge_validation_invalid")
+    input_graph_revision = int(prepared_row.get("input_graph_revision") or 0)
+    worker_results = tuple(
+        dict(value)
+        for value in prepared_row.get("worker_results") or []
+        if isinstance(value, Mapping)
+    )
+    if worker_results:
+        applied = service.apply_worker_results(
+            worker_results,
             idempotency_key=(
-                f"solve-target:validation:{service.kernel.state.graph_revision}"
+                "solve-target:validation:commit:"
+                f"{input_graph_revision}:{supplied_sha256[:24]}"
             ),
         )
-        if commands
-        else {"executed_command_count": 0, "material_events": []}
-    )
+    else:
+        applied = {
+            "changed": False,
+            "reused": False,
+            "graph": service.graph_store.load(),
+            "graph_ref": {},
+            "rejected": [],
+        }
+    execution = {
+        **applied,
+        "executed_command_count": len(worker_results),
+        "skipped_command_count": int(
+            prepared_row.get("skipped_command_count") or 0
+        ),
+        "stopped_reasons": list(prepared_row.get("stopped_reasons") or []),
+        "material_events": list(prepared_row.get("material_events") or []),
+    }
     updated = service.graph_store.load()
+    edge_by_id = {
+        str(edge_id): dict(edge)
+        for edge_id, edge in dict(prepared_row.get("edge_rows") or {}).items()
+        if isinstance(edge, Mapping)
+    }
+    reactions = {
+        str(edge_id): str(reaction)
+        for edge_id, reaction in dict(
+            prepared_row.get("reactions_by_edge") or {}
+        ).items()
+    }
+    mapping = dict(prepared_row.get("mapping") or {})
+    mapped = dict(mapping.get("mapped_reactions") or {})
+    forced_edge_ids = {
+        str(value)
+        for value in prepared_row.get("forced_edge_ids") or []
+        if str(value)
+    }
     accepted_ids = sorted(
         edge_id
         for edge_id in edge_by_id
@@ -167,7 +542,7 @@ def validate_materialized_edges(
     rejection_reason_counts: Counter[str] = Counter()
     for edge_id in rejected_ids:
         edge = dict(updated["edges"].get(edge_id) or edge_by_id.get(edge_id) or {})
-        reaction = (
+        reaction = reactions.get(edge_id) or (
             ".".join(str(value) for value in edge.get("precursor_smiles") or [])
             + ">>"
             + str(edge.get("product_smiles") or "")
@@ -197,12 +572,19 @@ def validate_materialized_edges(
     return {
         "stage": "reaction_validation",
         "status": (
-            "completed"
-            if mapping.get("requested_count") == mapping.get("mapped_count")
-            else "partial"
+            "budget_exhausted"
+            if prepared_row.get("status") == "budget_exhausted"
+            else (
+                "completed"
+                if mapping.get("requested_count") == mapping.get("mapped_count")
+                else "partial"
+            )
         ),
-        "pending_edge_count": len(pending),
-        "validation_command_count": len(commands),
+        "pending_edge_count": len(edge_by_id),
+        "forced_revalidation_edge_count": len(
+            forced_edge_ids.intersection(edge_by_id)
+        ),
+        "validation_command_count": len(prepared_row.get("commands") or []),
         "accepted_validation_count": len(accepted_ids),
         "rejected_validation_count": len(rejected_ids),
         "accepted_edge_ids": accepted_ids,
@@ -216,7 +598,33 @@ def validate_materialized_edges(
         ),
         "mapping": mapping,
         "execution": execution,
+        "prepared_input_graph_revision": input_graph_revision,
+        "prepared_validation_sha256": supplied_sha256,
+        "semantics": {
+            "workers_ran_against_one_frozen_graph_revision": True,
+            "canonical_results_committed_in_stable_action_order": True,
+        },
     }
+
+
+def validate_materialized_edges(
+    service: RetrosynthesisCampaignService,
+    *,
+    atom_mapper: ReactionMapper | None = None,
+    max_reactions: int = 48,
+    edge_ids: Iterable[str] = (),
+    revalidate_edge_ids: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Compatibility entry point for sequential validation execution."""
+
+    prepared = prepare_materialized_edge_validation(
+        service,
+        atom_mapper=atom_mapper,
+        max_reactions=max_reactions,
+        edge_ids=edge_ids,
+        revalidate_edge_ids=revalidate_edge_ids,
+    )
+    return commit_materialized_edge_validation(service, prepared)
 
 
 def repair_rejected_precursor_typos(
@@ -347,30 +755,10 @@ def discover_director_source_hints(
         for row in plan.get("source_plan") or []
         if isinstance(row, Mapping)
     ]
-    raw_hints = [
-        str(hint)
-        for plan in plans
-        for skeleton in plan.get("multi_step_skeletons") or []
-        if isinstance(skeleton, Mapping)
-        for step in skeleton.get("steps") or []
-        if isinstance(step, Mapping)
-        for hint in step.get("source_hints") or []
-        if str(hint).strip()
-    ]
-    sources: list[dict[str, Any]] = []
-    for hint in raw_hints:
-        source_ref = canonical_traceable_source_ref(hint)
-        if not source_ref:
-            continue
-        sources.append(
-            {
-                "source_ref": source_ref,
-                "source_kind": _source_kind(source_ref),
-                "title": hint,
-                "provenance": "global_director_source_acquisition_hint",
-                "discovered_by": "codex_global_director",
-            }
-        )
+    sources = _ranked_director_source_hints(
+        plans,
+        target_smiles=service.kernel.spec.target_smiles,
+    )
     graph = service.graph_store.load()
     execution: Mapping[str, Any] = {"executed_command_count": 0, "material_events": []}
     if sources:
@@ -395,9 +783,14 @@ def discover_director_source_hints(
             ),
             include_scheduled=False,
         )
+    stage_status = (
+        "budget_exhausted"
+        if execution.get("status") == "budget_exhausted"
+        else "completed" if sources else "unresolved"
+    )
     return {
         "stage": "source_acquisition_frontier",
-        "status": "completed" if sources else "unresolved",
+        "status": stage_status,
         "source_plan": frontier,
         "traceable_source_hint_count": len(sources),
         "sources": sources,
@@ -407,6 +800,91 @@ def discover_director_source_hints(
             "structured_extraction_required_for_B3": True,
         },
     }
+
+
+def _ranked_director_source_hints(
+    plans: Iterable[Mapping[str, Any]],
+    *,
+    target_smiles: str,
+) -> list[dict[str, Any]]:
+    """Aggregate source relevance without granting source authority."""
+
+    target = canonical_smiles(target_smiles)
+    sources_by_ref: dict[str, dict[str, Any]] = {}
+    for plan in plans:
+        for skeleton in plan.get("multi_step_skeletons") or []:
+            if not isinstance(skeleton, Mapping):
+                continue
+            skeleton_id = str(skeleton.get("skeleton_id") or "")
+            for step in skeleton.get("steps") or []:
+                if not isinstance(step, Mapping):
+                    continue
+                hints = [
+                    str(value).strip()
+                    for value in step.get("source_hints") or []
+                    if str(value).strip()
+                ]
+                refs_in_step: list[str] = []
+                title_by_ref: dict[str, str] = {}
+                for hint in hints:
+                    for source_ref in traceable_source_refs_in_text(hint):
+                        if source_ref not in refs_in_step:
+                            refs_in_step.append(source_ref)
+                            title_by_ref[source_ref] = hint
+                if not refs_in_step:
+                    continue
+                is_target_edge = bool(
+                    target
+                    and canonical_smiles(str(step.get("product_smiles") or ""))
+                    == target
+                )
+                step_id = str(step.get("step_id") or step.get("id") or "")
+                for source_ref in refs_in_step:
+                    row = sources_by_ref.setdefault(
+                        source_ref,
+                        {
+                            "source_ref": source_ref,
+                            "source_kind": _source_kind(source_ref),
+                            "title": title_by_ref[source_ref],
+                            "provenance": (
+                                "global_director_source_acquisition_hint"
+                            ),
+                            "discovered_by": "codex_global_director",
+                            "occurrence_count": 0,
+                            "target_edge_occurrence_count": 0,
+                            "_affected_step_ids": set(),
+                            "_route_skeleton_ids": set(),
+                            "_corroborating_source_refs": set(),
+                        },
+                    )
+                    row["occurrence_count"] += 1
+                    row["target_edge_occurrence_count"] += int(is_target_edge)
+                    if step_id:
+                        row["_affected_step_ids"].add(step_id)
+                    if skeleton_id:
+                        row["_route_skeleton_ids"].add(skeleton_id)
+                    row["_corroborating_source_refs"].update(
+                        value for value in refs_in_step if value != source_ref
+                    )
+    sources: list[dict[str, Any]] = []
+    for raw in sources_by_ref.values():
+        row = dict(raw)
+        row["affected_step_ids"] = sorted(row.pop("_affected_step_ids"))
+        row["route_skeleton_count"] = len(row.pop("_route_skeleton_ids"))
+        row["corroborating_source_ref_count"] = len(
+            row.pop("_corroborating_source_refs")
+        )
+        sources.append(row)
+    return sorted(
+        sources,
+        key=lambda row: (
+            -int(row.get("target_edge_occurrence_count") or 0),
+            -int(row.get("corroborating_source_ref_count") or 0),
+            -int(row.get("occurrence_count") or 0),
+            -int(row.get("route_skeleton_count") or 0),
+            str(row.get("source_ref") or ""),
+        ),
+    )
 
 
 def ingest_source_discovery_observation(
@@ -494,7 +972,7 @@ def materialize_discovered_source_routes(
             for row in observation.get("proposals") or []
             if isinstance(row, Mapping)
         ]
-        if not proposals or len(proposals) > 64:
+        if len(proposals) > 64:
             reasons.append("source_route_proposal_count_invalid")
         if reasons:
             rejected_observations.append(
@@ -503,6 +981,10 @@ def materialize_discovered_source_routes(
                     "reasons": sorted(set(reasons)),
                 }
             )
+            continue
+        if not proposals:
+            # An honest, hash-bound observation may contain no target-connected
+            # route. Absence is not a malformed proposal or a host rejection.
             continue
         observation["content_sha256"] = supplied
         observations.append(observation)
@@ -586,12 +1068,47 @@ def materialize_discovered_source_routes(
     observation_identity = _stable_digest(
         sorted(str(row.get("content_sha256") or "") for row in observations)
     )
-    family_ingestion = service.apply_batch(
-        CanonicalIngestionBatch(
-            route_families=tuple(route_families.values()),
-            hypotheses=tuple(hypotheses),
-        ),
-        idempotency_key=f"source-route-families:{observation_identity}",
+    graph_before_ingestion = service.graph_store.load()
+    expected_hypothesis_ids = {
+        hypothesis_id
+        for row in hypotheses
+        if (
+            hypothesis_id := hypothesis_identity(
+                row.get("product_smiles"),
+                row.get("precursor_smiles") or [],
+            )[0]
+        )
+    }
+    existing_route_aliases = {
+        str(alias)
+        for route in dict(graph_before_ingestion.get("route_families") or {}).values()
+        if isinstance(route, Mapping)
+        for alias in route.get("aliases") or []
+        if str(alias)
+    }
+    source_route_already_ingested = bool(
+        expected_hypothesis_ids
+        and expected_hypothesis_ids.issubset(
+            dict(graph_before_ingestion.get("hypotheses") or {})
+        )
+        and set(route_families).issubset(existing_route_aliases)
+    )
+    family_ingestion = (
+        {
+            "changed": False,
+            "reused": True,
+            "graph": graph_before_ingestion,
+            "graph_ref": {},
+            "rejected": [],
+        }
+        if source_route_already_ingested
+        else service.apply_batch(
+            CanonicalIngestionBatch(
+                route_families=tuple(route_families.values()),
+                hypotheses=tuple(hypotheses),
+            ),
+            idempotency_key=f"source-route-families:{observation_identity}",
+        )
     )
     graph = service.graph_store.load()
     commands = materialization_commands_for_proposals(
@@ -673,11 +1190,13 @@ def audit_live_benchmark_stock(
     *,
     catalog_builder: StockCatalogBuilder | None = None,
     max_molecules: int = 24,
+    route_family_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     graph = service.graph_store.load()
     selection = _selected_stock_audit_molecules(
         graph,
         max_molecules=max_molecules,
+        route_family_ids=route_family_ids,
     )
     leaf_ids = selection["leaf_molecule_ids"]
     candidate_ids = selection["stock_candidate_molecule_ids"]
@@ -685,19 +1204,9 @@ def audit_live_benchmark_stock(
         return {
             "stage": "benchmark_stock",
             "status": "unresolved",
+            "route_family_ids": list(selection["route_family_ids"]),
             "selected_leaf_count": 0,
             "reason": "selected_route_leaves_missing",
-            "execution": {"executed_command_count": 0},
-        }
-    if selection["limit_exceeded"]:
-        return {
-            "stage": "benchmark_stock",
-            "status": "unresolved",
-            "selected_leaf_count": len(leaf_ids),
-            "selected_stock_candidate_count": 0,
-            "internal_stock_candidate_count": 0,
-            "reason": "selected_leaf_count_exceeds_stock_audit_limit",
-            "max_molecules": max_molecules,
             "execution": {"executed_command_count": 0},
         }
     pending_candidate_ids = [
@@ -710,45 +1219,33 @@ def audit_live_benchmark_stock(
         )
     ]
     if candidate_ids and not pending_candidate_ids:
-        closed_leaf_count = sum(
-            _has_boundary_observation(
-                graph,
-                molecule_id,
-                required="benchmark_search",
-            )
-            for molecule_id in leaf_ids
+        return project_existing_stock_audit(
+            graph,
+            required_boundary="benchmark_search",
+            max_molecules=max_molecules,
+            route_family_ids=route_family_ids,
         )
-        closed_candidate_count = sum(
-            _has_boundary_observation(
-                graph,
-                molecule_id,
-                required="benchmark_search",
-            )
-            for molecule_id in candidate_ids
-        )
-        return {
-            "stage": "benchmark_stock",
-            "status": "reused",
-            "selected_leaf_count": len(leaf_ids),
-            "selected_stock_candidate_count": len(candidate_ids),
-            "internal_stock_candidate_count": selection[
-                "internal_stock_candidate_count"
-            ],
-            "stock_closed_leaf_count": closed_leaf_count,
-            "stock_closed_candidate_count": closed_candidate_count,
-            "miss_count": len(candidate_ids) - closed_candidate_count,
-            "execution": {"executed_command_count": 0},
-        }
+    query_candidate_ids = pending_candidate_ids[:max_molecules]
+    remaining_pending_count = max(
+        0, len(pending_candidate_ids) - len(query_candidate_ids)
+    )
     candidate_smiles = [
         graph["molecules"][molecule_id]["canonical_smiles"]
-        for molecule_id in pending_candidate_ids
+        for molecule_id in query_candidate_ids
     ]
-    builder = catalog_builder or build_pubchem_vendor_catalog
+    builder = catalog_builder or standard_stock_catalog_builder()
+    _assert_stock_oracle_builder_binding(
+        service,
+        builder=builder,
+        boundary="benchmark_search",
+    )
     catalog = dict(builder(candidate_smiles, max_molecules=max_molecules))
     ref = service.kernel.artifacts.put_json(
         catalog,
-        logical_name="live_benchmark_stock_catalog.json",
-        producer="autoplanner.live_stock.pubchem",
+        logical_name="benchmark_stock_catalog.json",
+        producer=str(
+            catalog.get("adapter_version") or "autoplanner.live_stock.unknown"
+        ),
     ).to_dict()
     service.register_artifact_authorities({ref["sha256"]: "benchmark_stock_catalog"})
     timestamp = str(catalog.get("retrieved_at") or _utc_now())
@@ -764,18 +1261,24 @@ def audit_live_benchmark_stock(
                             "leaf_id": molecule_id,
                             "smiles": graph["molecules"][molecule_id]["canonical_smiles"],
                         }
-                        for molecule_id in pending_candidate_ids
+                        for molecule_id in query_candidate_ids
                     ],
                     "catalog_artifact_sha256": ref["sha256"],
                     "as_of": timestamp,
                     "max_age_days": 30,
                 },
                 task_kind="stock",
-                suffix="live-benchmark-leaves",
+                suffix=(
+                    "live-benchmark-leaves-"
+                    + _stable_digest(query_candidate_ids)[:20]
+                ),
                 artifact_refs=(ref,),
             ),
         ),
-        idempotency_key=f"solve-target:benchmark-stock:{service.kernel.state.graph_revision}",
+        idempotency_key=(
+            f"solve-target:benchmark-stock:{service.kernel.state.graph_revision}:"
+            f"{_stable_digest(selection['route_family_ids'])[:16]}"
+        ),
     )
     updated = service.graph_store.load()
     closed_leaf_count = sum(
@@ -798,12 +1301,16 @@ def audit_live_benchmark_stock(
         "stage": "benchmark_stock",
         "status": (
             "completed"
-            if closed_candidate_count == len(candidate_ids)
+            if not remaining_pending_count
+            and closed_candidate_count == len(candidate_ids)
             else "partial"
         ),
         "selected_leaf_count": len(leaf_ids),
         "selected_stock_candidate_count": len(candidate_ids),
-        "newly_queried_candidate_count": len(pending_candidate_ids),
+        "newly_queried_candidate_count": len(query_candidate_ids),
+        "remaining_pending_candidate_count": remaining_pending_count,
+        "audit_batch_limit": max_molecules,
+        "route_family_ids": list(selection["route_family_ids"]),
         "internal_stock_candidate_count": selection[
             "internal_stock_candidate_count"
         ],
@@ -823,6 +1330,11 @@ def audit_live_benchmark_stock(
         "stock_closed_candidate_count": closed_candidate_count,
         "miss_count": len(candidate_ids) - closed_candidate_count,
         "execution": execution,
+        "semantics": {
+            "stock_limit_is_per_action_batch_not_global_route_rejection": True,
+            "mandatory_leaves_are_audited_incrementally": True,
+            "missing_membership_fails_closed": True,
+        },
     }
 
 
@@ -832,7 +1344,8 @@ def audit_authoritative_inventory_stock(
     inventory_builder: InventorySnapshotBuilder,
     required_boundary: str,
     max_molecules: int = 24,
-    max_age_days: float = 30.0,
+    max_age_days: float = 365.0,
+    route_family_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Freeze and audit leaves plus useful internal procurement cut points."""
 
@@ -840,6 +1353,7 @@ def audit_authoritative_inventory_stock(
     selection = _selected_stock_audit_molecules(
         graph,
         max_molecules=max_molecules,
+        route_family_ids=route_family_ids,
     )
     leaf_ids = selection["leaf_molecule_ids"]
     candidate_ids = selection["stock_candidate_molecule_ids"]
@@ -847,63 +1361,42 @@ def audit_authoritative_inventory_stock(
         return {
             "stage": "authoritative_inventory_stock",
             "status": "unresolved",
+            "route_family_ids": list(selection["route_family_ids"]),
             "reason": "selected_route_leaves_missing",
             "selected_leaf_count": 0,
             "execution": {"executed_command_count": 0},
         }
-    if selection["limit_exceeded"]:
-        return {
-            "stage": "authoritative_inventory_stock",
-            "status": "unresolved",
-            "reason": "selected_leaf_count_exceeds_inventory_audit_limit",
-            "selected_leaf_count": len(leaf_ids),
-            "selected_stock_candidate_count": 0,
-            "internal_stock_candidate_count": 0,
-            "max_molecules": max_molecules,
-            "execution": {"executed_command_count": 0},
-        }
-    if all(
-        _has_recent_boundary_audit(
+    pending_candidate_ids = [
+        molecule_id
+        for molecule_id in candidate_ids
+        if not _has_recent_boundary_audit(
             graph,
             molecule_id,
             required=required_boundary,
             max_age_days=max_age_days,
         )
-        for molecule_id in candidate_ids
-    ):
-        closed_leaf_count = sum(
-            _has_boundary_observation(
-                graph,
-                molecule_id,
-                required=required_boundary,
-            )
-            for molecule_id in leaf_ids
+    ]
+    if candidate_ids and not pending_candidate_ids:
+        return project_existing_stock_audit(
+            graph,
+            required_boundary=required_boundary,
+            max_molecules=max_molecules,
+            max_age_days=max_age_days,
+            route_family_ids=route_family_ids,
         )
-        closed_candidate_count = sum(
-            _has_boundary_observation(
-                graph,
-                molecule_id,
-                required=required_boundary,
-            )
-            for molecule_id in candidate_ids
-        )
-        return {
-            "stage": "authoritative_inventory_stock",
-            "status": "reused",
-            "selected_leaf_count": len(leaf_ids),
-            "selected_stock_candidate_count": len(candidate_ids),
-            "internal_stock_candidate_count": selection[
-                "internal_stock_candidate_count"
-            ],
-            "stock_closed_leaf_count": closed_leaf_count,
-            "stock_closed_candidate_count": closed_candidate_count,
-            "miss_count": len(candidate_ids) - closed_candidate_count,
-            "execution": {"executed_command_count": 0},
-        }
+    query_candidate_ids = pending_candidate_ids[:max_molecules]
+    remaining_pending_count = max(
+        0, len(pending_candidate_ids) - len(query_candidate_ids)
+    )
     candidate_smiles = [
         graph["molecules"][molecule_id]["canonical_smiles"]
-        for molecule_id in candidate_ids
+        for molecule_id in query_candidate_ids
     ]
+    _assert_stock_oracle_builder_binding(
+        service,
+        builder=inventory_builder,
+        boundary=required_boundary,
+    )
     inventory = dict(
         inventory_builder(
             candidate_smiles,
@@ -930,7 +1423,7 @@ def audit_authoritative_inventory_stock(
                             "leaf_id": molecule_id,
                             "smiles": graph["molecules"][molecule_id]["canonical_smiles"],
                         }
-                        for molecule_id in candidate_ids
+                        for molecule_id in query_candidate_ids
                     ],
                     "inventory_artifact_sha256": ref["sha256"],
                     "as_of": timestamp,
@@ -959,7 +1452,8 @@ def audit_authoritative_inventory_stock(
         "stage": "authoritative_inventory_stock",
         "status": (
             "completed"
-            if closed_leaf_count == len(leaf_ids)
+            if not remaining_pending_count
+            and closed_leaf_count == len(leaf_ids)
             else "partial"
         ),
         "selected_leaf_count": len(leaf_ids),
@@ -967,6 +1461,10 @@ def audit_authoritative_inventory_stock(
         "internal_stock_candidate_count": selection[
             "internal_stock_candidate_count"
         ],
+        "newly_queried_candidate_count": len(query_candidate_ids),
+        "remaining_pending_candidate_count": remaining_pending_count,
+        "audit_batch_limit": max_molecules,
+        "route_family_ids": list(selection["route_family_ids"]),
         "stock_closed_leaf_count": closed_leaf_count,
         "stock_closed_candidate_count": closed_candidate_count,
         "inventory_ref": ref,
@@ -982,6 +1480,7 @@ def audit_authoritative_inventory_stock(
             "every_selected_leaf_is_audited": True,
             "internal_procurement_cut_points_are_audited": True,
             "missing_offer_fails_closed": True,
+            "inventory_limit_is_per_action_batch_not_global_route_rejection": True,
         },
     }
 
@@ -990,6 +1489,7 @@ def _selected_stock_audit_molecules(
     graph: Mapping[str, Any],
     *,
     max_molecules: int,
+    route_family_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Select bounded stock cut points without sacrificing mandatory leaf audits.
 
@@ -999,11 +1499,25 @@ def _selected_stock_audit_molecules(
     sound.  Other internal products are useful alternative procurement cuts.
     """
 
-    selected_routes = [
-        dict(route)
-        for route in dict(graph.get("route_families") or {}).values()
-        if isinstance(route, Mapping) and route.get("selected") is not False
-    ]
+    requested_route_ids = (
+        tuple(dict.fromkeys(str(value) for value in route_family_ids if str(value)))
+        if route_family_ids is not None
+        else None
+    )
+    route_families = dict(graph.get("route_families") or {})
+    if requested_route_ids is None:
+        selected_route_items = [
+            (str(route_id), dict(route))
+            for route_id, route in route_families.items()
+            if isinstance(route, Mapping) and route.get("selected") is not False
+        ]
+    else:
+        selected_route_items = [
+            (route_id, dict(route_families.get(route_id) or {}))
+            for route_id in requested_route_ids
+            if isinstance(route_families.get(route_id), Mapping)
+        ]
+    selected_routes = [route for _route_id, route in selected_route_items]
     leaf_ids = sorted(
         {
             str(molecule_id)
@@ -1012,13 +1526,6 @@ def _selected_stock_audit_molecules(
             if str(molecule_id)
         }
     )
-    if len(leaf_ids) > max_molecules:
-        return {
-            "leaf_molecule_ids": leaf_ids,
-            "stock_candidate_molecule_ids": [],
-            "internal_stock_candidate_count": 0,
-            "limit_exceeded": True,
-        }
     edge_ids = {
         str(edge_id)
         for route in selected_routes
@@ -1048,10 +1555,104 @@ def _selected_stock_audit_molecules(
         + sorted(other_products - rejected_products)
     )[:capacity]
     return {
+        "route_family_ids": [route_id for route_id, _route in selected_route_items],
         "leaf_molecule_ids": leaf_ids,
         "stock_candidate_molecule_ids": leaf_ids + internal_ids,
         "internal_stock_candidate_count": len(internal_ids),
         "limit_exceeded": False,
+        "batching_required": len(leaf_ids) > max_molecules,
+        "audit_batch_limit": max_molecules,
+    }
+
+
+def project_existing_stock_audit(
+    graph: Mapping[str, Any],
+    *,
+    required_boundary: str,
+    max_molecules: int = 24,
+    max_age_days: float = 30.0,
+    route_family_ids: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    """Project the authoritative stock state without invoking an adapter.
+
+    The anytime scheduler may have completed stock work before the named
+    ``stock`` reporting stage, or a resumed terminal run may have no executable
+    stock deficit at all.  In both cases the canonical graph, rather than the
+    last scheduled action result, is the reporting authority.
+    """
+
+    stage = (
+        "benchmark_stock"
+        if required_boundary == "benchmark_search"
+        else "authoritative_inventory_stock"
+    )
+    selection = _selected_stock_audit_molecules(
+        graph,
+        max_molecules=max_molecules,
+        route_family_ids=route_family_ids,
+    )
+    leaf_ids = selection["leaf_molecule_ids"]
+    candidate_ids = selection["stock_candidate_molecule_ids"]
+    if not leaf_ids:
+        return {
+            "stage": stage,
+            "route_family_ids": list(selection["route_family_ids"]),
+            "status": "unresolved",
+            "reason": "selected_route_leaves_missing",
+            "selected_leaf_count": 0,
+            "execution": {"executed_command_count": 0},
+        }
+    pending_candidate_ids = [
+        molecule_id
+        for molecule_id in candidate_ids
+        if not _has_recent_boundary_audit(
+            graph,
+            molecule_id,
+            required=required_boundary,
+            max_age_days=max_age_days,
+        )
+    ]
+    closed_leaf_count = sum(
+        _has_boundary_observation(
+            graph,
+            molecule_id,
+            required=required_boundary,
+        )
+        for molecule_id in leaf_ids
+    )
+    closed_candidate_count = sum(
+        _has_boundary_observation(
+            graph,
+            molecule_id,
+            required=required_boundary,
+        )
+        for molecule_id in candidate_ids
+    )
+    return {
+        "stage": stage,
+        "route_family_ids": list(selection["route_family_ids"]),
+        "status": (
+            "reused"
+            if not pending_candidate_ids
+            else "partial"
+            if len(pending_candidate_ids) < len(candidate_ids)
+            else "unresolved"
+        ),
+        "selected_leaf_count": len(leaf_ids),
+        "selected_stock_candidate_count": len(candidate_ids),
+        "internal_stock_candidate_count": selection[
+            "internal_stock_candidate_count"
+        ],
+        "stock_closed_leaf_count": closed_leaf_count,
+        "stock_closed_candidate_count": closed_candidate_count,
+        "miss_count": len(candidate_ids) - closed_candidate_count,
+        "remaining_pending_candidate_count": len(pending_candidate_ids),
+        "audit_batch_limit": max_molecules,
+        "execution": {"executed_command_count": 0},
+        "semantics": {
+            "canonical_graph_is_stock_reporting_authority": True,
+            "stock_limit_is_per_action_batch_not_global_route_rejection": True,
+        },
     }
 
 
@@ -1110,6 +1711,34 @@ def _has_boundary_observation(
     )
 
 
+def canonical_route_stock_closed(
+    graph: Mapping[str, Any],
+    *,
+    route_family_id: str,
+    required_boundary: str,
+) -> bool:
+    """Derive one route's stock closure directly from canonical graph state."""
+
+    route = dict(
+        dict(graph.get("route_families") or {}).get(str(route_family_id or ""))
+        or {}
+    )
+    leaf_ids = [str(value) for value in route.get("leaf_molecule_ids") or () if str(value)]
+    return bool(
+        route.get("edge_ids")
+        and leaf_ids
+        and not route.get("unmaterialized_hypothesis_ids")
+        and all(
+            _has_boundary_observation(
+                graph,
+                molecule_id,
+                required=str(required_boundary or ""),
+            )
+            for molecule_id in leaf_ids
+        )
+    )
+
+
 def _has_recent_boundary_audit(
     graph: Mapping[str, Any],
     molecule_id: str,
@@ -1153,8 +1782,11 @@ __all__ = [
     "StockCatalogBuilder",
     "audit_authoritative_inventory_stock",
     "audit_live_benchmark_stock",
+    "canonical_route_stock_closed",
     "discover_director_source_hints",
+    "enrich_materialized_edge_conditions",
     "ingest_source_discovery_observation",
+    "project_existing_stock_audit",
     "repair_rejected_precursor_typos",
     "validate_materialized_edges",
 ]

@@ -1,12 +1,18 @@
 """Evidence, trust, and replacement projections for the V4 route adapter."""
+
 from __future__ import annotations
 
 from typing import Any, Mapping
 
+from cascade_planner.harness.v4_route_condition_resolution import (
+    condition_resolution,
+    condition_summary,
+)
+
 
 PROOF_TIER = {
     0: "L0_advisory",
-    1: "L0_materialized",
+    1: "L1_structural_materialized",
     2: "L2_reaction_validated",
     3: "L3_precedent_supported",
     4: "L4_procurement_ready",
@@ -36,9 +42,7 @@ def replacement_validation_projection(
         base_branch_id = str(row.get("base_route_id") or "")
         replacement_branch_id = str(row.get("replacement_route_id") or "")
         base_step_id = str(
-            step_id_by_branch_edge.get(
-                (base_branch_id, str(row.get("base_edge_id") or "")), ""
-            )
+            step_id_by_branch_edge.get((base_branch_id, str(row.get("base_edge_id") or "")), "")
         )
         candidate_step_id = str(
             step_id_by_branch_edge.get(
@@ -71,9 +75,7 @@ def replacement_validation_projection(
                 "connectivity_revalidated": validated,
                 "stock_closure_revalidated": validated,
                 "reaction_proof_revalidated": validated,
-                "reasons": sorted(
-                    set(str(reason) for reason in reasons if str(reason))
-                ),
+                "reasons": sorted(set(str(reason) for reason in reasons if str(reason))),
             }
         )
     return {
@@ -85,9 +87,7 @@ def replacement_validation_projection(
     }
 
 
-def trust_vector(
-    edge: Mapping[str, Any], sources: list[Mapping[str, Any]]
-) -> dict[str, Any]:
+def trust_vector(edge: Mapping[str, Any], sources: list[Mapping[str, Any]]) -> dict[str, Any]:
     level = int(edge.get("proof_level") or 0)
     proof_vector = dict(edge.get("proof_vector") or {})
     source_groups = {
@@ -111,9 +111,7 @@ def trust_vector(
         "stock": 1.0 if level >= 4 else 0.0,
         "conditions": {
             "source_exact": (
-                1.0
-                if proof_vector.get("condition_completeness") == "complete"
-                else 0.75
+                1.0 if proof_vector.get("condition_completeness") == "complete" else 0.75
             ),
             "source_recorded_unverified": 0.65,
             "model_predicted": 0.3,
@@ -124,33 +122,50 @@ def trust_vector(
     }
 
 
-def conditions(records: list[Mapping[str, Any]]) -> list[dict[str, str]]:
-    for record in records:
-        raw = record.get("conditions")
-        if not isinstance(raw, Mapping):
-            continue
-        return [
-            {"label": str(key).replace("_", " "), "value": str(value)}
-            for key, value in sorted(raw.items())
-            if value not in (None, "", [], {})
-        ]
-    return []
-
-
-def condition_summary(status: str) -> str:
+def literature_counts(
+    routes: Mapping[str, Any], edge_inspectors: Mapping[str, Any]
+) -> dict[str, int]:
     return {
-        "source_exact": "已绑定可重放的来源实验条件",
-        "source_recorded_unverified": "来源记录了条件，但尚未升级为精确过程证明",
-        "model_predicted": "仅有模型预测条件，不是文献事实",
-        "missing": "未抽取可重放的反应条件；精确结构来源不等于实验条件",
-    }.get(status, "反应条件状态未知")
+        "independent_source_group_count": len(
+            {
+                str(group)
+                for route in routes.values()
+                for group in dict(route).get("independent_source_groups") or []
+            }
+        ),
+        "document_count": len(
+            {
+                str(source.get("source_ref") or "")
+                for inspector in edge_inspectors.values()
+                for source in dict(inspector).get("sources") or []
+                if isinstance(source, Mapping)
+            }
+        ),
+        "representation_count": sum(
+            len(dict(inspector).get("exact_records") or [])
+            for inspector in edge_inspectors.values()
+        ),
+        "real_source_candidate_records": sum(
+            len(dict(inspector).get("exact_records") or [])
+            for inspector in edge_inspectors.values()
+        ),
+        "source_procedure_records": sum(
+            len(dict(inspector).get("procedure_records") or [])
+            for inspector in edge_inspectors.values()
+        ),
+        "source_observation_records": sum(
+            len(dict(inspector).get("source_observation_records") or [])
+            for inspector in edge_inspectors.values()
+        ),
+    }
 
 
 __all__ = [
     "PROOF_TIER",
     "closure_label",
+    "condition_resolution",
     "condition_summary",
-    "conditions",
+    "literature_counts",
     "replacement_validation_projection",
     "trust_vector",
 ]

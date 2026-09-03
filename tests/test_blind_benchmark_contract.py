@@ -15,7 +15,6 @@ from cascade_planner.application.blind_benchmark_contract import (
     load_blind_manifest,
 )
 
-
 TARGET = "CCOC(N)=O"
 
 
@@ -62,6 +61,27 @@ def test_blind_case_requires_canonical_smiles_and_generic_options_only() -> None
     row["budget"] = {"source_refs": ["forbidden"]}
     with pytest.raises(BlindBenchmarkError, match="budget_fields_forbidden"):
         BlindCase.from_dict(row)
+
+
+@pytest.mark.parametrize("value", [-1, 25, True, 20.0, "20"])
+def test_blind_case_bounds_generic_minimum_planning_depth(value: object) -> None:
+    row = _case()
+    row["acceptance"] = {
+        **dict(row["acceptance"]),
+        "minimum_planning_route_steps": value,
+    }
+
+    with pytest.raises(BlindBenchmarkError, match="planning_route_steps_invalid"):
+        BlindCase.from_dict(row)
+
+    accepted = _case()
+    accepted["acceptance"] = {
+        **dict(accepted["acceptance"]),
+        "minimum_planning_route_steps": 20,
+    }
+    assert (
+        BlindCase.from_dict(accepted).acceptance["minimum_planning_route_steps"] == 20
+    )
 
 
 def test_manifest_loads_target_only_cases_and_rejects_duplicate_targets(
@@ -137,6 +157,24 @@ def test_preflight_does_not_treat_generic_blind_label_as_leaked_identity(
     assert report["repository_matches"] == []
 
 
+def test_preflight_treats_numbered_opaque_labels_as_generic(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "other-manifest.json").write_text(
+        '"opaque benchmark target 001"', encoding="utf-8"
+    )
+    case = BlindCase.from_dict(_case(target_name="opaque benchmark target 001"))
+
+    report = audit_blind_preflight(
+        case,
+        repository_root=repository,
+        run_dir=tmp_path / "fresh-run",
+    )
+
+    assert report["accepted"] is True
+    assert report["repository_matches"] == []
+
+
 def test_manifest_is_the_only_allowed_target_occurrence(tmp_path: Path) -> None:
     repository = tmp_path / "repository"
     repository.mkdir()
@@ -156,26 +194,175 @@ def test_manifest_is_the_only_allowed_target_occurrence(tmp_path: Path) -> None:
     assert report["repository_matches"] == []
 
 
+def test_valid_prior_manifest_authorizes_known_target_reproduction(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    prior = repository / "prior-targets.json"
+    prior.write_text(
+        json.dumps(
+            {"schema_version": BLIND_MANIFEST_SCHEMA, "cases": [_case()]}
+        ),
+        encoding="utf-8",
+    )
+    (repository / "historical-target-note.txt").write_text(
+        TARGET,
+        encoding="utf-8",
+    )
+
+    report = audit_blind_preflight(
+        BlindCase.from_dict(_case()),
+        repository_root=repository,
+        run_dir=tmp_path / "known-target-run",
+        additional_allowed_paths=(prior,),
+    )
+
+    assert report["accepted"] is True
+    assert report["known_target_reproduction_authorized"] is True
+    assert report["repository_absence_attested"] is False
+    assert report["repository_matches"][0]["path"] == (
+        "historical-target-note.txt"
+    )
+
+
+def test_non_manifest_allowed_path_cannot_authorize_known_target_reproduction(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    alleged_prior = repository / "not-a-manifest.txt"
+    alleged_prior.write_text(TARGET, encoding="utf-8")
+    (repository / "historical-target-note.txt").write_text(
+        TARGET,
+        encoding="utf-8",
+    )
+
+    report = audit_blind_preflight(
+        BlindCase.from_dict(_case()),
+        repository_root=repository,
+        run_dir=tmp_path / "invalid-known-target-run",
+        additional_allowed_paths=(alleged_prior,),
+    )
+
+    assert report["accepted"] is False
+    assert report["known_target_reproduction_authorized"] is False
+    assert "target_material_already_present_in_repository" in report["reasons"]
+
+
+def test_preflight_scans_evaluator_only_synonyms_and_intermediates_without_emitting_values(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "unrelated.txt").write_text("unrelated chemistry", encoding="utf-8")
+    case = BlindCase.from_dict(_case())
+    report = audit_blind_preflight(
+        case,
+        repository_root=repository,
+        run_dir=tmp_path / "run",
+        additional_leakage_needles={
+            "target_synonym": ["private target alias"],
+            "key_intermediate_smiles": ["c1ccccc1"],
+            "key_intermediate_inchikey": ["UHOVQNZJYSORNB-UHFFFAOYSA-N"],
+        },
+    )
+
+    assert report["accepted"] is True
+    assert report["additional_leakage_needle_counts"] == {
+        "key_intermediate_inchikey": 1,
+        "key_intermediate_smiles": 1,
+        "target_synonym": 1,
+    }
+    assert report["semantics"]["target_name_smiles_and_inchikey_checked"] is True
+    assert report["semantics"]["target_synonym_needles_checked"] is True
+    assert report["semantics"]["key_intermediate_needles_checked"] is True
+    rendered = json.dumps(report)
+    assert "private target alias" not in rendered
+    assert "c1ccccc1" not in rendered
+    assert "UHOVQNZJYSORNB-UHFFFAOYSA-N" not in rendered
+
+
+def test_preflight_rejects_evaluator_only_intermediate_leakage(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "hidden-answer.txt").write_text("c1ccccc1", encoding="utf-8")
+    report = audit_blind_preflight(
+        BlindCase.from_dict(_case()),
+        repository_root=repository,
+        run_dir=tmp_path / "run",
+        additional_leakage_needles={"key_intermediate_smiles": ["c1ccccc1"]},
+    )
+
+    assert report["accepted"] is False
+    assert report["reasons"] == [
+        "evaluator_answer_material_already_present_in_repository"
+    ]
+    assert (
+        report["repository_matches"][0]["needle_sha256"]
+        == hashlib.sha256(b"c1ccccc1").hexdigest()
+    )
+
+
+def test_stock_membership_is_not_treated_as_route_answer_knowledge(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    stock = repository / "data" / "stock"
+    stock.mkdir(parents=True)
+    (stock / "catalog.csv").write_text("c1ccccc1\n", encoding="utf-8")
+    (repository / "route-notes.txt").write_text("unrelated", encoding="utf-8")
+
+    report = audit_blind_preflight(
+        BlindCase.from_dict(_case()),
+        repository_root=repository,
+        run_dir=tmp_path / "run",
+        additional_leakage_needles={"key_intermediate_smiles": ["c1ccccc1"]},
+    )
+
+    assert report["accepted"] is True
+    assert report["repository_matches"] == []
+    assert (
+        report["semantics"]["inventory_membership_is_not_route_answer_knowledge"]
+        is True
+    )
+
+
+def test_preflight_does_not_allow_synonym_na_for_a_named_target(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    raw = _case()
+    raw["target_name"] = "Example Drug"
+
+    report = audit_blind_preflight(
+        BlindCase.from_dict(raw),
+        repository_root=repository,
+        run_dir=tmp_path / "run",
+        target_synonym_not_applicable_reason="this target has no aliases",
+    )
+
+    assert report["accepted"] is False
+    assert "target_synonym_audit_not_applicable_for_named_target" in report["reasons"]
+
+
 def test_checked_in_benchmark_summary_is_compact_bound_and_keeps_failures() -> None:
     root = Path(__file__).resolve().parents[1]
     manifest_path = root / "benchmarks" / "blind_targets.v1.json"
-    summary_path = (
-        root / "benchmarks" / "results" / "blind_benchmark_summary.v1.json"
-    )
+    summary_path = root / "benchmarks" / "results" / "blind_benchmark_summary.v1.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
 
     assert summary["schema_version"] == "blind_retrosynthesis_benchmark_summary.v1"
-    assert summary["manifest_file_sha256"] == hashlib.sha256(
-        manifest_path.read_bytes()
-    ).hexdigest()
+    assert (
+        summary["manifest_file_sha256"]
+        == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    )
     assert {row["case_id"] for row in summary["results"]} == {
         row["case_id"] for row in manifest["cases"]
     }
     assert summary["aggregate"]["case_count"] == len(manifest["cases"])
     assert any(
-        row["qualified_policy_acceptance"] is False
-        for row in summary["results"]
+        row["qualified_policy_acceptance"] is False for row in summary["results"]
     )
     forbidden = {
         "target_smiles",

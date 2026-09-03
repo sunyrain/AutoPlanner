@@ -1,4 +1,22 @@
+import importlib
+import os
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
+from copy import deepcopy
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
 from cascade_planner.baselines.chem_enzy_adapter import (
+    CHEMENZY_WORKER_BOOTSTRAP_ENV,
+    CHEMENZY_WORKER_EASIFA_ENV,
+    CHEMENZY_WORKER_GRAPHVIZ_ENV,
+    ChemEnzyBackendAdapter,
+    _SqliteStockMembership,
+    _bounded_materialization_result,
+    _install_bounded_vendor_mcts,
+    _seed_runtime_state,
     audit_materialized_chem_enzy_route,
     route_candidates_from_chem_enzy_result,
 )
@@ -6,13 +24,214 @@ from cascade_planner.baselines.chem_enzy_budget import (
     classify_chemenzy_attempt_outcome,
     resolve_chemenzy_budget,
 )
+from cascade_planner.baselines.chem_enzy_bounded_mcts import bounded_mol_planner
 from cascade_planner.baselines.route_contract import RouteStepCandidate
 from cascade_planner.baselines.route_contract import BaselineRunResult, RouteSearchConfig
-from scripts.run_chem_enzy_plan_for_web import _web_payload_from_result
+from scripts.run_chem_enzy_plan_for_web import (
+    _apply_cascade_verifier_gate,
+    _bootstrap_pandarallel_worker_from_environment,
+    _configure_pandarallel_worker_environment,
+    _route_config_from_payload,
+    _smiles_in_stock_file,
+    _web_payload_from_result,
+)
+from cascade_planner.interfaces.chemenzy_probe_routes import (
+    _provider_reaction_metadata,
+)
 
 
 BAD_PRODUCT = "O=C(O)C(O)(CCO)C(=O)OCc1ccccc1"
 BAD_REACTANTS = ["O=C(Cl)OCc1ccccc1", "O=C([O-])[O-]"]
+
+
+def test_provider_metadata_binds_paper_short_tail_to_exact_frontier() -> None:
+    binding = {
+        "schema_version": "provider_short_tail_binding.v1",
+        "provider_group_id": "chemenzy:guided-example",
+        "frontier_molecule_id": "mol:leaf",
+        "frontier_smiles": "CCO",
+        "parent_route_family_ids": ["route:one"],
+        "paper_short_tail_eligible": True,
+        "target_rooted_open_leaf": True,
+    }
+
+    metadata = _provider_reaction_metadata(
+        {"rxn_smiles": "CC>>CCO", "source_model": "ChemEnzyRetroPlanner"},
+        short_tail_binding=binding,
+    )
+
+    assert metadata["short_tail_binding"] == binding
+    assert metadata["semantics"]["short_tail_binding_is_host_owned"] is True
+
+
+def _verifier_route(*reasons: str) -> dict:
+    return {
+        "route_rank": 7,
+        "n_steps": 2,
+        "score": 0.8,
+        "confidence": 1.0,
+        "metrics": {
+            "cascade_verifier": {
+                "feasible": not reasons,
+                "reason_counts": {reason: 1 for reason in reasons},
+                "findings": [{"reason": reason} for reason in reasons],
+            }
+        },
+    }
+
+
+def test_cascade_gate_retains_material_balance_warning_for_host_validation() -> None:
+    route = _verifier_route("atom_balance_violation")
+
+    kept, quarantined, report = _apply_cascade_verifier_gate([route], enabled=True)
+
+    assert kept == [route]
+    assert quarantined == []
+    assert route["route_rank"] == 0
+    assert route["advisory_only"] is False
+    assert route["reaction_validation_required"] is True
+    assert route["warning_codes"] == ["atom_balance_violation"]
+    assert report["hard_dropped_routes"] == 0
+    assert report["soft_warning_routes"] == 1
+
+
+def test_cascade_gate_drops_structurally_invalid_route() -> None:
+    route = _verifier_route("product_mismatch")
+
+    kept, quarantined, report = _apply_cascade_verifier_gate([route], enabled=True)
+
+    assert kept == []
+    assert quarantined == [route]
+    assert route["advisory_only"] is True
+    assert "cascade_verifier_hard_rejected" in route["warning_codes"]
+    assert report["hard_dropped_routes"] == 1
+    assert report["soft_warning_routes"] == 0
+
+
+def test_cascade_gate_hard_reason_wins_over_soft_warning() -> None:
+    route = _verifier_route("atom_balance_violation", "route_order_mismatch")
+
+    kept, quarantined, report = _apply_cascade_verifier_gate([route], enabled=True)
+
+    assert kept == []
+    assert quarantined == [route]
+    assert report["hard_dropped_routes"] == 1
+
+
+def test_stock_membership_uses_indexed_sqlite_lookup(tmp_path: Path) -> None:
+    stock = tmp_path / "benchmark.sqlite3"
+    with sqlite3.connect(stock) as connection:
+        connection.execute(
+            "CREATE TABLE stock (canonical_smiles TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.execute(
+            "INSERT INTO stock (canonical_smiles) VALUES (?)", ("CCO",)
+        )
+
+    assert _smiles_in_stock_file("CCO", stock) is True
+    assert _smiles_in_stock_file("CCN", stock) is False
+
+
+def test_runtime_seed_binding_seeds_python_numpy_and_torch() -> None:
+    numpy_seed = Mock()
+    torch_seed = Mock()
+    cuda_seed = Mock()
+    fake_numpy = SimpleNamespace(random=SimpleNamespace(seed=numpy_seed))
+    fake_torch = SimpleNamespace(
+        manual_seed=torch_seed,
+        cuda=SimpleNamespace(is_available=lambda: True, manual_seed_all=cuda_seed),
+    )
+    with (
+        patch.dict(sys.modules, {"numpy": fake_numpy, "torch": fake_torch}),
+        patch.dict(os.environ, {"PYTHONHASHSEED": "17"}),
+        patch("cascade_planner.baselines.chem_enzy_adapter.random.seed") as python_seed,
+    ):
+        binding = _seed_runtime_state(17)
+
+    python_seed.assert_called_once_with(17)
+    numpy_seed.assert_called_once_with(17)
+    torch_seed.assert_called_once_with(17)
+    cuda_seed.assert_called_once_with(17)
+    assert binding["python_hash_seed_matches"] is True
+    assert binding["deterministic_algorithms_enabled"] is False
+
+
+def test_launcher_configures_spawn_worker_compatibility_environment() -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        _configure_pandarallel_worker_environment(
+            {"enable_easifa": True, "viz": False}
+        )
+
+        assert os.environ[CHEMENZY_WORKER_BOOTSTRAP_ENV] == "1"
+        assert os.environ[CHEMENZY_WORKER_EASIFA_ENV] == "1"
+        assert os.environ[CHEMENZY_WORKER_GRAPHVIZ_ENV] == "0"
+
+
+def test_spawn_worker_replays_import_compatibility_from_environment() -> None:
+    environment = {
+        CHEMENZY_WORKER_BOOTSTRAP_ENV: "1",
+        CHEMENZY_WORKER_EASIFA_ENV: "0",
+        CHEMENZY_WORKER_GRAPHVIZ_ENV: "1",
+    }
+    with (
+        patch.dict(os.environ, environment, clear=True),
+        patch(
+            "scripts.run_chem_enzy_plan_for_web.install_chemenzy_import_compatibility"
+        ) as install,
+    ):
+        assert _bootstrap_pandarallel_worker_from_environment() is True
+
+    install.assert_called_once_with(enable_easifa=False, enable_graphviz=True)
+
+
+def test_fresh_interpreter_worker_bootstrap_restores_torchtext_field() -> None:
+    root = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    environment[CHEMENZY_WORKER_BOOTSTRAP_ENV] = "1"
+    environment[CHEMENZY_WORKER_EASIFA_ENV] = "0"
+    environment[CHEMENZY_WORKER_GRAPHVIZ_ENV] = "0"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import scripts.run_chem_enzy_plan_for_web; "
+                "from torchtext.data import Field; "
+                "assert Field is not None"
+            ),
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_sqlite_stock_membership_supports_mcts_overlay_and_deepcopy(tmp_path: Path) -> None:
+    path = tmp_path / "stock.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE stock (canonical_smiles TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.executemany(
+            "INSERT INTO stock(canonical_smiles) VALUES (?)",
+            [("CCO",), ("CCN",)],
+        )
+        connection.commit()
+
+    membership = _SqliteStockMembership(path)
+    assert "CCO" in membership
+    assert "CCC" not in membership
+    membership.discard("CCO")
+    membership.add("CCC")
+    replay = deepcopy(membership)
+    assert "CCO" in replay
+    assert "CCC" not in replay
+    assert len(replay) == 2
 
 
 def _raw_one_step_route(
@@ -194,3 +413,550 @@ def test_explicit_raw_solved_diagnostic_cannot_override_rejected_host_verifier()
     assert outcome["verified_solved"] is False
     assert outcome["solved"] is False
     assert outcome["raw_search_status_is_authority"] is False
+
+
+def test_post_search_materialization_keeps_admitted_reserve_and_bounded_advisory() -> None:
+    valid = _raw_one_step_route(
+        "CCO",
+        ["CC=O"],
+        template_id="valid-oxidation",
+    )["all_succ_dict_routes"][0]
+    invalid = _raw_one_step_route(
+        BAD_PRODUCT,
+        BAD_REACTANTS,
+        template_id="invalid-inventory",
+    )["all_succ_dict_routes"][0]
+    dict_routes = [invalid, valid, invalid, valid, valid, valid]
+    route_objects = [f"route-{index}" for index in range(len(dict_routes))]
+    raw = {
+        "all_succ_dict_routes": dict_routes,
+        "all_succ_routes": route_objects,
+        "dict_routes": dict_routes[0],
+        "routes": route_objects[0],
+        "iter": 200,
+    }
+    config = RouteSearchConfig(
+        target_smiles="CCO",
+        search_flags={
+            "max_materialized_routes": 2,
+            "max_advisory_materialized_routes": 1,
+        },
+    )
+
+    bounded, metadata = _bounded_materialization_result(raw, config=config)
+
+    assert metadata["search_budget_unchanged"] is True
+    assert metadata["raw_route_count"] == 6
+    assert metadata["preaudit_scanned_count"] == 4
+    assert metadata["selected_host_admitted_count"] == 2
+    assert metadata["selected_advisory_count"] == 1
+    assert metadata["selected_raw_route_indices"] == [1, 3, 0]
+    assert metadata["truncated_route_count"] == 3
+    assert bounded["all_succ_routes"] == ["route-1", "route-3", "route-0"]
+
+
+def test_web_export_honors_output_route_limit_after_bounded_search() -> None:
+    routes = [
+        route_candidates_from_chem_enzy_result(
+            _raw_one_step_route(product, [reactant], template_id=f"valid-{index}"),
+            target_smiles=product,
+        )[0]
+        for index, (product, reactant) in enumerate(
+            [("CCO", "CC=O"), ("CCCO", "CCC=O"), ("CCCCO", "CCCC=O")]
+        )
+    ]
+    result = BaselineRunResult(
+        target_smiles="CCO",
+        backend="ChemEnzyRetroPlanner",
+        routes=routes,
+        raw_backend_metadata={
+            "route_materialization_selection": {"raw_route_count": 1363}
+        },
+    )
+
+    payload = _web_payload_from_result(
+        result,
+        {"max_routes": 2},
+        RouteSearchConfig(
+            target_smiles="CCO",
+            search_flags={"max_output_routes": 2},
+        ),
+        0.1,
+    )
+
+    assert payload["n_results"] == 2
+    assert len(payload["routes"]) == 2
+    limit = payload["route_set_metrics"]["output_limit"]
+    assert limit["enabled"] is True
+    assert limit["eligible_before_limit"] == 3
+    assert limit["eligible_truncated"] == 1
+    assert payload["search_status"]["native_raw_n_routes"] == 3
+    assert payload["search_status"]["native_search_found_n_routes"] == 1363
+
+
+def test_launcher_derives_bounded_annotation_pool_from_host_route_limit() -> None:
+    with patch(
+        "scripts.run_chem_enzy_plan_for_web.missing_template_relevance_models",
+        return_value=[],
+    ):
+        config = _route_config_from_payload(
+            {
+                "target_smiles": "CCO",
+                "search_preset": "thorough",
+                "max_routes": 4,
+                "max_steps": 20,
+                "chem_enzy_iterations": 200,
+                "chem_enzy_expansion_topk": 120,
+                "timeout_s": 300,
+                "chemenzy_seed": 41,
+                "one_step_models": ["fixture"],
+                "stock_names": ["RetroStar-stock"],
+                "stock_paths": {
+                    "RetroStar-stock": "data/retrostar-origin.csv",
+                },
+            },
+            -1,
+        )
+
+    assert config.max_iterations == 200
+    assert config.max_depth == 20
+    assert config.expansion_topk == 120
+    assert config.search_flags["max_output_routes"] == 4
+    assert config.search_flags["max_materialized_routes"] == 8
+    assert config.search_flags["max_advisory_materialized_routes"] == 4
+    assert config.search_flags["search_wall_time_s"] == 210.0
+    assert config.search_flags["stop_on_first_host_admitted_route"] is False
+    assert config.stock_names == ["RetroStar-stock"]
+    assert config.random_seed == 41
+    assert config.search_flags["stock_paths"]["RetroStar-stock"].endswith(
+        "data\\retrostar-origin.csv"
+    )
+
+
+def test_vendor_config_treats_200_as_cap_and_uses_success_reserve() -> None:
+    adapter = ChemEnzyBackendAdapter()
+    config = adapter._vendor_config(
+        RouteSearchConfig(
+            target_smiles="CCO",
+            max_iterations=200,
+            stock_names=["RetroStar-stock"],
+            search_flags={
+                "max_materialized_routes": 32,
+                "stock_paths": {"RetroStar-stock": "D:/bench/origin_dict.csv"},
+            },
+        )
+    )
+
+    assert config["iterations"] == 200
+    assert config["keep_search"] is True
+    assert config["max_success_routes"] == 32
+    assert config["stocks"]["RetroStar-stock"] == "D:/bench/origin_dict.csv"
+
+
+def test_vendor_mcts_stops_before_iteration_cap_when_reserve_is_ready() -> None:
+    vendor_root = Path(__file__).resolve().parents[1] / "vendor" / "ChemEnzyRetroPlanner"
+    sys.path.insert(0, str(vendor_root))
+    try:
+        module = importlib.import_module(
+            "retro_planner.search_frame.mcts_star.molmcts_star"
+        )
+        _install_bounded_vendor_mcts(max_success_routes=1)
+        assert module.mol_planner.func is bounded_mol_planner
+        assert module.mol_planner.keywords["max_success_routes"] == 1
+    finally:
+        sys.path.remove(str(vendor_root))
+
+    class Node:
+        def __init__(self, *, molecule: bool, succ: bool = False) -> None:
+            if molecule:
+                self.mol = "molecule"
+            self.succ = succ
+            self.open = True
+            self.children = []
+            self.depth = 0
+            self.go_back = False
+            self.succ_value = 1.0
+
+        def v_target(self) -> float:
+            return 0.0
+
+        def is_terminal(self) -> bool:
+            return True
+
+    class FakeRoute:
+        optimal = False
+
+    class FakeMolTree:
+        def __init__(self, **_kwargs: object) -> None:
+            self.root = Node(molecule=True)
+            self.mol_nodes = [self.root]
+            self.succ = False
+            self.search_status = 0.0
+            self.cascade_expansion_trace = []
+
+        def call_expand_fn(self, _expand_fn: object, _node: Node) -> dict:
+            return {"scores": [1.0]}
+
+        def cascade_context_for_mol(self, _node: Node) -> dict:
+            return {}
+
+        def prepare_expansion(self, *_args: object, **_kwargs: object) -> tuple:
+            return [], [], [], []
+
+        def expand(self, node: Node, *_args: object, **_kwargs: object) -> tuple:
+            leaf = Node(molecule=True, succ=True)
+            reaction = Node(molecule=False, succ=True)
+            reaction.children = [leaf]
+            node.children = [reaction]
+            node.succ = True
+            node.succ_value = 0.0
+            self.succ = True
+            return True, None
+
+        def get_best_route(self) -> FakeRoute:
+            return FakeRoute()
+
+        def extract_all_succ_routes(self) -> list[FakeRoute]:
+            return [FakeRoute()]
+
+    mol_tree_module = importlib.import_module(
+        "retro_planner.search_frame.mcts_star.mol_tree"
+    )
+    with patch.object(mol_tree_module, "MolTree", FakeMolTree):
+        solved, result = bounded_mol_planner(
+            "target",
+            0,
+            set(),
+            lambda _target: {},
+            iterations=200,
+            keep_search=True,
+            max_success_routes=1,
+        )
+
+    stop = result[5]
+    assert solved is True
+    assert result[1] == 1
+    assert stop["reason"] == "success_route_limit_reached"
+    assert stop["configured_iteration_limit"] == 200
+    assert stop["executed_iterations"] == 1
+    assert stop["stopped_early"] is True
+
+
+def test_vendor_mcts_stops_on_first_host_admitted_success_route() -> None:
+    vendor_root = Path(__file__).resolve().parents[1] / "vendor" / "ChemEnzyRetroPlanner"
+    sys.path.insert(0, str(vendor_root))
+    try:
+        mol_tree_module = importlib.import_module(
+            "retro_planner.search_frame.mcts_star.mol_tree"
+        )
+    finally:
+        sys.path.remove(str(vendor_root))
+
+    class Node:
+        def __init__(self, *, molecule: bool, succ: bool = False) -> None:
+            if molecule:
+                self.mol = "molecule"
+            self.succ = succ
+            self.open = True
+            self.children = []
+            self.depth = 0
+            self.go_back = False
+            self.succ_value = 1.0
+
+        def v_target(self) -> float:
+            return 0.0
+
+        def is_terminal(self) -> bool:
+            return True
+
+    class FakeRoute:
+        optimal = False
+
+        def serialize(self) -> str:
+            return "route-1"
+
+    class FakeMolTree:
+        def __init__(self, **_kwargs: object) -> None:
+            self.root = Node(molecule=True)
+            self.mol_nodes = [self.root]
+            self.succ = False
+            self.search_status = 0.0
+            self.cascade_expansion_trace = []
+
+        def call_expand_fn(self, _expand_fn: object, _node: Node) -> dict:
+            return {"scores": [1.0]}
+
+        def cascade_context_for_mol(self, _node: Node) -> dict:
+            return {}
+
+        def prepare_expansion(self, *_args: object, **_kwargs: object) -> tuple:
+            return [], [], [], []
+
+        def expand(self, node: Node, *_args: object, **_kwargs: object) -> tuple:
+            node.succ = True
+            node.succ_value = 0.0
+            self.succ = True
+            return True, None
+
+        def get_best_route(self) -> FakeRoute:
+            return FakeRoute()
+
+        def extract_all_succ_routes(self) -> list[FakeRoute]:
+            return [FakeRoute()]
+
+    acceptor = Mock(return_value=True)
+    with patch.object(mol_tree_module, "MolTree", FakeMolTree):
+        solved, result = bounded_mol_planner(
+            "target",
+            0,
+            set(),
+            lambda _target: {},
+            iterations=200,
+            keep_search=True,
+            max_success_routes=32,
+            success_route_acceptor=acceptor,
+        )
+
+    stop = result[5]
+    assert solved is True
+    assert result[1] == 1
+    acceptor.assert_called_once()
+    assert stop["reason"] == "host_admitted_success_route_found"
+    assert stop["host_admission_scanned_route_count"] == 1
+    assert stop["host_admitted_success_route_count"] == 1
+
+
+def test_vendor_mcts_keeps_searching_when_success_route_is_not_host_admitted() -> None:
+    vendor_root = Path(__file__).resolve().parents[1] / "vendor" / "ChemEnzyRetroPlanner"
+    sys.path.insert(0, str(vendor_root))
+    try:
+        mol_tree_module = importlib.import_module(
+            "retro_planner.search_frame.mcts_star.mol_tree"
+        )
+    finally:
+        sys.path.remove(str(vendor_root))
+
+    class Node:
+        def __init__(self, *, molecule: bool, succ: bool = False) -> None:
+            if molecule:
+                self.mol = "molecule"
+            self.succ = succ
+            self.open = True
+            self.children = []
+            self.depth = 0
+            self.go_back = False
+            self.succ_value = 1.0
+
+        def v_target(self) -> float:
+            return 0.0
+
+        def is_terminal(self) -> bool:
+            return True
+
+    class FakeRoute:
+        optimal = False
+
+        def serialize(self) -> str:
+            return "route-1"
+
+    class FakeMolTree:
+        def __init__(self, **_kwargs: object) -> None:
+            self.root = Node(molecule=True)
+            self.mol_nodes = [self.root]
+            self.succ = False
+            self.search_status = 0.0
+            self.cascade_expansion_trace = []
+
+        def call_expand_fn(self, _expand_fn: object, _node: Node) -> dict:
+            return {"scores": [1.0]}
+
+        def cascade_context_for_mol(self, _node: Node) -> dict:
+            return {}
+
+        def prepare_expansion(self, *_args: object, **_kwargs: object) -> tuple:
+            return [], [], [], []
+
+        def expand(self, node: Node, *_args: object, **_kwargs: object) -> tuple:
+            node.succ = True
+            node.succ_value = 0.0
+            self.succ = True
+            return True, None
+
+        def get_best_route(self) -> FakeRoute:
+            return FakeRoute()
+
+        def extract_all_succ_routes(self) -> list[FakeRoute]:
+            return [FakeRoute()]
+
+    acceptor = Mock(return_value=False)
+    with patch.object(mol_tree_module, "MolTree", FakeMolTree):
+        solved, result = bounded_mol_planner(
+            "target",
+            0,
+            set(),
+            lambda _target: {},
+            iterations=3,
+            keep_search=True,
+            max_success_routes=32,
+            success_route_acceptor=acceptor,
+        )
+
+    stop = result[5]
+    assert solved is True
+    assert result[1] == 3
+    acceptor.assert_called_once()
+    assert stop["reason"] == "iteration_limit"
+    assert stop["host_admission_scanned_route_count"] == 1
+    assert stop["host_admitted_success_route_count"] == 0
+
+
+def test_vendor_mcts_soft_wall_stop_returns_routes_found_before_hard_timeout() -> None:
+    vendor_root = Path(__file__).resolve().parents[1] / "vendor" / "ChemEnzyRetroPlanner"
+    sys.path.insert(0, str(vendor_root))
+    try:
+        mol_tree_module = importlib.import_module(
+            "retro_planner.search_frame.mcts_star.mol_tree"
+        )
+    finally:
+        sys.path.remove(str(vendor_root))
+
+    class Node:
+        def __init__(self, *, molecule: bool, succ: bool = False) -> None:
+            if molecule:
+                self.mol = "molecule"
+            self.succ = succ
+            self.open = True
+            self.children = []
+            self.depth = 0
+            self.go_back = False
+            self.succ_value = 1.0
+
+        def v_target(self) -> float:
+            return 0.0
+
+        def is_terminal(self) -> bool:
+            return True
+
+    class FakeRoute:
+        optimal = False
+
+    class FakeMolTree:
+        def __init__(self, **_kwargs: object) -> None:
+            self.root = Node(molecule=True)
+            self.mol_nodes = [self.root]
+            self.succ = False
+            self.search_status = 0.0
+            self.cascade_expansion_trace = []
+
+        def call_expand_fn(self, _expand_fn: object, _node: Node) -> dict:
+            return {"scores": [1.0]}
+
+        def cascade_context_for_mol(self, _node: Node) -> dict:
+            return {}
+
+        def prepare_expansion(self, *_args: object, **_kwargs: object) -> tuple:
+            return [], [], [], []
+
+        def expand(self, node: Node, *_args: object, **_kwargs: object) -> tuple:
+            node.succ = True
+            node.succ_value = 0.0
+            self.succ = True
+            return True, None
+
+        def get_best_route(self) -> FakeRoute:
+            return FakeRoute()
+
+        def extract_all_succ_routes(self) -> list[FakeRoute]:
+            return [FakeRoute()]
+
+    with (
+        patch.object(mol_tree_module, "MolTree", FakeMolTree),
+        patch(
+            "cascade_planner.baselines.chem_enzy_bounded_mcts.time.monotonic",
+            side_effect=[0.0, 0.0, 0.1, 2.0, 2.1],
+        ),
+    ):
+        solved, result = bounded_mol_planner(
+            "target",
+            0,
+            set(),
+            lambda _target: {},
+            iterations=200,
+            keep_search=True,
+            max_success_routes=100,
+            max_search_wall_time_s=1.0,
+        )
+
+    stop = result[5]
+    assert solved is True
+    assert result[1] == 1
+    assert len(result[2]) == 1
+    assert stop["reason"] == "search_wall_time_limit"
+    assert stop["configured_search_wall_time_s"] == 1.0
+    assert stop["elapsed_search_wall_time_s"] == 2.1
+
+
+def test_vendor_mcts_records_raw_expansions_without_cascade_cost_model() -> None:
+    vendor_root = Path(__file__).resolve().parents[1] / "vendor" / "ChemEnzyRetroPlanner"
+    sys.path.insert(0, str(vendor_root))
+    try:
+        mol_tree_module = importlib.import_module(
+            "retro_planner.search_frame.mcts_star.mol_tree"
+        )
+    finally:
+        sys.path.remove(str(vendor_root))
+
+    class Node:
+        mol = "CCO"
+        open = True
+        depth = 0
+        go_back = False
+        succ = False
+        succ_value = 1.0
+
+        def v_target(self) -> float:
+            return 0.0
+
+        def is_terminal(self) -> bool:
+            return True
+
+    class FakeMolTree:
+        def __init__(self, **_kwargs: object) -> None:
+            self.root = Node()
+            self.mol_nodes = [self.root]
+            self.succ = False
+            self.search_status = 0.0
+            self.cascade_cost_model = None
+            self.cascade_expansion_trace = []
+
+        def call_expand_fn(self, _expand_fn: object, _node: Node) -> dict:
+            return {
+                "scores": [0.8],
+                "reactants": ["CC=O"],
+                "templates": [{"model_full_name": "fixture-model"}],
+            }
+
+        def cascade_context_for_mol(self, _node: Node) -> dict:
+            return {}
+
+        def prepare_expansion(self, *_args: object, **_kwargs: object) -> tuple:
+            return [["CC=O"]], [0.2], [{"model_full_name": "fixture-model"}], [None]
+
+        def expand(self, *_args: object, **_kwargs: object) -> tuple:
+            return False, False
+
+    with patch.object(mol_tree_module, "MolTree", FakeMolTree):
+        _solved, result = bounded_mol_planner(
+            "CCO",
+            0,
+            set(),
+            lambda _target: {},
+            iterations=1,
+        )
+
+    trace = result[4]
+    assert len(trace) == 1
+    assert trace[0]["parent_mol"] == "CCO"
+    assert trace[0]["reactants"] == ["CC=O"]
+    assert trace[0]["base_score"] == 0.8
+    assert trace[0]["source_model"] == "fixture-model"

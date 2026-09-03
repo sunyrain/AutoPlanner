@@ -1,0 +1,111 @@
+{
+  "catalog_id": "statin-parent-entities",
+  "normalization_note": "按独立母体化学实体计数；盐型、活性酸和开发代号作为别名，不重复计数。",
+  "schema_version": "target_route_catalog.v1",
+  "semantics": {
+    "catalog_membership_does_not_imply_route_availability": true,
+    "target_names_are_identity_not_runtime_rules": true
+  },
+  "targets": [
+    {
+      "aliases": ["CI-981"],
+      "display_name": "阿托伐他汀",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "atorvastatin",
+      "target_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H](O)C[C@@H](O)CC(=O)O"
+    },
+    {
+      "aliases": ["fluindostatin", "XU-62-320"],
+      "display_name": "氟伐他汀",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "fluvastatin",
+      "target_smiles": "CC(C)n1c(/C=C/[C@H](O)C[C@H](O)CC(=O)O)c(-c2ccc(F)cc2)c2ccccc21"
+    },
+    {
+      "aliases": ["monacolin K", "mevinolin"],
+      "display_name": "洛伐他汀",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "lovastatin",
+      "target_smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@@H](C)C=C2C=C[C@H](C)[C@H](CC[C@@H]3C[C@@H](O)CC(=O)O3)[C@H]21"
+    },
+    {
+      "aliases": ["itavastatin", "nisvastatin", "NK-104"],
+      "display_name": "匹伐他汀",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "pitavastatin",
+      "target_smiles": "O=C(O)C[C@H](O)C[C@H](O)/C=C/c1c(C2CC2)nc2ccccc2c1-c1ccc(F)cc1"
+    },
+    {
+      "aliases": ["eptastatin", "CS-514"],
+      "display_name": "普伐他汀",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "pravastatin",
+      "target_smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@H](O)C=C2C=C[C@H](C)[C@H](CC[C@@H](O)C[C@@H](O)CC(=O)O)[C@H]21"
+    },
+    {
+      "aliases": ["S-4522"],
+      "display_name": "瑞舒伐他汀",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "rosuvastatin",
+      "target_smiles": "CC(C)c1nc(N(C)S(C)(=O)=O)nc(-c2ccc(F)cc2)c1/C=C/[C@@H](O)C[C@@H](O)CC(=O)O"
+    },
+    {
+      "aliases": ["synvinolin", "velostatin", "MK-733"],
+      "display_name": "辛伐他汀",
+      "rerun_wave": "v4_first_9",
+      "scope": "marketed_core",
+      "target_name": "simvastatin",
+      "target_smiles": "CCC(C)(C)C(=O)O[C@H]1C[C@@H](C)C=C2C=C[C@H](C)[C@H](CC[C@@H]3C[C@@H](O)CC(=O)O3)[C@H]21"
+    },
+    {
+      "aliases": ["rivastatin", "BAY w 6228"],
+      "display_name": "西立伐他汀",
+      "rerun_wave": "v4_first_9",
+      "scope": "withdrawn_historical",
+      "target_name": "cerivastatin",
+      "target_smiles": "COCc1c(C(C)C)nc(C(C)C)c(/C=C/[C@@H](O)C[C@@H](O)CC(=O)O)c1-c1ccc(F)cc1"
+    },
+    {
+      "aliases": ["compactin", "ML-236B"],
+      "display_name": "美伐他汀",
+      "rerun_wave": "v4_first_9",
+      "scope": "lead_compound",
+      "target_name": "mevastatin",
+      "target_smiles": "CC[C@H](C)C(=O)O[C@H]1CCC=C2C=C[C@H](C)[C@H](CC[C@@H]3C[C@@H](O)CC(=O)O3)[C@H]21"
+    },
+    {
+      "aliases": ["PMD-387"],
+      "display_name": "克利伐他汀",
+      "external_ids": {"pubchem_cid": 22845140},
+      "rerun_wave": "v4_extended_3",
+      "scope": "investigational_historical",
+      "target_name": "crilvastatin",
+      "target_smiles": "CC1CC(OC(=O)[C@@H]2CCC(=O)N2)CC(C)(C)C1"
+    },
+    {
+      "aliases": ["RG-12561"],
+      "display_name": "达伐他汀",
+      "external_ids": {"pubchem_cid": 6436001},
+      "rerun_wave": "v4_extended_3",
+      "scope": "investigational_historical",
+      "target_name": "dalvastatin",
+      "target_smiles": "Cc1cc(C2=C(/C=C/[C@@H]3C[C@@H](O)CC(=O)O3)C(C)(C)CC(C)(C)C2)ccc1F"
+    },
+    {
+      "aliases": ["HR-780"],
+      "display_name": "格仑伐他汀",
+      "external_ids": {"pubchem_cid": 5281970},
+      "rerun_wave": "v4_extended_3",
+      "scope": "investigational_historical",
+      "target_name": "glenvastatin",
+      "target_smiles": "CC(C)c1nc(-c2ccccc2)cc(-c2ccc(F)cc2)c1/C=C/[C@@H]1C[C@@H](O)CC(=O)O1"
+    }
+  ],
+  "content_sha256": "402f00a81d71e5aa9c5c86c11300181bf32cae55990921b472808a7389f3d6a2"
+}

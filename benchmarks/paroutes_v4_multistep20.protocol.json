@@ -1,0 +1,73 @@
+{
+  "benchmark": "PaRoutes set-n1 and set-n5 deterministic stress mini-panel",
+  "blindness": {
+    "planner_receives_depth_strata": false,
+    "planner_receives_reference_routes": false,
+    "planner_receives_source_indices": false,
+    "planner_receives_target_names_with_identity": false
+  },
+  "depth_strata": [
+    {
+      "maximum_longest_linear_depth": 3,
+      "minimum_longest_linear_depth": 3,
+      "name": "llr_3",
+      "quota_per_split": 2
+    },
+    {
+      "maximum_longest_linear_depth": 4,
+      "minimum_longest_linear_depth": 4,
+      "name": "llr_4",
+      "quota_per_split": 2
+    },
+    {
+      "maximum_longest_linear_depth": 6,
+      "minimum_longest_linear_depth": 5,
+      "name": "llr_5_6",
+      "quota_per_split": 2
+    },
+    {
+      "maximum_longest_linear_depth": 8,
+      "minimum_longest_linear_depth": 7,
+      "name": "llr_7_8",
+      "quota_per_split": 2
+    },
+    {
+      "maximum_longest_linear_depth": 10,
+      "minimum_longest_linear_depth": 9,
+      "name": "llr_9_10",
+      "quota_per_split": 2
+    }
+  ],
+  "manifest_sha256": "e0bfded52ecbb7ff85f56306b4cc3293b073da5774366766ca9981eb75debadd",
+  "metrics": {
+    "missing_evidence_does_not_erase_a_structural_route": true,
+    "reported_independently": [
+      "route_present",
+      "host_reaction_validated",
+      "official_benchmark_stock_closed",
+      "reference_reaction_and_leaf_overlap",
+      "exact_source_grade",
+      "condition_completeness",
+      "resource_envelope"
+    ],
+    "shorter_valid_route_is_allowed": true
+  },
+  "provenance": {
+    "license_note": "See the upstream PaRoutes record and repository.",
+    "paper_doi": "10.1039/D2DD00015F",
+    "zenodo_record": "https://zenodo.org/records/6275421"
+  },
+  "schema_version": "classic_multistep_benchmark_protocol.v1",
+  "seed": "autoplanner-paroutes-multistep20-v1",
+  "selection": {
+    "cross_split_target_deduplication": true,
+    "ranking": "sha256(seed, split, source_index, canonical_smiles)",
+    "reference_depth_used_only_for_sampling": true,
+    "route_length_is_not_an_acceptance_or_ranking_reward": true
+  },
+  "split_target_counts": {
+    "n1": 10,
+    "n5": 10
+  },
+  "target_count": 20
+}

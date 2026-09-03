@@ -7,7 +7,10 @@ import os
 import sys
 from pathlib import Path
 
-from AUTOPLANNRELLM.deepseek_client import is_placeholder_deepseek_key, normalize_deepseek_key_value
+from cascade_planner.agent.deepseek_credentials import (
+    is_placeholder_deepseek_key,
+    normalize_deepseek_key_value,
+)
 from cascade_planner.agent.case_blackboard import load_blackboard
 from cascade_planner.agent.case_trace import load_case_bundle
 from cascade_planner.agent.chem_enzy_policy import (

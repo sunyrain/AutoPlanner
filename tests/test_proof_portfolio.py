@@ -12,6 +12,7 @@ from cascade_planner.application.canonical_hypergraph import (
 from cascade_planner.application.proof_portfolio import (
     PortfolioConfig,
     compile_proof_portfolio,
+    persist_proof_portfolio,
     publish_proof_portfolio,
     validate_module_replacement,
 )
@@ -28,6 +29,10 @@ from cascade_planner.application.worker_runtime import (
     WorkerBudget,
     WorkerCommand,
     WorkerRuntime,
+)
+from cascade_planner.application.route_strategy_value import (
+    compile_evidence_maturity_vector,
+    compile_strategic_value_vector,
 )
 
 
@@ -50,6 +55,100 @@ ROUTES = (
         ),
     },
 )
+
+
+def test_strategic_value_and_evidence_maturity_are_independent_axes() -> None:
+    graph = {
+        "molecules": {
+            "mol:target": {"canonical_smiles": TARGET},
+            "mol:a": {"canonical_smiles": "CCO"},
+            "mol:b": {"canonical_smiles": "CC(=O)Cl"},
+        },
+        "edges": {
+            "edge:root": {
+                "product_molecule_id": "mol:target",
+                "precursor_molecule_ids": ["mol:a", "mol:b"],
+                "source_binding_ids": [],
+            }
+        }
+    }
+    card = {
+        "key_bond_changes": ["form C-O bond"],
+        "skeleton_change_class": "fragment union",
+        "key_forward_transformation": "convergent coupling",
+        "expected_complexity_drop": "high",
+        "stereochemical_plan": "substrate controlled",
+        "protection_policy": "avoid protection",
+    }
+    first = compile_strategic_value_vector(
+        graph,
+        edge_ids=["edge:root"],
+        root_edge_ids=["edge:root"],
+        strategy_card=card,
+        convergence_score=0.0,
+    )
+    graph["edges"]["edge:root"]["source_binding_ids"] = ["source:1", "source:2"]
+    second = compile_strategic_value_vector(
+        graph,
+        edge_ids=["edge:root"],
+        root_edge_ids=["edge:root"],
+        strategy_card=card,
+        convergence_score=0.0,
+    )
+    evidence = compile_evidence_maturity_vector(
+        reaction_feasibility_rate=0.25,
+        exact_evidence_rate=0.0,
+        condition_completeness_rate=0.0,
+        source_independence_met=False,
+    )
+
+    assert first == second
+    assert first["score"] > evidence["score"]
+    assert first["structure_metrics"]["known"] is True
+    assert first["basis"] == "canonical_root_structures_and_strategy_edit_identity"
+    assert evidence["basis"] == "host_proof_and_source_records_only"
+
+
+def test_declared_complexity_label_does_not_change_structural_strategy_score() -> None:
+    graph = {
+        "molecules": {
+            "mol:target": {"canonical_smiles": "c1ccc2ccccc2c1"},
+            "mol:a": {"canonical_smiles": "c1ccccc1"},
+            "mol:b": {"canonical_smiles": "C=CC=C"},
+        },
+        "edges": {
+            "edge:root": {
+                "product_molecule_id": "mol:target",
+                "precursor_molecule_ids": ["mol:a", "mol:b"],
+            }
+        },
+    }
+    card = {
+        "key_bond_changes": ["map 1-map 2"],
+        "stereochemical_plan": "not applicable",
+        "protection_policy": "avoid protection",
+        "expected_complexity_drop": "low",
+    }
+
+    low = compile_strategic_value_vector(
+        graph,
+        edge_ids=["edge:root"],
+        root_edge_ids=["edge:root"],
+        strategy_card=card,
+        convergence_score=0.0,
+    )
+    high = compile_strategic_value_vector(
+        graph,
+        edge_ids=["edge:root"],
+        root_edge_ids=["edge:root"],
+        strategy_card={**card, "expected_complexity_drop": "high"},
+        convergence_score=0.0,
+    )
+
+    assert low["score"] == high["score"]
+    assert low["complexity_drop"] == high["complexity_drop"]
+    assert low["declared_complexity_drop"] == "low"
+    assert high["declared_complexity_drop"] == "high"
 
 
 def _digest(value: object) -> str:
@@ -348,6 +447,30 @@ def test_two_route_portfolio_is_proof_stitched_and_published(tmp_path: Path) -> 
         assert route["content_sha256"] == _digest(
             {key: value for key, value in route.items() if key != "content_sha256"}
         )
+        vector = route["pareto_objective_vector"]
+        assert vector["schema_version"] == "route_pareto_objective_vector.v1"
+        assert set(vector["axes"]) == {
+            "strategic_value",
+            "evidence_maturity",
+            "topology_closure",
+            "stock_closure",
+            "reaction_feasibility",
+            "proof_evidence",
+            "condition_completeness",
+            "route_diversity",
+            "cost_length",
+            "program_readiness",
+        }
+        assert vector["axes"]["cost_length"]["known"] is False
+        assert vector["axes"]["cost_length"]["unknown_cost_is_not_zero"] is True
+        assert vector["axes"]["program_readiness"]["applicability"] == "not_applicable"
+        assert vector["axes"]["program_readiness"]["score"] == 1.0
+        assert vector["axes"]["strategic_value"]["evidence_independent"] is True
+        assert (
+            vector["axes"]["evidence_maturity"]["strategy_wording_independent"]
+            is True
+        )
+        assert vector["semantics"]["scalar_utility_is_display_only"] is True
 
     published = publish_proof_portfolio(
         kernel,
@@ -358,6 +481,30 @@ def test_two_route_portfolio_is_proof_stitched_and_published(tmp_path: Path) -> 
     assert kernel.state.acceptance_report["accepted"] is True
     assert kernel.state.deficits == ()
     assert kernel.decide_stop().decision == "completed"
+
+
+def test_persist_portfolio_updates_projection_without_republishing_decisions(
+    tmp_path: Path,
+) -> None:
+    kernel, graph = _build_closed_graph(tmp_path)
+    portfolio = compile_proof_portfolio(
+        graph,
+        acceptance_spec=kernel.spec.acceptance,
+    )
+    prior_acceptance = dict(kernel.state.acceptance_report)
+    prior_deficits = tuple(kernel.state.deficits)
+
+    ref = persist_proof_portfolio(kernel, portfolio)
+    run_digest = hashlib.sha256(kernel.spec.run_id.encode("utf-8")).hexdigest()
+    latest, metadata = kernel.artifacts.load_pointer(f"p/{run_digest[:24]}/latest")
+
+    assert kernel.artifacts.read_json(ref)["content_sha256"] == (
+        portfolio["content_sha256"]
+    )
+    assert latest.sha256 == ref.sha256
+    assert metadata["metadata"]["graph_revision"] == graph["revision"]
+    assert kernel.state.acceptance_report == prior_acceptance
+    assert kernel.state.deficits == prior_deficits
 
 
 def test_exact_sources_do_not_replace_reaction_proof_and_removal_reopens_one_gap(

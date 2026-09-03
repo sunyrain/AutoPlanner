@@ -1,0 +1,13 @@
+# Optional isolated environment for the legacy Chemenzy publisher spiders.
+# Keep this separate from the planner inference environment.
+undetected-chromedriver==3.5.5
+selenium>=4.15,<5
+beautifulsoup4>=4.12,<5
+html-table-extractor>=1.4,<2
+markdownify>=1.2,<2
+loguru>=0.7,<1
+pandas>=2.2,<3
+pydantic>=2.9,<3
+python-dotenv>=1,<2
+PyYAML>=6,<7
+requests>=2.31,<3

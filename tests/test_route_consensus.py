@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from cascade_planner.agent.artifact_validators import validate_typed_artifact
 from cascade_planner.routes.consensus import (
     consensus_to_blackboard_proposals,
     fuse_route_candidates,
@@ -495,3 +496,168 @@ def test_report_validator_rejects_solved_claim() -> None:
         "route_status": "solved",
     }
     assert "proposal_report_direct_solved_claim" in validate_retrosynthesis_report_payload(payload)
+
+
+def test_routejson_draft_defers_empty_precursors_to_host_compiler() -> None:
+    payload = {
+        "schema_version": "retrosynthesis_proposal_report.v1",
+        "case_id": "case",
+        "agent_role": "paper-style RouteJSON Editor",
+        "target_smiles": "CCO",
+        "candidates": [
+            {
+                "schema_version": "retrosynthesis_candidate.v1",
+                "candidate_id": "route-draft",
+                "product_smiles": "CCO",
+                "precursor_smiles": [],
+                "reaction_family": "host-compiled edit",
+                "transformation_rationale": "draft only",
+                "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
+                "route_json": [
+                    {
+                        "step_id": "step-1",
+                        "product_smiles": "CCO",
+                        "precursor_smiles": [],
+                        "reaction_operations": [
+                            {"op": "break_bond", "map_a": 1, "map_b": 2}
+                        ],
+                        "no_solved_claim": True,
+                        "not_parent_route_proof": True,
+                    }
+                ],
+                "no_solved_claim": True,
+                "not_parent_route_proof": True,
+            }
+        ],
+        "evidence_refs": [],
+        "limitations": [],
+        "no_solved_claim": True,
+    }
+
+    assert validate_retrosynthesis_report_payload(payload) == []
+    artifact = {
+        "schema_version": "retrosynthesis_proposal_report_artifact.v1",
+        "artifact_id": "route-draft-artifact",
+        "artifact_type": "RetrosynthesisProposalReport",
+        "case_id": "case",
+        "source": "codex_cli",
+        "input_refs": [],
+        "evidence_refs": [],
+        "validation_status": "draft",
+        "payload": payload,
+    }
+    validation = validate_typed_artifact(artifact)
+    assert validation["accepted"] is True, validation
+
+
+def test_routejson_draft_still_rejects_raw_reaction_injection() -> None:
+    payload = {
+        "schema_version": "retrosynthesis_proposal_report.v1",
+        "case_id": "case",
+        "agent_role": "paper-style RouteJSON Editor",
+        "target_smiles": "CCO",
+        "candidates": [
+            {
+                "candidate_id": "unsafe",
+                "product_smiles": "CCO",
+                "precursor_smiles": [],
+                "route_json": [{"step_id": "step-1", "product_smiles": "CCO"}],
+                "reaction_smiles": "CCO>>CC=O",
+                "no_solved_claim": True,
+                "not_parent_route_proof": True,
+            }
+        ],
+        "evidence_refs": [],
+        "limitations": [],
+        "no_solved_claim": True,
+    }
+    assert "proposal_report_candidate:0:raw_reaction_payload" in validate_retrosynthesis_report_payload(payload)
+
+
+def test_paper_route_builder_fail_branch_is_not_a_valid_draft() -> None:
+    payload = {
+        "schema_version": "retrosynthesis_proposal_report.v1",
+        "case_id": "case",
+        "agent_role": "paper Route Builder",
+        "target_smiles": "CCO",
+        "builder_action": "fail_branch",
+        "builder_reason": "no_reasonable_disconnection",
+        "candidates": [],
+        "evidence_refs": [],
+        "limitations": [],
+        "no_solved_claim": True,
+    }
+    artifact = {
+        "schema_version": "retrosynthesis_proposal_report_artifact.v1",
+        "artifact_id": "paper-builder-failure",
+        "artifact_type": "RetrosynthesisProposalReport",
+        "case_id": "case",
+        "source": "codex_cli",
+        "input_refs": [],
+        "evidence_refs": [],
+        "validation_status": "draft",
+        "payload": payload,
+    }
+
+    assert "paper_route_step_legacy_builder_control_forbidden" in (
+        validate_retrosynthesis_report_payload(payload)
+    )
+    validation = validate_typed_artifact(artifact)
+    assert validation["accepted"] is False, validation
+
+
+def test_paper_route_builder_handoff_is_not_a_valid_draft() -> None:
+    payload = {
+        "schema_version": "retrosynthesis_proposal_report.v1",
+        "case_id": "case",
+        "agent_role": "paper Route Builder",
+        "target_smiles": "CCO",
+        "builder_action": "handoff",
+        "builder_reason": "simple_for_explorative_search",
+        "candidates": [],
+        "evidence_refs": [],
+        "limitations": [],
+        "no_solved_claim": True,
+    }
+
+    assert "paper_route_step_legacy_builder_control_forbidden" in (
+        validate_retrosynthesis_report_payload(payload)
+    )
+
+
+def test_paper_route_builder_reason_cannot_restore_handoff_authority() -> None:
+    payload = {
+        "schema_version": "retrosynthesis_proposal_report.v1",
+        "case_id": "case",
+        "agent_role": "paper Route Builder",
+        "target_smiles": "CCO",
+        "builder_action": "handoff",
+        "builder_reason": "no_beneficial_strategic_move",
+        "candidates": [],
+        "evidence_refs": [],
+        "limitations": [],
+        "no_solved_claim": True,
+    }
+
+    assert "paper_route_step_legacy_builder_control_forbidden" in (
+        validate_retrosynthesis_report_payload(payload)
+    )
+
+
+def test_legacy_builder_stop_contract_is_rejected() -> None:
+    payload = {
+        "schema_version": "retrosynthesis_proposal_report.v1",
+        "case_id": "case",
+        "agent_role": "paper Route Builder",
+        "target_smiles": "CCO",
+        "stop_signal": True,
+        "stop_reason": "no_beneficial_strategic_move",
+        "candidates": [],
+        "evidence_refs": [],
+        "limitations": [],
+        "no_solved_claim": True,
+    }
+
+    assert "paper_route_step_legacy_stop_contract_forbidden" in (
+        validate_retrosynthesis_report_payload(payload)
+    )

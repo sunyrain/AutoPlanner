@@ -1,0 +1,137 @@
+{
+  "audit_date": "2026-08-31",
+  "cases": [
+    {
+      "artifact": "config/examples/nirmatrelvir_v4_replay_pack.json",
+      "artifact_file_sha256": "2e9ffdb729a5907a50961c40f733f6a1d6de219348fd2d3b49500106d6e86e51",
+      "artifact_sha256": "e3423140159c41e77ad27d3981a2d5c8189aab997689769d399395040fd766b5",
+      "category": "peptide_like_antiviral",
+      "counts": {
+        "chemical_states": 18,
+        "programs": 12,
+        "routes": 2
+      },
+      "evidence_class": "canonical_replay_store",
+      "target_name": "nirmatrelvir"
+    },
+    {
+      "artifact": "config/examples/artemisinin_v4_replay_pack.json",
+      "artifact_file_sha256": "3fa3cf58770b337008f0282c6f10671e5780af129431be8d309100d482ee6b5b",
+      "artifact_sha256": "3c426c5939c659f705a3c4fbee92faa1c607d4d84f71b7a5bfc176b64ad43038",
+      "category": "sesquiterpene_antimalarial",
+      "counts": {
+        "chemical_states": 5,
+        "programs": 2,
+        "routes": 2
+      },
+      "evidence_class": "canonical_replay_store",
+      "target_name": "artemisinin"
+    },
+    {
+      "artifact": "benchmarks/fluvastatin_current_canonical_replay_receipt.v1.json",
+      "artifact_file_sha256": "c9af0690bb25d6c1f053d88002b25a901750a31115208fc60b3ccc1148dd8f28",
+      "artifact_sha256": "a2a2cfc5bda019d9e3bdfb5de8bcf5c3166c94fe73327d446adcdc24d8cf07b2",
+      "category": "indole_statin_current_replay",
+      "counts": {
+        "chemical_states": 44,
+        "programs": 30,
+        "routes": 5
+      },
+      "evidence_class": "canonical_replay_store",
+      "target_name": "fluvastatin"
+    },
+    {
+      "artifact": "benchmarks/bufotalin_candidate_program_projection.v1.json",
+      "artifact_file_sha256": "7d9b7532ae3ad859e66b8dd82e2c96055cf894c3f5256c88bec4002c9daccbbd",
+      "artifact_sha256": "7f21f328e0703a4da1573ece7427b6239e85e4f752717eebdabadf25fb175846",
+      "category": "bufadienolide_natural_product",
+      "counts": {
+        "chemical_states": 21,
+        "programs": 20,
+        "routes": 1
+      },
+      "evidence_class": "candidate_projection",
+      "target_name": "bufotalin"
+    },
+    {
+      "artifact": "benchmarks/atorvastatin_candidate_program_projection.v1.json",
+      "artifact_file_sha256": "6af09b83273bce4e91b97142cf3e30dde517437f62675866dd364af23ca89544",
+      "artifact_sha256": "2510d9f622e40e7b9321625aa8c44e32df44c16d2e861ca88a2b2cd3bab85bc3",
+      "category": "statin_lipid_lowering_agent",
+      "counts": {
+        "chemical_states": 22,
+        "programs": 11,
+        "routes": 1
+      },
+      "evidence_class": "candidate_projection",
+      "target_name": "atorvastatin"
+    },
+    {
+      "artifact": "benchmarks/ibrutinib_candidate_program_projection.v1.json",
+      "artifact_file_sha256": "39a48082f623bba7b836f6e317e77dfc60f97e3ff8f5d7894021b587d13f866a",
+      "artifact_sha256": "655718327df3d7455d2bdf0747cf4b9db853f23418b6284e0b0eedddf326c594",
+      "category": "covalent_kinase_inhibitor",
+      "counts": {
+        "chemical_states": 17,
+        "programs": 12,
+        "routes": 3
+      },
+      "evidence_class": "candidate_projection",
+      "target_name": "Ibrutinib"
+    },
+    {
+      "artifact": "benchmarks/enzalutamide_candidate_program_projection.v1.json",
+      "artifact_file_sha256": "dca3a9039282458d5b35c8410184937346ad9621dad78e49b481f876fbf8ad6a",
+      "artifact_sha256": "b07d76101aadb929803c09372add54303dd898367a1f66549570c4621d004222",
+      "category": "nonsteroidal_antiandrogen",
+      "counts": {
+        "chemical_states": 16,
+        "programs": 10,
+        "routes": 3
+      },
+      "evidence_class": "candidate_projection",
+      "target_name": "Enzalutamide"
+    }
+  ],
+  "content_sha256": "a090b651d39012072bca9234ffd67dab94bd79179cb6491ca5af072b7358b87e",
+  "coverage": {
+    "candidate_projection_categories": 4,
+    "canonical_replay_store_categories": 3,
+    "negative_control_categories": 1,
+    "target_categories": 7
+  },
+  "enzyme_screen_controls": [
+    {
+      "artifact": "benchmarks/bufotalin_candidate_innovation_screen.v1.json",
+      "artifact_file_sha256": "6298c5431dca29c3b8085d790678174921a1c4f2ce1f8c63c233b699261647dd",
+      "artifact_sha256": "e1d967af95825fb27147ccf4b370d94b3fec5a143f51fec19bd27819f2514cdd",
+      "control_kind": "positive",
+      "enzyme_candidate_count": 5,
+      "maximum_replaced_chemical_steps": 6,
+      "target_name": "bufotalin"
+    },
+    {
+      "artifact": "benchmarks/ibrutinib_candidate_innovation_negative_control.v1.json",
+      "artifact_file_sha256": "6deda7737108d16b65a873a27641ce9f5097d57329629682cabed48f369f9c0b",
+      "artifact_sha256": "c981f894805ea733dcd46438f43d478dc5a6bdcaa42c7d81feb86d0ebefd1e18",
+      "control_kind": "no_applicable_enzyme",
+      "enzyme_candidate_count": 0,
+      "screenable_route_count": 3,
+      "target_name": "Ibrutinib"
+    }
+  ],
+  "gate": {
+    "program_ids_shadow_gate_satisfied": false,
+    "reasons": [
+      "four_categories_are_candidate_projection_only"
+    ]
+  },
+  "schema_version": "cross_category_program_regression_set.v1",
+  "semantics": {
+    "candidate_projection_is_not_canonical_replay": true,
+    "category_labels_are_regression_metadata_not_runtime_rules": true,
+    "historical_portfolio_acceptance_is_not_current_authority": true,
+    "target_names_are_not_used_for_production_branching": true,
+    "three_current_route_ui_dual_read_oracles_have_passed": true
+  }
+}

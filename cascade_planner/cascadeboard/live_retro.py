@@ -1,7 +1,7 @@
-"""Live RetroChimera + EnzExpand engine for CandidateHypergraph.
+"""Build the active one-step proposal engine for CascadeBoard search.
 
-Wraps the real-time RetroChimera model and EnzExpand ONNX model
-into a dict-based retro_engine interface that CandidateHypergraph expects.
+Historical provider labels may still appear in replay data, but this module
+publishes only providers with current mainline implementations.
 """
 from __future__ import annotations
 
@@ -11,15 +11,12 @@ import time
 import warnings
 from collections import OrderedDict
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 
 logging.disable(logging.CRITICAL)
 warnings.filterwarnings("ignore")
 
 _RC_MODEL = None
-_ENZ_MODEL = None
-_ENZ_TEMPLATES = None
 _RETRORULES = None
 _CHEM_TEMPLATES = None
 _CHEM_ENZY_ONESTEP = None
@@ -92,24 +89,8 @@ def _load_retrochimera():
     return _RC_MODEL
 
 
-def _load_enzexpand():
-    global _ENZ_MODEL, _ENZ_TEMPLATES
-    if _ENZ_MODEL is not None:
-        return _ENZ_MODEL, _ENZ_TEMPLATES
-    import csv
-    import onnxruntime as ort
-    _ENZ_MODEL = ort.InferenceSession("workspace/aizdata/enzexpand_model.onnx")
-    tpl_path = Path("results/shared/merged_templates.csv")
-    if tpl_path.exists():
-        with open(tpl_path) as f:
-            _ENZ_TEMPLATES = list(csv.DictReader(f))
-    else:
-        _ENZ_TEMPLATES = []
-    return _ENZ_MODEL, _ENZ_TEMPLATES
-
-
 class _RetroChimeraWrapper:
-    """Wraps RetroChimera into the dict-based interface CandidateHypergraph expects."""
+    """Wrap RetroChimera in the route-proposal dictionary interface."""
 
     def predict(self, product_smiles: str, top_k: int = 10) -> list[dict]:
         from syntheseus.interface.molecule import Molecule
@@ -140,107 +121,6 @@ class _RetroChimeraWrapper:
         return results
 
 
-
-
-class _EnzyformerWrapperLive:
-    """Wraps Enzyformer for enzymatic retrosynthesis (preferred over EnzExpand)."""
-
-    def __init__(self):
-        self._wrapper = None
-        self._checked = False
-
-    def _load(self):
-        if self._checked:
-            return
-        self._checked = True
-        try:
-            from cascade_planner.expand.enzyformer_wrapper import EnzyformerWrapper
-            # Prefer v4 checkpoint (EnzymeMap 50K fine-tuned, best quality)
-            v4_path = Path("results/shared/enzyformer_retro_v4.pt")
-            if v4_path.exists():
-                w = EnzyformerWrapper(checkpoint_path=str(v4_path))
-            else:
-                w = EnzyformerWrapper()
-            if w.available:
-                self._wrapper = w
-        except Exception:
-            pass
-
-    @property
-    def available(self) -> bool:
-        self._load()
-        return self._wrapper is not None
-
-    def predict(self, product_smiles: str, top_k: int = 10, ec_token: str = "") -> list[dict]:
-        self._load()
-        if self._wrapper is None:
-            return []
-        return self._wrapper.predict(product_smiles, ec_token=ec_token, top_k=top_k)
-
-class _EnzExpandWrapper:
-    """Wraps EnzExpand using PyTorch MLP with correct 150-template mapping."""
-
-    def __init__(self):
-        self._model = None
-        self._templates = None
-        self._tpl_ec = None
-
-    def _load(self):
-        if self._model is not None:
-            return
-        import csv
-        from cascade_planner.expand.enz_template import TemplateMLP
-
-        # Load 150 templates from v3-trained table
-        tpl_path = Path("results/enzexpand_templates.csv")
-        if not tpl_path.exists():
-            self._templates = []
-            return
-        with open(tpl_path) as f:
-            rows = list(csv.DictReader(f))
-        self._templates = [r["template"] for r in rows]
-        self._tpl_ec = [r.get("ec1_top", "") for r in rows]
-
-        # Build and load PyTorch MLP (same architecture as enz_template.py)
-        n_classes = len(self._templates)
-        self._model = TemplateMLP(2048, n_classes, hidden=512, dropout=0.3)
-        # We don't have a saved .pt for this MLP — train on the fly is too slow
-        # Instead, use the template frequency as a prior (no learned model)
-        self._model = None  # fallback to frequency-based
-
-    def predict(self, product_smiles: str, top_k: int = 10) -> list[dict]:
-        from rdkit import Chem
-        from cascade_planner.expand.enz_template import apply_template_to_product
-
-        self._load()
-        if not self._templates:
-            return []
-
-        mol = Chem.MolFromSmiles(product_smiles)
-        if mol is None:
-            return []
-
-        # Try all 150 templates (small enough to brute-force)
-        results = []
-        for tidx, tmpl in enumerate(self._templates):
-            outcomes = apply_template_to_product(tmpl, product_smiles, generalize=1)
-            for outcome in outcomes:
-                reactants = list(outcome)
-                if not reactants:
-                    continue
-                ec = self._tpl_ec[tidx] if self._tpl_ec else ""
-                results.append({
-                    "main_reactant": reactants[0],
-                    "aux_reactants": reactants[1:],
-                    "rxn_smiles": ".".join(reactants) + ">>" + product_smiles,
-                    "ec": f"{ec}.x" if ec and ec.isdigit() else "",
-                    "score": 1.0 / (tidx + 1),
-                    "type": "",
-                    "source": "enzexpand",
-                })
-                if len(results) >= top_k:
-                    return results
-        return results
 
 
 class _SemisynthesisRescueWrapper:
@@ -373,13 +253,10 @@ def _canonical_smiles(smiles: str) -> str:
 
 
 def build_live_retro_engine() -> dict:
-    """Build a live retro engine dict for CandidateHypergraph."""
-    enz_live = _EnzyformerWrapperLive()
+    """Build the live route-proposal engine dictionary."""
     retrorules = _load_retrorules() if _retrorules_enabled() else None
     chemtemplates = _load_chemical_templates() if _chemical_templates_enabled() else None
     engine = {
-        "enzyformer": _CachingPredictor(enz_live, "enzyformer") if enz_live.available else None,
-        "enzexpand": _CachingPredictor(_EnzExpandWrapper(), "enzexpand"),
         "retrorules": _CachingPredictor(retrorules, "retrorules") if retrorules and retrorules.available else None,
         "chemtemplates": _CachingPredictor(chemtemplates, "chemtemplates") if chemtemplates and chemtemplates.available else None,
     }

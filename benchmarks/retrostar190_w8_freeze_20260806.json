@@ -1,0 +1,764 @@
+{
+  "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
+  "freeze_id": "retrostar190-w8-four-arm-20260806",
+  "created_on": "2026-08-06",
+  "status": "formal_b_aborted_graceful_budget_terminal_fix_implemented",
+  "runtime_source": {
+    "branch": "agent/unify-workspace-entrypoints",
+    "commit": "f607b75b6b59a7ba172a637559da61e0448ac18a",
+    "tree": "ed61ade3512ee5f983be7fd99850c27b9c31b913",
+    "critical_file_sha256": {
+      "cascade_planner/application/action_scheduler.py": "27fd1bd0fe471bc8fda11497c9b589a6d02923d4cfee38cb3be763a6d95d0c2f",
+      "cascade_planner/application/campaign_actions.py": "ebe967064b9c2efa2e88e1fbc9b582382d0a263f99b4e3f17742f9e25e58e5b2",
+      "cascade_planner/interfaces/target_cli.py": "e1bccada2953ef6024f5ec04d9a27208d020200b6f6258a21d58903f581678c2",
+      "cascade_planner/interfaces/target_solver.py": "56faf3a4d24cdb5bf5f7ebfb59cc65d4bf1c738d5c191434691ae12a2fd71645",
+      "cascade_planner/orchestration/unified_campaign_runtime.py": "79c0f3b684bc108bd3e63c0bce8719b113e23666e6cd819d150056a66cd8f76b",
+      "scripts/run_retrostar190_w8.py": "7f1089fc8305de74cbb6e7cacd4b7eef62a2f46909d38f4f24276cc5bfaa996f",
+      "scripts/run_v4_blind_panel.py": "c6825649a3fb44959150830cb022eb874906ba46325bd7fe184b5c50619eec00",
+      "scripts/summarize_retrostar190_w8.py": "9eee878a19f65f4bc1c11400ced4f75ce788a132e748c5d633de7c586fb484f5"
+    }
+  },
+  "shared_inputs": {
+    "target_manifest_path": "benchmarks/retrostar190_v4.json",
+    "target_manifest_sha256": "2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623",
+    "target_count": 190,
+    "protocol_path": "benchmarks/retrostar190_v4.protocol.json",
+    "protocol_sha256": "5b18d6f96cac04d15e86612f44cb73e0f32d6f588eb82b0e063b71d9e7982fd4",
+    "stock_path": "data_external/retrostar190/retrostar_emolecules_stock.sqlite3",
+    "stock_sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c",
+    "stock_member_count": 23081629,
+    "base_environment_sha256": "0d5204f3178b5d292c19d51b0114e117774795ab454c25ae1f492abb38e6622f"
+  },
+  "shared_configuration": {
+    "model": "gpt-5.5",
+    "reasoning_effort": "low",
+    "execution_profile": "standard",
+    "objective_mode": "benchmark_search",
+    "panel_workers": 1,
+    "visual_enabled": false,
+    "provider_route_reserve": 16,
+    "host_route_portfolio": 8,
+    "max_live_stock_molecules_per_action": 32,
+    "uniform_case_budget_is_manifest_bound": true,
+    "uniform_host_gates": true
+  },
+  "arms": {
+    "chemenzy-only": {
+      "cli_args": ["--no-codex"],
+      "chem_enzy_actions_registered": true,
+      "codex_actions_registered": false,
+      "scheduler_policy": "adaptive"
+    },
+    "codex-only": {
+      "cli_args": ["--no-chemenzy", "--no-guided-chemenzy"],
+      "chem_enzy_actions_registered": false,
+      "codex_actions_registered": true,
+      "scheduler_policy": "adaptive"
+    },
+    "unified-round-robin": {
+      "cli_args": ["--action-scheduler", "round_robin"],
+      "chem_enzy_actions_registered": true,
+      "codex_actions_registered": true,
+      "scheduler_policy": "round_robin",
+      "adaptive_value_score_used_for_ordering": false,
+      "initial_concurrent_cohort_enabled": false
+    },
+    "unified-adaptive": {
+      "cli_args": ["--action-scheduler", "adaptive"],
+      "chem_enzy_actions_registered": true,
+      "codex_actions_registered": true,
+      "scheduler_policy": "adaptive",
+      "initial_concurrent_cohort_enabled": true
+    }
+  },
+  "preflight": {
+    "root": "results/.autoplanner/retrostar190-w8-preflight-20260806-a",
+    "total_case_arm_checks": 760,
+    "passed": 760,
+    "failed": 0,
+    "provider_calls": 0,
+    "reused_after_budget_binding_only_change": true,
+    "parallel_arms": 4,
+    "evidence": {
+      "chemenzy-only": {
+        "snapshot_content_sha256": "404b2b9a10ba7b5b61085836a1a024175b73de772c1377a419a55526f7813321",
+        "snapshot_file_sha256": "5f8641e146328d0c411d2b4ebd489cb943e6198a4c5914fbbef23c7af479fc65",
+        "panel_status_file_sha256": "2b6306c90465c5662ed69dc406e860031720e15a9a7164ee3db64c3b9f1845ea"
+      },
+      "codex-only": {
+        "snapshot_content_sha256": "cde4d7fc6544dfbdf4914b24fc3375903b37d3df6409994334ece330ac6107a4",
+        "snapshot_file_sha256": "a9b8fcbcf0266aa760ef312e3c02ad4629f89227f7549d8bb66e5511adab4282",
+        "panel_status_file_sha256": "50c7a7bc8e3c1e8fc3ebf2c0f2d1a9f05e9c220d046b8926357d0c286e1d8040"
+      },
+      "unified-round-robin": {
+        "snapshot_content_sha256": "c7ac3e6d5c594ffd9aed9c7c3165c7451057a17ee1eae8a31cc876a1c7a9e051",
+        "snapshot_file_sha256": "a4202e77431670d341ed87baaac1848b0d17e74976e38f3eecd30060e6c16dfe",
+        "panel_status_file_sha256": "b0387a74dee5fb31c23ace1b244663fb5f5459e7bc18bb63214e40389e86eb80"
+      },
+      "unified-adaptive": {
+        "snapshot_content_sha256": "d320078e26ee7add349f1a9c954e71bdff11863f176639d888e9723a8adc88c0",
+        "snapshot_file_sha256": "de6bf099dc95e86e0b096720e4605f7e9beaa46f26f64d7285220bce5a2fe7d4",
+        "panel_status_file_sha256": "91e1819635b5c507d518f268606004a4869e47788166e754459441b0ed0d4e3e"
+      }
+    }
+  },
+  "paired_evaluation": {
+    "reference_arm": "unified-adaptive",
+    "bootstrap_seed": 20260806,
+    "bootstrap_replicates": 5000,
+    "complete_case_pairing_only": true,
+    "failed_and_incomplete_cases_remain_in_full_panel_denominator": true
+  },
+  "aborted_budget_audit_run": {
+    "root": "results/.autoplanner/retrostar190-w8-formal-20260806-a",
+    "arm": "unified-adaptive",
+    "result_eligible": false,
+    "reason": "configured guided frontier limit was not bound to the RunKernel native-search hard limit",
+    "configured_guided_frontiers": 5,
+    "observed_frontier_settled_before_stop": 14,
+    "observed_target_settled": 1,
+    "affected_target_count": 1,
+    "preserved_for_budget_failure_audit": true
+  },
+  "formal_run": {
+    "root": "results/.autoplanner/retrostar190-w8-formal-20260806-b",
+    "status": "aborted_ineligible_unhandled_global_task_budget_terminal",
+    "result_eligible": false,
+    "stopped_arm": "unified-adaptive",
+    "snapshot_content_sha256": "1fcc776c58219cd33f13fccf6e9729314cff46db8e64fa24838126e537b89309",
+    "snapshot_file_sha256": "2b0d08d67a9c69cb3495b51c1ffd728f8e09c1333e74a9d179f1ca75f0c03fea",
+    "first_case_run_spec_file_sha256": "da570b1ac3541d6e381db96098a938f61b0e25687cc2f89635c3a0136884a649",
+    "hard_native_search_limits": {
+      "target": 1,
+      "guided_frontier": 5,
+      "total": 6
+    },
+    "planned_arm_order": [
+      "unified-adaptive",
+      "chemenzy-only",
+      "codex-only",
+      "unified-round-robin"
+    ],
+    "remaining_arms_are_automatically_sequenced": false,
+    "processed_case_count_at_checkpoint": 19,
+    "completed_case_count_at_checkpoint": 16,
+    "failed_case_count_at_checkpoint": 3,
+    "first_completed_case": {
+      "case_id": "retrostar190-001-ddec287bee",
+      "report_sha256": "ff758091db6907f5b5191632b3dc4e04bc0c67e28b9be22d47673600a2831197",
+      "elapsed_s": 499.391,
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": true,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": true,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "route_counts": {
+        "target_rooted_distinct_skeletons": 5,
+        "materialized_skeletons": 5,
+        "reaction_validated_skeletons": 1,
+        "stock_closed_skeletons": 1
+      },
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 25654,
+        "output_tokens": 6545,
+        "wall_time_s": 132.688
+      }
+    },
+    "second_completed_case": {
+      "case_id": "retrostar190-002-5e5138eaad",
+      "report_sha256": "6174538f19de97f0f422ac8d2eea34d992d7fa87868c7a74f707a22f57565fb3",
+      "elapsed_s": 508.562,
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": false,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": true,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "route_counts": {
+        "target_rooted_distinct_skeletons": 5,
+        "materialized_skeletons": 5,
+        "reaction_validated_skeletons": 0,
+        "stock_closed_skeletons": 3
+      },
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 26079,
+        "output_tokens": 6480,
+        "wall_time_s": 133.391
+      }
+    },
+    "first_b4_failure": {
+      "case_id": "retrostar190-004-2922a9a16f",
+      "report_sha256": "901eff96fdeb31fe88c976c8ea3759732a50959b763d22924ff5839208951763",
+      "elapsed_s": 629.593,
+      "failure_class": "stock_miss_after_host_validated_route",
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": true,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": false,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "route_counts": {
+        "target_rooted_distinct_skeletons": 4,
+        "materialized_skeletons": 4,
+        "reaction_validated_skeletons": 1,
+        "stock_closed_skeletons": 0
+      },
+      "provider_boundary": {
+        "seed_route_count": 1,
+        "seed_host_admitted_route_count": 1,
+        "total_proposal_count": 30,
+        "provider_invocation_count": 6,
+        "embedding_or_host_admission_loss": false
+      },
+      "guided_frontier_settlements": {
+        "total": 5,
+        "completed": 2,
+        "unresolved": 3,
+        "near_90_second_timeout": 2
+      },
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 32224,
+        "output_tokens": 6835,
+        "wall_time_s": 142.313
+      }
+    },
+    "first_budget_failure": {
+      "case_id": "retrostar190-005-354afd9b42",
+      "status": "failed",
+      "error_class": "run_total_task_budget_exhausted",
+      "elapsed_s": 837.203,
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "run_task_budget": {
+        "max_total_tasks": 256,
+        "settled_task_count": 256,
+        "max_accepted_expansions": 96,
+        "accepted_expansion_count": 64,
+        "max_attempt_runs": 192,
+        "attempt_count": 64,
+        "max_evidence_tasks": 64,
+        "max_stock_tasks": 128,
+        "max_validation_tasks": 128
+      },
+      "settled_task_counts": {
+        "model": 1,
+        "other": 138,
+        "proposal": 64,
+        "stock": 6,
+        "validation": 47
+      },
+      "semantics": {
+        "failed_before_closeout_gate_projection": true,
+        "native_search_budget_was_not_exceeded": true,
+        "result_is_ineligible_for_b4_scoring": true
+      }
+    },
+    "first_ten_target_checkpoint": {
+      "manifest_order_range": [
+        1,
+        10
+      ],
+      "processed": 10,
+      "completed": 9,
+      "failed": 1,
+      "B4_true": 6,
+      "B4_false": 3,
+      "B4_rate_all_processed": 0.6,
+      "B4_rate_completed_only": 0.666667,
+      "B2_true": 6,
+      "stock_closed_skeletons_total": 12,
+      "model_invocations_total": 12,
+      "completed_elapsed_s_total": 4754.124,
+      "all_processed_elapsed_s_total": 5591.327,
+      "failure_counts": {
+        "stock_miss_after_host_validated_route": 3,
+        "run_total_task_budget_exhausted": 1
+      },
+      "native_search_budget_violations": 0,
+      "target_010_report_sha256": "a358573128914b8a87a2a00c362eaa585b73e616ada2d1bc4d0f63d18815a9ed",
+      "semantics": {
+        "failed_case_remains_in_full_panel_denominator": true,
+        "failed_case_is_not_counted_as_B4_false": true,
+        "checkpoint_is_not_a_benchmark_wide_improvement_claim": true,
+        "no_target_specific_tuning_after_observation": true
+      }
+    },
+    "second_budget_failure": {
+      "case_id": "retrostar190-018-7fc5809526",
+      "status": "failed",
+      "error_class": "run_total_task_budget_exhausted",
+      "elapsed_s": 489.375,
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "run_task_budget": {
+        "max_total_tasks": 256,
+        "settled_task_count": 256,
+        "max_accepted_expansions": 96,
+        "accepted_expansion_count": 57,
+        "max_attempt_runs": 192,
+        "attempt_count": 57
+      },
+      "settled_task_counts": {
+        "model": 1,
+        "other": 137,
+        "proposal": 57,
+        "stock": 7,
+        "validation": 54
+      },
+      "recurrence_checkpoint": {
+        "processed": 18,
+        "completed": 16,
+        "failed": 2,
+        "B4_true": 12,
+        "B4_false": 4,
+        "run_total_task_budget_exhausted_count": 2,
+        "run_total_task_budget_exhausted_rate": 0.111111
+      },
+      "semantics": {
+        "same_error_class_as_first_budget_failure": true,
+        "task_mix_differs_from_first_budget_failure": true,
+        "native_search_budget_was_not_exceeded": true,
+        "result_is_ineligible_for_b4_scoring": true,
+        "no_rerun_or_budget_extension_applied": true
+      }
+    },
+    "third_budget_failure": {
+      "case_id": "retrostar190-019-d3d229a647",
+      "status": "failed",
+      "error_class": "run_total_task_budget_exhausted",
+      "elapsed_s": 929.593,
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "run_task_budget": {
+        "max_total_tasks": 256,
+        "settled_task_count": 256,
+        "accepted_expansion_count": 66,
+        "attempt_count": 66
+      },
+      "settled_task_counts": {
+        "model": 1,
+        "other": 137,
+        "proposal": 66,
+        "stock": 3,
+        "validation": 49
+      },
+      "recurrence_checkpoint": {
+        "processed": 19,
+        "completed": 16,
+        "failed": 3,
+        "B4_true": 12,
+        "B4_false": 4,
+        "run_total_task_budget_exhausted_count": 3,
+        "run_total_task_budget_exhausted_rate": 0.157895
+      }
+    },
+    "formal_restart": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-c",
+      "status": "failed_blind_preflight_tracked_audit_receipt_contamination",
+      "implementation_commit": "68cd15627e78e704129ad41a095b946abca91029",
+      "critical_file_sha256": {
+        "cascade_planner/orchestration/unified_campaign_runtime.py": "46625bf43cb126158362e32d63189efc85ba464c046f68b46791e7c9d49c7038",
+        "tests/test_unified_campaign_runtime.py": "6ecdbf346e518096f6be63c74b5bc02647c86121e3f10c16210f569e82c9f5bc"
+      },
+      "resume_from_b": false,
+      "fresh_preflight_required": true,
+      "runtime_change_scope": "global_budget_exhaustion_terminal_semantics_only",
+      "task_budget_limits_changed": false,
+      "scheduler_weights_changed": false,
+      "scientific_gates_changed": false,
+      "focused_verification": {
+        "test": "tests/test_unified_campaign_runtime.py::test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+        "passed": true
+      },
+      "semantics": {
+        "run_total_task_budget_exhausted_closes_normally": true,
+        "run_wall_time_budget_exhausted_closes_normally": true,
+        "non_global_budget_errors_still_raise": true,
+        "no_task_reserved_after_global_budget_exhaustion": true
+      },
+      "preflight_result": {
+        "passed_per_arm": 184,
+        "failed_per_arm": 6,
+        "passed_total": 736,
+        "failed_total": 24,
+        "provider_or_model_calls": 0,
+        "unique_failed_case_count": 6,
+        "failure_reason": "target_material_already_present_in_repository",
+        "contaminating_tracked_path": "benchmarks/retrostar190_w8_freeze_20260806.json",
+        "contamination_kind": "target_name_in_human_readable_artifact_path"
+      }
+    },
+    "next_formal_restart": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-d",
+      "status": "fresh_preflight_passed",
+      "resume_from_c": false,
+      "preflight_only": true,
+      "orchestrator_returncode": 0,
+      "target_named_tracked_artifact_paths_removed": true,
+      "blind_scan_allowlist_changed": false,
+      "runtime_implementation_commit": "68cd15627e78e704129ad41a095b946abca91029",
+      "audit_path_cleanup_commit": "79cfe019f4276a421243a89a946400f805c65143",
+      "preflight_result": {
+        "passed_per_arm": 190,
+        "failed_per_arm": 0,
+        "passed_total": 760,
+        "failed_total": 0,
+        "provider_or_model_calls": 0,
+        "solve_reports": 0,
+        "provider_payloads": 0,
+        "run_kernel_specs": 0,
+        "case_receipts_per_arm": 190,
+        "case_receipts_bound_to_panel_snapshot_per_arm": 190,
+        "manifest_sha256": "2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623",
+        "benchmark_stock_index_sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c",
+        "base_environment_sha256": "0d5204f3178b5d292c19d51b0114e117774795ab454c25ae1f492abb38e6622f",
+        "panel_snapshot_sha256": {
+          "unified-adaptive": "5775e5d5aa1296694f32e9e98c1ab0415da9fe30cba7be2a509e64416c160f33",
+          "chemenzy-only": "9ee632897484c489654eae031e1adcaae6b3685b4addce48f145b3696f39911f",
+          "codex-only": "d6d96b7ced44ccb6bc8e165531e580816912a666f5a78972ce6c32a5aa2959ca",
+          "unified-round-robin": "e7f71c6edb3d96a601e03db959d545e035939f7d5e8b2848d684637e13b03389"
+        }
+      }
+    },
+    "formal_run": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-e",
+      "status": "aborted_ineligible_post_loop_task_reservation_after_budget_terminal",
+      "result_eligible": false,
+      "resume_from_d": false,
+      "fresh_root_required": true,
+      "parallel_arms": 1,
+      "launch_commit": "5b1fad346f442a834664552b26164c7ab23319fc",
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ],
+      "processed_case_count": 1,
+      "completed_case_count": 0,
+      "failed_case_count": 1,
+      "in_flight_case_aborted_count": 1,
+      "failure": {
+        "case_id": "retrostar190-001-ddec287bee",
+        "elapsed_s": 493.109,
+        "error_class": "run_total_task_budget_exhausted",
+        "failure_boundary": "post_anytime_director_source_hint_execution",
+        "report_generated": false,
+        "settled_tasks": 256,
+        "max_total_tasks": 256,
+        "task_counts": {
+          "model": 1,
+          "other": 140,
+          "proposal": 62,
+          "stock": 4,
+          "validation": 49
+        },
+        "native_search": {
+          "target_settled": 1,
+          "frontier_settled": 5,
+          "frontier_borrowed_settled": 0,
+          "target_reserve_released": 0
+        },
+        "model_invocations": 1
+      },
+      "root_cause": "anytime_runtime_returned_a_normal_budget_terminal_but_the_kernel_was_still_running_and_a_legacy_post_loop_source_stage_attempted_a_new_task_reservation"
+    },
+    "next_formal_run": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-f",
+      "status": "aborted_ineligible_late_budget_closeout_misclassified",
+      "result_eligible": false,
+      "resume_from_e": false,
+      "fresh_root_required": true,
+      "implementation_commit": "13ec14ec07926ed8ef5bdc098f14ae6bedbd5236",
+      "launch_commit": "156ac787ba37075fdaf6bca053fa4eb55c54f00c",
+      "parallel_arms": 1,
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ],
+      "fix_scope": "persist_global_budget_terminal_before_any_post_loop_projection_and_block_new_worker_commands_while_preserving_closeout",
+      "focused_verification": {
+        "passed": 2,
+        "tests": [
+          "test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+          "test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection"
+        ]
+      },
+      "critical_file_sha256": {
+        "cascade_planner/orchestration/unified_campaign_runtime.py": "c3d1c703141b72b9852eeb8c4531dd2b50d859c1ae0e23e3e6a327f7b54ca42a",
+        "cascade_planner/orchestration/retrosynthesis_service.py": "b71a1a5ac530c9672ee011bad187cde1a8dfec2fccb22fb706f3e127c99269ac",
+        "cascade_planner/interfaces/target_solver.py": "d3a9575a07e2b70738c86ccc4a2ac203544670e1fee4a612505d8205c001d3ec",
+        "cascade_planner/interfaces/target_solver_stages.py": "6cba1fb5d4b677200e510ca7a16b9f83118d17ea88de200b81ba01631af68804",
+        "tests/test_unified_campaign_runtime.py": "2e7446e06db9872a7749b499d154c41b62e761f9270651b5eb61ab0739875318"
+      },
+      "semantics": {
+        "kernel_budget_terminal_persisted_before_runtime_return": true,
+        "post_loop_worker_reservations_blocked": true,
+        "closeout_projection_preserved": true,
+        "non_global_budget_errors_still_raise": true,
+        "task_budget_limits_changed": false,
+        "scheduler_or_scientific_gates_changed": false
+      },
+      "observed_result": {
+        "processed_case_count": 5,
+        "completed_case_count": 5,
+        "failed_case_count": 0,
+        "in_flight_case_aborted_count": 1,
+        "budget_terminal_report_count": 2,
+        "native_search_budget_violation_count": 0,
+        "cases": {
+          "retrostar190-004-2922a9a16f": {
+            "elapsed_s": 917.359,
+            "report_sha256": "d8118e472083578f357238904c6975bdef4523e46292d0c63f67abaa28de49e7",
+            "settled_tasks": 256,
+            "kernel_status": "budget_exhausted",
+            "stop_decision": "budget_exhausted",
+            "canonical_closeout_decision": "unresolved",
+            "B1": true,
+            "B2": true,
+            "B4": true
+          },
+          "retrostar190-005-354afd9b42": {
+            "elapsed_s": 831.266,
+            "report_sha256": "e650dee64770982c67021cd9f1c0739c135fd8f55df281d8284d9effe46100d0",
+            "settled_tasks": 256,
+            "kernel_status": "budget_exhausted",
+            "stop_decision": "budget_exhausted",
+            "canonical_closeout_decision": "budget_exhausted",
+            "B1": true,
+            "B2": false,
+            "B4": true
+          }
+        },
+        "root_cause": "closeout_used_the_anytime_return_flag_only_and_missed_a_global_cap_reached_during_later_projection_work"
+      }
+    },
+    "next_formal_run_after_late_closeout_fix": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-g",
+      "status": "aborted_ineligible_budget_terminal_overwritten_by_unresolved_disposition",
+      "result_eligible": false,
+      "resume_from_f": false,
+      "fresh_root_required": true,
+      "implementation_commit": "896ab1b0efd43fe1aca6a8aea5e846063cf7f5b3",
+      "launch_commit": "b940094f793341a1da9c07a85e028528482a81ec",
+      "parallel_arms": 1,
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ],
+      "fix_scope": "terminalize_a_global_cap_before_post_loop_worker_dispatch_and_classify_each_closeout_from_current_kernel_counters",
+      "focused_verification": {
+        "passed": 2,
+        "tests": [
+          "test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+          "test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection"
+        ]
+      },
+      "critical_file_sha256": {
+        "cascade_planner/orchestration/retrosynthesis_service.py": "f2444ba972d05e5e103fb9ba5f7f2562c6316e452992796bd807f8ef3c3022f1",
+        "cascade_planner/interfaces/target_solver.py": "c0b26ae4713e3ca940b8aec8db96ea2fdb3cf9ddd3eb2b9c211c438fbb0dd4a6",
+        "tests/test_unified_campaign_runtime.py": "48a5bdaf02c0b3e3842dfb48b6bc0bb679c42ee47fd970dcf89a6cd5faa8279c"
+      },
+      "semantics": {
+        "late_global_cap_terminalized_before_worker_dispatch": true,
+        "provisional_and_final_closeout_read_current_global_counters": true,
+        "B0_through_B5_preserved": true,
+        "task_budget_limits_changed": false,
+        "scheduler_or_scientific_gates_changed": false
+      },
+      "observed_result": {
+        "processed_case_count": 19,
+        "completed_case_count": 18,
+        "failed_case_count": 1,
+        "in_flight_case_aborted_count": 1,
+        "first_10_completed": 10,
+        "first_10_B4_true": 7,
+        "first_10_B4_false": 3,
+        "first_10_model_calls": 10,
+        "native_search_budget_violation_count": 0,
+        "failure": {
+          "case_id": "retrostar190-019-d3d229a647",
+          "elapsed_s": 972.359,
+          "error_class": "run_status_transition_invalid:budget_exhausted->unresolved",
+          "settled_tasks": 256,
+          "kernel_status_before_failure": "budget_exhausted",
+          "report_generated": false,
+          "task_counts": {
+            "model": 1,
+            "other": 137,
+            "proposal": 64,
+            "stock": 5,
+            "validation": 49
+          },
+          "native_search": {
+            "target_settled": 1,
+            "frontier_settled": 5
+          }
+        },
+        "root_cause": "director_outcome_limit_attempted_to_overwrite_an_existing_budget_exhausted_terminal_with_unresolved"
+      }
+    },
+    "next_formal_run_after_terminal_precedence_fix": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260807-h",
+      "status": "aborted_ineligible_global_cap_not_terminalized_before_final_disposition",
+      "result_eligible": false,
+      "resume_from_g": false,
+      "fresh_root_required": true,
+      "implementation_commit": "9671fb1d42da189942e4a09c57370275a942d5a1",
+      "launch_commit": "151168b415eeb276a1686a5bef99611527e91660",
+      "parallel_arms": 1,
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ],
+      "fix_scope": "preserve_existing_kernel_terminal_over_later_unresolved_disposition_diagnostics",
+      "focused_verification": {
+        "passed": 3,
+        "tests": [
+          "test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+          "test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection",
+          "test_budget_terminal_is_not_overwritten_by_unresolved_disposition"
+        ]
+      },
+      "critical_file_sha256": {
+        "cascade_planner/interfaces/target_solver.py": "c74bc845f43b039ebc6abb8bea27c2cbf9c17a6fa2a13ea3005dbf9431bf92c2",
+        "tests/test_unified_campaign_runtime.py": "ae02350eb0a26e0edf3691eae0d7b00e4873a795138f45e45365c120b3073384"
+      },
+      "semantics": {
+        "existing_terminal_status_has_precedence": true,
+        "director_outcome_limit_diagnostic_is_preserved": true,
+        "automatic_continuation_diagnostic_is_preserved": true,
+        "task_budget_limits_changed": false,
+        "scheduler_or_scientific_gates_changed": false
+      },
+      "observed_result": {
+        "processed_case_count": 10,
+        "completed_case_count": 10,
+        "failed_case_count": 0,
+        "in_flight_case_aborted_count": 1,
+        "B4_true": 8,
+        "B4_false": 2,
+        "budget_terminal_case_count": 3,
+        "terminal_receipt_mismatch_count": 1,
+        "native_search_budget_violation_count": 0,
+        "mismatch": {
+          "case_id": "retrostar190-001-ddec287bee",
+          "settled_tasks": 256,
+          "kernel_status": "unresolved",
+          "stop_decision": "unresolved",
+          "canonical_closeout_decision": "budget_exhausted",
+          "B4": true,
+          "report_sha256": "ce4c3adfad37b2d5310d4b479a9ce93b52a837ec3652551638c8aae05560edc5",
+          "task_counts": {
+            "evidence": 2,
+            "model": 1,
+            "other": 141,
+            "proposal": 55,
+            "stock": 6,
+            "validation": 51
+          },
+          "native_search": {
+            "target_settled": 1,
+            "frontier_settled": 5
+          }
+        },
+        "root_cause": "the_global_cap_was_visible_to_closeout_but_no_later_worker_dispatch_terminalized_the_running_kernel_before_unresolved_disposition"
+      }
+    },
+    "next_formal_run_after_pre_disposition_terminalization": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260807-i",
+      "status": "pending_fresh_start",
+      "resume_from_h": false,
+      "fresh_root_required": true,
+      "implementation_commit": "a330a888d3c3466a0b6209f089651125aa0c8eaf",
+      "parallel_arms": 1,
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ],
+      "fix_scope": "use_one_service_global_budget_terminalization_api_before_worker_dispatch_and_before_final_disposition",
+      "focused_verification": {
+        "passed": 3,
+        "tests": [
+          "test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+          "test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection",
+          "test_budget_terminal_is_not_overwritten_by_unresolved_disposition"
+        ]
+      },
+      "critical_file_sha256": {
+        "cascade_planner/orchestration/retrosynthesis_service.py": "1e049d33f65c0aaad0f642b065596aabd7a6e558b681c88859ce816b9fde53b4",
+        "cascade_planner/interfaces/target_solver.py": "c274d408f58a17d6ffc07aa2ca6297f860e3db7a9128949f20d8b08b4e7af124",
+        "tests/test_unified_campaign_runtime.py": "c174a5ba5ce4aca57845d56ee94665147d96f2065b23032dcdf11def42f1263b"
+      },
+      "semantics": {
+        "one_global_budget_terminalization_authority": true,
+        "worker_dispatch_and_final_disposition_share_the_same_guard": true,
+        "existing_terminal_status_has_precedence": true,
+        "task_budget_limits_changed": false,
+        "scheduler_or_scientific_gates_changed": false
+      }
+    }
+  },
+  "constraints": {
+    "target_grouping": false,
+    "target_specific_tuning": false,
+    "aborted_budget_audit_run_included_in_results": false,
+    "aborted_formal_b_included_in_results": false,
+    "aborted_formal_e_included_in_results": false,
+    "aborted_formal_f_included_in_results": false,
+    "aborted_formal_g_included_in_results": false,
+    "aborted_formal_h_included_in_results": false,
+    "reference_routes_visible_to_planner": false,
+    "B2_B3_B5_redefine_B4": false,
+    "remote_model_weights_bitwise_frozen": false,
+    "formal_benchmark_wide_improvement_claim_allowed": false
+  }
+}

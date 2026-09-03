@@ -33,6 +33,7 @@ from .replay_contract import (
     with_replay_pack_digest,
 )
 from .replay_reporting import build_replay_report as _report
+from .replay_lifecycle import apply_replay_lifecycle_events
 
 
 def run_replay_pack(
@@ -89,6 +90,9 @@ def run_replay_pack(
             return _report(service, pack, stages, interrupted=True)
         _run_stock_stage(service, pack, refs["inventory"], stages)
         if _pause_after(service, stop_after, "stock"):
+            return _report(service, pack, stages, interrupted=True)
+        _run_lifecycle_stage(service, pack, stages)
+        if _pause_after(service, stop_after, "lifecycle"):
             return _report(service, pack, stages, interrupted=True)
         _run_closeout_stage(service, stages)
     return _report(service, pack, stages, interrupted=False)
@@ -396,6 +400,21 @@ def _run_closeout_stage(
             int(result["acceptance_report"]["accepted"]),
         )
     )
+
+
+def _run_lifecycle_stage(
+    service: RetrosynthesisCampaignService,
+    pack: Mapping[str, Any],
+    stages: list[dict[str, Any]],
+) -> None:
+    try:
+        result = apply_replay_lifecycle_events(service, pack)
+    except ValueError as exc:
+        raise ReplayPackError(str(exc)) from exc
+    if result:
+        stages.append(
+            _stage("lifecycle", str(result["status"]), int(result["work_count"]))
+        )
 
 
 def _command(

@@ -198,6 +198,47 @@ class RunIndex:
             rows = connection.execute(query, values).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def remove_run_projection(self, run_id: str) -> dict[str, Any]:
+        """Remove one run from the rebuildable operational index only.
+
+        Scientific artifacts and the run directory are deliberately preserved.
+        Replaying the run manifest can therefore restore the history entry.
+        """
+
+        identity = str(run_id or "").strip()
+        if not identity:
+            raise RunIndexError("run_index_remove_id_missing")
+        with self._transaction() as connection:
+            artifact_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM artifacts WHERE run_id = ?",
+                    (identity,),
+                ).fetchone()[0]
+            )
+            task_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM tasks WHERE run_id = ?",
+                    (identity,),
+                ).fetchone()[0]
+            )
+            connection.execute("DELETE FROM artifacts WHERE run_id = ?", (identity,))
+            connection.execute("DELETE FROM tasks WHERE run_id = ?", (identity,))
+            deleted = int(
+                connection.execute(
+                    "DELETE FROM runs WHERE run_id = ?",
+                    (identity,),
+                ).rowcount
+            )
+        return {
+            "schema_version": "autoplanner_run_history_removal.v1",
+            "run_id": identity,
+            "removed": deleted == 1,
+            "removed_artifact_projection_count": artifact_count if deleted else 0,
+            "removed_task_projection_count": task_count if deleted else 0,
+            "scientific_artifacts_preserved": True,
+            "recoverable_by_manifest_replay": True,
+        }
+
     def rebuild(self, manifests: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         normalized = [_normalize_run_manifest(row) for row in manifests]
         with self._transaction() as connection:

@@ -5,6 +5,9 @@ from typing import Any, Mapping
 
 import pytest
 
+from cascade_planner.application.reaction_proof_versions import (
+    CURRENT_REACTION_VALIDATOR_VERSION,
+)
 from cascade_planner.interfaces.live_evidence import (
     HttpEvidenceConnectorConfig,
     LiveEvidenceConnectorError,
@@ -61,9 +64,7 @@ def test_request_contains_bounded_current_edges_and_source_tasks() -> None:
                     "reaction_proofs": [
                         {
                             "accepted": True,
-                            "validator_version": (
-                                "autoplanner.reaction_step_verifier.v8"
-                            ),
+                            "validator_version": CURRENT_REACTION_VALIDATOR_VERSION,
                         }
                     ],
                 }

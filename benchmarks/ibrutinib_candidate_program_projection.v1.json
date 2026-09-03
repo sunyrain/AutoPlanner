@@ -1,0 +1,1569 @@
+{
+  "chemical_states": {
+    "candidate-state:05455c24eca6707ec61a28e7": {
+      "authoritative": false,
+      "canonical_smiles": "Nc1ncnc2c1c(Br)nn2F",
+      "content_sha256": "29c402998610e922e8644f3b5949e7bfe320179c78dca8b7dc461f8bfc85c6f2",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:33db8041e0926c0f42fb311632c83a91d9875a1d5ff15abf1e8fa6b444e1340b",
+      "state_id": "candidate-state:05455c24eca6707ec61a28e7",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:071fc9aad3745343c2fa5b0e": {
+      "authoritative": false,
+      "canonical_smiles": "O=C(Cl)CCO",
+      "content_sha256": "bd6f3cc8e75994a4acd0ce1ebac761e6ddcc313c0f9c92c8c6c82acde8800547",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:2213a3d84cf09fc0c267981e0a12c589925115d580e0224fd186db58081571d6",
+      "state_id": "candidate-state:071fc9aad3745343c2fa5b0e",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:35fd2e13a7f609938de1f8a5": {
+      "authoritative": false,
+      "canonical_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
+      "content_sha256": "d337367e1c5543f16c4eaeba477385758d0c5a275d496e7942483ed5fdc799f6",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:3b53bc5fb2abb15f4949730aec531777e8ce0e2e460379ebecc5f2c922963163",
+      "state_id": "candidate-state:35fd2e13a7f609938de1f8a5",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:380b442dc83a99f87f8cfd6f": {
+      "authoritative": false,
+      "canonical_smiles": "OB(O)c1ccc(F)cc1",
+      "content_sha256": "89b640e832217e9b7a73d4ceb5420cba0ed099327d110249e5eaa124a60b402f",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:c77266896dfa415e02cd03315405fef6e545e1ff6e3887ff4965e027aea7d32e",
+      "state_id": "candidate-state:380b442dc83a99f87f8cfd6f",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:3b9c6e7e25fafe924d49c708": {
+      "authoritative": false,
+      "canonical_smiles": "Nc1ncnc2c1c(I)nn2Cl",
+      "content_sha256": "ef79f608aaba0338d550432cd0acc88057f2308e9bc930297eadf14eeac4177e",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:4a00ace1300042563148c5a455587f50a7f4bc7d6e1354d38667876a6b6bde46",
+      "state_id": "candidate-state:3b9c6e7e25fafe924d49c708",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:4596c1b14726c98bd52e92fb": {
+      "authoritative": false,
+      "canonical_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl",
+      "content_sha256": "6454eedbbee73a4cf00a8cc88e2b2d4efc2a1f1bd99e4c4e7ccc07cf2c9cf67a",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:7c4b486f01f561a1d0e0f24e922d4960cd74b437579bb879d5626468f928b9d0",
+      "state_id": "candidate-state:4596c1b14726c98bd52e92fb",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:4e69bc36595f7bea7e546871": {
+      "authoritative": false,
+      "canonical_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+      "content_sha256": "6dfa0415c91d9ed82086c61fe103d77f435661ffb7f84cc5a4e70bd105f8e644",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:b7b0323aac33c3820c4cef39bbe5396519e612bb67d24f8225472dcd240e1a11",
+      "state_id": "candidate-state:4e69bc36595f7bea7e546871",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:5da735a86394608d43321612": {
+      "authoritative": false,
+      "canonical_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
+      "content_sha256": "ef208d5487788a2dd73400f29955ac6166fa192279cd994a5497344c919ad5fe",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:314956f1dd7660664707dc0767427852bed7703fc4c53ff0f5c038e234a5d043",
+      "state_id": "candidate-state:5da735a86394608d43321612",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:67a6c2b5e5315eee35b8d82e": {
+      "authoritative": false,
+      "canonical_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCN(C(=O)CCO)C1",
+      "content_sha256": "bd87b44bb5574b815788869c5b79db83f71dae1ef75376e6dd6b2610aaf6646d",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:343e02865d6b17432cd3994d24c10cfca2b82d639dfda953d5046f9dfab7e07d",
+      "state_id": "candidate-state:67a6c2b5e5315eee35b8d82e",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:689c3dbf0c01cbb19346625d": {
+      "authoritative": false,
+      "canonical_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2F",
+      "content_sha256": "0cc6fdcd75a8904b6c7dd54a51b2433dc3c221eef1c427ca071eb4c1793ab601",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:c0a77a5956fbcc5e9825d621d1aab5bd07a6fa4113a553c67a4a204e2ef8f41e",
+      "state_id": "candidate-state:689c3dbf0c01cbb19346625d",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:88c059fcdf9c53cc5fffdf93": {
+      "authoritative": false,
+      "canonical_smiles": "C=CC(=O)Cl",
+      "content_sha256": "67276124b4d1c85547ca3e500e386da1b042400be80e235eaa820ac6a3b1d8b7",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:908ad2fe1e1a51a57a7013d6d7f1d76fbd14f2d4c06cf4a7910fa645ed91fa74",
+      "state_id": "candidate-state:88c059fcdf9c53cc5fffdf93",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:8904391a69eef3c7aed1e6a7": {
+      "authoritative": false,
+      "canonical_smiles": "N[C@@H]1CCCNC1",
+      "content_sha256": "e109a5da98aeca7a17626e0b92b6933a6424b20021f6d5f1929c68ee22864788",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:8833d1f23c7e3aa33873508a23500b283116c299e50755ac66900a7718764143",
+      "state_id": "candidate-state:8904391a69eef3c7aed1e6a7",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:9506c391a0ec417bef248778": {
+      "authoritative": false,
+      "canonical_smiles": "Nc1ncnc2c1c(Br)nn2Cl",
+      "content_sha256": "a61bcd7698196fd99b2e33d03588a7b79eaa58bc866de1562918ff9569427284",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:a6bfce5afe88685e109bdc49be8e7c4c20772145283fb4b1e71aba102557963e",
+      "state_id": "candidate-state:9506c391a0ec417bef248778",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:a1f4263b76dc7e9da83477e6": {
+      "authoritative": false,
+      "canonical_smiles": "Oc1ccccc1",
+      "content_sha256": "716646f6ef963df5d5c17fb23aea62fad0bf8be911370bb692ddcb7faa918f7b",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:860136cba3b73865d85fc1000dd8dfd23e29eb6a77b5455846dea1873c030b16",
+      "state_id": "candidate-state:a1f4263b76dc7e9da83477e6",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:bcf3375f01df02558a63f084": {
+      "authoritative": false,
+      "canonical_smiles": "C=CC(=O)O",
+      "content_sha256": "b6e687f31a2cbf201da696ac9d6d6f46024d03c0f750b79e6e0c8a552d159682",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:1eccae331ace228db902f9f7b4fa04f5834d0cdc6b1fd3f6b51bb6b779d669b4",
+      "state_id": "candidate-state:bcf3375f01df02558a63f084",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:eba0a67d6a08ed2adcb891b3": {
+      "authoritative": false,
+      "canonical_smiles": "OB(O)c1ccc(Cl)cc1",
+      "content_sha256": "8f2ceeae18a1616ac3ff5e6aed12a8a847934aeab89aa6cbe3e5f0f924abb8d5",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:c9ba8387fbb3cfd4834b4c36915fd4c0b7f55e834ff4a395f4f9d8e70af1f233",
+      "state_id": "candidate-state:eba0a67d6a08ed2adcb891b3",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:f7034004c0c222a1650ededf": {
+      "authoritative": false,
+      "canonical_smiles": "OB(O)c1ccc(Br)cc1",
+      "content_sha256": "17f0c2990fb24a671a37a36e3e44ca63d453b935372c9c5b9d54fd3359029a2e",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:9a0fd907c5c17894581fcd46e90e5e1e8a3a58b20cc1a71902aaac2543ed4d06",
+      "state_id": "candidate-state:f7034004c0c222a1650ededf",
+      "status": "candidate_route_observation"
+    }
+  },
+  "content_sha256": "655718327df3d7455d2bdf0747cf4b9db853f23418b6284e0b0eedddf326c594",
+  "counts": {
+    "blocked_candidate": 0,
+    "canonical_admissible": 12,
+    "chemical_states": 17,
+    "inventory_gap": 0,
+    "operation_nodes": 12,
+    "programs": 12,
+    "routes": 3
+  },
+  "observation_id": "candidate-route:5b758eb2ccd105356afe527c",
+  "operation_nodes": {
+    "candidate-operation:044ec8241e4971cb4d546860": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "71ea8cfd18f7508f737308365869478c41ab3848e44b56503d3974703cb17e48",
+      "input_state_ids": [
+        "candidate-state:35fd2e13a7f609938de1f8a5",
+        "candidate-state:071fc9aad3745343c2fa5b0e"
+      ],
+      "operation_id": "candidate-operation:044ec8241e4971cb4d546860",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:67a6c2b5e5315eee35b8d82e"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:b6d540ed37f8fc605f151a2ac55907c82d31a95965e7f1273d83035d423e5ef7",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:216bb741d8cda235f40d7219": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "e7b36351b661a4f7986f25699e332a2ff7daac45ce3bdad30baee2273eba9a6c",
+      "input_state_ids": [
+        "candidate-state:8904391a69eef3c7aed1e6a7",
+        "candidate-state:689c3dbf0c01cbb19346625d"
+      ],
+      "operation_id": "candidate-operation:216bb741d8cda235f40d7219",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:35fd2e13a7f609938de1f8a5"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:36168d1c593e456808949e11c927737780be862d4dd385a0442f6f0af46d5b69",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:38613fa672e5a12503a0a9b2": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "ed5d071803fad3dc8e94e9c00d859d285671e320f25f72972009cc013f1227ee",
+      "input_state_ids": [
+        "candidate-state:bcf3375f01df02558a63f084",
+        "candidate-state:35fd2e13a7f609938de1f8a5"
+      ],
+      "operation_id": "candidate-operation:38613fa672e5a12503a0a9b2",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:4e69bc36595f7bea7e546871"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:a75433f85b80c8984a136ea95091d6c5b0b3a8f0778daa227c96bca91175024c",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:5430dc349c2f28304bb7e3f8": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "54eac979359eb762a9fbcb7a5b96193be62c84f88842aae97a6327f8085d2ca1",
+      "input_state_ids": [
+        "candidate-state:88c059fcdf9c53cc5fffdf93",
+        "candidate-state:35fd2e13a7f609938de1f8a5"
+      ],
+      "operation_id": "candidate-operation:5430dc349c2f28304bb7e3f8",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:4e69bc36595f7bea7e546871"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:061baa7221093d0cc25609e16c69a3eda1fc622d5c16b5ea20b9295032a0bfc8",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:548817372385e6fd2097448c": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "22a90bbcd0a937d97c2670868485a67e316232eb438f8b26e8154d5daefddac6",
+      "input_state_ids": [
+        "candidate-state:3b9c6e7e25fafe924d49c708",
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "operation_id": "candidate-operation:548817372385e6fd2097448c",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:4596c1b14726c98bd52e92fb"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:02cbc3d9a2cddd78a1d0f6d74a5c5030960436381017c3974c0583e642f95704",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:862401b06eba8146ec51bc2f": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "0baa3b1e38bfbaed4f252330f077b678eb129b86a54d0176b4e40ef6ed67b74a",
+      "input_state_ids": [
+        "candidate-state:eba0a67d6a08ed2adcb891b3",
+        "candidate-state:a1f4263b76dc7e9da83477e6"
+      ],
+      "operation_id": "candidate-operation:862401b06eba8146ec51bc2f",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:5a71f6884e607e1f91779ca0661630fd39b9b862bd460365c5c5ba038f10e365",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:8f6b8e1f5acc59153b1524e5": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "82c50d21d081227f04667d7118f601c0e70d85b5c6cc2df0dd395cd7b6325a18",
+      "input_state_ids": [
+        "candidate-state:380b442dc83a99f87f8cfd6f",
+        "candidate-state:a1f4263b76dc7e9da83477e6"
+      ],
+      "operation_id": "candidate-operation:8f6b8e1f5acc59153b1524e5",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:d2cb5825d45cce1770f3f66fb6b630d7342a29896ff4c10751ef5dfdce23f0d8",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:b3195c76e5329ca4f7473e42": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "75336c0c76b462987ad8a9f732a3441f44f81a0bcee0434dc1d0e0b89c15c8d9",
+      "input_state_ids": [
+        "candidate-state:67a6c2b5e5315eee35b8d82e"
+      ],
+      "operation_id": "candidate-operation:b3195c76e5329ca4f7473e42",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:4e69bc36595f7bea7e546871"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:b01ccf4fd5bc814adb83e43e21e14da289bd95fcb7016649f8388d0d4ecf7c04",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:b7b7ca0bdad44ea555b4b2a0": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "1f8460e8c96b74c6d0b4b61d62842487289b4bdcfb5da26985e2d646bc234011",
+      "input_state_ids": [
+        "candidate-state:05455c24eca6707ec61a28e7",
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "operation_id": "candidate-operation:b7b7ca0bdad44ea555b4b2a0",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:689c3dbf0c01cbb19346625d"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:c0901d105915486a3999b868ffa5336dd53551f8a20d75172eee5577a68dc28a",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:d2a974154273877eb188ed51": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "6adcee6ffd50b5cd7f30d40f7c90d943d2c8c8e9697674e04641b61b26b0aa0a",
+      "input_state_ids": [
+        "candidate-state:9506c391a0ec417bef248778",
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "operation_id": "candidate-operation:d2a974154273877eb188ed51",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:4596c1b14726c98bd52e92fb"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:4758af129c6997eacbcc68a50545118b98f3dd8db07e2730414a3c221f06ea20",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:dbdbe1397a27c92ad3d4fc9e": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "21747e5e4bbd2be07b03ad8662520bbec721534a6fe64a0650d96dba7b9f3b08",
+      "input_state_ids": [
+        "candidate-state:8904391a69eef3c7aed1e6a7",
+        "candidate-state:4596c1b14726c98bd52e92fb"
+      ],
+      "operation_id": "candidate-operation:dbdbe1397a27c92ad3d4fc9e",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:35fd2e13a7f609938de1f8a5"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:c4e364117de1eb06738973c777e10e6a83566f1b5c90d6267afbd63bf5078d33",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:fbf50bf5a5932aea176afca5": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "99cd35beeb434910fef3e2d06fe9910900c49628786b4443a056a431cd0eabf5",
+      "input_state_ids": [
+        "candidate-state:f7034004c0c222a1650ededf",
+        "candidate-state:a1f4263b76dc7e9da83477e6"
+      ],
+      "operation_id": "candidate-operation:fbf50bf5a5932aea176afca5",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:49fa8f2e0814232c8665a22023f04b6676395ff0cb44b72293a5f59a81603d01",
+      "status": "canonical_admissible"
+    }
+  },
+  "programs": {
+    "candidate-program:044ec8241e4971cb4d546860": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "b6d540ed37f8fc605f151a2ac55907c82d31a95965e7f1273d83035d423e5ef7",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
+            "O=C(Cl)CCO"
+          ],
+          "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCN(C(=O)CCO)C1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 25,
+          "Cl": 1,
+          "N": 6,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 35,
+        "precursor_smiles": [
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
+          "O=C(Cl)CCO"
+        ],
+        "precursor_smiles_multiset": [
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
+          "O=C(Cl)CCO"
+        ],
+        "product_element_counts": {
+          "C": 25,
+          "N": 6,
+          "O": 3
+        },
+        "product_heavy_atom_count": 34,
+        "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCN(C(=O)CCO)C1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "7322a9e30315efbfabbe69beec3fb1d35aad7489ee6f56a1ad59dfd862049fcf",
+      "input_state_ids": [
+        "candidate-state:35fd2e13a7f609938de1f8a5",
+        "candidate-state:071fc9aad3745343c2fa5b0e"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:044ec8241e4971cb4d546860"
+      ],
+      "output_state_ids": [
+        "candidate-state:67a6c2b5e5315eee35b8d82e"
+      ],
+      "program_id": "candidate-program:044ec8241e4971cb4d546860",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:b6d540ed37f8fc605f151a2ac55907c82d31a95965e7f1273d83035d423e5ef7",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:216bb741d8cda235f40d7219": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "36168d1c593e456808949e11c927737780be862d4dd385a0442f6f0af46d5b69",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "N[C@@H]1CCCNC1",
+            "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2F"
+          ],
+          "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 22,
+          "F": 1,
+          "N": 7,
+          "O": 1
+        },
+        "precursor_heavy_atom_count": 31,
+        "precursor_smiles": [
+          "N[C@@H]1CCCNC1",
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2F"
+        ],
+        "precursor_smiles_multiset": [
+          "N[C@@H]1CCCNC1",
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2F"
+        ],
+        "product_element_counts": {
+          "C": 22,
+          "N": 6,
+          "O": 1
+        },
+        "product_heavy_atom_count": 29,
+        "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "f858c26603cd5210ffa41a5bcbf7204051e1823f8410f55c5211b8d05d7235d6",
+      "input_state_ids": [
+        "candidate-state:8904391a69eef3c7aed1e6a7",
+        "candidate-state:689c3dbf0c01cbb19346625d"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:216bb741d8cda235f40d7219"
+      ],
+      "output_state_ids": [
+        "candidate-state:35fd2e13a7f609938de1f8a5"
+      ],
+      "program_id": "candidate-program:216bb741d8cda235f40d7219",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:36168d1c593e456808949e11c927737780be862d4dd385a0442f6f0af46d5b69",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "reaction_validation_missing"
+      ]
+    },
+    "candidate-program:38613fa672e5a12503a0a9b2": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "a75433f85b80c8984a136ea95091d6c5b0b3a8f0778daa227c96bca91175024c",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "C=CC(=O)O",
+            "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1"
+          ],
+          "product_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 25,
+          "N": 6,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 34,
+        "precursor_smiles": [
+          "C=CC(=O)O",
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1"
+        ],
+        "precursor_smiles_multiset": [
+          "C=CC(=O)O",
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1"
+        ],
+        "product_element_counts": {
+          "C": 25,
+          "N": 6,
+          "O": 2
+        },
+        "product_heavy_atom_count": 33,
+        "product_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "6e928618dcd137f43a4d4bcc2d63afd11c9992700a86e7fa14943bf30b7f05a9",
+      "input_state_ids": [
+        "candidate-state:bcf3375f01df02558a63f084",
+        "candidate-state:35fd2e13a7f609938de1f8a5"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:38613fa672e5a12503a0a9b2"
+      ],
+      "output_state_ids": [
+        "candidate-state:4e69bc36595f7bea7e546871"
+      ],
+      "program_id": "candidate-program:38613fa672e5a12503a0a9b2",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:a75433f85b80c8984a136ea95091d6c5b0b3a8f0778daa227c96bca91175024c",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:5430dc349c2f28304bb7e3f8": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "061baa7221093d0cc25609e16c69a3eda1fc622d5c16b5ea20b9295032a0bfc8",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "C=CC(=O)Cl",
+            "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1"
+          ],
+          "product_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 25,
+          "Cl": 1,
+          "N": 6,
+          "O": 2
+        },
+        "precursor_heavy_atom_count": 34,
+        "precursor_smiles": [
+          "C=CC(=O)Cl",
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1"
+        ],
+        "precursor_smiles_multiset": [
+          "C=CC(=O)Cl",
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1"
+        ],
+        "product_element_counts": {
+          "C": 25,
+          "N": 6,
+          "O": 2
+        },
+        "product_heavy_atom_count": 33,
+        "product_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "690d58516c15492624f4b6854a3f4b8f4d95651a8e5e4aaedb89718a723ed500",
+      "input_state_ids": [
+        "candidate-state:88c059fcdf9c53cc5fffdf93",
+        "candidate-state:35fd2e13a7f609938de1f8a5"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:5430dc349c2f28304bb7e3f8"
+      ],
+      "output_state_ids": [
+        "candidate-state:4e69bc36595f7bea7e546871"
+      ],
+      "program_id": "candidate-program:5430dc349c2f28304bb7e3f8",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:061baa7221093d0cc25609e16c69a3eda1fc622d5c16b5ea20b9295032a0bfc8",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:548817372385e6fd2097448c": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "02cbc3d9a2cddd78a1d0f6d74a5c5030960436381017c3974c0583e642f95704",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "Nc1ncnc2c1c(I)nn2Cl",
+            "OB(O)c1ccc(Oc2ccccc2)cc1"
+          ],
+          "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "B": 1,
+          "C": 17,
+          "Cl": 1,
+          "I": 1,
+          "N": 5,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 28,
+        "precursor_smiles": [
+          "Nc1ncnc2c1c(I)nn2Cl",
+          "OB(O)c1ccc(Oc2ccccc2)cc1"
+        ],
+        "precursor_smiles_multiset": [
+          "Nc1ncnc2c1c(I)nn2Cl",
+          "OB(O)c1ccc(Oc2ccccc2)cc1"
+        ],
+        "product_element_counts": {
+          "C": 17,
+          "Cl": 1,
+          "N": 5,
+          "O": 1
+        },
+        "product_heavy_atom_count": 24,
+        "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "2c8cf46f240b384fcd84322f7a7df15ef2642d2b0254275b311205f199800357",
+      "input_state_ids": [
+        "candidate-state:3b9c6e7e25fafe924d49c708",
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:548817372385e6fd2097448c"
+      ],
+      "output_state_ids": [
+        "candidate-state:4596c1b14726c98bd52e92fb"
+      ],
+      "program_id": "candidate-program:548817372385e6fd2097448c",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:02cbc3d9a2cddd78a1d0f6d74a5c5030960436381017c3974c0583e642f95704",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:862401b06eba8146ec51bc2f": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "5a71f6884e607e1f91779ca0661630fd39b9b862bd460365c5c5ba038f10e365",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "OB(O)c1ccc(Cl)cc1",
+            "Oc1ccccc1"
+          ],
+          "product_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "B": 1,
+          "C": 12,
+          "Cl": 1,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 17,
+        "precursor_smiles": [
+          "OB(O)c1ccc(Cl)cc1",
+          "Oc1ccccc1"
+        ],
+        "precursor_smiles_multiset": [
+          "OB(O)c1ccc(Cl)cc1",
+          "Oc1ccccc1"
+        ],
+        "product_element_counts": {
+          "B": 1,
+          "C": 12,
+          "O": 3
+        },
+        "product_heavy_atom_count": 16,
+        "product_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "a7d320021a0bd7732ac3b3fc182ef93d48f061d5a4aabd0abaf5624b8e0bcf19",
+      "input_state_ids": [
+        "candidate-state:eba0a67d6a08ed2adcb891b3",
+        "candidate-state:a1f4263b76dc7e9da83477e6"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:862401b06eba8146ec51bc2f"
+      ],
+      "output_state_ids": [
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "program_id": "candidate-program:862401b06eba8146ec51bc2f",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:5a71f6884e607e1f91779ca0661630fd39b9b862bd460365c5c5ba038f10e365",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:8f6b8e1f5acc59153b1524e5": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "d2cb5825d45cce1770f3f66fb6b630d7342a29896ff4c10751ef5dfdce23f0d8",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "OB(O)c1ccc(F)cc1",
+            "Oc1ccccc1"
+          ],
+          "product_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "B": 1,
+          "C": 12,
+          "F": 1,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 17,
+        "precursor_smiles": [
+          "OB(O)c1ccc(F)cc1",
+          "Oc1ccccc1"
+        ],
+        "precursor_smiles_multiset": [
+          "OB(O)c1ccc(F)cc1",
+          "Oc1ccccc1"
+        ],
+        "product_element_counts": {
+          "B": 1,
+          "C": 12,
+          "O": 3
+        },
+        "product_heavy_atom_count": 16,
+        "product_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "748016dd0318649dc8ac18d69cbc58e1c562fdaa432ef0ecef01618feba9c800",
+      "input_state_ids": [
+        "candidate-state:380b442dc83a99f87f8cfd6f",
+        "candidate-state:a1f4263b76dc7e9da83477e6"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:8f6b8e1f5acc59153b1524e5"
+      ],
+      "output_state_ids": [
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "program_id": "candidate-program:8f6b8e1f5acc59153b1524e5",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:d2cb5825d45cce1770f3f66fb6b630d7342a29896ff4c10751ef5dfdce23f0d8",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:b3195c76e5329ca4f7473e42": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "b01ccf4fd5bc814adb83e43e21e14da289bd95fcb7016649f8388d0d4ecf7c04",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCN(C(=O)CCO)C1"
+          ],
+          "product_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 25,
+          "N": 6,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 34,
+        "precursor_smiles": [
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCN(C(=O)CCO)C1"
+        ],
+        "precursor_smiles_multiset": [
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCN(C(=O)CCO)C1"
+        ],
+        "product_element_counts": {
+          "C": 25,
+          "N": 6,
+          "O": 2
+        },
+        "product_heavy_atom_count": 33,
+        "product_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "b13532ffe08048d4b9012c689fdf057d843fb190dbf4e00520c663c09ad54eee",
+      "input_state_ids": [
+        "candidate-state:67a6c2b5e5315eee35b8d82e"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:b3195c76e5329ca4f7473e42"
+      ],
+      "output_state_ids": [
+        "candidate-state:4e69bc36595f7bea7e546871"
+      ],
+      "program_id": "candidate-program:b3195c76e5329ca4f7473e42",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:b01ccf4fd5bc814adb83e43e21e14da289bd95fcb7016649f8388d0d4ecf7c04",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:b7b7ca0bdad44ea555b4b2a0": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "c0901d105915486a3999b868ffa5336dd53551f8a20d75172eee5577a68dc28a",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "Nc1ncnc2c1c(Br)nn2F",
+            "OB(O)c1ccc(Oc2ccccc2)cc1"
+          ],
+          "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2F",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "B": 1,
+          "Br": 1,
+          "C": 17,
+          "F": 1,
+          "N": 5,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 28,
+        "precursor_smiles": [
+          "Nc1ncnc2c1c(Br)nn2F",
+          "OB(O)c1ccc(Oc2ccccc2)cc1"
+        ],
+        "precursor_smiles_multiset": [
+          "Nc1ncnc2c1c(Br)nn2F",
+          "OB(O)c1ccc(Oc2ccccc2)cc1"
+        ],
+        "product_element_counts": {
+          "C": 17,
+          "F": 1,
+          "N": 5,
+          "O": 1
+        },
+        "product_heavy_atom_count": 24,
+        "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2F",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "761df6f9a38879b496b21d66b8502d246e9f4134dccfbc3ad593365f438acf4f",
+      "input_state_ids": [
+        "candidate-state:05455c24eca6707ec61a28e7",
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:b7b7ca0bdad44ea555b4b2a0"
+      ],
+      "output_state_ids": [
+        "candidate-state:689c3dbf0c01cbb19346625d"
+      ],
+      "program_id": "candidate-program:b7b7ca0bdad44ea555b4b2a0",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:c0901d105915486a3999b868ffa5336dd53551f8a20d75172eee5577a68dc28a",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:d2a974154273877eb188ed51": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "4758af129c6997eacbcc68a50545118b98f3dd8db07e2730414a3c221f06ea20",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "Nc1ncnc2c1c(Br)nn2Cl",
+            "OB(O)c1ccc(Oc2ccccc2)cc1"
+          ],
+          "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "B": 1,
+          "Br": 1,
+          "C": 17,
+          "Cl": 1,
+          "N": 5,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 28,
+        "precursor_smiles": [
+          "Nc1ncnc2c1c(Br)nn2Cl",
+          "OB(O)c1ccc(Oc2ccccc2)cc1"
+        ],
+        "precursor_smiles_multiset": [
+          "Nc1ncnc2c1c(Br)nn2Cl",
+          "OB(O)c1ccc(Oc2ccccc2)cc1"
+        ],
+        "product_element_counts": {
+          "C": 17,
+          "Cl": 1,
+          "N": 5,
+          "O": 1
+        },
+        "product_heavy_atom_count": 24,
+        "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "64779b24a9484d021d276a65c97c235bee722ab55f42eaa9b81caf74bd0b6276",
+      "input_state_ids": [
+        "candidate-state:9506c391a0ec417bef248778",
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:d2a974154273877eb188ed51"
+      ],
+      "output_state_ids": [
+        "candidate-state:4596c1b14726c98bd52e92fb"
+      ],
+      "program_id": "candidate-program:d2a974154273877eb188ed51",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:4758af129c6997eacbcc68a50545118b98f3dd8db07e2730414a3c221f06ea20",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:dbdbe1397a27c92ad3d4fc9e": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "c4e364117de1eb06738973c777e10e6a83566f1b5c90d6267afbd63bf5078d33",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "N[C@@H]1CCCNC1",
+            "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl"
+          ],
+          "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 22,
+          "Cl": 1,
+          "N": 7,
+          "O": 1
+        },
+        "precursor_heavy_atom_count": 31,
+        "precursor_smiles": [
+          "N[C@@H]1CCCNC1",
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl"
+        ],
+        "precursor_smiles_multiset": [
+          "N[C@@H]1CCCNC1",
+          "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl"
+        ],
+        "product_element_counts": {
+          "C": 22,
+          "N": 6,
+          "O": 1
+        },
+        "product_heavy_atom_count": 29,
+        "product_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "d2e39cc4aba5e6c0872d2a03e4caf55871d382a7221a3598aa50ec6d9de1cc8b",
+      "input_state_ids": [
+        "candidate-state:8904391a69eef3c7aed1e6a7",
+        "candidate-state:4596c1b14726c98bd52e92fb"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:dbdbe1397a27c92ad3d4fc9e"
+      ],
+      "output_state_ids": [
+        "candidate-state:35fd2e13a7f609938de1f8a5"
+      ],
+      "program_id": "candidate-program:dbdbe1397a27c92ad3d4fc9e",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:c4e364117de1eb06738973c777e10e6a83566f1b5c90d6267afbd63bf5078d33",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "reaction_validation_missing"
+      ]
+    },
+    "candidate-program:fbf50bf5a5932aea176afca5": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "49fa8f2e0814232c8665a22023f04b6676395ff0cb44b72293a5f59a81603d01",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "OB(O)c1ccc(Br)cc1",
+            "Oc1ccccc1"
+          ],
+          "product_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "B": 1,
+          "Br": 1,
+          "C": 12,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 17,
+        "precursor_smiles": [
+          "OB(O)c1ccc(Br)cc1",
+          "Oc1ccccc1"
+        ],
+        "precursor_smiles_multiset": [
+          "OB(O)c1ccc(Br)cc1",
+          "Oc1ccccc1"
+        ],
+        "product_element_counts": {
+          "B": 1,
+          "C": 12,
+          "O": 3
+        },
+        "product_heavy_atom_count": 16,
+        "product_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "521cd640accce8a9918ff272ca60f72d52c57d2eec131de3ec8266a0d2703140",
+      "input_state_ids": [
+        "candidate-state:f7034004c0c222a1650ededf",
+        "candidate-state:a1f4263b76dc7e9da83477e6"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:fbf50bf5a5932aea176afca5"
+      ],
+      "output_state_ids": [
+        "candidate-state:5da735a86394608d43321612"
+      ],
+      "program_id": "candidate-program:fbf50bf5a5932aea176afca5",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:49fa8f2e0814232c8665a22023f04b6676395ff0cb44b72293a5f59a81603d01",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    }
+  },
+  "routes": {
+    "route:0a31bcc4640f7b39b6e5918c510fe233a0f8802cef450ca368aa0207b1a867da": {
+      "accepted": false,
+      "blocked_program_ids": [],
+      "canonical_admissible_program_ids": [
+        "candidate-program:5430dc349c2f28304bb7e3f8",
+        "candidate-program:d2a974154273877eb188ed51",
+        "candidate-program:dbdbe1397a27c92ad3d4fc9e",
+        "candidate-program:8f6b8e1f5acc59153b1524e5"
+      ],
+      "content_sha256": "8167fbc855c420de39de158faddb316dbdb89ac2971d1a79ba24ccb5ba0971ed",
+      "inventory_gap_program_ids": [],
+      "production_closed": false,
+      "program_ids": [
+        "candidate-program:5430dc349c2f28304bb7e3f8",
+        "candidate-program:d2a974154273877eb188ed51",
+        "candidate-program:dbdbe1397a27c92ad3d4fc9e",
+        "candidate-program:8f6b8e1f5acc59153b1524e5"
+      ],
+      "route_id": "route:0a31bcc4640f7b39b6e5918c510fe233a0f8802cef450ca368aa0207b1a867da",
+      "source_edge_ids": [
+        "edge:061baa7221093d0cc25609e16c69a3eda1fc622d5c16b5ea20b9295032a0bfc8",
+        "edge:4758af129c6997eacbcc68a50545118b98f3dd8db07e2730414a3c221f06ea20",
+        "edge:c4e364117de1eb06738973c777e10e6a83566f1b5c90d6267afbd63bf5078d33",
+        "edge:d2cb5825d45cce1770f3f66fb6b630d7342a29896ff4c10751ef5dfdce23f0d8"
+      ],
+      "source_exploration_closed": false,
+      "status": "candidate_route_only",
+      "warning_codes": []
+    },
+    "route:c4c9a8d4ac1dc116d0f9fad9bce05b03cefe35ef016e055e0115e2b027e8ea82": {
+      "accepted": false,
+      "blocked_program_ids": [],
+      "canonical_admissible_program_ids": [
+        "candidate-program:216bb741d8cda235f40d7219",
+        "candidate-program:862401b06eba8146ec51bc2f",
+        "candidate-program:38613fa672e5a12503a0a9b2",
+        "candidate-program:b7b7ca0bdad44ea555b4b2a0"
+      ],
+      "content_sha256": "13fab9ab74de37a1409d257c9da043a9ee7a5211d89beb1009829aff4d10f69c",
+      "inventory_gap_program_ids": [],
+      "production_closed": false,
+      "program_ids": [
+        "candidate-program:216bb741d8cda235f40d7219",
+        "candidate-program:862401b06eba8146ec51bc2f",
+        "candidate-program:38613fa672e5a12503a0a9b2",
+        "candidate-program:b7b7ca0bdad44ea555b4b2a0"
+      ],
+      "route_id": "route:c4c9a8d4ac1dc116d0f9fad9bce05b03cefe35ef016e055e0115e2b027e8ea82",
+      "source_edge_ids": [
+        "edge:36168d1c593e456808949e11c927737780be862d4dd385a0442f6f0af46d5b69",
+        "edge:5a71f6884e607e1f91779ca0661630fd39b9b862bd460365c5c5ba038f10e365",
+        "edge:a75433f85b80c8984a136ea95091d6c5b0b3a8f0778daa227c96bca91175024c",
+        "edge:c0901d105915486a3999b868ffa5336dd53551f8a20d75172eee5577a68dc28a"
+      ],
+      "source_exploration_closed": false,
+      "status": "candidate_route_only",
+      "warning_codes": []
+    },
+    "route:dac1299967a83df5a023a13364d8baf5d4ff115de53d58e2000ff9180c347270": {
+      "accepted": false,
+      "blocked_program_ids": [],
+      "canonical_admissible_program_ids": [
+        "candidate-program:548817372385e6fd2097448c",
+        "candidate-program:fbf50bf5a5932aea176afca5",
+        "candidate-program:b3195c76e5329ca4f7473e42",
+        "candidate-program:044ec8241e4971cb4d546860",
+        "candidate-program:dbdbe1397a27c92ad3d4fc9e"
+      ],
+      "content_sha256": "7b3ddae67cee4756593adde7e757681c3000b74a514e7ff7c2a38cac773c6434",
+      "inventory_gap_program_ids": [],
+      "production_closed": false,
+      "program_ids": [
+        "candidate-program:548817372385e6fd2097448c",
+        "candidate-program:fbf50bf5a5932aea176afca5",
+        "candidate-program:b3195c76e5329ca4f7473e42",
+        "candidate-program:044ec8241e4971cb4d546860",
+        "candidate-program:dbdbe1397a27c92ad3d4fc9e"
+      ],
+      "route_id": "route:dac1299967a83df5a023a13364d8baf5d4ff115de53d58e2000ff9180c347270",
+      "source_edge_ids": [
+        "edge:02cbc3d9a2cddd78a1d0f6d74a5c5030960436381017c3974c0583e642f95704",
+        "edge:49fa8f2e0814232c8665a22023f04b6676395ff0cb44b72293a5f59a81603d01",
+        "edge:b01ccf4fd5bc814adb83e43e21e14da289bd95fcb7016649f8388d0d4ecf7c04",
+        "edge:b6d540ed37f8fc605f151a2ac55907c82d31a95965e7f1273d83035d423e5ef7",
+        "edge:c4e364117de1eb06738973c777e10e6a83566f1b5c90d6267afbd63bf5078d33"
+      ],
+      "source_exploration_closed": false,
+      "status": "candidate_route_only",
+      "warning_codes": []
+    }
+  },
+  "schema_version": "candidate_program_projection.v1",
+  "semantics": {
+    "all_programs_are_non_authoritative": true,
+    "canonical_v4_rejections_remain_in_force": true,
+    "complete_display_route_does_not_mean_scientific_closure": true,
+    "no_program_store_admission_performed": true,
+    "read_only_candidate_projection": true
+  },
+  "source_observation_sha256": "cfc67cb47d1416550a0bed7b4885aeee9520c018c0b9c9ae56aab648be31ca9a",
+  "target_state_id": "candidate-state:4e69bc36595f7bea7e546871"
+}

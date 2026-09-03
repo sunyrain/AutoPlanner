@@ -1,14 +1,19 @@
 """Coordinate global reasoning and deterministic work on one V4 RunKernel."""
+
 from __future__ import annotations
 
 from pathlib import Path
-import hashlib
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 from cascade_planner.application.campaign_context import CampaignContext, CampaignContextCompiler
+from cascade_planner.application.campaign_quality_state import (
+    compile_campaign_quality_state,
+)
+from cascade_planner.application.campaign_action_status import (
+    compile_active_campaign_actions,
+)
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalHypergraphStore,
-    CanonicalIngestionBatch,
 )
 from cascade_planner.application.frontier_runtime import publish_frontier_items
 from cascade_planner.application.proof_portfolio import (
@@ -19,28 +24,38 @@ from cascade_planner.application.proof_portfolio import (
 from cascade_planner.application.retrosynthesis_workers import (
     build_retrosynthesis_worker_handlers,
 )
-from cascade_planner.application.run_kernel import RunKernel, RunKernelError, RunSpec
+from cascade_planner.application.run_kernel import RunKernel, RunSpec
 from cascade_planner.application.route_workbench import (
     compile_route_workbench,
     compile_route_workbench_delta,
 )
-from cascade_planner.application.worker_runtime import (
-    WorkerCommand,
-    WorkerResult,
-    WorkerRuntime,
-)
+from cascade_planner.application.worker_runtime import WorkerRuntime
 from cascade_planner.orchestration.global_campaign_director import (
     DirectorConfig,
-    DirectorOutcome,
     DirectorRunner,
     GlobalCampaignDirector,
 )
+from cascade_planner.orchestration.program_admission_runtime import (
+    admit_program_projection,
+    program_projection_read,
+    program_store_read,
+)
+from cascade_planner.orchestration.retrosynthesis_service_execution import (
+    _RetrosynthesisServiceExecutionMixin,
+)
+from cascade_planner.orchestration.retrosynthesis_service_planning import (
+    _RetrosynthesisServicePlanningMixin,
+)
+from cascade_planner.orchestration.workbench_publication import publish_workbench_snapshot, published_workbench_campaign_summary
 
 
 CAMPAIGN_SERVICE_STATUS_SCHEMA = "retrosynthesis_campaign_service_status.v1"
 
 
-class RetrosynthesisCampaignService:
+class RetrosynthesisCampaignService(
+    _RetrosynthesisServicePlanningMixin,
+    _RetrosynthesisServiceExecutionMixin,
+):
     """Coordinate one resumable campaign through canonical boundaries only."""
 
     def __init__(
@@ -119,10 +134,7 @@ class RetrosynthesisCampaignService:
             director_config=director_config,
         )
 
-    def register_artifact_authorities(
-        self,
-        values: Mapping[str, str],
-    ) -> None:
+    def register_artifact_authorities(self, values: Mapping[str, str]) -> None:
         self.workers.artifact_authorities.update(
             {
                 str(digest).lower(): str(scope)
@@ -130,172 +142,6 @@ class RetrosynthesisCampaignService:
                 if str(digest).strip() and str(scope).strip()
             }
         )
-
-    def apply_global_plan(
-        self,
-        plan: Mapping[str, Any],
-        *,
-        idempotency_key: str,
-        proposal_origin_kind: str = "manual",
-        proposal_origin_ref: str = "",
-    ) -> dict[str, Any]:
-        trusted_plan = {
-            key: value
-            for key, value in dict(plan).items()
-            if key not in {"_proposal_origin_kind", "_proposal_origin_ref"}
-        }
-        trusted_plan["_proposal_origin_kind"] = str(proposal_origin_kind).lower()
-        trusted_plan["_proposal_origin_ref"] = str(proposal_origin_ref)
-        return self.apply_batch(
-            CanonicalIngestionBatch(global_plans=(trusted_plan,)),
-            idempotency_key=idempotency_key,
-        )
-
-    def run_global_director(
-        self,
-        *,
-        mode: str,
-        material_events: Iterable[str] = (),
-        evidence_observations: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None = None,
-        force: bool = False,
-        idempotency_key: str,
-    ) -> DirectorOutcome:
-        context = self.compile_global_context(
-            material_events=material_events,
-            evidence_observations=evidence_observations,
-        )
-        outcome = self.director.run(context, mode=mode, force=force)
-        self._previous_context = context
-        if outcome.plan is not None and outcome.status == "accepted":
-            admitted_ids = sorted(
-                str(row.get("proposal_id") or "")
-                for row in outcome.proposal_audits
-                if row.get("accepted") is True and str(row.get("proposal_id") or "")
-            )
-            self.apply_global_plan(
-                {**outcome.plan.to_dict(), "_host_admitted_proposal_ids": admitted_ids},
-                idempotency_key=f"{idempotency_key}:plan",
-                proposal_origin_kind="codex_global_director",
-                proposal_origin_ref=(
-                    f"director_task:{outcome.task_id}"
-                    if outcome.task_id
-                    else f"director_context:{outcome.context_sha256}"
-                ),
-            )
-        return outcome
-
-    def compile_global_context(
-        self,
-        *,
-        material_events: Iterable[str] = (),
-        evidence_observations: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None = None,
-    ) -> CampaignContext:
-        graph = self.graph_store.load()
-        portfolio = compile_proof_portfolio(
-            graph,
-            acceptance_spec=self.kernel.spec.acceptance,
-        )
-        return self.context_compiler.compile(
-            kernel=self.kernel,
-            hypergraph=graph,
-            route_portfolio=portfolio,
-            evidence_ledger=evidence_observations,
-            material_events=material_events,
-            previous=self._previous_context,
-        )
-
-    def execute_frontier_materialization(
-        self,
-        *,
-        idempotency_key: str,
-    ) -> dict[str, Any]:
-        commands = self.graph_store.frontier_materialization_commands()
-        results: list[WorkerResult] = []
-        stopped_reasons: list[str] = []
-        for command in commands:
-            try:
-                results.append(self.workers.execute(command))
-            except RunKernelError as exc:
-                reason = str(exc)
-                if "budget_exhausted" not in reason:
-                    raise
-                stopped_reasons.append(reason)
-                break
-        if not results:
-            return {
-                "changed": False,
-                "executed_command_count": 0,
-                "skipped_command_count": len(commands),
-                "stopped_reasons": sorted(set(stopped_reasons)),
-                "graph": self.graph_store.load(),
-            }
-        applied = self.apply_worker_results(
-            tuple(results),
-            idempotency_key=idempotency_key,
-        )
-        return {
-            **applied,
-            "executed_command_count": len(results),
-            "skipped_command_count": max(0, len(commands) - len(results)),
-            "stopped_reasons": sorted(set(stopped_reasons)),
-        }
-
-    def execute_commands(
-        self,
-        commands: Iterable[WorkerCommand],
-        *,
-        idempotency_key: str,
-        include_scheduled: bool = True,
-    ) -> dict[str, Any]:
-        results: list[WorkerResult] = []
-        material_events: set[str] = set()
-        for command in commands:
-            if include_scheduled:
-                batch = self.workers.execute_pipeline(command)
-                results.extend(batch.results)
-                material_events.update(batch.material_events)
-            else:
-                result = self.workers.execute(command)
-                results.append(result)
-                material_events.update(result.material_events)
-        applied = self.apply_worker_results(
-            results,
-            idempotency_key=idempotency_key,
-        )
-        return {
-            **applied,
-            "executed_command_count": len(results),
-            "material_events": sorted(material_events),
-        }
-
-    def apply_worker_results(
-        self,
-        results: Iterable[WorkerResult | Mapping[str, Any]],
-        *,
-        idempotency_key: str,
-    ) -> dict[str, Any]:
-        return self.apply_batch(
-            CanonicalIngestionBatch(worker_results=tuple(results)),
-            idempotency_key=idempotency_key,
-        )
-
-    def apply_batch(
-        self,
-        batch: CanonicalIngestionBatch,
-        *,
-        idempotency_key: str,
-    ) -> dict[str, Any]:
-        result = self.graph_store.apply(
-            batch,
-            worker_runtime=self.workers if batch.worker_results else None,
-            idempotency_key=idempotency_key,
-        )
-        if result.get("changed") is True:
-            self._publish_graph_frontier(
-                result["graph"],
-                idempotency_key=f"graph-frontier:{idempotency_key}",
-            )
-        return result
 
     def closeout(
         self,
@@ -318,6 +164,8 @@ class RetrosynthesisCampaignService:
             graph,
             acceptance_spec=self.kernel.spec.acceptance,
         )
+        workbench = compile_route_workbench(graph, portfolio)
+        quality_state = compile_campaign_quality_state(workbench=workbench)
         state = self.kernel.state
         return {
             "schema_version": CAMPAIGN_SERVICE_STATUS_SCHEMA,
@@ -328,8 +176,13 @@ class RetrosynthesisCampaignService:
             "attempt_count": state.attempt_count,
             "accepted_expansion_count": state.accepted_expansion_count,
             "model_totals": dict(state.model_totals),
+            "native_search": self.kernel.native_search_budget(),
+            "task_budget": self.kernel.task_budget(),
+            "active_actions": compile_active_campaign_actions(state),
             "frontier": list(state.deficits),
             "portfolio": portfolio,
+            "campaign_spec": self.kernel.spec.campaign_spec.to_dict(),
+            "quality_state": quality_state,
             "stop_decision": self.kernel.decide_stop().to_dict(),
             "semantics": {
                 "single_kernel": True,
@@ -346,17 +199,34 @@ class RetrosynthesisCampaignService:
         campaign_summary: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         graph = self.graph_store.load()
+        if campaign_summary is None:
+            campaign_summary = published_workbench_campaign_summary(self.kernel, graph)
         portfolio = compile_proof_portfolio(
             graph,
             acceptance_spec=self.kernel.spec.acceptance,
         )
-        snapshot = compile_route_workbench(
-            graph, portfolio, campaign_summary=campaign_summary
-        )
+        snapshot = compile_route_workbench(graph, portfolio, campaign_summary=campaign_summary)
+        quality_state = dict((campaign_summary or {}).get("quality_state") or {})
+        if not quality_state:
+            quality_state = compile_campaign_quality_state(workbench=snapshot)
         return {
             "snapshot": snapshot,
             "delta": compile_route_workbench_delta(previous, snapshot),
+            "quality_state": quality_state,
         }
+
+    def program_projection(self) -> dict[str, Any]:
+        return program_projection_read(self.graph_store)
+
+    def program_store(self) -> dict[str, Any]:
+        return program_store_read(self.kernel, self.graph_store)
+
+    def admit_programs(self, *, enable_program_admission: bool = False) -> dict[str, Any]:
+        return admit_program_projection(
+            self.kernel,
+            self.graph_store,
+            enable_program_admission=enable_program_admission,
+        )
 
     def publish_workbench(
         self,
@@ -367,30 +237,10 @@ class RetrosynthesisCampaignService:
         """Publish the display projection without changing scientific state."""
 
         result = self.workbench(previous=previous, campaign_summary=campaign_summary)
-        snapshot = result["snapshot"]
-        ref = self.kernel.artifacts.put_json(
-            snapshot,
-            logical_name="retrosynthesis_route_workbench.json",
-            producer="autoplanner.route_workbench",
-        )
-        run_digest = hashlib.sha256(self.kernel.spec.run_id.encode("utf-8")).hexdigest()
-        self.kernel.artifacts.write_pointer(
-            f"u/{run_digest[:24]}/latest",
-            ref,
-            metadata={
-                "run_id": self.kernel.spec.run_id,
-                "graph_revision": self.kernel.state.graph_revision,
-                "portfolio_route_count": snapshot["portfolio"]["route_count"],
-            },
-        )
-        self.kernel.index.index_artifact(
-            run_id=self.kernel.spec.run_id,
-            artifact_id="retrosynthesis_route_workbench",
-            ref=ref,
-            revision=self.kernel.state.graph_revision,
-            authority_scope="display_projection_only",
-        )
-        return {**result, "snapshot_ref": ref.to_dict()}
+        return {
+            **result,
+            "snapshot_ref": publish_workbench_snapshot(self.kernel, result["snapshot"]),
+        }
 
     def _publish_graph_frontier(
         self,

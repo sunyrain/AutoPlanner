@@ -1,0 +1,238 @@
+{
+  "schema_version": "chemenzy_native_parity_probe.v2",
+  "generated_at": "2026-08-11T21:33:33.701869Z",
+  "request": {
+    "target_smiles": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+    "search_preset": "standard",
+    "max_routes": 2,
+    "max_steps": 14,
+    "iterations": 12,
+    "expansion_topk": 100,
+    "random_seed": 0,
+    "stock_names": [
+      "RetroStar-stock"
+    ],
+    "stock_paths": {
+      "RetroStar-stock": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3"
+    },
+    "condition_prediction": false,
+    "enzyme_assignment": false
+  },
+  "launcher_request_sha256": "2004d13c04b6fdacf35ebd8be302d34410bfe94e4b9b47e5209570eff44b8da0",
+  "proposal_request_sha256": "bb879d6ac14bce3dd03e8c954b0a7f5414ca1a49775470b5f5b84e78cd4bf37e",
+  "replay_key_sha256": "87df9684216471fe687c707d2f311fb007ab4db53ff85c8ba2f146896edb4433",
+  "model_content_binding_sha256": "e49ca9286a45429673854ef9c6fa25d4c7b5451d1fbba0f7f7703b097a0d8178",
+  "model_content_identity_complete": true,
+  "parameter_binding_sha256": "f3b147d4e120e87e80d13acea0c6ab9b47fd3d2bb21a0bf5178375224df142de",
+  "parameter_binding_identity_complete": true,
+  "parameter_binding_accepted": true,
+  "parameter_binding": {
+    "schema_version": "chemenzy_parameter_binding.v1",
+    "accepted": true,
+    "identity_complete": true,
+    "mismatch_fields": [],
+    "incomplete_fields": [],
+    "fields": {
+      "target_smiles": {
+        "expected": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+        "launcher_request": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+        "effective": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+        "identity_complete": true,
+        "equal": true
+      },
+      "search_preset": {
+        "expected": "standard",
+        "launcher_request": "standard",
+        "effective": "standard",
+        "identity_complete": true,
+        "equal": true
+      },
+      "max_routes": {
+        "expected": 2,
+        "launcher_request": 2,
+        "effective": 2,
+        "identity_complete": true,
+        "equal": true
+      },
+      "max_steps": {
+        "expected": 14,
+        "launcher_request": 14,
+        "effective": 14,
+        "identity_complete": true,
+        "equal": true
+      },
+      "iterations": {
+        "expected": 12,
+        "launcher_request": 12,
+        "effective": 12,
+        "identity_complete": true,
+        "equal": true
+      },
+      "expansion_topk": {
+        "expected": 100,
+        "launcher_request": 100,
+        "effective": 100,
+        "identity_complete": true,
+        "equal": true
+      },
+      "timeout_s": {
+        "expected": 240.0,
+        "launcher_request": 240.0,
+        "effective": 240.0,
+        "identity_complete": true,
+        "equal": true
+      },
+      "random_seed": {
+        "expected": 0,
+        "launcher_request": 0,
+        "effective": 0,
+        "identity_complete": true,
+        "equal": true
+      },
+      "one_step_models": {
+        "expected": [
+          "graphfp_models.USPTO-full_remapped",
+          "onmt_models.bionav_native_one_step"
+        ],
+        "launcher_request": [
+          "graphfp_models.USPTO-full_remapped",
+          "onmt_models.bionav_native_one_step"
+        ],
+        "effective": [
+          "graphfp_models.USPTO-full_remapped",
+          "onmt_models.bionav_native_one_step"
+        ],
+        "identity_complete": true,
+        "equal": true
+      },
+      "stock_names": {
+        "expected": [
+          "RetroStar-stock"
+        ],
+        "launcher_request": [
+          "RetroStar-stock"
+        ],
+        "effective": [
+          "RetroStar-stock"
+        ],
+        "identity_complete": true,
+        "equal": true
+      },
+      "stock_paths": {
+        "expected": {
+          "RetroStar-stock": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3"
+        },
+        "launcher_request": {
+          "RetroStar-stock": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3"
+        },
+        "effective": {
+          "RetroStar-stock": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3"
+        },
+        "identity_complete": true,
+        "equal": true
+      },
+      "condition_prediction": {
+        "expected": false,
+        "launcher_request": false,
+        "effective": false,
+        "identity_complete": true,
+        "equal": true
+      },
+      "enzyme_assignment": {
+        "expected": false,
+        "launcher_request": false,
+        "effective": false,
+        "identity_complete": true,
+        "equal": true
+      },
+      "enzyme_coverage_sidecar": {
+        "expected": false,
+        "launcher_request": false,
+        "effective": false,
+        "identity_complete": true,
+        "equal": true
+      },
+      "pandarallel_workers": {
+        "expected": 2,
+        "launcher_request": 2,
+        "effective": 2,
+        "identity_complete": true,
+        "equal": true
+      }
+    },
+    "runtime_requested_one_step_models": [
+      "graphfp_models.USPTO-full_remapped",
+      "onmt_models.bionav_native_one_step"
+    ],
+    "semantics": {
+      "proposal_launcher_and_effective_values_must_match": true,
+      "builtin_execution_fails_closed_on_mismatch": true,
+      "custom_provider_without_launcher_receipt_is_not_claimed_bound": true
+    },
+    "content_sha256": "f3b147d4e120e87e80d13acea0c6ab9b47fd3d2bb21a0bf5178375224df142de"
+  },
+  "stock_content_binding_sha256": "7545b41c9c78c33c8f3bac5477c33d381b5676d1ff3e29ef519902a6060e5849",
+  "stock_content_identity_complete": true,
+  "stock_content_binding": {
+    "schema_version": "chemenzy_native_parity_stock_binding.v1",
+    "identity_complete": true,
+    "stocks": [
+      {
+        "stock_name": "RetroStar-stock",
+        "path": "D:\\Autoplanner\\AutoPlanner\\data_external\\retrostar190\\retrostar_emolecules_stock.sqlite3",
+        "size_bytes": 999251968,
+        "sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c"
+      }
+    ],
+    "content_sha256": "7545b41c9c78c33c8f3bac5477c33d381b5676d1ff3e29ef519902a6060e5849"
+  },
+  "embedded": {
+    "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
+    "raw_result_sha256": "3231af2ba113adb2d1d2e8353ea2f0e6dc5bec538dd53ad8ea83f7e510c32376",
+    "route_count": 2,
+    "quarantined_route_count": 0,
+    "elapsed_s": 79.797,
+    "normalization_invariants_complete": true,
+    "normalization_invariants_accepted": true,
+    "search_trace_count": 1213,
+    "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
+  },
+  "standalone": {
+    "raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
+    "raw_result_sha256": "cc6da280c8fab9a1b62bf86abefd62db458de95564ac209f3b20bd39bd56502f",
+    "route_count": 2,
+    "quarantined_route_count": 0,
+    "elapsed_s": 73.031,
+    "normalization_invariants_complete": true,
+    "normalization_invariants_accepted": true,
+    "search_trace_count": 1213,
+    "search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de"
+  },
+  "embedded_backend_failure_count": 0,
+  "standalone_backend_failure_count": 0,
+  "backend_failure_free": true,
+  "nonempty_route_set_observed": true,
+  "search_trace_identity_complete": true,
+  "search_trace_digest_equal": true,
+  "normalization_invariants_complete": true,
+  "normalization_invariants_accepted": true,
+  "raw_proposal_digest_equal": true,
+  "route_fingerprint_rows_equal": true,
+  "semantics": {
+    "two_independent_native_searches_executed": true,
+    "embedded_path_uses_v4_proposal_ingestion": true,
+    "standalone_path_invokes_launcher_directly": true,
+    "raw_result_digest_may_differ_due_to_operational_receipts": true,
+    "parity_requires_model_content_identity_complete": true,
+    "parity_requires_parameter_binding": true,
+    "parity_requires_stock_content_identity_complete": true,
+    "parity_requires_backend_failure_free": true,
+    "parity_requires_nonempty_route_set": true,
+    "parity_requires_search_trace_identity": true,
+    "parity_requires_normalization_invariants": true
+  },
+  "parity_accepted": true,
+  "evidence_date": "2026-08-11",
+  "source_commit": "e1f918b",
+  "content_sha256": "36ca690b8a2c262e523bbc79e43f9bac25239b25fe52e783ca732383012405ab"
+}

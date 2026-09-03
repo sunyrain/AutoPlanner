@@ -1,0 +1,744 @@
+{
+  "content_sha256": "e2768560fb7d1c613e13bd26eda6ed798eb77991dffa855b18c16c2931022c74",
+  "counts": {
+    "molecules": 22,
+    "routes": 1,
+    "transformations": 11
+  },
+  "molecules": {
+    "mol:cc_c_c1_c_c_c_n1cc_c_h_c_c_h_cc_o_o_o_o_c2_cc_c_c_c2_f_c3_cc_cc_c3_c_o_nc4_cc_cc_c4": {
+      "canonical_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H](O)C[C@@H](O)CC(=O)O",
+      "content_sha256": "5ab71edf1faa2422914a080c2499f149b498e585dae2c223fa7404c8a39c5f29",
+      "label": "atorvastatin free acid",
+      "molecule_id": "mol:cc_c_c1_c_c_c_n1cc_c_h_c_c_h_cc_o_o_o_o_c2_cc_c_c_c2_f_c3_cc_cc_c3_c_o_nc4_cc_cc_c4",
+      "role": "target",
+      "source_stock_closed": false
+    },
+    "mol:cc_c_c1c_c_o_nc2ccccc2_c_c2ccccc2_c_c2ccc_f_cc2_n1cc_c_h_1c_c_h_cc_o_oc_c_c_c_oc_c_c_o1": {
+      "canonical_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H]1C[C@H](CC(=O)OC(C)(C)C)OC(C)(C)O1",
+      "content_sha256": "e12ad11ffebdc7c800d212dd7ae67c6c8a04ed4c0dbf2388dc92de6b379b1eae",
+      "label": "CC(C)c1c(C(=O)Nc2ccccc2)c(-...(CC(=O)OC(C)(C)C)OC(C)(C)O1",
+      "molecule_id": "mol:cc_c_c1c_c_o_nc2ccccc2_c_c2ccccc2_c_c2ccc_f_cc2_n1cc_c_h_1c_c_h_cc_o_oc_c_c_c_oc_c_c_o1",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:cc_c_c_o_c_c_o_nc1ccccc1_c_c_o_c1ccc_f_cc1_c1ccccc1": {
+      "canonical_smiles": "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1",
+      "content_sha256": "254e9ffa6104765f615ffb146745fd07e53cbe97e5877a8b6a018bd5cf438ea9",
+      "label": "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1",
+      "molecule_id": "mol:cc_c_c_o_c_c_o_nc1ccccc1_c_c_o_c1ccc_f_cc1_c1ccccc1",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:cc_c_c_o_cc_o_c1ccccc1": {
+      "canonical_smiles": "CC(C)C(=O)CC(=O)c1ccccc1",
+      "content_sha256": "1a3f90ca77411ca17af5d8bb958da1b09373e08143b0d61a9b40b1a49180a5a4",
+      "label": "CC(C)C(=O)CC(=O)c1ccccc1",
+      "molecule_id": "mol:cc_c_c_o_cc_o_c1ccccc1",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:cc_c_c_o_o": {
+      "canonical_smiles": "CC(C)C(=O)O",
+      "content_sha256": "00e0d645ac5391c71c8223e806a9c91824669d2d47b90fe49238c26597708db8",
+      "label": "CC(C)C(=O)O",
+      "molecule_id": "mol:cc_c_c_o_o",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:cc_c_c_oc_o_c_c_h_1c_c_h_ccn_oc_c_c_o1": {
+      "canonical_smiles": "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+      "content_sha256": "d7788b4f5a079415f2694a96adc427f8c4106be03c83acc049951af9b8d536cb",
+      "label": "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+      "molecule_id": "mol:cc_c_c_oc_o_c_c_h_1c_c_h_ccn_oc_c_c_o1",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:cc_c_c_oc_o_cbr": {
+      "canonical_smiles": "CC(C)(C)OC(=O)CBr",
+      "content_sha256": "480dc835aed36dd96703822d17093da9b7b6c15310be63ac493ace5e900bfb8c",
+      "label": "CC(C)(C)OC(=O)CBr",
+      "molecule_id": "mol:cc_c_c_oc_o_cbr",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:cc_c_c_oc_o_cc_br_c1oc_c_c_oc1_o": {
+      "canonical_smiles": "CC(C)(C)OC(=O)CC(Br)C1OC(C)(C)OC1=O",
+      "content_sha256": "39276d6e0b0c99558145cb62643d12516b22d53aea81f001a2da94ab8ce89617",
+      "label": "CC(C)(C)OC(=O)CC(Br)C1OC(C)(C)OC1=O",
+      "molecule_id": "mol:cc_c_c_oc_o_cc_br_c1oc_c_c_oc1_o",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:cc_c_c_oc_o_cc_br_c_o_c_o_o": {
+      "canonical_smiles": "CC(C)(C)OC(=O)CC(Br)C(O)C(=O)O",
+      "content_sha256": "a72b6ec9e14592bcb234f698312c3367eaf44a579f69b61cb5b127466d41542b",
+      "label": "CC(C)(C)OC(=O)CC(Br)C(O)C(=O)O",
+      "molecule_id": "mol:cc_c_c_oc_o_cc_br_c_o_c_o_o",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:cc_c_c_oc_o_cc_br_c_o_oc_c_c_c": {
+      "canonical_smiles": "CC(C)(C)OC(=O)CC(Br)C(=O)OC(C)(C)C",
+      "content_sha256": "7ff2adca881f67af8ddc44090254e70e7e0935bbaa65b77132ded6e04e8fdeec",
+      "label": "CC(C)(C)OC(=O)CC(Br)C(=O)OC(C)(C)C",
+      "molecule_id": "mol:cc_c_c_oc_o_cc_br_c_o_oc_c_c_c",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:cc_c_c_oc_o_ccc_o_oc_c_c_c": {
+      "canonical_smiles": "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C",
+      "content_sha256": "6c85ce0b702647a4c71e8f622e3a7167f98ecb2ac6aba1702c7da7e35036c6a2",
+      "label": "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C",
+      "molecule_id": "mol:cc_c_c_oc_o_ccc_o_oc_c_c_c",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:cc_c_ob_oc_c_c_oc_c_c": {
+      "canonical_smiles": "CC(C)OB(OC(C)C)OC(C)C",
+      "content_sha256": "4296d9bf9eefb3d8bfad811977360e57501ac8865e1c9664f690016bc1a72ad8",
+      "label": "CC(C)OB(OC(C)C)OC(C)C",
+      "molecule_id": "mol:cc_c_ob_oc_c_c_oc_c_c",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:cc_o_c1ccccc1": {
+      "canonical_smiles": "CC(=O)c1ccccc1",
+      "content_sha256": "6f765ccbd1bfe86bf4c621fb9a29cff7250eb34006b3769fd20b5059afd6c981",
+      "label": "CC(=O)c1ccccc1",
+      "molecule_id": "mol:cc_o_c1ccccc1",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:cc_o_oc_c_c_c": {
+      "canonical_smiles": "CC(=O)OC(C)(C)C",
+      "content_sha256": "365e36d1e030a14d596232f10b6c0ccedf5943fe122c87c70bb17cfefafa18ed",
+      "label": "CC(=O)OC(C)(C)C",
+      "molecule_id": "mol:cc_o_oc_c_c_c",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:co": {
+      "canonical_smiles": "CO",
+      "content_sha256": "db129a0ce33353d011fc10ca9561fd31d966f514ead7f78abff535d5ba130a20",
+      "label": "CO",
+      "molecule_id": "mol:co",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:cob_oc_oc": {
+      "canonical_smiles": "COB(OC)OC",
+      "content_sha256": "1bb597bb11315ae50171ec46e580a9ee0d70b92b38a87f0c91c41f381acd54ad",
+      "label": "COB(OC)OC",
+      "molecule_id": "mol:cob_oc_oc",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:coc_c_c_oc": {
+      "canonical_smiles": "COC(C)(C)OC",
+      "content_sha256": "b012a47abf095508de23c5e9c0489e5af3cc6686a49a88bed349d1fd6aa8afba",
+      "label": "COC(C)(C)OC",
+      "molecule_id": "mol:coc_c_c_oc",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:coc_o_c_c_c": {
+      "canonical_smiles": "COC(=O)C(C)C",
+      "content_sha256": "176820c44e091baece841f30747fb10b08617383a21f39627a314a25e4ce9e07",
+      "label": "COC(=O)C(C)C",
+      "molecule_id": "mol:coc_o_c_c_c",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:fc1ccccc1": {
+      "canonical_smiles": "Fc1ccccc1",
+      "content_sha256": "1907b652dda6f2e64d62b8fd4dceffcece50d71ca548721f719656e3c5d6a986",
+      "label": "Fc1ccccc1",
+      "molecule_id": "mol:fc1ccccc1",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:nccn": {
+      "canonical_smiles": "NCCN",
+      "content_sha256": "2729efb2aaef80796769f40dd9de9f80f1d2ac6d870b4a08d72ad34adbb0685e",
+      "label": "NCCN",
+      "molecule_id": "mol:nccn",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:o_c_cc1ccccc1_c1ccc_f_cc1": {
+      "canonical_smiles": "O=C(Cc1ccccc1)c1ccc(F)cc1",
+      "content_sha256": "24475ee57c658eebf3785f14f5298fb7dae38de94f7e9d51d5f37dfa20e5208e",
+      "label": "O=C(Cc1ccccc1)c1ccc(F)cc1",
+      "molecule_id": "mol:o_c_cc1ccccc1_c1ccc_f_cc1",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:o_c_cl_cc1ccccc1": {
+      "canonical_smiles": "O=C(Cl)Cc1ccccc1",
+      "content_sha256": "d623b33b56eb21003a679c3fd5b8276a0186958718e34f08b4f760b60015a9f5",
+      "label": "O=C(Cl)Cc1ccccc1",
+      "molecule_id": "mol:o_c_cl_cc1ccccc1",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    }
+  },
+  "observation_id": "candidate-route:af825e9ee00e4e6a1f8ba4ed",
+  "routes": {
+    "route:atorvastatin:11-step-migrated-candidate": {
+      "content_sha256": "9d84696370cb7983764621f4c62a1f44b7130b828bc2c8b6fd98250a3f2b3688",
+      "edge_ids": [
+        "edge:atorvastatin:migrated:01",
+        "edge:atorvastatin:migrated:02",
+        "edge:atorvastatin:migrated:03",
+        "edge:atorvastatin:migrated:04",
+        "edge:atorvastatin:migrated:05",
+        "edge:atorvastatin:migrated:06",
+        "edge:atorvastatin:migrated:07",
+        "edge:atorvastatin:migrated:08",
+        "edge:atorvastatin:migrated:09",
+        "edge:atorvastatin:migrated:10",
+        "edge:atorvastatin:migrated:11"
+      ],
+      "leaf_molecule_ids": [
+        "mol:cc_c_c_o_o",
+        "mol:cc_c_c_oc_o_cbr",
+        "mol:cc_c_ob_oc_c_c_oc_c_c",
+        "mol:cc_o_c1ccccc1",
+        "mol:cc_o_oc_c_c_c",
+        "mol:co",
+        "mol:cob_oc_oc",
+        "mol:coc_c_c_oc",
+        "mol:fc1ccccc1",
+        "mol:nccn",
+        "mol:o_c_cl_cc1ccccc1"
+      ],
+      "root_edge_ids": [
+        "edge:atorvastatin:migrated:11"
+      ],
+      "route_id": "route:atorvastatin:11-step-migrated-candidate",
+      "source_closure_profile": "exploration_closed",
+      "source_complete": true,
+      "source_refs": [],
+      "warning_codes": []
+    }
+  },
+  "schema_version": "candidate_route_observation.v1",
+  "semantics": {
+    "read_only_route_observation": true,
+    "reported_route_may_remain_visible_with_open_transformations": true,
+    "workbench_is_not_promoted_to_scientific_authority": true
+  },
+  "source_snapshot": {
+    "content_sha256": "af825e9ee00e4e6a1f8ba4edf1201695f8d703a516ace30b8409a33cd940e3a5",
+    "revision": {
+      "evidence": 1,
+      "graph": 1,
+      "graph_scientific_sha256": "7aeb854efa27ed93905e80db3d803f59494f54521f9fc0c54dd4a955ec735ecd",
+      "portfolio_sha256": "4a650de5a3da33d2dbd612b60a395fbaae00c724e20f9958f9769039c0f567bc"
+    },
+    "run_id": "atorvastatin-v4-migrated-presentation-20260715",
+    "schema_version": "retrosynthesis_route_workbench.v1"
+  },
+  "target": {
+    "canonical_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H](O)C[C@@H](O)CC(=O)O",
+    "molecule_id": "mol:cc_c_c1_c_c_c_n1cc_c_h_c_c_h_cc_o_o_o_o_c2_cc_c_c_c2_f_c3_cc_cc_c3_c_o_nc4_cc_cc_c4",
+    "name": "atorvastatin"
+  },
+  "transformations": {
+    "edge:atorvastatin:migrated:01": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "4e9614582321e0e8e08f25d74dfaa60a6a0d54fd179e120bec40ab4a87ec4922",
+      "precursor_molecule_ids": [
+        "mol:fc1ccccc1",
+        "mol:o_c_cl_cc1ccccc1"
+      ],
+      "product_molecule_id": "mol:o_c_cc1ccccc1_c1ccc_f_cc1",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzyretroplanner:6"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:01",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:02": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "7f25a599f3a50ed985676e1596c1dc62aa167567e31d957d979ef4ce8b4d46f9",
+      "precursor_molecule_ids": [
+        "mol:cc_c_c_o_o",
+        "mol:co"
+      ],
+      "product_molecule_id": "mol:coc_o_c_c_c",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzy_verified_step_2:7"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:02",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:03": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "d73203d5c717e46724da2605212bc010af62bbd7f797d0582a23f10272c42faf",
+      "precursor_molecule_ids": [
+        "mol:coc_o_c_c_c",
+        "mol:cc_o_c1ccccc1"
+      ],
+      "product_molecule_id": "mol:cc_c_c_o_cc_o_c1ccccc1",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzy_verified_step_3:8"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:03",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:04": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "dddebbf67292b678c9975bc111f7f7222f15bfee12b521034de85830532149dd",
+      "precursor_molecule_ids": [
+        "mol:cc_c_c_o_cc_o_c1ccccc1",
+        "mol:o_c_cc1ccccc1_c1ccc_f_cc1"
+      ],
+      "product_molecule_id": "mol:cc_c_c_o_c_c_o_nc1ccccc1_c_c_o_c1ccc_f_cc1_c1ccccc1",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzyretroplanner:9"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:04",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:05": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "dc164567fe4917579705aed873a576df33aac5cdd3c602c74df4961ef9b5d9ab",
+      "precursor_molecule_ids": [
+        "mol:cc_o_oc_c_c_c",
+        "mol:cc_c_c_oc_o_cbr"
+      ],
+      "product_molecule_id": "mol:cc_c_c_oc_o_ccc_o_oc_c_c_c",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzy_verified_step_5:10"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:05",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:06": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "dbe2fa5dc8558e1bbe037177628f104f6c116e987d3af0b002bd23185c9fb473",
+      "precursor_molecule_ids": [
+        "mol:cc_c_ob_oc_c_c_oc_c_c",
+        "mol:cc_c_c_oc_o_ccc_o_oc_c_c_c"
+      ],
+      "product_molecule_id": "mol:cc_c_c_oc_o_cc_br_c_o_oc_c_c_c",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzyretroplanner:11"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:06",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:07": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "b5bf8ee5e01ffd5e3e4cab857d1c989a5b4dc03dbd40236f14849ec3eb91d8e8",
+      "precursor_molecule_ids": [
+        "mol:cob_oc_oc",
+        "mol:cc_c_c_oc_o_cc_br_c_o_oc_c_c_c"
+      ],
+      "product_molecule_id": "mol:cc_c_c_oc_o_cc_br_c_o_c_o_o",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzyretroplanner:12"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:07",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:08": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "dd978deeaf8279124d7478ce79c1aa1396263e803bbb281c8e2c4abadc044651",
+      "precursor_molecule_ids": [
+        "mol:cc_c_c_oc_o_cc_br_c_o_c_o_o",
+        "mol:coc_c_c_oc"
+      ],
+      "product_molecule_id": "mol:cc_c_c_oc_o_cc_br_c1oc_c_c_oc1_o",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzy_verified_step_8:13"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:08",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:09": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "1948944d6d4ce797a2e069aed7940e725cb32d40c5871dee0ffb2e2d08f94ff3",
+      "precursor_molecule_ids": [
+        "mol:nccn",
+        "mol:cc_c_c_oc_o_cc_br_c1oc_c_c_oc1_o"
+      ],
+      "product_molecule_id": "mol:cc_c_c_oc_o_c_c_h_1c_c_h_ccn_oc_c_c_o1",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzyretroplanner:14"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:09",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:10": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "0ea1b5685ee0fe298dbc71558a4e8af5118e74cb4e4f5f2e2bc5286e1f3de812",
+      "precursor_molecule_ids": [
+        "mol:cc_c_c_oc_o_c_c_h_1c_c_h_ccn_oc_c_c_o1",
+        "mol:cc_c_c_o_c_c_o_nc1ccccc1_c_c_o_c1ccc_f_cc1_c1ccccc1"
+      ],
+      "product_molecule_id": "mol:cc_c_c1c_c_o_nc2ccccc2_c_c2ccccc2_c_c2ccc_f_cc2_n1cc_c_h_1c_c_h_cc_o_oc_c_c_c_oc_c_c_o1",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzy_verified_step_10:15"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:10",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "edge:atorvastatin:migrated:11": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "2a57cb4958596c41e8dded570d559b9770359ca8ba913df9ad3c651c048d3743",
+      "precursor_molecule_ids": [
+        "mol:cc_c_c1c_c_o_nc2ccccc2_c_c2ccccc2_c_c2ccc_f_cc2_n1cc_c_h_1c_c_h_cc_o_oc_c_c_c_oc_c_c_o1"
+      ],
+      "product_molecule_id": "mol:cc_c_c1_c_c_c_n1cc_c_h_c_c_h_cc_o_o_o_o_c2_cc_c_c_c2_f_c3_cc_cc_c3_c_o_nc4_cc_cc_c4",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "step:branch_direct_verified_chemenzy_route:chemenzy_verified_step_11:16"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:atorvastatin:migrated:11",
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    }
+  }
+}

@@ -9,21 +9,25 @@ lanes separate from the shared canonical overlay.
 from __future__ import annotations
 
 import hashlib
-import json
 from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from cascade_planner.runtime.canonical_json import canonical_json_sha256
+
 
 LAYOUT_SCHEMA_VERSION = "route_forest_layout.v1"
 BRANCH_LANE_SCHEMA_VERSION = "route_forest_branch_lanes.v2"
-BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION = "route_forest_branch_stage_evidence.v2"
+BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION = "route_forest_branch_stage_evidence.v3"
+_PROOF_VECTOR_SCHEMA_VERSION = "retrosynthesis_proof_vector.v1"
 STAGE_AUTHORITY_SCHEMA_VERSION = "route_forest_stage_authority.v1"
 
 _PROOF_RANK = {
     "L0_rejected": 0,
     "L0_advisory": 1,
     "L0_materialized": 2,
+    "L1_structural_materialized": 2,
+    "L1_source_reported": 3,
     "L1_graph_stock_closed": 3,
     "L1_graph_and_stock_closed": 3,
     "L2_mapping_consistent": 4,
@@ -36,8 +40,10 @@ _BRANCH_KIND_RANK = {
     "stitched_verified_route": 0,
     "direct_verified_route": 1,
     "proof_eligible_portfolio_route": 2,
-    "validated_replacement_route": 3,
-    "subgoal_verified_route": 4,
+    "reported_candidate_route": 3,
+    "exploratory_canonical_route": 4,
+    "validated_replacement_route": 5,
+    "subgoal_verified_route": 5,
     "exact_literature": 5,
     "process_evidence": 6,
     "visual_chain": 7,
@@ -52,6 +58,8 @@ _BRANCH_KIND_LABEL = {
     "stitched_verified_route": "拼接验证路线",
     "direct_verified_route": "已验证路线",
     "proof_eligible_portfolio_route": "Proof-eligible portfolio",
+    "reported_candidate_route": "文献报道候选路线",
+    "exploratory_canonical_route": "探索中 canonical 路线",
     "validated_replacement_route": "后端重验替换路线",
     "subgoal_verified_route": "子目标闭合",
     "exact_literature": "精确文献路线",
@@ -63,19 +71,6 @@ _BRANCH_KIND_LABEL = {
     "broad_template": "通用模板",
     "diagnostic_failure": "诊断与未解决项",
 }
-
-
-def canonical_sha256(value: Any) -> str:
-    """Return a stable SHA-256 digest for a JSON-compatible value."""
-
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def build_dependency_layout_projection(
@@ -163,7 +158,7 @@ def build_dependency_layout_projection(
             scc_adjacency[source_scc].add(target_scc)
             scc_reverse[target_scc].add(source_scc)
 
-    scc_layers = _longest_path_layers(scc_adjacency, scc_reverse)
+    scc_layers = _sink_aligned_longest_path_layers(scc_adjacency, scc_reverse)
     components = _undirected_components(node_ids, adjacency, reverse)
     components.sort(key=lambda member_ids: (-len(member_ids), member_ids[0]))
     component_id_by_node: dict[str, str] = {}
@@ -241,7 +236,7 @@ def build_dependency_layout_projection(
 
     projection: dict[str, Any] = {
         "schema_version": LAYOUT_SCHEMA_VERSION,
-        "algorithm": "scc_condensation_longest_path_fixed_barycentric.v1",
+        "algorithm": "scc_condensation_sink_aligned_longest_path_fixed_barycentric.v2",
         "deterministic_tie_break": "casefolded_label_then_graph_node_id",
         "barycentric_sweeps": max(0, int(barycentric_sweeps)),
         "node_count": len(node_rows),
@@ -260,7 +255,7 @@ def build_dependency_layout_projection(
             "cycles": "condensed_before_layer_assignment",
         },
     }
-    projection["layout_sha256"] = canonical_sha256(projection)
+    projection["layout_sha256"] = canonical_json_sha256(projection)
     return projection
 
 
@@ -384,6 +379,7 @@ def build_branch_lane_projection(
         category = _branch_category(branch, kind)
         all_leaves_stock_bound = view.get("all_leaves_stock_bound") is True
         stage_evidence = _branch_stage_evidence(
+            branch=branch,
             kind=kind,
             proof_tier=proof_tier,
             step_ids=step_ids,
@@ -394,7 +390,16 @@ def build_branch_lane_projection(
         )
         stage_memberships = [
             stage
-            for stage in ("suggestion", "expanded", "reaction", "stock")
+            for stage in (
+                "suggestion",
+                "expanded",
+                "reaction",
+                "literature",
+                "conditions",
+                "stock",
+                "procurement",
+                "process",
+            )
             if (stage_evidence.get(stage) or {}).get("member") is True
         ]
         lane_rows.append(
@@ -423,6 +428,30 @@ def build_branch_lane_projection(
                 "condition_status": str(branch.get("condition_status") or "missing"),
                 "condition_label": str(branch.get("condition_label") or "条件状态未知"),
                 "condition_complete": branch.get("condition_complete") is True,
+                "literature_grounded": (
+                    branch.get("literature_grounded") is True
+                ),
+                "procurement_closed": branch.get("procurement_closed") is True,
+                "proof_vector": dict(branch.get("proof_vector") or {}),
+                "proof_level_counts": {
+                    str(key): int(value)
+                    for key, value in dict(
+                        branch.get("proof_level_counts") or {}
+                    ).items()
+                },
+                "reported_step_count": int(
+                    branch.get("reported_step_count") or 0
+                ),
+                "planner_hypothesis_step_count": int(
+                    branch.get("planner_hypothesis_step_count") or 0
+                ),
+                "all_edges_proven": branch.get("all_edges_proven") is True,
+                "acceptance_profiles": dict(
+                    branch.get("acceptance_profiles") or {}
+                ),
+                "achieved_profiles": _safe_string_list(
+                    branch.get("achieved_profiles")
+                ),
                 "full_synthesis_claim": branch.get("full_synthesis_claim") is True,
                 "process_ready": branch.get("process_ready") is True,
                 "advisory_only": branch.get("advisory_only") is not False,
@@ -509,7 +538,7 @@ def build_branch_lane_projection(
             ),
         },
     }
-    projection["layout_sha256"] = canonical_sha256(projection)
+    projection["layout_sha256"] = canonical_json_sha256(projection)
     return projection
 
 
@@ -628,25 +657,43 @@ def _strongly_connected_components(
     return components
 
 
-def _longest_path_layers(
+def _sink_aligned_longest_path_layers(
     adjacency: Mapping[str, set[str]],
     reverse: Mapping[str, set[str]],
 ) -> dict[str, int]:
-    indegree = {node_id: len(reverse[node_id]) for node_id in adjacency}
-    queue = sorted(node_id for node_id, count in indegree.items() if count == 0)
-    layers = {node_id: 0 for node_id in adjacency}
+    """Rank a DAG while keeping late-feed roots close to their first consumer.
+
+    A source-aligned longest-path rank puts every root in layer zero.  That is
+    topologically valid, but a reagent used only by a late reaction then draws
+    an edge across the whole route.  Longest distance to a sink gives the same
+    minimum one-layer separation for every edge while right-aligning shorter
+    precursor branches within their own weakly connected component.
+    """
+
+    outdegree = {node_id: len(adjacency[node_id]) for node_id in adjacency}
+    queue = sorted(node_id for node_id, count in outdegree.items() if count == 0)
+    distance_to_sink = {node_id: 0 for node_id in adjacency}
     while queue:
         node_id = queue.pop(0)
-        for target in sorted(adjacency[node_id]):
-            layers[target] = max(layers[target], layers[node_id] + 1)
-            indegree[target] -= 1
-            if indegree[target] == 0:
-                queue.append(target)
+        for source in sorted(reverse[node_id]):
+            distance_to_sink[source] = max(
+                distance_to_sink[source], distance_to_sink[node_id] + 1
+            )
+            outdegree[source] -= 1
+            if outdegree[source] == 0:
+                queue.append(source)
                 queue.sort()
     if any(
-        count for count in indegree.values()
+        count for count in outdegree.values()
     ):  # pragma: no cover - SCC condensation is a DAG.
         raise ValueError("SCC condensation unexpectedly contains a cycle")
+
+    layers: dict[str, int] = {}
+    components = _undirected_components(sorted(adjacency), adjacency, reverse)
+    for member_ids in components:
+        maximum_distance = max(distance_to_sink[node_id] for node_id in member_ids)
+        for node_id in member_ids:
+            layers[node_id] = maximum_distance - distance_to_sink[node_id]
     return layers
 
 
@@ -916,6 +963,7 @@ def _graph_molecule_smiles_by_node_id(
 
 def _branch_stage_evidence(
     *,
+    branch: Mapping[str, Any],
     kind: str,
     proof_tier: str,
     step_ids: Sequence[str],
@@ -940,6 +988,24 @@ def _branch_stage_evidence(
         molecule_smiles_by_node_id=molecule_smiles_by_node_id,
         stage_authority=stage_authority,
     )
+    literature = _literature_stage_evidence(
+        branch=branch,
+        step_ids=step_ids,
+        step_by_id=step_by_id,
+    )
+    conditions = _condition_stage_evidence(
+        branch=branch,
+        step_ids=step_ids,
+        step_by_id=step_by_id,
+    )
+    procurement = _procurement_stage_evidence(branch=branch, stock=stock)
+    process = _process_stage_evidence(
+        branch=branch,
+        reaction=reaction,
+        literature=literature,
+        conditions=conditions,
+        procurement=procurement,
+    )
     return {
         "schema_version": BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION,
         "authority_source": str(stage_authority.get("authority_source") or ""),
@@ -951,15 +1017,162 @@ def _branch_stage_evidence(
         "suggestion": suggestion,
         "expanded": expanded,
         "reaction": reaction,
+        "literature": literature,
+        "conditions": conditions,
         "stock": stock,
+        "procurement": procurement,
+        "process": process,
         "semantics": {
             "memberships_are_overlapping": True,
             "expanded_member_requires_every_synthesis_step": True,
             "partial_expansion_is_progress_only_not_stage_membership": True,
             "aggregate_branch_proof_tier_never_authorizes_reaction": True,
             "stock_tier_or_alias_never_authorizes_stock": True,
+            "proof_vector_is_read_only_canonical_projection": True,
+            "process_requires_reaction_literature_conditions_and_procurement": True,
             "missing_or_ambiguous_authority_fails_closed": True,
         },
+    }
+
+
+def _literature_stage_evidence(
+    *,
+    branch: Mapping[str, Any],
+    step_ids: Sequence[str],
+    step_by_id: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    matched_step_ids: list[str] = []
+    route_vector = dict(branch.get("proof_vector") or {})
+    if route_vector.get("schema_version") != _PROOF_VECTOR_SCHEMA_VERSION:
+        reasons.append("route_proof_vector_missing_or_invalid")
+    elif route_vector.get("identity") != "all_source_exact":
+        reasons.append("route_identity_not_all_source_exact")
+    elif route_vector.get("sources") not in {
+        "single_group",
+        "independent_2_plus",
+    }:
+        reasons.append("route_exact_source_groups_missing_or_conflicted")
+    for step_id in step_ids:
+        vector = dict(step_by_id.get(step_id, {}).get("proof_vector") or {})
+        if vector.get("schema_version") != _PROOF_VECTOR_SCHEMA_VERSION:
+            reasons.append(f"edge_proof_vector_missing_or_invalid:{step_id}")
+        elif vector.get("identity") != "source_exact":
+            reasons.append(f"edge_exact_structure_source_missing:{step_id}")
+        elif vector.get("reaction") not in {
+            "host_validated",
+            "source_reaction_exact",
+        }:
+            reasons.append(f"edge_reaction_validation_missing:{step_id}")
+        else:
+            matched_step_ids.append(step_id)
+    if not step_ids:
+        reasons.append("branch_steps_empty")
+    member = bool(
+        branch.get("literature_grounded") is True
+        and step_ids
+        and len(matched_step_ids) == len(step_ids)
+        and not reasons
+    )
+    if branch.get("literature_grounded") is not True:
+        reasons.append("route_literature_grounded_profile_false")
+    return {
+        "member": member,
+        "authority": "canonical_route_proof_vector_projection",
+        "matched_step_ids": sorted(set(matched_step_ids)),
+        "reasons": sorted(set(reasons)),
+    }
+
+
+def _condition_stage_evidence(
+    *,
+    branch: Mapping[str, Any],
+    step_ids: Sequence[str],
+    step_by_id: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    matched_step_ids: list[str] = []
+    for step_id in step_ids:
+        vector = dict(step_by_id.get(step_id, {}).get("proof_vector") or {})
+        if vector.get("schema_version") != _PROOF_VECTOR_SCHEMA_VERSION:
+            reasons.append(f"edge_proof_vector_missing_or_invalid:{step_id}")
+        elif vector.get("conditions") != "source_exact":
+            reasons.append(f"edge_exact_conditions_missing:{step_id}")
+        elif vector.get("condition_completeness") != "complete":
+            reasons.append(f"edge_conditions_incomplete:{step_id}")
+        else:
+            matched_step_ids.append(step_id)
+    if not step_ids:
+        reasons.append("branch_steps_empty")
+    if branch.get("condition_complete") is not True:
+        reasons.append("route_condition_complete_profile_false")
+    member = bool(
+        branch.get("condition_complete") is True
+        and step_ids
+        and len(matched_step_ids) == len(step_ids)
+        and not reasons
+    )
+    return {
+        "member": member,
+        "authority": "canonical_exact_procedure_projection",
+        "matched_step_ids": sorted(set(matched_step_ids)),
+        "reasons": sorted(set(reasons)),
+    }
+
+
+def _procurement_stage_evidence(
+    *,
+    branch: Mapping[str, Any],
+    stock: Mapping[str, Any],
+) -> dict[str, Any]:
+    reasons = list(stock.get("reasons") or [])
+    member = bool(
+        branch.get("procurement_closed") is True
+        and stock.get("procurement_closed") is True
+    )
+    if branch.get("procurement_closed") is not True:
+        reasons.append("route_procurement_closed_profile_false")
+    if stock.get("procurement_closed") is not True:
+        reasons.append("current_procurement_authority_missing")
+    return {
+        "member": member,
+        "authority": "current_host_stock_provider_replay",
+        "matched_current_observation_ids": list(
+            stock.get("matched_current_observation_ids") or []
+        ),
+        "matched_closure_job_ids": list(stock.get("matched_closure_job_ids") or []),
+        "reasons": sorted(set(reasons)),
+        "semantics": {"benchmark_is_not_procurement": True},
+    }
+
+
+def _process_stage_evidence(
+    *,
+    branch: Mapping[str, Any],
+    reaction: Mapping[str, Any],
+    literature: Mapping[str, Any],
+    conditions: Mapping[str, Any],
+    procurement: Mapping[str, Any],
+) -> dict[str, Any]:
+    dependencies = {
+        "reaction": reaction.get("member") is True,
+        "literature": literature.get("member") is True,
+        "conditions": conditions.get("member") is True,
+        "procurement": procurement.get("member") is True,
+    }
+    reasons = [
+        f"process_dependency_open:{name}"
+        for name, accepted in dependencies.items()
+        if not accepted
+    ]
+    if branch.get("process_ready") is not True:
+        reasons.append("route_process_ready_profile_false")
+    member = branch.get("process_ready") is True and all(dependencies.values())
+    return {
+        "member": member,
+        "authority": "canonical_product_profile_compiler",
+        "dependencies": dependencies,
+        "reasons": sorted(set(reasons)),
     }
 
 
@@ -1153,7 +1366,7 @@ def _authority_edges_for_display_step(
     for authority_step_id in authority_step_ids:
         for row in edges_by_step_id.get(authority_step_id) or []:
             signature = str(row.get("exact_edge_signature") or "")
-            matches[signature or canonical_sha256(row)] = row
+            matches[signature or canonical_json_sha256(row)] = row
     edges_by_signature = stage_authority.get("edges_by_signature") or {}
     for signature in edge_signatures:
         for row in edges_by_signature.get(signature) or []:

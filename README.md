@@ -50,6 +50,13 @@ python -m cascade_planner solve-target \
   --run-id target-blind-001
 ```
 
+新任务没有 benchmark/scientific 两套求解模式：所有输入进入同一 anytime trajectory，
+B1–B5 只是不同成熟度投影。旧 `--objective-mode` 仅为兼容保留到 2026-10-01，显式使用会
+发出弃用警告；应改用 stock boundary、acceptance 和多维 budget 参数表达真实要求。
+新运行以 `UnifiedCampaignSpec` 固定 canonical target、Stock Oracle、目标约束和预算；报告始终
+输出 topology、reaction validation、exact evidence、stock、conditions、procurement、Program
+validation、diversity 八个独立质量轴。B4/B5 不会提前结束统一 Action loop。
+
 默认只进行全局文本规划和确定性证据处理，视觉调用为 0。内置 patent connector
 先冻结官方 Google Patents 完整 HTML，再从哈希绑定的段落范围确定性重建产物和反应物；
 HTML 已闭合的边不会下载或渲染 PDF。只有未闭合边才依次回退到 PDF 原生文本、本机
@@ -101,7 +108,7 @@ python -m cascade_planner replay-case \
 从小型精确来源案卷一键完成 Artemisinin 编译、验收和离线展示：
 
 ```bash
-python -m cascade_planner solve-case \
+python -m cascade_planner replay-dossier \
   --dossier config/examples/artemisinin_v4_case_dossier.json \
   --run-id artemisinin-showcase \
   --output-dir local-showcase/artemisinin
@@ -118,10 +125,17 @@ provider 时伪装成任意未见分子的自动发现器。
 python -m cascade_planner serve
 ```
 
-打开 `http://127.0.0.1:7860/v4`。CLI、V4 API 和 Web workbench 共用
-`CampaignGateway` 与 `RetrosynthesisCampaignService`。控制台从任意 SMILES 发起独立
-campaign，每 2 秒读取一次 canonical checkpoint，并分别显示路线可见、证据待补、模型/
-视觉调用和历史快照；历史内核记录为 `running` 不代表进程仍在执行。
+默认 `--server auto` 会优先使用 Waitress；当前环境未安装 Waitress 时自动回退到 Flask，不会因可选
+服务器缺失而使页面无法启动。
+
+打开 `http://127.0.0.1:7860/` 进入唯一首页和唯一逆合成启动入口。首页使用
+Strategy Generator + 三分支 Route Builder：每次结构化模型输出都会实时投影，随后由 host replay
+补齐规范前体与校验状态。`/v4` 仅用于查看运行、路线 Workbench、展示案例和 benchmark 审计，
+不再提供独立的启动表单。旧 `/synthesis`、`/v4/console`、`/v4/showcase`、`/agent`、`/statins`
+和 `/showcase` 均已退役并返回 404；combined V3/V4 Web 已从可执行源码移入本地归档。
+CLI、V4 API 和 Web workbench 共用 `CampaignGateway` 与
+`RetrosynthesisCampaignService`。页面每 2 秒读取 canonical checkpoint，并分别显示路线
+结构闭合、证据待补、模型/视觉调用和历史快照；历史内核记录为 `running` 不代表进程仍在执行。
 
 ## 可信度与完成
 
@@ -145,6 +159,7 @@ proof，不能赋予 proof。
 本仓库不使用 GitHub Actions 或 CI。提交前在本地运行完整测试、Ruff、仓库审计和
 `git diff --check`。
 
-进一步阅读：[主线架构](docs/MAINLINE.md)、[操作手册](docs/RUNBOOK.md)、
+进一步阅读：[架构总览](docs/architecture/AUTOPLANNER_ARCHITECTURE.md)、
+[主线架构](docs/MAINLINE.md)、[操作手册](docs/RUNBOOK.md)、
 [Schema 索引](docs/SCHEMAS.md)、[展示案例](docs/SHOWCASE_CASES.md) 和
-[V4 实施清单](docs/architecture/RETROSYNTHESIS_V4_IMPLEMENTATION_TODO.md)。
+[V4 实施历史](docs/architecture/RETROSYNTHESIS_V4_IMPLEMENTATION_TODO.md)。

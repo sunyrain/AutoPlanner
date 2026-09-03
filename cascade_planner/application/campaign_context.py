@@ -13,7 +13,11 @@ import json
 import math
 from typing import Any, Iterable, Mapping
 
-from cascade_planner.application.run_kernel import RunKernel, RunRevision
+from cascade_planner.application.run_kernel import (
+    RUN_REVISION_SCHEMA,
+    RunKernel,
+    RunRevision,
+)
 
 
 CAMPAIGN_CONTEXT_SCHEMA = "autoplanner_campaign_context.v1"
@@ -136,6 +140,114 @@ class CampaignContext:
             "byte_count": self.byte_count,
         }
 
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "CampaignContext":
+        """Restore the exact canonical context stored at a recovery boundary."""
+
+        if not isinstance(value, Mapping):
+            raise CampaignContextError("campaign_context_payload_invalid")
+        row = dict(value)
+        if row.get("schema_version") != CAMPAIGN_CONTEXT_SCHEMA:
+            raise CampaignContextError("campaign_context_schema_invalid")
+
+        def mapping(field_name: str) -> dict[str, Any]:
+            item = row.get(field_name)
+            if not isinstance(item, Mapping):
+                raise CampaignContextError(
+                    f"campaign_context_{field_name}_invalid"
+                )
+            return dict(item)
+
+        def records(field_name: str) -> tuple[Mapping[str, Any], ...]:
+            items = row.get(field_name)
+            if not isinstance(items, (list, tuple)) or any(
+                not isinstance(item, Mapping) for item in items
+            ):
+                raise CampaignContextError(
+                    f"campaign_context_{field_name}_invalid"
+                )
+            return tuple(dict(item) for item in items)
+
+        def integer(field_name: str, source: Mapping[str, Any]) -> int:
+            item = source.get(field_name)
+            if isinstance(item, bool) or not isinstance(item, int):
+                raise CampaignContextError(
+                    f"campaign_context_{field_name}_invalid"
+                )
+            return item
+
+        revision_row = mapping("revision")
+        if revision_row.get("schema_version") != RUN_REVISION_SCHEMA:
+            raise CampaignContextError("campaign_context_revision_schema_invalid")
+        revision = RunRevision(
+            run_id=str(revision_row.get("run_id") or ""),
+            revision=integer("revision", revision_row),
+            state_sha256=str(revision_row.get("state_sha256") or ""),
+            graph_revision=integer("graph_revision", revision_row),
+            evidence_revision=integer("evidence_revision", revision_row),
+            deficit_sha256=str(revision_row.get("deficit_sha256") or ""),
+            acceptance_sha256=str(revision_row.get("acceptance_sha256") or ""),
+            status=str(revision_row.get("status") or ""),
+            updated_at=str(revision_row.get("updated_at") or ""),
+        )
+        if revision.to_dict() != revision_row:
+            raise CampaignContextError("campaign_context_revision_invalid")
+
+        delta_row = mapping("delta")
+        if delta_row.get("schema_version") != CAMPAIGN_CONTEXT_DELTA_SCHEMA:
+            raise CampaignContextError("campaign_context_delta_schema_invalid")
+        changed_sections = delta_row.get("changed_sections")
+        material_events = delta_row.get("material_events")
+        section_digests = delta_row.get("section_digests")
+        if (
+            not isinstance(changed_sections, (list, tuple))
+            or any(not isinstance(item, str) for item in changed_sections)
+            or not isinstance(material_events, (list, tuple))
+            or any(not isinstance(item, str) for item in material_events)
+            or not isinstance(section_digests, Mapping)
+            or any(
+                not isinstance(key, str) or not isinstance(item, str)
+                for key, item in section_digests.items()
+            )
+        ):
+            raise CampaignContextError("campaign_context_delta_invalid")
+        delta = CampaignContextDelta(
+            previous_context_sha256=str(
+                delta_row.get("previous_context_sha256") or ""
+            ),
+            changed_sections=tuple(changed_sections),
+            section_digests=dict(section_digests),
+            topology=(
+                dict(delta_row["topology"])
+                if isinstance(delta_row.get("topology"), Mapping)
+                else {}
+            ),
+            material_events=tuple(material_events),
+        )
+        if delta.to_dict() != delta_row:
+            raise CampaignContextError("campaign_context_delta_invalid")
+
+        context = cls(
+            run_id=str(row.get("run_id") or ""),
+            target=mapping("target"),
+            revision=revision,
+            topology=mapping("topology"),
+            route_portfolio=mapping("route_portfolio"),
+            evidence=mapping("evidence"),
+            stock=mapping("stock"),
+            deficits=records("deficits"),
+            proposal_history=records("proposal_history"),
+            failure_history=records("failure_history"),
+            budget_state=mapping("budget_state"),
+            acceptance_state=mapping("acceptance_state"),
+            delta=delta,
+            content_sha256=str(row.get("content_sha256") or ""),
+            byte_count=integer("byte_count", row),
+        )
+        if context.to_dict() != row:
+            raise CampaignContextError("campaign_context_payload_noncanonical")
+        return context
+
 
 class CampaignContextCompiler:
     """Compile one digest-bound global view from current canonical revisions."""
@@ -159,6 +271,7 @@ class CampaignContextCompiler:
         failure_history: Iterable[Mapping[str, Any]] = (),
         material_events: Iterable[str] = (),
         previous: CampaignContext | Mapping[str, Any] | None = None,
+        enforce_limit: bool = True,
     ) -> CampaignContext:
         state = kernel.state
         graph_input = dict(hypergraph or {})
@@ -221,20 +334,21 @@ class CampaignContextCompiler:
                 "attempt_count": state.attempt_count,
                 "accepted_expansion_count": state.accepted_expansion_count,
                 "model_totals": dict(state.model_totals),
-                "in_flight_task_count": len(state.in_flight_tasks),
+                "active_task_count": len(state.active_task_reservations),
                 "stop_decision": kernel.decide_stop().to_dict(),
             },
             acceptance_state=_compact(state.acceptance_report),
             delta=delta,
         )
-        limit = self.max_context_bytes
-        if limit is None:
-            limit = kernel.spec.limits.model.max_prompt_context_bytes
-        if context.byte_count > limit:
-            raise CampaignContextTooLargeError(
-                "campaign_context_byte_budget_exceeded:"
-                f"{context.byte_count}>{limit}"
-            )
+        if enforce_limit:
+            limit = self.max_context_bytes
+            if limit is None:
+                limit = kernel.spec.limits.model.max_prompt_context_bytes
+            if context.byte_count > limit:
+                raise CampaignContextTooLargeError(
+                    "campaign_context_byte_budget_exceeded:"
+                    f"{context.byte_count}>{limit}"
+                )
         return context
 
 
@@ -343,9 +457,7 @@ def _compact_canonical_hypergraph(graph: Mapping[str, Any]) -> dict[str, Any]:
                 value,
                 (
                     "canonical_smiles",
-                    "incoming_edge_ids",
                     "is_leaf",
-                    "outgoing_edge_ids",
                     "stock_closed",
                     "active_stock_observation_id",
                 ),
@@ -361,9 +473,7 @@ def _compact_canonical_hypergraph(graph: Mapping[str, Any]) -> dict[str, Any]:
                         "exact_record_ids",
                         "independent_source_groups",
                         "precursor_molecule_ids",
-                        "precursor_smiles",
                         "product_molecule_id",
-                        "product_smiles",
                         "route_family_ids",
                         "source_binding_ids",
                         "status",
@@ -499,6 +609,8 @@ def _compact_canonical_hypergraph(graph: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "semantics": {
             "complete_entity_identity_and_connectivity_preserved": True,
+            "materialized_edge_smiles_resolve_through_molecule_table": True,
+            "molecule_adjacency_resolves_through_materialized_edge_table": True,
             "verbose_proof_and_provider_payloads_omitted": True,
         },
     }

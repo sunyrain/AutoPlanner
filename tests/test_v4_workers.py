@@ -20,6 +20,7 @@ from cascade_planner.application.worker_runtime import (
     WorkerHandlerSpec,
     WorkerRuntime,
 )
+from cascade_planner.application.strategy_contract import normalize_strategy_card
 from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 from cascade_planner.orchestration.global_campaign_director import (
     director_trigger_reasons,
@@ -99,6 +100,40 @@ def test_proposal_compiler_skips_an_already_materialized_edge_before_reserve() -
     )
 
     assert commands == ()
+
+
+def test_proposal_worker_identity_is_revision_bound() -> None:
+    proposal = {
+        "product_smiles": "CCOC(C)=O",
+        "precursor_smiles": ["CCO", "CC(=O)O"],
+        "origin_kind": "self_evo_patent_template",
+        "origin_ref": "template:fixture",
+        "proposal_id": "proposal:self-evo",
+    }
+
+    first = materialization_commands_for_proposals(
+        [proposal],
+        run_id="revision-bound",
+        input_revision=3,
+        dependency_revisions={"graph_revision": 3, "evidence_revision": 1},
+    )[0]
+    replay = materialization_commands_for_proposals(
+        [proposal],
+        run_id="revision-bound",
+        input_revision=3,
+        dependency_revisions={"graph_revision": 3, "evidence_revision": 1},
+    )[0]
+    revised = materialization_commands_for_proposals(
+        [proposal],
+        run_id="revision-bound",
+        input_revision=4,
+        dependency_revisions={"graph_revision": 4, "evidence_revision": 1},
+    )[0]
+
+    assert first.command_id == replay.command_id
+    assert first.idempotency_key == replay.idempotency_key
+    assert revised.command_id != first.command_id
+    assert revised.idempotency_key != first.idempotency_key
 
 
 def _extraction_artifact(
@@ -209,6 +244,14 @@ def test_global_multistep_skeleton_compiles_to_unique_edge_workers(
                         "product_smiles": "CC=O",
                         "precursor_smiles": ["CCO"],
                         "transformation_hypothesis": "oxidation",
+                        "condition_predictions": [
+                            {
+                                "reagent": "oxidant",
+                                "solvent": "dichloromethane",
+                                "authority_scope": "model_predicted_condition",
+                                "not_reaction_proof": True,
+                            }
+                        ],
                     },
                 ],
             },
@@ -246,11 +289,82 @@ def test_global_multistep_skeleton_compiles_to_unique_edge_workers(
         "a2",
         "b-shared",
     }
+    assert shared.payload["condition_predictions"][0]["reagent"] == "oxidant"
+    assert shared.payload["condition_predictions"][0]["not_reaction_proof"] is True
     assert kernel.state.attempt_count == 2
     assert kernel.state.accepted_expansion_count == 2
 
 
-def test_cheap_gates_reject_cycle_duplicate_and_impossible_precursor_without_expansion(
+def test_graph_edits_and_strategy_binding_survive_materialization_worker(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    operations = [{"op": "break_bond", "map_a": 1, "map_b": 2}]
+    card = normalize_strategy_card(
+        {
+            "scaffold_motif": "two-carbon bond",
+            "key_forward_transformation": "fragment union",
+            "key_bond_changes": ["map 1-map 2"],
+            "functional_group_conflicts": [],
+            "protection_policy": "none",
+            "stereochemical_plan": "not applicable",
+            "convergence_plan": "join two carbon fragments",
+            "strategic_step_count": 1,
+            "skeleton_change_class": "fragment union",
+            "expected_complexity_drop": "high",
+            "orthogonality_basis": "mapped C-C bond",
+            "strategy_signature": "C-C fragment union",
+        },
+        reaction_operations=operations,
+    )
+    plan = {
+        "route_families": [
+            {
+                "route_family_id": "family:edit",
+                "strategy_card": card,
+            }
+        ],
+        "multi_step_skeletons": [
+            {
+                "skeleton_id": "skeleton:edit",
+                "route_family_id": "family:edit",
+                "steps": [
+                    {
+                        "step_id": "step:edit",
+                        "product_smiles": "CC",
+                        "precursor_smiles": ["C", "C"],
+                        "transformation_hypothesis": "C-C bond construction",
+                        "strategy_card": card,
+                        "strategy_anchor": True,
+                        "reaction_operations": operations,
+                    }
+                ],
+            }
+        ],
+    }
+
+    command = materialization_commands_for_global_plan(
+        plan,
+        run_id=kernel.spec.run_id,
+        input_revision=kernel.state.graph_revision,
+    )[0]
+    assert command.payload["reaction_operations"] == operations
+    assert command.payload["strategy_cards"][0]["strategy_digest"] == card[
+        "strategy_digest"
+    ]
+    result = runtime.execute(command)
+
+    assert result.status == "completed"
+    assert result.payload["reaction_operations"] == operations
+    assert result.payload["reaction_edit_digest"] == card["reaction_edit_digest"]
+    assert result.payload["chemical_strategy_critic"]["accepted"] is True
+    assert result.payload["chemical_strategy_critic"]["reactionjson_audit"][
+        "accepted"
+    ] is True
+
+
+def test_cheap_gates_reject_invalid_balance_cycle_duplicate_without_expansion(
     tmp_path: Path,
 ) -> None:
     kernel = _kernel(tmp_path)
@@ -294,6 +408,16 @@ def test_cheap_gates_reject_cycle_duplicate_and_impossible_precursor_without_exp
             kernel,
             "materialize_candidate",
             {
+                "product_smiles": "CCO",
+                "precursor_smiles": ["CC"],
+            },
+            task_kind="proposal",
+            suffix="element-balance",
+        ),
+        _command(
+            kernel,
+            "materialize_candidate",
+            {
                 "product_smiles": "CCOC(C)=O",
                 "precursor_smiles": ["CCO", "CC(=O)Cl"],
                 "existing_edge_digests": [duplicate_digest],
@@ -308,8 +432,9 @@ def test_cheap_gates_reject_cycle_duplicate_and_impossible_precursor_without_exp
     assert "target_or_current_node_self_loop" in results[0].failure_reasons
     assert "large_atom_jump" in results[1].failure_reasons
     assert "invalid_or_missing_material" in results[2].failure_reasons
-    assert "duplicate_reaction_edge" in results[3].failure_reasons
-    assert kernel.state.attempt_count == 4
+    assert "element_inventory_not_conserved" in results[3].failure_reasons
+    assert "duplicate_reaction_edge" in results[4].failure_reasons
+    assert kernel.state.attempt_count == 5
     assert kernel.state.accepted_expansion_count == 0
 
 
@@ -741,6 +866,69 @@ def test_stock_worker_audits_every_leaf_and_rejects_stale_authority(
     replayed_stock = runtime.replay_result(result.to_dict())
     assert replayed_stock.payload["leaf_audits"] == result.payload["leaf_audits"]
     assert kernel.state.attempt_count == attempts
+
+
+def test_benchmark_stock_worker_accepts_frozen_index_membership_proof(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    catalog = {
+        "schema_version": "versioned_benchmark_stock_catalog.v1",
+        "adapter_version": "autoplanner.frozen_benchmark_stock_index.v1",
+        "catalog_name": "fixture-frozen-stock",
+        "catalog_version": "a" * 64,
+        "retrieved_at": "2024-01-01T00:00:00Z",
+        "source": {"immutable_content_addressed": True},
+        "members": [
+            {
+                "canonical_smiles": "CCO",
+                "membership_verified": True,
+                "membership_proof_sha256": "b" * 64,
+                "catalog_uri": "fixture-stock.sqlite3",
+            }
+        ],
+        "misses": [{"canonical_smiles": "CN", "reason": "not_in_index"}],
+    }
+    catalog_ref = kernel.artifacts.put_json(
+        catalog,
+        logical_name="benchmark_stock_catalog.json",
+        producer="tests.frozen_benchmark_stock",
+    ).to_dict()
+    runtime = _runtime_with_authorities(
+        kernel,
+        {catalog_ref["sha256"]: "benchmark_stock_catalog"},
+    )
+
+    result = runtime.execute(
+        _command(
+            kernel,
+            "audit_benchmark_leaf_stock",
+            {
+                "target_smiles": "CCOC(C)=O",
+                "selected_deep_leaves": [
+                    {"leaf_id": "leaf:ethanol", "smiles": "CCO"},
+                    {"leaf_id": "leaf:methylamine", "smiles": "CN"},
+                ],
+                "catalog_artifact_sha256": catalog_ref["sha256"],
+                "as_of": "2026-07-23T00:00:00Z",
+                "max_age_days": 30,
+            },
+            task_kind="stock",
+            suffix="frozen-index",
+            artifact_refs=(catalog_ref,),
+        )
+    )
+
+    assert result.status == "partial"
+    assert result.payload["audited_leaf_count"] == 2
+    assert result.payload["stock_closed_leaf_count"] == 1
+    ethanol = result.payload["leaf_audits"][0]
+    assert ethanol["accepted"] is True
+    assert ethanol["semantics"]["immutable_content_addressed_catalog"] is True
+    binding = ethanol["provider_result"]["payload"]["catalog_bindings"][0]
+    assert binding["membership_verified"] is True
+    assert binding["membership_proof_sha256"] == "b" * 64
+    assert "benchmark_catalog_stale" not in result.failure_reasons
 
 
 def test_runtime_timeout_and_stale_revision_are_deterministic(tmp_path: Path) -> None:

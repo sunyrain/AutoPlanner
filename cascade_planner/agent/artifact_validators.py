@@ -85,6 +85,8 @@ def validate_typed_artifact(
         reasons.extend(_evidence_reasons(payload))
     elif artifact_type == "RetrosynthesisProposalReport":
         reasons.extend(validate_retrosynthesis_report_payload(payload))
+    elif artifact_type == "ChemicalStrategyCritique":
+        reasons.extend(_chemical_strategy_critique_reasons(payload))
     elif artifact_type == "StrategicDisconnectionCard":
         reasons.extend(_strategic_disconnection_reasons(payload, validated_evidence_refs or set()))
     elif artifact_type == "LiteratureRouteSegmentCard":
@@ -159,6 +161,33 @@ def validate_artifact_list(
     }
 
 
+def _chemical_strategy_critique_reasons(payload: Any) -> list[str]:
+    if not isinstance(payload, dict):
+        return ["chemical_strategy_critique_payload_not_object"]
+    reasons: list[str] = []
+    if payload.get("schema_version") != "chemical_strategy_critique.v1":
+        reasons.append("chemical_strategy_critique_schema_invalid")
+    if payload.get("overall_assessment") not in {"viable", "uncertain", "reject"}:
+        reasons.append("chemical_strategy_critique_assessment_invalid")
+    if payload.get("no_reaction_proof") is not True:
+        reasons.append("chemical_strategy_critique_claimed_reaction_proof")
+    if payload.get("no_source_authority") is not True:
+        reasons.append("chemical_strategy_critique_claimed_source_authority")
+    if payload.get("no_solved_claim") is not True:
+        reasons.append("chemical_strategy_critique_claimed_solved")
+    assessments = payload.get("step_assessments")
+    if not isinstance(assessments, list) or not assessments:
+        reasons.append("chemical_strategy_critique_steps_missing")
+    elif any(
+        not isinstance(row, dict)
+        or row.get("verdict") not in {"pass", "uncertain", "reject"}
+        or not (str(row.get("step_id") or "") or str(row.get("review_slot") or ""))
+        for row in assessments
+    ):
+        reasons.append("chemical_strategy_critique_step_invalid")
+    return sorted(set(reasons))
+
+
 def _common_reasons(data: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     if not data.get("schema_version"):
@@ -172,7 +201,54 @@ def _common_reasons(data: dict[str, Any]) -> list[str]:
     if data.get("validation_status") not in {"draft", "draft_only", "accepted", "validated", "rejected"}:
         reasons.append("invalid_validation_status")
     if not data.get("evidence_refs") and not data.get("input_refs"):
-        reasons.append("missing_evidence_or_input_refs")
+        # Paper-mode RouteJSON/Editor artifacts are blind edit programs.  The
+        # prompt context is intentionally not serialized as an evidence or
+        # input handle; the host compiler is their trust boundary.  Keep the
+        # generic provenance requirement for all other artifacts.
+        payload = data.get("payload")
+        route_draft = bool(
+            data.get("artifact_type") == "RetrosynthesisProposalReport"
+            and isinstance(payload, dict)
+            and any(
+                    isinstance(candidate, dict)
+                    and (
+                        (
+                            isinstance(candidate.get("reaction_operations"), list)
+                            and bool(candidate.get("reaction_operations"))
+                            and candidate.get("precursor_smiles") == []
+                        )
+                        or
+                        (isinstance(candidate.get("route_json"), list) and bool(candidate.get("route_json")))
+                        or (isinstance(candidate.get("route_patch"), list) and bool(candidate.get("route_patch")))
+                        or (
+                            isinstance(candidate.get("replace_span"), dict)
+                            and bool(candidate["replace_span"].get("remove_step_ids"))
+                            and bool(candidate["replace_span"].get("revised_steps"))
+                        )
+                        or (
+                            isinstance(candidate.get("repair_directive"), dict)
+                            and bool(
+                                candidate["repair_directive"].get(
+                                    "rollback_start_step_id"
+                                )
+                            )
+                            and bool(
+                                candidate["repair_directive"].get(
+                                    "rebuild_through_step_id"
+                                )
+                            )
+                            and bool(
+                                candidate["repair_directive"].get(
+                                    "repair_goal"
+                                )
+                            )
+                        )
+                    )
+                    for candidate in payload.get("candidates") or []
+                )
+        )
+        if not route_draft:
+            reasons.append("missing_evidence_or_input_refs")
     return reasons
 
 

@@ -97,6 +97,8 @@ def probe_chem_enzy_runtime(
         "selected_one_step_models": [],
         "one_step_model_availability": {},
         "model_path_checks": [],
+        "model_content_binding_sha256": "",
+        "model_content_identity_complete": False,
         "stock_path_checks": [],
         "vendor_imports": {},
         "issues": [],
@@ -183,6 +185,28 @@ def probe_chem_enzy_runtime(
             materialized,
             selected,
         )
+        report["model_content_binding_sha256"] = _stable_digest(
+            [
+                {
+                    "model": row.get("model"),
+                    "field": row.get("field"),
+                    "path": row.get("path"),
+                    "kind": row.get("kind"),
+                    "size_bytes": row.get("size_bytes"),
+                    "content_sha256": row.get("content_sha256"),
+                    "content_digest_scope": row.get("content_digest_scope"),
+                    "content_digest_status": row.get("content_digest_status"),
+                }
+                for row in report["model_path_checks"]
+            ]
+        )
+        report["model_content_identity_complete"] = bool(
+            report["model_path_checks"]
+            and all(
+                row.get("content_digest_status") == "complete"
+                for row in report["model_path_checks"]
+            )
+        )
         report["stock_path_checks"] = _stock_path_checks(
             materialized,
             vendor_root=adapter.vendor_root,
@@ -190,6 +214,9 @@ def probe_chem_enzy_runtime(
         )
         if not report["model_path_checks"]:
             report["issues"].append("chem_enzy_selected_model_path_checks_empty")
+            return _finish(report, started)
+        if report["model_content_identity_complete"] is not True:
+            report["issues"].append("chem_enzy_model_content_digest_incomplete")
             return _finish(report, started)
         if len(report["stock_path_checks"]) != len(requested_stocks):
             report["issues"].append("chem_enzy_selected_stock_path_checks_incomplete")
@@ -278,7 +305,7 @@ def _selected_model_path_checks(
                     "field": field,
                     "path": str(_normal_absolute_path(path)),
                     "windows_extended_io": str(path).startswith("\\\\?\\"),
-                    **_readability(path),
+                    **_readability(path, content_digest=True),
                 }
             )
     return rows
@@ -312,34 +339,122 @@ def _stock_path_checks(
                 "stock": str(name),
                 "path": str(_normal_absolute_path(path)),
                 "windows_extended_io": str(path).startswith("\\\\?\\"),
-                **_readability(path),
+                **_readability(path, content_digest=True),
             }
         )
     return rows
 
 
-def _readability(path: Path) -> dict[str, Any]:
+def _readability(
+    path: Path,
+    *,
+    content_digest: bool = False,
+) -> dict[str, Any]:
+    return _readability_with_digest(path, content_digest=content_digest)
+
+
+def _readability_with_digest(
+    path: Path,
+    *,
+    content_digest: bool,
+) -> dict[str, Any]:
     io_path = _windows_extended_path(path)
     if io_path.is_dir():
         try:
             next(io_path.iterdir(), None)
         except OSError:
             return {"exists": True, "kind": "directory", "readable": False}
-        return {"exists": True, "kind": "directory", "readable": True}
+        result: dict[str, Any] = {
+            "exists": True,
+            "kind": "directory",
+            "readable": True,
+        }
+        if content_digest:
+            result.update(_directory_content_digest(io_path))
+        return result
     if not io_path.is_file():
         return {"exists": False, "kind": "missing", "readable": False}
     try:
+        size = io_path.stat().st_size
         with io_path.open("rb") as handle:
             header = handle.read(4)
-        size = io_path.stat().st_size
     except OSError:
         return {"exists": True, "kind": "file", "readable": False}
-    return {
+    result = {
         "exists": True,
         "kind": "file",
         "readable": bool(header and size > 0),
         "size_bytes": int(size),
         "header_hex": header.hex(),
+    }
+    if content_digest:
+        result.update(_file_content_digest(io_path, expected_size=size))
+    return result
+
+
+def _file_content_digest(path: Path, *, expected_size: int) -> dict[str, Any]:
+    digest = hashlib.sha256()
+    observed = 0
+    try:
+        with _windows_extended_path(path).open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+                observed += len(chunk)
+        final_size = _windows_extended_path(path).stat().st_size
+    except OSError:
+        return {
+            "content_sha256": "",
+            "content_digest_scope": "unavailable",
+            "content_digest_status": "error",
+        }
+    if observed != int(expected_size) or final_size != int(expected_size):
+        return {
+            "content_sha256": "",
+            "content_digest_scope": "full_file_bytes",
+            "content_digest_status": "changed_during_read",
+        }
+    return {
+        "content_sha256": digest.hexdigest(),
+        "content_digest_scope": "full_file_bytes",
+        "content_digest_status": "complete",
+    }
+
+
+def _directory_content_digest(path: Path) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    try:
+        io_root = _windows_extended_path(path)
+        files = sorted(
+            (item for item in io_root.rglob("*") if item.is_file()),
+            key=lambda item: item.relative_to(io_root).as_posix(),
+        )
+        for item in files:
+            relative = item.relative_to(io_root).as_posix()
+            readable = _readability_with_digest(item, content_digest=True)
+            rows.append(
+                {
+                    "relative_path": relative,
+                    "size_bytes": int(readable.get("size_bytes") or 0),
+                    "content_sha256": str(readable.get("content_sha256") or ""),
+                    "content_digest_status": str(
+                        readable.get("content_digest_status") or ""
+                    ),
+                }
+            )
+    except OSError:
+        return {
+            "content_sha256": "",
+            "content_digest_scope": "directory_file_manifest",
+            "content_digest_status": "error",
+        }
+    complete = bool(rows) and all(
+        row["content_digest_status"] == "complete" for row in rows
+    )
+    return {
+        "content_sha256": _stable_digest(rows) if complete else "",
+        "content_digest_scope": "directory_file_manifest",
+        "content_digest_status": "complete" if complete else "incomplete",
+        "content_file_count": len(rows),
     }
 
 

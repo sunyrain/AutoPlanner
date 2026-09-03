@@ -1,4 +1,4 @@
-"""Validate the Agent Workbench delivery surface and representative route outputs."""
+"""Validate the unified V4 workspace and representative route outputs."""
 from __future__ import annotations
 
 import argparse
@@ -40,26 +40,24 @@ REPRESENTATIVE_RUNS = {
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", default="http://127.0.0.1:7860", help="Running workbench URL")
+    parser.add_argument("--base-url", default="http://127.0.0.1:7860", help="Running workspace URL")
     parser.add_argument("--skip-server", action="store_true", help="Only validate local files")
     args = parser.parse_args(argv)
 
     failures: list[str] = []
     checks: list[dict[str, Any]] = []
 
-    _check_file("workbench html", ROOT / "cascade_planner/web/static/agent.html", failures, checks)
-    _check_file("workbench css", ROOT / "cascade_planner/web/static/agent.css", failures, checks)
-    _check_file("workbench js", ROOT / "cascade_planner/web/static/agent.js", failures, checks)
+    _check_file("workspace html", ROOT / "cascade_planner/web/static/workspace.html", failures, checks)
 
     if not args.skip_server:
-        _check_http(args.base_url.rstrip("/") + "/api/status", failures, checks, expect_json=True)
-        _check_http(args.base_url.rstrip("/") + "/agent", failures, checks)
+        _check_http(args.base_url.rstrip("/") + "/api/v4/workspace", failures, checks, expect_json=True)
+        _check_http(args.base_url.rstrip("/") + "/v4", failures, checks)
 
     for name, spec in REPRESENTATIVE_RUNS.items():
         _validate_run(name, spec, base_url=args.base_url.rstrip("/"), skip_server=args.skip_server, failures=failures, checks=checks)
 
     report = {
-        "schema_version": "agent_workbench_delivery_validation.v1",
+        "schema_version": "unified_workspace_delivery_validation.v2",
         "ok": not failures,
         "checks": checks,
         "failures": failures,
@@ -137,7 +135,7 @@ def _validate_run(
 
     if not skip_server:
         rel = str(html_path.relative_to(ROOT)).replace("\\", "/")
-        url = f"{base_url}/api/result-file?path={urllib.parse.quote(rel)}"
+        url = f"{base_url}/api/v4/result-file?path={urllib.parse.quote(rel)}"
         body = _check_http(url, failures, checks)
         if isinstance(body, str) and "routeFlowSvg" not in body:
             failures.append(f"{name} served route html missing routeFlowSvg")

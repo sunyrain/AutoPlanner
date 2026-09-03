@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import mimetypes
 import os
 from pathlib import Path
-import tempfile
 from typing import Any, Mapping
 
 from .artifact_store import ArtifactRef, ArtifactStore
@@ -167,48 +165,10 @@ def run_storage_object_stats(
     }
 
 
-def write_run_manifest_compatibility(
-    path: str | os.PathLike[str],
-    manifest: Mapping[str, Any],
-) -> Path:
-    """Write a small compatibility manifest; immutable storage remains primary."""
-
-    target = Path(path).expanduser().resolve()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = (
-        json.dumps(
-            manifest,
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-            allow_nan=False,
-        )
-        + "\n"
-    ).encode("utf-8")
-    handle = tempfile.NamedTemporaryFile(
-        mode="wb",
-        prefix=f".{target.name}.",
-        suffix=".tmp",
-        dir=target.parent,
-        delete=False,
-    )
-    temporary = Path(handle.name)
-    try:
-        with handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, target)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return target
-
-
 __all__ = [
     "RUN_STORAGE_PUBLISH_SCHEMA",
     "RUN_STORAGE_REBUILD_SCHEMA",
     "publish_run_projection",
     "rebuild_run_index",
     "run_storage_object_stats",
-    "write_run_manifest_compatibility",
 ]

@@ -11,6 +11,10 @@ from cascade_planner.application.proof_policy import (
     ProofPolicy,
     stitch_leaf_stock_proof,
 )
+from cascade_planner.application.route_candidate_builder import build_route_candidate
+from cascade_planner.application.route_edge_scope import (
+    route_family_scoped_edge_ids,
+)
 
 
 PROOF_ROUTE_SCHEMA = "proof_stitched_route.v1"
@@ -47,11 +51,7 @@ def enumerate_family_variants(
     leaf_proof_cache: dict[str, dict[str, Any]],
     limit: int,
 ) -> tuple[list[RouteSubroute], list[dict[str, Any]]]:
-    allowed = {
-        str(value)
-        for value in family.get("edge_ids") or []
-        if str(value) in dict(graph.get("edges") or {})
-    }
+    allowed = route_family_scoped_edge_ids(graph, family=family)
     outgoing: dict[str, list[str]] = {}
     for edge_id in sorted(allowed):
         edge = graph["edges"][edge_id]
@@ -140,126 +140,6 @@ def enumerate_family_variants(
     root = str(graph.get("target_molecule_id") or "")
     variants = walk(root, frozenset()) if root else []
     return variants[:limit], modules
-
-
-def build_route_candidate(
-    graph: Mapping[str, Any],
-    *,
-    family_id: str,
-    family: Mapping[str, Any],
-    variant: RouteSubroute,
-    edge_proofs: Mapping[str, Mapping[str, Any]],
-    leaf_proof_cache: dict[str, dict[str, Any]],
-    policy: ProofPolicy,
-) -> dict[str, Any]:
-    edge_ids = sorted(variant.edge_ids)
-    leaf_ids = sorted(variant.leaf_ids)
-    proofs = [dict(edge_proofs[edge_id]) for edge_id in edge_ids]
-    leaves = [
-        leaf_proof_cache.setdefault(
-            molecule_id,
-            stitch_leaf_stock_proof(graph, molecule_id, policy=policy),
-        )
-        for molecule_id in leaf_ids
-    ]
-    source_groups = sorted(
-        {
-            str(group)
-            for proof in proofs
-            for group in proof.get("independent_source_groups") or []
-            if str(group)
-        }
-    )
-    conflicts = sorted(
-        {
-            str(conflict_id)
-            for proof in proofs
-            for conflict_id in proof.get("conflict_ids") or []
-            if str(conflict_id)
-        }
-    )
-    min_proof = min((int(value["achieved_level"]) for value in proofs), default=0)
-    unproven_edge_ids = sorted(
-        str(value["edge_id"])
-        for value in proofs
-        if value.get("accepted") is not True
-    )
-    stock_rate = sum(value["accepted"] is True for value in leaves) / max(
-        1, len(leaves)
-    )
-    open_leaf_molecule_ids = sorted(
-        str(value["molecule_id"])
-        for value in leaves
-        if value.get("accepted") is not True
-    )
-    source_required = policy.minimum_edge_proof_level >= 3
-    source_met = (
-        not source_required
-        or len(source_groups) >= policy.minimum_independent_source_groups
-    )
-    complete = bool(edge_ids) and all(value["accepted"] is True for value in proofs)
-    if policy.require_stock_for_every_selected_leaf:
-        complete = complete and bool(leaves) and stock_rate == 1.0
-    complete = complete and source_met and not conflicts
-    root_edges = sorted(
-        edge_id
-        for edge_id in edge_ids
-        if str(graph["edges"][edge_id]["product_molecule_id"])
-        == str(graph.get("target_molecule_id") or "")
-    )
-    precursor_frequency: dict[str, int] = {}
-    for edge_id in edge_ids:
-        for molecule_id in graph["edges"][edge_id]["precursor_molecule_ids"]:
-            key = str(molecule_id)
-            precursor_frequency[key] = precursor_frequency.get(key, 0) + 1
-    convergence = sum(value > 1 for value in precursor_frequency.values()) / max(
-        1, len(precursor_frequency)
-    )
-    risk = (
-        0.35 * (1.0 - min_proof / 4.0)
-        + 0.25 * (1.0 - stock_rate)
-        + 0.20 * (not source_met)
-        + 0.15 * bool(conflicts)
-        + 0.05 * min(1.0, len(edge_ids) / 12.0)
-    )
-    identity = {
-        "route_family_id": family_id,
-        "edge_ids": edge_ids,
-        "leaf_molecule_ids": leaf_ids,
-    }
-    return with_content_digest(
-        {
-            "schema_version": PROOF_ROUTE_SCHEMA,
-            "route_id": f"route:{_digest(identity)}",
-            "route_family_id": family_id,
-            "strategy": str(family.get("strategy") or ""),
-            "edge_ids": edge_ids,
-            "leaf_molecule_ids": leaf_ids,
-            "root_edge_ids": root_edges,
-            "module_selections": dict(variant.module_selections),
-            "minimum_edge_proof_level": min_proof,
-            "all_edges_proven": bool(proofs)
-            and all(value["accepted"] for value in proofs),
-            "unproven_edge_ids": unproven_edge_ids,
-            "stock_closure_rate": round(stock_rate, 6),
-            "all_leaves_stock_closed": bool(leaves) and stock_rate == 1.0,
-            "open_leaf_molecule_ids": open_leaf_molecule_ids,
-            "independent_source_groups": source_groups,
-            "source_independence_met": source_met,
-            "source_independence_required": source_required,
-            "conflict_ids": conflicts,
-            "length": len(edge_ids),
-            "convergence_score": round(convergence, 6),
-            "risk_score": round(float(risk), 6),
-            "complete": complete,
-            "selected": False,
-            "semantics": {
-                "weakest_edge_controls_route": True,
-                "every_leaf_requires_stock_observation": True,
-                "counts_do_not_override_boolean_proofs": True,
-            },
-        }
-    )
 
 
 def with_content_digest(value: Mapping[str, Any]) -> dict[str, Any]:

@@ -1,0 +1,3318 @@
+{
+  "chemical_states": {
+    "candidate-state:0be1189c55d813f9a055624b": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC3C(CCC4=CC(O)CCC43C)C1CCC2=O",
+      "content_sha256": "f4fb891992944386122bb7b1dce0f8c1971ff8302c715a59ef5ab0d20398e578",
+      "label": "Compound 28",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:28",
+      "state_id": "candidate-state:0be1189c55d813f9a055624b",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:0dad7d74340de1d1332a66f8": {
+      "authoritative": false,
+      "canonical_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "content_sha256": "31c9098236c4be1c83ed7238c05f1dc5093e51e8050d282824edd5027cf3677f",
+      "label": "Compound 33",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:33",
+      "state_id": "candidate-state:0dad7d74340de1d1332a66f8",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:1aa19a41404b8ae711cb82b7": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1C(O)C2",
+      "content_sha256": "6e79ba5bca8bddb5f91a1e3f1a80a7e1d1f0926da3aecd5243928a2812fa0d54",
+      "label": "Compound 20",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:20",
+      "state_id": "candidate-state:1aa19a41404b8ae711cb82b7",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:1e4ad768e90fc74d52e6d185": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(=O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+      "content_sha256": "6a7bf9eb6546b79fd43f8645a40c73d96c8737fe64d2a90ae8cccda841ef0d42",
+      "label": "Compound 25",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:25",
+      "state_id": "candidate-state:1e4ad768e90fc74d52e6d185",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:22a1606aaaadaea4755d6c44": {
+      "authoritative": false,
+      "canonical_smiles": "Cc1ccc(O)cc1",
+      "content_sha256": "259181bb2df217536cfedbafb5b794a174837716ad023a1df2d205026997fddb",
+      "label": "Compound planner stock hit · p-cresol",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:planner:1",
+      "state_id": "candidate-state:22a1606aaaadaea4755d6c44",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:24ffe5da81e9902a52a9789e": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+      "content_sha256": "ad4eaeda035ddbf02b916a66dd6b8fce6732e808a06486a7531ca75735b28bfd",
+      "label": "Compound 32",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:32",
+      "state_id": "candidate-state:24ffe5da81e9902a52a9789e",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:274ba86c3761df83c1264e75": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(=O)CC1=CC=CC2O",
+      "content_sha256": "48e66c59d4c5bddb74c08505d92b7ee3485ac802cb04f216fea18b663ddeafb7",
+      "label": "Compound planner U1",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:planner:2",
+      "state_id": "candidate-state:274ba86c3761df83c1264e75",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:294c865aacfd2a90560a852d": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(O[Si](C)(C)C(C)(C)C)C1CCC1C2CCC2(C)C1CC1(OC1c1ccc(=O)oc1)C2O",
+      "content_sha256": "306eb6556a3518382a607f100e40549350fdc70c5ceb984f387a69b395cefa36",
+      "label": "Compound 30",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:30",
+      "state_id": "candidate-state:294c865aacfd2a90560a852d",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:37b9865c734dec4b4e522c4d": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1",
+      "content_sha256": "7af5c8783e1b872344c331bbf8d8bef25f25785d079f33222794fba6f06a2627",
+      "label": "Compound 27",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:27",
+      "state_id": "candidate-state:37b9865c734dec4b4e522c4d",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:3a75ea57f88ec54034ea45a9": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=CI)C2O",
+      "content_sha256": "69cadde7da1c9fa7a5ec6272578df689dc1ca32f524926831e92bddf9613f88c",
+      "label": "Compound 14",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:14",
+      "state_id": "candidate-state:3a75ea57f88ec54034ea45a9",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:5c9530444fccf492336efdf5": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1C(Br)CC21OCCO1",
+      "content_sha256": "8cd399630277eb6c347f73b2e86248c0772d12f361d95548986278f5b272991f",
+      "label": "Compound 26",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:26",
+      "state_id": "candidate-state:5c9530444fccf492336efdf5",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:6a9232a62786faa3f9425beb": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=Cc1ccc(=O)oc1)C2O",
+      "content_sha256": "930df7e48e5c86f84699d13e002989430012838ed5dabe2823c5181e56cb4c2b",
+      "label": "Compound 22",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:22",
+      "state_id": "candidate-state:6a9232a62786faa3f9425beb",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:70ca9ed3ebc36b2365016308": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(=O)CC1=CC=CC2=O",
+      "content_sha256": "54c62681052ccae806693908bf21f418dac0112586622accc8089c9b0a8a8ec3",
+      "label": "Compound planner U2",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:planner:3",
+      "state_id": "candidate-state:70ca9ed3ebc36b2365016308",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:8031f20935846424a3d4c607": {
+      "authoritative": false,
+      "canonical_smiles": "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "content_sha256": "38145664f9ac939a8cc9565ff38a9e81f6bf48cc1e031d87d1a1b8dee2c891c7",
+      "label": "Compound planner U4",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:planner:5",
+      "state_id": "candidate-state:8031f20935846424a3d4c607",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:82d366d375c12a66d2c04f5c": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1CC2",
+      "content_sha256": "9723665034187819b46f9918fb39b9fe9d55f12e34b32e6449371cfaae7de34a",
+      "label": "Compound 19",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:19",
+      "state_id": "candidate-state:82d366d375c12a66d2c04f5c",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:9e330af846ea3c443ebb026d": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(=O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1",
+      "content_sha256": "4032c189182a52cc744ec29a2a324cc512539a01f83225f83e9ea79eaa152ce4",
+      "label": "Compound 24",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:24",
+      "state_id": "candidate-state:9e330af846ea3c443ebb026d",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:b5ff19a45f5749da60052854": {
+      "authoritative": false,
+      "canonical_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "content_sha256": "5fdfe89c703b484c444020b26134fd652e69a5ebb319faa3cf35839802f01374",
+      "label": "Bufotalin",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:bufotalin",
+      "state_id": "candidate-state:b5ff19a45f5749da60052854",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:cab363d632088975d986b832": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+      "content_sha256": "e01c6f1c0dbeddf51805f49e05fbb2015cc1577993ef6829c7dc427362a4a0ec",
+      "label": "Compound 31",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:31",
+      "state_id": "candidate-state:cab363d632088975d986b832",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:d7acc63254e5ec05388856d0": {
+      "authoritative": false,
+      "canonical_smiles": "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "content_sha256": "98f4d6080d416583270f7e53659ef5c0d6026cb53aa1a4dd3bcdd03bbb0b6f2f",
+      "label": "Compound planner U3",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:planner:4",
+      "state_id": "candidate-state:d7acc63254e5ec05388856d0",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:e5dfc06047977062958680d5": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC3C(CCC4=CC(=O)CCC43C)C1CCC2=O",
+      "content_sha256": "08b38f891595930bf2c6e1c6e891c3baa4e5b70ed4b64af5b12f09d8cbf16359",
+      "label": "Compound 11",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:11",
+      "state_id": "candidate-state:e5dfc06047977062958680d5",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:e927de71dba8e9668b9296e1": {
+      "authoritative": false,
+      "canonical_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+      "content_sha256": "106b4a3fdcb7f6e5075dfa7c1b51fece593f9d143b8b7ee62fed4c29a0927721",
+      "label": "Compound 23",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "m:paper:23",
+      "state_id": "candidate-state:e927de71dba8e9668b9296e1",
+      "status": "candidate_route_observation"
+    }
+  },
+  "content_sha256": "7f21f328e0703a4da1573ece7427b6239e85e4f752717eebdabadf25fb175846",
+  "counts": {
+    "blocked_candidate": 0,
+    "canonical_admissible": 15,
+    "chemical_states": 21,
+    "inventory_gap": 5,
+    "operation_nodes": 20,
+    "programs": 20,
+    "routes": 1
+  },
+  "observation_id": "candidate-route:29a07549adf7a51263030a15",
+  "operation_nodes": {
+    "candidate-operation:04eb29b6622a185ca4a4592b": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "987ce312a2c0a040300af0d4107053857d0a2ba750e0df02886d092336208717",
+      "input_state_ids": [
+        "candidate-state:274ba86c3761df83c1264e75"
+      ],
+      "operation_id": "candidate-operation:04eb29b6622a185ca4a4592b",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:70ca9ed3ebc36b2365016308"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:planner:2",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:0a0a1428807601478b45dadf": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "f8c3079fabb984d39f2f7fad43d08a0e4b4bad114e36e1b7a8dca85b401b5105",
+      "input_state_ids": [
+        "candidate-state:8031f20935846424a3d4c607"
+      ],
+      "operation_id": "candidate-operation:0a0a1428807601478b45dadf",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:e5dfc06047977062958680d5"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:planner:5",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:0a7eb4bd069577d571d707f3": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "base",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 20 (419 mg, 1.0 mmol) in THF:water = 1:1 (10.0 mL) was added Pd/C (42 mg, 10 wt%). To a stirred solution of the residue produced in the previous step in EtOH (10 mL) was added hydrazine monohydrate (1 mL, 20.5 mmol, 20.5 equiv.) and triethylamine (2.8 mL, 20.5 mmol, 20.5 equiv.). To a stirred solution of the crude hydrazone and triethylamine (2.8 mL, 20.5 mmol, 20.5 equiv.) in THF (10.0 mL) was added a solution of I2 (761 mg, 3.0 mmol, 3.0 equiv.) in THF (5.0 mL) dropwise at room temperature.",
+            "base": [
+              "triethylamine"
+            ],
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (4:1) to give compound 14 (387 mg, 73 %) as a white solid.",
+            "reagents": [
+              "compound 20",
+              "Pd/C",
+              "brine",
+              "hydrazine monohydrate",
+              "triethylamine",
+              "the crude hydrazone and triethylamine",
+              "I2"
+            ],
+            "scale": "419 mg, 1.0 mmol",
+            "solvent": [
+              "tetrahydrofuran",
+              "ethyl acetate",
+              "ethanol",
+              "water"
+            ],
+            "temperature": "room temperature → 50 °C",
+            "temperature_program": [
+              "room temperature",
+              "50 °C"
+            ],
+            "time": "1 h",
+            "time_program": [
+              "12 h",
+              "6 h",
+              "1 h"
+            ],
+            "workup": "The resultant mixture was diluted with water (10 mL), and extracted with EtOAc (3 × 20 mL). The combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was used directly in the next step without purification. The mixture was allowed to stir at that temperature for 1 h before it was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (4:1) to give compound 14 (387 mg, 73 %) as a white solid.",
+            "yield_percent": 73.0
+          },
+          "content_sha256": "2867b22299299b64806b02af6cd2820539c5c43549a1daeeccc8542c3fb9ab99",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 14"
+          ],
+          "record_id": "observation:14",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "3c439fecde5162291687cf9e86b44bbddbc3b0d33ea31b3d68a95f1d45f16034",
+      "input_state_ids": [
+        "candidate-state:1aa19a41404b8ae711cb82b7"
+      ],
+      "operation_id": "candidate-operation:0a7eb4bd069577d571d707f3",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:3a75ea57f88ec54034ea45a9"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:14",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:16578ce9efa35a1455909783": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": false
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 25 (332 mg, 1.0 mmol) in THF (5.0 mL) was added K-selectride (1.0 mL, 1.5 M in THF, 1.5 equiv.) dropwise at −20 °C.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 4:1) to give compound 23 (240 mg, 72 %, 3:1 dr) as a white solid.",
+            "reagents": [
+              "compound 25",
+              "K-selectride"
+            ],
+            "scale": "332 mg, 1.0 mmol",
+            "solvent": [
+              "tetrahydrofuran"
+            ],
+            "temperature": "20 °C → 5 °C",
+            "temperature_program": [
+              "20 °C",
+              "5 °C"
+            ],
+            "time": "10 min",
+            "time_program": [
+              "10 min"
+            ],
+            "workup": "Upon completion, the reaction was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 4:1) to give compound 23 (240 mg, 72 %, 3:1 dr) as a white solid."
+          },
+          "content_sha256": "f86ddf79a03c0e6e747fc3061aa59bd0f2421acc156e7695c86e3ce379024378",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 23"
+          ],
+          "record_id": "observation:23",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "7086b6b1bc61d04732c531c31e1040d0dbb65ba9461f3e1dd192ac016dfe5792",
+      "input_state_ids": [
+        "candidate-state:1e4ad768e90fc74d52e6d185"
+      ],
+      "operation_id": "candidate-operation:16578ce9efa35a1455909783",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:e927de71dba8e9668b9296e1"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:23",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:40134465a0b2ed186e9a6985": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 27 (332 mg, 1.0 mmol) in acetone (8.0 mL) was added p-toluenesulfonic acid monohydrate (190 mg, 1.0 mmol, 1.0 equiv.).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (6:1) to give compound 28 (162 mg, 56 %) as a colorless oil.",
+            "reagents": [
+              "compound 27",
+              "p-toluenesulfonic acid monohydrate"
+            ],
+            "scale": "332 mg, 1.0 mmol",
+            "solvent": [
+              "acetone"
+            ],
+            "temperature": "reflux → 60 °C",
+            "temperature_program": [
+              "reflux",
+              "60 °C"
+            ],
+            "time": "1.5 h",
+            "time_program": [
+              "1.5 h"
+            ],
+            "workup": "The reaction was allowed to reflux at 60 °C for 1.5 h before it was quenched with NaHCO3 (10 mL) at room temperature. The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (6:1) to give compound 28 (162 mg, 56 %) as a colorless oil.",
+            "yield_percent": 56.0
+          },
+          "content_sha256": "96406711e79cb8a65a2cfb1d7663e12ede4b3595d643a45ed97d34676cfdde52",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 28"
+          ],
+          "record_id": "observation:28",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "6b78b1a1b6d69c1203e2a258b8c165cb4788fbbd3985fce79f1248901e4f3626",
+      "input_state_ids": [
+        "candidate-state:37b9865c734dec4b4e522c4d"
+      ],
+      "operation_id": "candidate-operation:40134465a0b2ed186e9a6985",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:0be1189c55d813f9a055624b"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:28",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:4897a208f9cb7d736e4b3282": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 23 (670 mg, 2.0 mmol) in THF (15 mL) was added pyridinium perbromide (672 mg, 2.1 mol, 1.05 equiv.) at 0 °C.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1) to give compound 26 (717 mg, 87 %) as a white solid.",
+            "reagents": [
+              "compound 23",
+              "pyridinium perbromide"
+            ],
+            "scale": "670 mg, 2.0 mmol",
+            "solvent": [
+              "tetrahydrofuran"
+            ],
+            "temperature": "0 °C → room temperature",
+            "temperature_program": [
+              "0 °C",
+              "room temperature"
+            ],
+            "time": "1 h",
+            "time_program": [
+              "1 h"
+            ],
+            "workup": "The mixture was allowed to stir at that temperature for 1 h, and then stirred at room temperature for another 1 h before it was quenched with water (20 mL). The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1) to give compound 26 (717 mg, 87 %) as a white solid.",
+            "yield_percent": 87.0
+          },
+          "content_sha256": "47f732d8114abf8f9c247f26d06a6afae7c78639ba970dda1e1c9c94e5155f41",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 26"
+          ],
+          "record_id": "observation:26",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "a9d570d2a2a6c366f37026607013ddda7f1cd9c029edc1f485911debedd3c2de",
+      "input_state_ids": [
+        "candidate-state:e927de71dba8e9668b9296e1"
+      ],
+      "operation_id": "candidate-operation:4897a208f9cb7d736e4b3282",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:5c9530444fccf492336efdf5"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:26",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:503d43b6ba34209eed375686": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "base",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 11 (286 mg, 1.0 mmol) in ethylene glycol (5.0 mL) was added p-toluenesulfonic acid monohydrate (190 mg, 1.0 mmol, 1.0 equiv.).",
+            "base": [
+              "sodium bicarbonate"
+            ],
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (6:1) to give compound 24 (306 mg, 93 %) as a white solid.",
+            "reagents": [
+              "p-toluenesulfonic acid monohydrate",
+              "sat. NaHCO3",
+              "brine"
+            ],
+            "scale": "286 mg, 1.0 mmol",
+            "solvent": [
+              "ethyl acetate",
+              "ethylene glycol"
+            ],
+            "temperature": "room temperature → 13C",
+            "temperature_program": [
+              "room temperature",
+              "13C"
+            ],
+            "time": "2 h",
+            "time_program": [
+              "2 h",
+              "1H",
+              "2H",
+              "3H",
+              "4H"
+            ],
+            "workup": "The resultant mixture was washed with sat. NaHCO3 (30 mL), brine (30 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (6:1) to give compound 24 (306 mg, 93 %) as a white solid.",
+            "yield_percent": 93.0
+          },
+          "content_sha256": "aeb6251010ceab396071bcf85204aa76822e4a5c076ba3cd05742ff114945e29",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 24"
+          ],
+          "record_id": "observation:24",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "11c2d99785e27009999ebed3d2967623b85e5e6e3bc71ceca2e3f6cf653d7f95",
+      "input_state_ids": [
+        "candidate-state:e5dfc06047977062958680d5"
+      ],
+      "operation_id": "candidate-operation:503d43b6ba34209eed375686",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:9e330af846ea3c443ebb026d"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:24",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:5665ffb00b57f9cbb8059389": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "82796645aa3833dded7fc182e1ac637b75facbfe39f6a62e0e22f0056ab0d29a",
+      "input_state_ids": [
+        "candidate-state:70ca9ed3ebc36b2365016308"
+      ],
+      "operation_id": "candidate-operation:5665ffb00b57f9cbb8059389",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:d7acc63254e5ec05388856d0"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:planner:3",
+      "status": "inventory_gap"
+    },
+    "candidate-operation:61eeb04dce989156bcedc3bc": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "68feb6529565901426bcb99f1e157a0c9e9d022aa4bb7d1082ddd6d21e1f73ea",
+      "input_state_ids": [
+        "candidate-state:22a1606aaaadaea4755d6c44"
+      ],
+      "operation_id": "candidate-operation:61eeb04dce989156bcedc3bc",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:274ba86c3761df83c1264e75"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:planner:1",
+      "status": "inventory_gap"
+    },
+    "candidate-operation:6b5dbc7605bb0a4c79ad3de1": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 30 (47 mg, 0.09 mmol) in DCM (5 mL) was added TMSOTf (37.5 μL, 0.21 mmol, 2.3 equiv.) and 2,6-lutidine (51 μL, 0.44 mmol, 4.9 equiv.) at −78 °C.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (10:1 to 5:1) to give compound 31 (36 mg, 68 %) as a white solid.",
+            "reagents": [
+              "TMSOTf",
+              "2,6-lutidine"
+            ],
+            "scale": "47 mg, 0.09 mmol",
+            "solvent": [
+              "dichloromethane"
+            ],
+            "temperature": "78 °C → room temperature",
+            "temperature_program": [
+              "78 °C",
+              "room temperature"
+            ],
+            "time": "1 h",
+            "time_program": [
+              "1 h"
+            ],
+            "workup": "Then the reaction was allowed to warm up to room temperature and stirred for 1 h before it was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 10 mL), and the combined organic layer was washed with sat. NaHCO3 (5 mL), brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (10:1 to 5:1) to give compound 31 (36 mg, 68 %) as a white solid.",
+            "yield_percent": 68.0
+          },
+          "content_sha256": "8f676a096d876983ee1f271c6e5cb03d7d0163540bf25dabfa5be82edfcf228b",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 31"
+          ],
+          "record_id": "observation:31",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "77bf4b00e99c68d6609ba66b92d3ffe7cc42298f6b931d86586eb657c4a341eb",
+      "input_state_ids": [
+        "candidate-state:294c865aacfd2a90560a852d"
+      ],
+      "operation_id": "candidate-operation:6b5dbc7605bb0a4c79ad3de1",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:cab363d632088975d986b832"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:31",
+      "status": "inventory_gap"
+    },
+    "candidate-operation:888a621ebbab56c9eb083aa3": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": false
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 24 (330 mg, 1.0 mmol) in 4-methylpyridine (5.0 mL) was added 33 mg Pd/C (10 wt%).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1) to give compound 25 (305 mg, 92 %, 1.5:1 dr) as a white solid.",
+            "reagents": [
+              "compound 24",
+              "sat. citric acid solution (3 × 20 mL), brine"
+            ],
+            "scale": "330 mg, 1.0 mmol",
+            "solvent": [
+              "dimethyl sulfoxide",
+              "ethyl acetate",
+              "4-methylpyridine"
+            ],
+            "temperature": "room temperature → 13C",
+            "temperature_program": [
+              "room temperature",
+              "13C"
+            ],
+            "time": "23 h",
+            "time_program": [
+              "23 h",
+              "1H",
+              "2H",
+              "3H",
+              "4H"
+            ],
+            "workup": "The reaction was allowed to stir at room temperature under H2 atmosphere for 23 h before it was filtrated by a pad of Celite and washed with EtOAc (5 mL). The filtrate was washed with sat. citric acid solution (3 × 20 mL), brine (30 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1) to give compound 25 (305 mg, 92 %, 1.5:1 dr) as a white solid."
+          },
+          "content_sha256": "17c28e00feb71138df71da9cada568685fbc3f9447d9cae6164a8da04000e16c",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 25"
+          ],
+          "record_id": "observation:25",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "f09d9b0dffd5c7c6c023312f2ab092f143da8683b36d1e94442e314f156a272e",
+      "input_state_ids": [
+        "candidate-state:9e330af846ea3c443ebb026d"
+      ],
+      "operation_id": "candidate-operation:888a621ebbab56c9eb083aa3",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:1e4ad768e90fc74d52e6d185"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:25",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:986f7a7fe7b16f9a4d05d7fb": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 26 (412 mg, 1.0 mmol) in DMSO (12.0 mL) was added t-BuOK (449 mg, 4.0 mmol, 4.0 equiv.).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 4:1) to give compound 27 (243 mg, 73 %) as a light yellow oil.",
+            "reagents": [
+              "compound 26",
+              "t-BuOK",
+              "brine"
+            ],
+            "scale": "412 mg, 1.0 mmol",
+            "solvent": [
+              "dimethyl sulfoxide",
+              "ethyl acetate",
+              "water"
+            ],
+            "temperature": "70 °C → 13C",
+            "temperature_program": [
+              "70 °C",
+              "13C"
+            ],
+            "time": "16 h",
+            "time_program": [
+              "16 h",
+              "1H",
+              "2H",
+              "3H"
+            ],
+            "workup": "The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 4:1) to give compound 27 (243 mg, 73 %) as a light yellow oil.",
+            "yield_percent": 73.0
+          },
+          "content_sha256": "24bfc1da476702fff072adfba1898f228c99ad097435c3ca469aa0271014957b",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 27"
+          ],
+          "record_id": "observation:27",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "7fcf9c9029ac5c69a0215eef4fcff6d6d3f75a4ee34ea183c2ef893dcffa3bb2",
+      "input_state_ids": [
+        "candidate-state:5c9530444fccf492336efdf5"
+      ],
+      "operation_id": "candidate-operation:986f7a7fe7b16f9a4d05d7fb",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:37b9865c734dec4b4e522c4d"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:27",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:a87184bd158293fb87374957": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 19 (402 mg, 1.0 mmol) in dioxane:water = 4:1 (10 mL) was added selenium dioxide (133 mg, 1.2 mmol, 1.2 equiv.) and formic acid (38 μL, 46 mg, 1.0 mmol, 1.0 equiv.).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 2:1) to give compound 20 (217 mg, 52 %) as a white solid.",
+            "reagents": [
+              "compound 19",
+              "selenium dioxide",
+              "formic acid",
+              "brine"
+            ],
+            "scale": "402 mg, 1.0 mmol",
+            "solvent": [
+              "dimethyl sulfoxide",
+              "ethyl acetate",
+              "dioxane",
+              "water"
+            ],
+            "temperature": "reflux → 125 °C → 13C",
+            "temperature_program": [
+              "reflux",
+              "125 °C",
+              "13C"
+            ],
+            "time": "6H",
+            "time_program": [
+              "16 h",
+              "1H",
+              "5H",
+              "4H",
+              "7H",
+              "3H",
+              "9H",
+              "6H"
+            ],
+            "workup": "The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 2:1) to give compound 20 (217 mg, 52 %) as a white solid.",
+            "yield_percent": 52.0
+          },
+          "content_sha256": "624d0a467c9c45ff7cf80cd9cedf8603b0e0ba363245f35006f33d623ec4713d",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 20"
+          ],
+          "record_id": "observation:20",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "94d318605077af598b53eb87d0d5fd5d2802d4b2ab3b1cc3390d1fa25e1a6cde",
+      "input_state_ids": [
+        "candidate-state:82d366d375c12a66d2c04f5c"
+      ],
+      "operation_id": "candidate-operation:a87184bd158293fb87374957",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:1aa19a41404b8ae711cb82b7"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:20",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:b9bcc455b9ee3da3232e7f97": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 31 (35 mg, 0.06 mmol) in MeOH (2 mL) and THF (2 mL) was added NaBH4 (2.6 mg, 0.07 mmol, 1.2 equiv.) at 0 °C.The mixture was allowed to stir at that temperature for 2 h.Upon completion,",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:1) to give compound 32 (32 mg, 90 %) as a white solid.",
+            "reagents": [
+              "NaBH4"
+            ],
+            "scale": "35 mg, 0.06 mmol",
+            "solvent": [
+              "tetrahydrofuran",
+              "methanol"
+            ],
+            "temperature": "0 °C",
+            "temperature_program": [
+              "0 °C"
+            ],
+            "time": "2 h",
+            "time_program": [
+              "2 h"
+            ],
+            "workup": "To a stirred solution of 31 (35 mg, 0.06 mmol) in MeOH (2 mL) and THF (2 mL) was added NaBH4 (2.6 mg, 0.07 mmol, 1.2 equiv.) at 0 °C.The mixture was allowed to stir at that temperature for 2 h.Upon completion, the reaction was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:1) to give compound 32 (32 mg, 90 %) as a white solid.",
+            "yield_percent": 90.0
+          },
+          "content_sha256": "1c72c08ec47f736d87b3b7941a1e99f424547ee1f8dc9ee512bb3c17a636020c",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 32"
+          ],
+          "record_id": "observation:32",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "fc044244334ebb602a9fc46046c4bafeffea42764011e081f5c6a020bed32c5e",
+      "input_state_ids": [
+        "candidate-state:cab363d632088975d986b832"
+      ],
+      "operation_id": "candidate-operation:b9bcc455b9ee3da3232e7f97",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:24ffe5da81e9902a52a9789e"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:32",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:cbe742c92e891e1829ec5ba1": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "6373be256974c7ed5fd2da615e806f2f5ea1aaf141b23872d685a9a9cf1a47b2",
+      "input_state_ids": [
+        "candidate-state:d7acc63254e5ec05388856d0"
+      ],
+      "operation_id": "candidate-operation:cbe742c92e891e1829ec5ba1",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:8031f20935846424a3d4c607"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:planner:4",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:da56e923dd079d238f62b3ac": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 28 (288 mg, 1.0 mmol) in DMF (8.0 mL) was added TBSCl (347 mg, 2.3 mmol, 2.3 equiv.) and imidazole (313 mg, 4.6 mmol, 4.6 equiv.).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (20:1 to 12:1) to give compound 19 (298 mg, 74 %) as a light yellow oil.",
+            "reagents": [
+              "compound 28",
+              "TBSCl",
+              "imidazole"
+            ],
+            "scale": "288 mg, 1.0 mmol",
+            "solvent": [
+              "dimethylformamide"
+            ],
+            "temperature": "70 °C",
+            "temperature_program": [
+              "70 °C"
+            ],
+            "time": "16 h",
+            "time_program": [
+              "16 h"
+            ],
+            "workup": "The mixture was allowed to stir at 70 °C for 16 h before it was quenched with water (20 mL). The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (20:1 to 12:1) to give compound 19 (298 mg, 74 %) as a light yellow oil.",
+            "yield_percent": 74.0
+          },
+          "content_sha256": "447a6c6d8bea47085944edd001462c568b233a2cbf4952afc38c38ce93ada8dc",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 19"
+          ],
+          "record_id": "observation:19",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "9da9d061cce15ecb1a6f7293381b59ae7db9a562185a4e1de61f2b20fc7a5e1b",
+      "input_state_ids": [
+        "candidate-state:0be1189c55d813f9a055624b"
+      ],
+      "operation_id": "candidate-operation:da56e923dd079d238f62b3ac",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:82d366d375c12a66d2c04f5c"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:19",
+      "status": "inventory_gap"
+    },
+    "candidate-operation:ef4f97510773c79bed9101c4": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 32 (15 mg, 0.03 mmol) in pyridine (1.5 mL) was added Ac2O (42 μL, 0.45 mmol, 15 equiv.) at room temperature.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:1) to give compound 33 (17 mg, 90 %) as a white solid.",
+            "reagents": [
+              "Ac2O"
+            ],
+            "scale": "15 mg, 0.03 mmol",
+            "solvent": [
+              "pyridine"
+            ],
+            "temperature": "room temperature",
+            "temperature_program": [
+              "room temperature"
+            ],
+            "time": "20 h",
+            "time_program": [
+              "20 h"
+            ],
+            "workup": "The reaction was allowed to stir at that temperature for 20 h.Upon completion, the reaction was quenched with sat. NH4Cl(30 mL).The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:1) to give compound 33 (17 mg, 90 %) as a white solid.",
+            "yield_percent": 90.0
+          },
+          "content_sha256": "2f31e735dcbaecddafbcfd143cb602f6f8489caa6115c3dce2ce99c6bb944f51",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 33"
+          ],
+          "record_id": "observation:33",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "e84f634ff6ad424f510bb7bdb1a86c63ce20c09f35a5c69b91edc6402d3ff820",
+      "input_state_ids": [
+        "candidate-state:24ffe5da81e9902a52a9789e"
+      ],
+      "operation_id": "candidate-operation:ef4f97510773c79bed9101c4",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:0dad7d74340de1d1332a66f8"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:33",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:f1b733326e71e495c579473e": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 33 (15 mg, 0.02 mmol) in THF (1.5 mL) was added HF (70 %wt, 0.25 mL) and pyridine (0.25 mL) at room temperature.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:2) to give bufotalin(1)(8 mg, 93 %) as a white solid.",
+            "reagents": [
+              "HF"
+            ],
+            "scale": "15 mg, 0.02 mmol",
+            "solvent": [
+              "tetrahydrofuran",
+              "pyridine"
+            ],
+            "temperature": "room temperature",
+            "temperature_program": [
+              "room temperature"
+            ],
+            "time": "160 h",
+            "time_program": [
+              "160 h"
+            ],
+            "workup": "The mixture was allowed to stir for 160 h before it was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 5 mL), and the combined organic layer was washed with brine (5 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:2) to give bufotalin(1)(8 mg, 93 %) as a white solid.",
+            "yield_percent": 93.0
+          },
+          "content_sha256": "3eb347f600f367d7052763a8ddb89b6537e9a50222899f2bfee2b90bef3a6792",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Bufotalin (1)"
+          ],
+          "record_id": "observation:bufotalin",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "fd25ba74116db672da5b0199c78005e48d84d77faaf556c8f8b32bfe33e30760",
+      "input_state_ids": [
+        "candidate-state:0dad7d74340de1d1332a66f8"
+      ],
+      "operation_id": "candidate-operation:f1b733326e71e495c579473e",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:b5ff19a45f5749da60052854"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:bufotalin",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:f4b9ada640babfd4c61a22a7": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 22 (24 mg, 0.05 mmol) in DCM (2.0 mL) was added m-CPBA (14 mg, 0.06 mmol, 77 % purity, 1.2 equiv) and Na2CO3 (6.6 mg, 0.06 mmol, 1.2 equiv) at −78 °C.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (10:1 to 5:1) to give compound 30 (18 mg, 70 %) as a white solid.",
+            "reagents": [
+              "m-CPBA",
+              "Na2CO3"
+            ],
+            "scale": "24 mg, 0.05 mmol",
+            "solvent": [
+              "dichloromethane"
+            ],
+            "temperature": "78 °C → 20 °C",
+            "temperature_program": [
+              "78 °C",
+              "20 °C"
+            ],
+            "time": "10 h",
+            "time_program": [
+              "10 h"
+            ],
+            "workup": "Then the reaction was allowed to warm up to −20 °C and stirred at that temperature for 10 h before it was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 10 mL), and the combined organic layer was washed with sat. NaHCO3 (5 mL), brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (10:1 to 5:1) to give compound 30 (18 mg, 70 %) as a white solid.",
+            "yield_percent": 70.0
+          },
+          "content_sha256": "ae0e5e5ea935981a6267838b62ad8de18452ba04fbbe6353b7f3c85b3183f001",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 30"
+          ],
+          "record_id": "observation:30",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "0e3acf7dd914d18c666202ff756485561b13b057a404c52bfc6b1e059612561c",
+      "input_state_ids": [
+        "candidate-state:6a9232a62786faa3f9425beb"
+      ],
+      "operation_id": "candidate-operation:f4b9ada640babfd4c61a22a7",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:294c865aacfd2a90560a852d"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:30",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:f7acd0aee18e13639c18a07e": {
+      "authoritative": false,
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 14 (50 mg, 0.1 mmol) in DMSO (6 mL) and THF (10 mL) was added Pd(PPh3)4 (58 mg, 0.05 mmol, 0.5 equiv.), CuI (95 mg, 0.5 mmol,5 equiv.), LiCl (25 mg,0.6 mmol, 6 equiv.) and compound 21 (77 mg,0.2 mmol, 2 equiv.)Then the solution was degassed by freeze-thaw method ( × 3).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (5:1 to 2:1) to give compound 22 (31 mg, 62 %) as a white solid.",
+            "reagents": [
+              "compound 14",
+              "Pd(PPh3)4",
+              "CuI",
+              "LiCl",
+              "compound 21",
+              "brine"
+            ],
+            "scale": "50 mg, 0.1 mmol",
+            "solvent": [
+              "dimethyl sulfoxide",
+              "tetrahydrofuran",
+              "ethyl acetate",
+              "water"
+            ],
+            "temperature": "60 °C → 13C",
+            "temperature_program": [
+              "60 °C",
+              "13C"
+            ],
+            "time": "12 h",
+            "time_program": [
+              "12 h",
+              "1H",
+              "2H",
+              "4H",
+              "5H",
+              "3H",
+              "9H",
+              "6H"
+            ],
+            "workup": "The mixture was allowed to stir at 60 °C for 12 h before it was filtered with a silica gel pad, and concentrated. The resultant mixture was diluted with water (10 mL) and then extracted with ethyl acetate (3 × 20 mL). The combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (5:1 to 2:1) to give compound 22 (31 mg, 62 %) as a white solid.",
+            "yield_percent": 62.0
+          },
+          "content_sha256": "c042f1155aa2938bf8d6346c6a668626ab930faf580de866a86f8f263a88b414",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 22"
+          ],
+          "record_id": "observation:22",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "95c19c21ab7801b97ec3f579b40fa6a9e13f5d57437b2d635474a0d87721fd91",
+      "input_state_ids": [
+        "candidate-state:3a75ea57f88ec54034ea45a9"
+      ],
+      "operation_id": "candidate-operation:f7acd0aee18e13639c18a07e",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:6a9232a62786faa3f9425beb"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:paper:22",
+      "status": "inventory_gap"
+    }
+  },
+  "programs": {
+    "candidate-program:04eb29b6622a185ca4a4592b": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "67cc9323c143a0e70e0a0251cc6b232ee6a60a473035c632e49e481a7a6992e3",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(=O)CC1=CC=CC2O"
+          ],
+          "product_smiles": "CC12CCC(=O)CC1=CC=CC2=O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 11,
+          "O": 2
+        },
+        "precursor_heavy_atom_count": 13,
+        "precursor_smiles": [
+          "CC12CCC(=O)CC1=CC=CC2O"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(=O)CC1=CC=CC2O"
+        ],
+        "product_element_counts": {
+          "C": 11,
+          "O": 2
+        },
+        "product_heavy_atom_count": 13,
+        "product_smiles": "CC12CCC(=O)CC1=CC=CC2=O",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "94dbfd18845ed1f1e64b64452bf5ce9525f7516e89a7996e915d94d7353a54d4",
+      "input_state_ids": [
+        "candidate-state:274ba86c3761df83c1264e75"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:04eb29b6622a185ca4a4592b"
+      ],
+      "output_state_ids": [
+        "candidate-state:70ca9ed3ebc36b2365016308"
+      ],
+      "program_id": "candidate-program:04eb29b6622a185ca4a4592b",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:planner:2",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "planner_hypothesis_not_literature_reported"
+      ]
+    },
+    "candidate-program:0a0a1428807601478b45dadf": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "ef1238d6fb7e91ffd32da3a939ddc3138252d5d78b2164602307472c3afc7ba5",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
+          ],
+          "product_smiles": "CC12CCC3C(CCC4=CC(=O)CCC43C)C1CCC2=O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 19,
+          "O": 2
+        },
+        "precursor_heavy_atom_count": 21,
+        "precursor_smiles": [
+          "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
+        ],
+        "precursor_smiles_multiset": [
+          "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
+        ],
+        "product_element_counts": {
+          "C": 19,
+          "O": 2
+        },
+        "product_heavy_atom_count": 21,
+        "product_smiles": "CC12CCC3C(CCC4=CC(=O)CCC43C)C1CCC2=O",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "69ddbe2a5699972e3663144ebe112e750ca05faf1045ade9fe72b5e989a47d63",
+      "input_state_ids": [
+        "candidate-state:8031f20935846424a3d4c607"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:0a0a1428807601478b45dadf"
+      ],
+      "output_state_ids": [
+        "candidate-state:e5dfc06047977062958680d5"
+      ],
+      "program_id": "candidate-program:0a0a1428807601478b45dadf",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:planner:5",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "planner_hypothesis_not_literature_reported",
+        "stereochemical_representation_bridge_to_compound_11"
+      ]
+    },
+    "candidate-program:0a7eb4bd069577d571d707f3": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "48438a87dc3f627e4aa497e419da3a91491f85501dd84a14d09f18188fe7dfb5",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1C(O)C2"
+          ],
+          "product_smiles": "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=CI)C2O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "I": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 1,
+        "precursor_element_counts": {
+          "C": 25,
+          "O": 3,
+          "Si": 1
+        },
+        "precursor_heavy_atom_count": 29,
+        "precursor_smiles": [
+          "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1C(O)C2"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1C(O)C2"
+        ],
+        "product_element_counts": {
+          "C": 25,
+          "I": 1,
+          "O": 2,
+          "Si": 1
+        },
+        "product_heavy_atom_count": 29,
+        "product_smiles": "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=CI)C2O",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "dfd35cdbbc77c1ebfe95772841e0b2d0e29262597ac7028645c34789857e6040",
+      "input_state_ids": [
+        "candidate-state:1aa19a41404b8ae711cb82b7"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:0a7eb4bd069577d571d707f3"
+      ],
+      "output_state_ids": [
+        "candidate-state:3a75ea57f88ec54034ea45a9"
+      ],
+      "program_id": "candidate-program:0a7eb4bd069577d571d707f3",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:14",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:16578ce9efa35a1455909783": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "c0f449c5c0a6d63550631494b2dec4d256360468b527f0a97bae423b0497fd0f",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(=O)CC1CCC1C2CCC2(C)C1CCC21OCCO1"
+          ],
+          "product_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 21,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 24,
+        "precursor_smiles": [
+          "CC12CCC(=O)CC1CCC1C2CCC2(C)C1CCC21OCCO1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(=O)CC1CCC1C2CCC2(C)C1CCC21OCCO1"
+        ],
+        "product_element_counts": {
+          "C": 21,
+          "O": 3
+        },
+        "product_heavy_atom_count": 24,
+        "product_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "33360356879532aec4196ed8459c50cfd2ae32298240efb742e5939cd9985e52",
+      "input_state_ids": [
+        "candidate-state:1e4ad768e90fc74d52e6d185"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:16578ce9efa35a1455909783"
+      ],
+      "output_state_ids": [
+        "candidate-state:e927de71dba8e9668b9296e1"
+      ],
+      "program_id": "candidate-program:16578ce9efa35a1455909783",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:23",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:40134465a0b2ed186e9a6985": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "fd70643f0d7ca3a579d46c8bcb8240fd1cd7a0878bc5fc766b70f1a64e27dc51",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1"
+          ],
+          "product_smiles": "CC12CCC3C(CCC4=CC(O)CCC43C)C1CCC2=O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 21,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 24,
+        "precursor_smiles": [
+          "CC12CCC(O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1"
+        ],
+        "product_element_counts": {
+          "C": 19,
+          "O": 2
+        },
+        "product_heavy_atom_count": 21,
+        "product_smiles": "CC12CCC3C(CCC4=CC(O)CCC43C)C1CCC2=O",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "25cfe21848881b4a64dc8611c077667994c6f712b522ca1fba9220ef9a6361bb",
+      "input_state_ids": [
+        "candidate-state:37b9865c734dec4b4e522c4d"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:40134465a0b2ed186e9a6985"
+      ],
+      "output_state_ids": [
+        "candidate-state:0be1189c55d813f9a055624b"
+      ],
+      "program_id": "candidate-program:40134465a0b2ed186e9a6985",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:28",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:4897a208f9cb7d736e4b3282": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "5abef7ee52f1b31075fd278a8878d2f209534eea0f77105faf0e0bcf2f5c1f59",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(O)CC1CCC1C2CCC2(C)C1CCC21OCCO1"
+          ],
+          "product_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1C(Br)CC21OCCO1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "Br": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 1,
+        "precursor_element_counts": {
+          "C": 21,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 24,
+        "precursor_smiles": [
+          "CC12CCC(O)CC1CCC1C2CCC2(C)C1CCC21OCCO1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(O)CC1CCC1C2CCC2(C)C1CCC21OCCO1"
+        ],
+        "product_element_counts": {
+          "Br": 1,
+          "C": 21,
+          "O": 3
+        },
+        "product_heavy_atom_count": 25,
+        "product_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1C(Br)CC21OCCO1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "c6393265dfa1f978db6a0f256c21e78c724e974d036c2960e15921a3ba1efcaf",
+      "input_state_ids": [
+        "candidate-state:e927de71dba8e9668b9296e1"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:4897a208f9cb7d736e4b3282"
+      ],
+      "output_state_ids": [
+        "candidate-state:5c9530444fccf492336efdf5"
+      ],
+      "program_id": "candidate-program:4897a208f9cb7d736e4b3282",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:26",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:503d43b6ba34209eed375686": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "a99b283f30596cd40f8ef7c29f22fdb6d461cbe69601049348c0e6119cea9679",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC3C(CCC4=CC(=O)CCC43C)C1CCC2=O"
+          ],
+          "product_smiles": "CC12CCC(=O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "C": 2,
+          "O": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 3,
+        "precursor_element_counts": {
+          "C": 19,
+          "O": 2
+        },
+        "precursor_heavy_atom_count": 21,
+        "precursor_smiles": [
+          "CC12CCC3C(CCC4=CC(=O)CCC43C)C1CCC2=O"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC3C(CCC4=CC(=O)CCC43C)C1CCC2=O"
+        ],
+        "product_element_counts": {
+          "C": 21,
+          "O": 3
+        },
+        "product_heavy_atom_count": 24,
+        "product_smiles": "CC12CCC(=O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "add6e0a92e342415a1ab22ee95f22c2dd0d9f8573fa9dff71a220bf128357633",
+      "input_state_ids": [
+        "candidate-state:e5dfc06047977062958680d5"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:503d43b6ba34209eed375686"
+      ],
+      "output_state_ids": [
+        "candidate-state:9e330af846ea3c443ebb026d"
+      ],
+      "program_id": "candidate-program:503d43b6ba34209eed375686",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:24",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:5665ffb00b57f9cbb8059389": {
+      "canonical_admission": {
+        "accepted": false,
+        "ancestor_return_smiles": [],
+        "edge_digest": "dc2b1e788e1320458cd600d9287f59eb06ec69fb1d37e74428fa6708a95247ad",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_smiles": "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "C": 8
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 8,
+        "precursor_element_counts": {
+          "C": 11,
+          "O": 2
+        },
+        "precursor_heavy_atom_count": 13,
+        "precursor_smiles": [
+          "CC12CCC(=O)CC1=CC=CC2=O"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(=O)CC1=CC=CC2=O"
+        ],
+        "product_element_counts": {
+          "C": 19,
+          "O": 2
+        },
+        "product_heavy_atom_count": 21,
+        "product_smiles": "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+        "reasons": [
+          "element_inventory_not_conserved"
+        ],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "387511bfd1f5ca0131918e64c51aa0e555c5a2c0a29a852e1a6e533d0eeb6ffc",
+      "input_state_ids": [
+        "candidate-state:70ca9ed3ebc36b2365016308"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:5665ffb00b57f9cbb8059389"
+      ],
+      "output_state_ids": [
+        "candidate-state:d7acc63254e5ec05388856d0"
+      ],
+      "program_id": "candidate-program:5665ffb00b57f9cbb8059389",
+      "promotion_state": "inventory_gap",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:planner:3",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "failed",
+        "conditions": "missing",
+        "element_inventory": "gap",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "element_inventory_not_conserved",
+        "historical_atom_balance_violation",
+        "planner_hypothesis_not_literature_reported"
+      ]
+    },
+    "candidate-program:61eeb04dce989156bcedc3bc": {
+      "canonical_admission": {
+        "accepted": false,
+        "ancestor_return_smiles": [],
+        "edge_digest": "486adb9a981c18abfdb47b5827165489f5e2dbc1321718d7f739f7cb133edf6f",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "Cc1ccc(O)cc1"
+          ],
+          "product_smiles": "CC12CCC(=O)CC1=CC=CC2O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "C": 4,
+          "O": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 5,
+        "precursor_element_counts": {
+          "C": 7,
+          "O": 1
+        },
+        "precursor_heavy_atom_count": 8,
+        "precursor_smiles": [
+          "Cc1ccc(O)cc1"
+        ],
+        "precursor_smiles_multiset": [
+          "Cc1ccc(O)cc1"
+        ],
+        "product_element_counts": {
+          "C": 11,
+          "O": 2
+        },
+        "product_heavy_atom_count": 13,
+        "product_smiles": "CC12CCC(=O)CC1=CC=CC2O",
+        "reasons": [
+          "element_inventory_not_conserved"
+        ],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "3159af364c5d57d00d092623f99f3b9d74027b10d9ee43bf8d34d83e36c98334",
+      "input_state_ids": [
+        "candidate-state:22a1606aaaadaea4755d6c44"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:61eeb04dce989156bcedc3bc"
+      ],
+      "output_state_ids": [
+        "candidate-state:274ba86c3761df83c1264e75"
+      ],
+      "program_id": "candidate-program:61eeb04dce989156bcedc3bc",
+      "promotion_state": "inventory_gap",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:planner:1",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "failed",
+        "conditions": "missing",
+        "element_inventory": "gap",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "element_inventory_not_conserved",
+        "historical_atom_balance_violation",
+        "planner_hypothesis_not_literature_reported"
+      ]
+    },
+    "candidate-program:6b5dbc7605bb0a4c79ad3de1": {
+      "canonical_admission": {
+        "accepted": false,
+        "ancestor_return_smiles": [],
+        "edge_digest": "4cc7d34f418eeb24453f80f72e515cfd255fe5c73e482243dbbe32f6f316d054",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(O[Si](C)(C)C(C)(C)C)C1CCC1C2CCC2(C)C1CC1(OC1c1ccc(=O)oc1)C2O"
+          ],
+          "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "C": 3,
+          "Si": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 4,
+        "precursor_element_counts": {
+          "C": 30,
+          "O": 5,
+          "Si": 1
+        },
+        "precursor_heavy_atom_count": 36,
+        "precursor_smiles": [
+          "CC12CCC(O[Si](C)(C)C(C)(C)C)C1CCC1C2CCC2(C)C1CC1(OC1c1ccc(=O)oc1)C2O"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(O[Si](C)(C)C(C)(C)C)C1CCC1C2CCC2(C)C1CC1(OC1c1ccc(=O)oc1)C2O"
+        ],
+        "product_element_counts": {
+          "C": 33,
+          "O": 5,
+          "Si": 2
+        },
+        "product_heavy_atom_count": 40,
+        "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+        "reasons": [
+          "element_inventory_not_conserved"
+        ],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "1adbd1763bce8f7f161a6c6d916770564f66fcdd81ee6474c4b27e27862e8dc3",
+      "input_state_ids": [
+        "candidate-state:294c865aacfd2a90560a852d"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:6b5dbc7605bb0a4c79ad3de1"
+      ],
+      "output_state_ids": [
+        "candidate-state:cab363d632088975d986b832"
+      ],
+      "program_id": "candidate-program:6b5dbc7605bb0a4c79ad3de1",
+      "promotion_state": "inventory_gap",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:31",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "failed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "gap",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "element_inventory_not_conserved",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:888a621ebbab56c9eb083aa3": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "1c7d01dc5592c3c154b7ab23e4198a928b1d0c7be87beeab82970d1276b3b1dc",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(=O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1"
+          ],
+          "product_smiles": "CC12CCC(=O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 21,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 24,
+        "precursor_smiles": [
+          "CC12CCC(=O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(=O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1"
+        ],
+        "product_element_counts": {
+          "C": 21,
+          "O": 3
+        },
+        "product_heavy_atom_count": 24,
+        "product_smiles": "CC12CCC(=O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "841d108fa70ec402b21a224607398f10607d18b6862d390671ea6a8d752ee073",
+      "input_state_ids": [
+        "candidate-state:9e330af846ea3c443ebb026d"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:888a621ebbab56c9eb083aa3"
+      ],
+      "output_state_ids": [
+        "candidate-state:1e4ad768e90fc74d52e6d185"
+      ],
+      "program_id": "candidate-program:888a621ebbab56c9eb083aa3",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:25",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:986f7a7fe7b16f9a4d05d7fb": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "93ac9173cad6d58609b297882ec55fe319e9bea6b90eb2edcb4c5f829b725e01",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(O)CC1CCC1C2CCC2(C)C1C(Br)CC21OCCO1"
+          ],
+          "product_smiles": "CC12CCC(O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "Br": 1,
+          "C": 21,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 25,
+        "precursor_smiles": [
+          "CC12CCC(O)CC1CCC1C2CCC2(C)C1C(Br)CC21OCCO1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(O)CC1CCC1C2CCC2(C)C1C(Br)CC21OCCO1"
+        ],
+        "product_element_counts": {
+          "C": 21,
+          "O": 3
+        },
+        "product_heavy_atom_count": 24,
+        "product_smiles": "CC12CCC(O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "4d0f50fbe3cf12ce0ddfa01eb891ba21713cde33fbff8870a3577c6a752f866b",
+      "input_state_ids": [
+        "candidate-state:5c9530444fccf492336efdf5"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:986f7a7fe7b16f9a4d05d7fb"
+      ],
+      "output_state_ids": [
+        "candidate-state:37b9865c734dec4b4e522c4d"
+      ],
+      "program_id": "candidate-program:986f7a7fe7b16f9a4d05d7fb",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:27",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:a87184bd158293fb87374957": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "16e307a88a068fbba2fd1a7044056cccbc1c6011707c33aa59bd9e6e665d8b8d",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1CC2"
+          ],
+          "product_smiles": "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1C(O)C2",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "O": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 1,
+        "precursor_element_counts": {
+          "C": 25,
+          "O": 2,
+          "Si": 1
+        },
+        "precursor_heavy_atom_count": 28,
+        "precursor_smiles": [
+          "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1CC2"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1CC2"
+        ],
+        "product_element_counts": {
+          "C": 25,
+          "O": 3,
+          "Si": 1
+        },
+        "product_heavy_atom_count": 29,
+        "product_smiles": "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1C(O)C2",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "89fd47184eb2c23cc6ae453f5ec77787f8fac6bbf19ea9d28150471edda09363",
+      "input_state_ids": [
+        "candidate-state:82d366d375c12a66d2c04f5c"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:a87184bd158293fb87374957"
+      ],
+      "output_state_ids": [
+        "candidate-state:1aa19a41404b8ae711cb82b7"
+      ],
+      "program_id": "candidate-program:a87184bd158293fb87374957",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:20",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:b9bcc455b9ee3da3232e7f97": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "78fb649e7509a1d2e5449cf59e71f926f33b4e57d52be7e5acbae3df122be1a1",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          ],
+          "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 33,
+          "O": 5,
+          "Si": 2
+        },
+        "precursor_heavy_atom_count": 40,
+        "precursor_smiles": [
+          "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+        ],
+        "product_element_counts": {
+          "C": 33,
+          "O": 5,
+          "Si": 2
+        },
+        "product_heavy_atom_count": 40,
+        "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "3baa62b49fec1be70aaf5980d3921a50f284df73e92faff09bb5a2df62b37895",
+      "input_state_ids": [
+        "candidate-state:cab363d632088975d986b832"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:b9bcc455b9ee3da3232e7f97"
+      ],
+      "output_state_ids": [
+        "candidate-state:24ffe5da81e9902a52a9789e"
+      ],
+      "program_id": "candidate-program:b9bcc455b9ee3da3232e7f97",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:32",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:cbe742c92e891e1829ec5ba1": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "5b639fd79822b10ec6a958f89f6948c28e7356006dc9905b7d6217b0c0aafdad",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
+          ],
+          "product_smiles": "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 19,
+          "O": 2
+        },
+        "precursor_heavy_atom_count": 21,
+        "precursor_smiles": [
+          "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
+        ],
+        "precursor_smiles_multiset": [
+          "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
+        ],
+        "product_element_counts": {
+          "C": 19,
+          "O": 2
+        },
+        "product_heavy_atom_count": 21,
+        "product_smiles": "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "64feddadeca59775d90238a17c9592fb6f897dc883eea2e8503544ae616d6a83",
+      "input_state_ids": [
+        "candidate-state:d7acc63254e5ec05388856d0"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:cbe742c92e891e1829ec5ba1"
+      ],
+      "output_state_ids": [
+        "candidate-state:8031f20935846424a3d4c607"
+      ],
+      "program_id": "candidate-program:cbe742c92e891e1829ec5ba1",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:planner:4",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "planner_hypothesis_not_literature_reported"
+      ]
+    },
+    "candidate-program:da56e923dd079d238f62b3ac": {
+      "canonical_admission": {
+        "accepted": false,
+        "ancestor_return_smiles": [],
+        "edge_digest": "e5de0c8570b5a8ebabbcb2b922387ad88df0c754d8645db4e92a7805663e8b3b",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC3C(CCC4=CC(O)CCC43C)C1CCC2=O"
+          ],
+          "product_smiles": "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1CC2",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "C": 6,
+          "Si": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 7,
+        "precursor_element_counts": {
+          "C": 19,
+          "O": 2
+        },
+        "precursor_heavy_atom_count": 21,
+        "precursor_smiles": [
+          "CC12CCC3C(CCC4=CC(O)CCC43C)C1CCC2=O"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC3C(CCC4=CC(O)CCC43C)C1CCC2=O"
+        ],
+        "product_element_counts": {
+          "C": 25,
+          "O": 2,
+          "Si": 1
+        },
+        "product_heavy_atom_count": 28,
+        "product_smiles": "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1CC2",
+        "reasons": [
+          "element_inventory_not_conserved"
+        ],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "00a7eb6eff3dc0e84e7a813469acf1c60347f407147c6eb38f9a3fb4c099b6a1",
+      "input_state_ids": [
+        "candidate-state:0be1189c55d813f9a055624b"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:da56e923dd079d238f62b3ac"
+      ],
+      "output_state_ids": [
+        "candidate-state:82d366d375c12a66d2c04f5c"
+      ],
+      "program_id": "candidate-program:da56e923dd079d238f62b3ac",
+      "promotion_state": "inventory_gap",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:19",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "failed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "gap",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "element_inventory_not_conserved",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:ef4f97510773c79bed9101c4": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "98c3c056bff586f8e28ead585adf7f50d8ec31f22c3ba0f9b7aa282b6f35100f",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          ],
+          "product_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "C": 2,
+          "O": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 3,
+        "precursor_element_counts": {
+          "C": 33,
+          "O": 5,
+          "Si": 2
+        },
+        "precursor_heavy_atom_count": 40,
+        "precursor_smiles": [
+          "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+        ],
+        "product_element_counts": {
+          "C": 35,
+          "O": 6,
+          "Si": 2
+        },
+        "product_heavy_atom_count": 43,
+        "product_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "1d586a1445a20d913a85bf3f05f2616b20d416148813fcb6e8b7411a81d8ace8",
+      "input_state_ids": [
+        "candidate-state:24ffe5da81e9902a52a9789e"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:ef4f97510773c79bed9101c4"
+      ],
+      "output_state_ids": [
+        "candidate-state:0dad7d74340de1d1332a66f8"
+      ],
+      "program_id": "candidate-program:ef4f97510773c79bed9101c4",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:33",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:f1b733326e71e495c579473e": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "7f20a157ec2923658d2c7d5b018dac5a35c955184993696d3323f5c1795f78e9",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          ],
+          "product_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 35,
+          "O": 6,
+          "Si": 2
+        },
+        "precursor_heavy_atom_count": 43,
+        "precursor_smiles": [
+          "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+        ],
+        "product_element_counts": {
+          "C": 26,
+          "O": 6
+        },
+        "product_heavy_atom_count": 32,
+        "product_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "e43bbde001eb6d532fa0f3d7dc22e7c7b74da0ff838c821a15749551b2406976",
+      "input_state_ids": [
+        "candidate-state:0dad7d74340de1d1332a66f8"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:f1b733326e71e495c579473e"
+      ],
+      "output_state_ids": [
+        "candidate-state:b5ff19a45f5749da60052854"
+      ],
+      "program_id": "candidate-program:f1b733326e71e495c579473e",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:bufotalin",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:f4b9ada640babfd4c61a22a7": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "00640965585e7fe3187c4598b546129589437778ef574b48eefe0c54e822ae9d",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=Cc1ccc(=O)oc1)C2O"
+          ],
+          "product_smiles": "CC12CCC(O[Si](C)(C)C(C)(C)C)C1CCC1C2CCC2(C)C1CC1(OC1c1ccc(=O)oc1)C2O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "O": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 1,
+        "precursor_element_counts": {
+          "C": 30,
+          "O": 4,
+          "Si": 1
+        },
+        "precursor_heavy_atom_count": 35,
+        "precursor_smiles": [
+          "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=Cc1ccc(=O)oc1)C2O"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=Cc1ccc(=O)oc1)C2O"
+        ],
+        "product_element_counts": {
+          "C": 30,
+          "O": 5,
+          "Si": 1
+        },
+        "product_heavy_atom_count": 36,
+        "product_smiles": "CC12CCC(O[Si](C)(C)C(C)(C)C)C1CCC1C2CCC2(C)C1CC1(OC1c1ccc(=O)oc1)C2O",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "fd726756c202eacae1aee859e4ba7049b535c845f6cf6ee8e963555cfa069a9a",
+      "input_state_ids": [
+        "candidate-state:6a9232a62786faa3f9425beb"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:f4b9ada640babfd4c61a22a7"
+      ],
+      "output_state_ids": [
+        "candidate-state:294c865aacfd2a90560a852d"
+      ],
+      "program_id": "candidate-program:f4b9ada640babfd4c61a22a7",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:30",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "candidate-program:f7acd0aee18e13639c18a07e": {
+      "canonical_admission": {
+        "accepted": false,
+        "ancestor_return_smiles": [],
+        "edge_digest": "9641ed155b9a332ae91177b64ca01f18c65e6d4bb463bcb9eb25dbd497abdcbc",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=CI)C2O"
+          ],
+          "product_smiles": "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=Cc1ccc(=O)oc1)C2O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "C": 5,
+          "O": 2
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 7,
+        "precursor_element_counts": {
+          "C": 25,
+          "I": 1,
+          "O": 2,
+          "Si": 1
+        },
+        "precursor_heavy_atom_count": 29,
+        "precursor_smiles": [
+          "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=CI)C2O"
+        ],
+        "precursor_smiles_multiset": [
+          "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=CI)C2O"
+        ],
+        "product_element_counts": {
+          "C": 30,
+          "O": 4,
+          "Si": 1
+        },
+        "product_heavy_atom_count": 35,
+        "product_smiles": "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=Cc1ccc(=O)oc1)C2O",
+        "reasons": [
+          "element_inventory_not_conserved"
+        ],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "e33e438676dac4b9eb7cc8433159431edfb308b613b5bdcc9caaf59a2e5a889a",
+      "input_state_ids": [
+        "candidate-state:3a75ea57f88ec54034ea45a9"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:f7acd0aee18e13639c18a07e"
+      ],
+      "output_state_ids": [
+        "candidate-state:6a9232a62786faa3f9425beb"
+      ],
+      "program_id": "candidate-program:f7acd0aee18e13639c18a07e",
+      "promotion_state": "inventory_gap",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_transformation_id": "edge:paper:22",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "failed",
+        "conditions": "source_recorded_unverified",
+        "element_inventory": "gap",
+        "reaction": "mapped",
+        "source": "single_group",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "element_inventory_not_conserved",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    }
+  },
+  "routes": {
+    "route:bufotalin-20-step-reported-candidate": {
+      "accepted": false,
+      "blocked_program_ids": [],
+      "canonical_admissible_program_ids": [
+        "candidate-program:04eb29b6622a185ca4a4592b",
+        "candidate-program:cbe742c92e891e1829ec5ba1",
+        "candidate-program:0a0a1428807601478b45dadf",
+        "candidate-program:503d43b6ba34209eed375686",
+        "candidate-program:888a621ebbab56c9eb083aa3",
+        "candidate-program:16578ce9efa35a1455909783",
+        "candidate-program:4897a208f9cb7d736e4b3282",
+        "candidate-program:986f7a7fe7b16f9a4d05d7fb",
+        "candidate-program:40134465a0b2ed186e9a6985",
+        "candidate-program:a87184bd158293fb87374957",
+        "candidate-program:0a7eb4bd069577d571d707f3",
+        "candidate-program:f4b9ada640babfd4c61a22a7",
+        "candidate-program:b9bcc455b9ee3da3232e7f97",
+        "candidate-program:ef4f97510773c79bed9101c4",
+        "candidate-program:f1b733326e71e495c579473e"
+      ],
+      "content_sha256": "cd1a3278c4fa0b703774855691e5df75780d94fe476bef2cf440baa88368228f",
+      "inventory_gap_program_ids": [
+        "candidate-program:61eeb04dce989156bcedc3bc",
+        "candidate-program:5665ffb00b57f9cbb8059389",
+        "candidate-program:da56e923dd079d238f62b3ac",
+        "candidate-program:f7acd0aee18e13639c18a07e",
+        "candidate-program:6b5dbc7605bb0a4c79ad3de1"
+      ],
+      "production_closed": false,
+      "program_ids": [
+        "candidate-program:61eeb04dce989156bcedc3bc",
+        "candidate-program:04eb29b6622a185ca4a4592b",
+        "candidate-program:5665ffb00b57f9cbb8059389",
+        "candidate-program:cbe742c92e891e1829ec5ba1",
+        "candidate-program:0a0a1428807601478b45dadf",
+        "candidate-program:503d43b6ba34209eed375686",
+        "candidate-program:888a621ebbab56c9eb083aa3",
+        "candidate-program:16578ce9efa35a1455909783",
+        "candidate-program:4897a208f9cb7d736e4b3282",
+        "candidate-program:986f7a7fe7b16f9a4d05d7fb",
+        "candidate-program:40134465a0b2ed186e9a6985",
+        "candidate-program:da56e923dd079d238f62b3ac",
+        "candidate-program:a87184bd158293fb87374957",
+        "candidate-program:0a7eb4bd069577d571d707f3",
+        "candidate-program:f7acd0aee18e13639c18a07e",
+        "candidate-program:f4b9ada640babfd4c61a22a7",
+        "candidate-program:6b5dbc7605bb0a4c79ad3de1",
+        "candidate-program:b9bcc455b9ee3da3232e7f97",
+        "candidate-program:ef4f97510773c79bed9101c4",
+        "candidate-program:f1b733326e71e495c579473e"
+      ],
+      "route_id": "route:bufotalin-20-step-reported-candidate",
+      "source_edge_ids": [
+        "edge:planner:1",
+        "edge:planner:2",
+        "edge:planner:3",
+        "edge:planner:4",
+        "edge:planner:5",
+        "edge:paper:24",
+        "edge:paper:25",
+        "edge:paper:23",
+        "edge:paper:26",
+        "edge:paper:27",
+        "edge:paper:28",
+        "edge:paper:19",
+        "edge:paper:20",
+        "edge:paper:14",
+        "edge:paper:22",
+        "edge:paper:30",
+        "edge:paper:31",
+        "edge:paper:32",
+        "edge:paper:33",
+        "edge:paper:bufotalin"
+      ],
+      "source_exploration_closed": true,
+      "status": "candidate_route_only",
+      "warning_codes": [
+        "candidate_route_contains_inventory_gaps",
+        "reported_route_contains_unresolved_edges"
+      ]
+    }
+  },
+  "schema_version": "candidate_program_projection.v1",
+  "semantics": {
+    "all_programs_are_non_authoritative": true,
+    "canonical_v4_rejections_remain_in_force": true,
+    "complete_display_route_does_not_mean_scientific_closure": true,
+    "no_program_store_admission_performed": true,
+    "read_only_candidate_projection": true
+  },
+  "source_observation_sha256": "0230f065ce67f48b2815a49f351a1877a8da0bbb56d5b495b8242711975a96be",
+  "target_state_id": "candidate-state:b5ff19a45f5749da60052854"
+}

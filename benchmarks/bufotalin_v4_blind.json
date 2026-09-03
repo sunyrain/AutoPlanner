@@ -1,0 +1,26 @@
+{
+  "schema_version": "blind_retrosynthesis_manifest.v1",
+  "cases": [
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "bufotalin-v4-blind-01",
+      "target_name": "bufotalin",
+      "target_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "acceptance": {
+        "minimum_complete_routes": 2,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 2,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_model_invocations": 4,
+        "max_total_input_tokens": 180000,
+        "max_total_output_tokens": 48000,
+        "max_total_wall_time_s": 2400,
+        "max_accepted_expansions": 128,
+        "max_attempt_runs": 256,
+        "max_prompt_context_bytes": 256000
+      }
+    }
+  ]
+}

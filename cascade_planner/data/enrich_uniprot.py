@@ -10,8 +10,8 @@ do not repeat them and generated provider data never enters Git.
 
 Usage:
     python -m cascade_planner.data.enrich_uniprot \
-        --in cascade_dataset_v2.normalized.json \
-        --out cascade_dataset_v2.normalized.json
+        --in data_external/cascade/cascade_dataset_v2.normalized.json \
+        --out data_external/cascade/cascade_dataset_v2.normalized.json
 """
 from __future__ import annotations
 
@@ -266,7 +266,15 @@ def _apply_uniprot_result(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in", dest="inp", default="cascade_dataset_v2.normalized.json")
+    ap.add_argument(
+        "--in",
+        dest="inp",
+        default=str(
+            RuntimePaths.discover(repository_root=ROOT).external_data_root
+            / "cascade"
+            / "cascade_dataset_v2.normalized.json"
+        ),
+    )
     ap.add_argument("--out", default=None,
                     help="Output JSON (default: <in>.uniprot.json)")
     ap.add_argument("--limit", type=int, default=None,

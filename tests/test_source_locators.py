@@ -6,6 +6,7 @@ from cascade_planner.source_locators import (
     source_document_identity,
     source_record_representations,
     source_record_support_group,
+    traceable_source_refs_in_text,
 )
 
 
@@ -66,6 +67,16 @@ def test_compound_locator_only_parses_explicit_whitelisted_fields() -> None:
     assert not canonical_traceable_source_ref(
         "description:see https://example.org/paper;lines:1-2"
     )
+
+
+def test_descriptive_director_hint_extracts_strict_identifiers_without_authority() -> None:
+    assert traceable_source_refs_in_text(
+        "EP0955305A1 Example 1; DOI:10.1002/jlac.197619760108"
+    ) == [
+        "doi:10.1002/jlac.197619760108",
+        "patent:EP0955305A1",
+    ]
+    assert traceable_source_refs_in_text("possible old Japanese patent") == []
 
 
 def test_only_trusted_source_channels_form_external_independence_groups() -> None:

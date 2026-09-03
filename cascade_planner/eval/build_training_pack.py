@@ -36,10 +36,6 @@ from cascade_planner.cascadeboard.value_function import candidate_value_features
 
 SCHEMA_VERSION = "training_pack.v1"
 RDLogger.DisableLog("rdApp.warning")
-DEFAULT_INPUTS = [
-    "results/v2/live_benchmark_high_recall_full100.json",
-    "results/v2/ui_plan_*.json",
-]
 DEFAULT_BENCHMARKS = ["data/benchmark_v2_100.json"]
 
 
@@ -667,12 +663,17 @@ def stable_id(*parts: Any) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Build consolidated AutoPlanner training data pack")
-    ap.add_argument("--input", action="append", default=None, help="Planner artifact JSON path or glob")
+    ap.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Planner artifact JSON path or glob; repeat for multiple inputs",
+    )
     ap.add_argument("--benchmark", action="append", default=None, help="Benchmark JSON path with GT routes")
     ap.add_argument("--output-dir", default="results/shared/training_pack/current")
     args = ap.parse_args()
 
-    input_paths = expand_paths(args.input or DEFAULT_INPUTS)
+    input_paths = expand_paths(args.input)
     benchmark_paths = expand_paths(args.benchmark or DEFAULT_BENCHMARKS)
     manifest = build_training_pack(
         input_paths=input_paths,

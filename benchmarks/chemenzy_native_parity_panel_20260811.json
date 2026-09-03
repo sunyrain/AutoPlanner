@@ -1,0 +1,131 @@
+{
+  "schema_version": "chemenzy_native_parity_panel.v1",
+  "generated_at": "2026-08-11T20:51:38.469555Z",
+  "evidence_date": "2026-08-11",
+  "source_commit": "6c0b3ce",
+  "scope": {
+    "benchmark": "Retro*-190",
+    "benchmark_manifest": "benchmarks/retrostar190_v4.json",
+    "benchmark_manifest_sha256": "2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623",
+    "selection_rule": "manifest prefix; bounded engineering evidence only",
+    "selected_target_count": 3,
+    "full_benchmark_target_count": 190,
+    "not_full_benchmark_result": true
+  },
+  "contract": {
+    "uniform_request_contract": true,
+    "uniform_model_content_binding": true,
+    "uniform_stock_content_binding": true,
+    "request_contract_sha256": [
+      "ead6770fa1fb3b4cdd03fd9f16fb38ffa898475c861a9be44529f7bee68c08ba"
+    ],
+    "model_content_binding_sha256": [
+      "e49ca9286a45429673854ef9c6fa25d4c7b5451d1fbba0f7f7703b097a0d8178"
+    ],
+    "stock_content_binding_sha256": [
+      "7545b41c9c78c33c8f3bac5477c33d381b5676d1ff3e29ef519902a6060e5849"
+    ]
+  },
+  "summary": {
+    "panel_size": 3,
+    "strict_nonvacuous_parity_count": 2,
+    "raw_proposal_parity_count": 3,
+    "search_trace_parity_count": 3,
+    "strict_nonvacuous_parity_rate": 0.666667,
+    "raw_proposal_parity_rate": 1.0,
+    "all_selected_raw_proposals_equal": true,
+    "all_selected_strictly_accepted": false
+  },
+  "rows": [
+    {
+      "case_id": "retrostar190-001-ddec287bee",
+      "target_name": "opaque benchmark target 001",
+      "target_smiles": "C[C@H](c1ccccc1)N1C[C@]2(C(=O)OC(C)(C)C)C=CC[C@@H]2C1=S",
+      "parity_accepted": true,
+      "parameter_binding_identity_complete": true,
+      "parameter_binding_accepted": true,
+      "parameter_binding_sha256": "f3b147d4e120e87e80d13acea0c6ab9b47fd3d2bb21a0bf5178375224df142de",
+      "raw_proposal_digest_equal": true,
+      "search_trace_digest_equal": true,
+      "route_fingerprint_rows_equal": true,
+      "backend_failure_free": true,
+      "nonempty_route_set_observed": true,
+      "embedded_route_count": 2,
+      "standalone_route_count": 2,
+      "embedded_quarantined_route_count": 0,
+      "standalone_quarantined_route_count": 0,
+      "embedded_search_trace_count": 1213,
+      "standalone_search_trace_count": 1213,
+      "embedded_raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
+      "standalone_raw_proposal_sha256": "6e1f2f19c5181183df5341afd03ab2af2ad8e7b4298e833d4647ae9fe7ff4418",
+      "embedded_search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de",
+      "standalone_search_trace_sha256": "7d33169a26114e1de0bce95064299670a3820211db1d045f15400ab6f57f23de",
+      "report_content_sha256": "3f7d51643b641c9b435a2ee5c6fc1ecd2064315a315846b36914710280c7235e",
+      "report_generated_at": "2026-08-11T20:27:16.402727Z",
+      "report_source_commit": "6c0b3ce",
+      "disposition": "accepted_nonvacuous"
+    },
+    {
+      "case_id": "retrostar190-002-5e5138eaad",
+      "target_name": "opaque benchmark target 002",
+      "target_smiles": "CCCC[C@@H](C(=O)N1CCC[C@H]1C(=O)O)[C@@H](F)C(=O)OC",
+      "parity_accepted": true,
+      "parameter_binding_identity_complete": true,
+      "parameter_binding_accepted": true,
+      "parameter_binding_sha256": "a28a131fc70c412e57866cc9b10fedc2c20da1bd61f404c3f0f4f7e3ca2b9029",
+      "raw_proposal_digest_equal": true,
+      "search_trace_digest_equal": true,
+      "route_fingerprint_rows_equal": true,
+      "backend_failure_free": true,
+      "nonempty_route_set_observed": true,
+      "embedded_route_count": 2,
+      "standalone_route_count": 2,
+      "embedded_quarantined_route_count": 2,
+      "standalone_quarantined_route_count": 2,
+      "embedded_search_trace_count": 1029,
+      "standalone_search_trace_count": 1029,
+      "embedded_raw_proposal_sha256": "3b5678faf0b30219f685331cb806e6431a32a2e850167c22129826f70d9be1ed",
+      "standalone_raw_proposal_sha256": "3b5678faf0b30219f685331cb806e6431a32a2e850167c22129826f70d9be1ed",
+      "embedded_search_trace_sha256": "b7be798660723e319b4dab458ef0582874e4351c2c52b04360b3b34f60bd0b08",
+      "standalone_search_trace_sha256": "b7be798660723e319b4dab458ef0582874e4351c2c52b04360b3b34f60bd0b08",
+      "report_content_sha256": "ec1a8b0a2e03d29e5481e99b8d05a455541fb328e2e3209e429948d7672056ae",
+      "report_generated_at": "2026-08-11T20:49:49.653201Z",
+      "report_source_commit": "6c0b3ce",
+      "disposition": "accepted_nonvacuous"
+    },
+    {
+      "case_id": "retrostar190-003-daa4011bac",
+      "target_name": "opaque benchmark target 003",
+      "target_smiles": "CC(C)c1ccc(-n2nc(O)c3c(=O)c4ccc(Cl)cc4[nH]c3c2=O)cc1",
+      "parity_accepted": false,
+      "parameter_binding_identity_complete": true,
+      "parameter_binding_accepted": true,
+      "parameter_binding_sha256": "8ec742dd87e5a4f64c5f19973f34ebea8b0d0c3770a9eba6b1336023ff572e4a",
+      "raw_proposal_digest_equal": true,
+      "search_trace_digest_equal": true,
+      "route_fingerprint_rows_equal": true,
+      "backend_failure_free": true,
+      "nonempty_route_set_observed": false,
+      "embedded_route_count": 0,
+      "standalone_route_count": 0,
+      "embedded_quarantined_route_count": 2,
+      "standalone_quarantined_route_count": 2,
+      "embedded_search_trace_count": 209,
+      "standalone_search_trace_count": 209,
+      "embedded_raw_proposal_sha256": "8584b4bf2da8f0596074278ac501fee9b2f596bbbde6fafb23b8245d9af9d0c9",
+      "standalone_raw_proposal_sha256": "8584b4bf2da8f0596074278ac501fee9b2f596bbbde6fafb23b8245d9af9d0c9",
+      "embedded_search_trace_sha256": "05ce6f22a84da6c938ae18a8e56285cc1e0260d21190271032e12b5492c16114",
+      "standalone_search_trace_sha256": "05ce6f22a84da6c938ae18a8e56285cc1e0260d21190271032e12b5492c16114",
+      "report_content_sha256": "0202bb1eb5a6881ea54bc97b464f1fef9ef51246d67919f115b423e4b73c6e09",
+      "report_generated_at": "2026-08-11T20:51:03.684329Z",
+      "report_source_commit": "6c0b3ce",
+      "disposition": "deterministic_but_empty_route_set"
+    }
+  ],
+  "limitations": [
+    "This panel is bounded evidence for the selected manifest prefix, not a 190-target result.",
+    "An empty route set is reported as deterministic-but-empty and does not satisfy strict parity acceptance.",
+    "Fresh/uncached CSV worker compatibility is evaluated separately and is not inferred from this parity panel."
+  ],
+  "content_sha256": "6bca41a3036f75f51cdb1d84e86e11bcfb71185979e2b37fedb7eba6a31430c5"
+}

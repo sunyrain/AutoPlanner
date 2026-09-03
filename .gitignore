@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.benchmark_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
@@ -38,6 +39,7 @@ config/
 !config/
 config/*
 !config/trusted_stock_catalogs.json
+!config/aizynthfinder.paper.yml
 !config/examples/
 config/examples/*
 !config/examples/nirmatrelvir_source_route_candidates.json
@@ -57,6 +59,10 @@ config/examples/*
 **/.autoplanner/
 exports/
 runs/
+
+# Local Codex worker runtime and event streams
+.codex-worker-tmp/
+codex_worker_events/
 
 # IDE
 .vscode/
@@ -90,6 +96,12 @@ data/*_cache.json
 
 # Legacy migration bundle
 archive/
+!archive/
+archive/*
+!archive/data/
+archive/data/*
+!archive/data/legacy_eval_202605/
+!archive/data/legacy_eval_202605/**
 docs/archive/
 scripts/archive/
 archive/migration_*/autoplanner_full_*.zip
@@ -97,13 +109,7 @@ archive/migration_*/autoplanner_full_*.zip.sha256
 archive/cleanup_*/
 archive/harness_prep_*/
 
-# Large datasets at repo root (use archive/ for the v1 snapshots)
-cascade_dataset_v2.json
-cascade_dataset_v2.normalized.json
-cascade_dataset_v2.strict.json
-cascade_dataset_v2.quality.json
-cascade_dataset_v2.strict.report.json
-cascade_dataset_v3.json
+# External datasets live under data_external/; root-level copies are not supported.
 dataset_v4_release/
 
 # Run logs at repo root
@@ -164,6 +170,9 @@ archive/code/*
 
 # Generated result/model and benchmark artefacts. Keep these local.
 results/
+/output/
+/tmp/
+/uv.lock
 ref_routes_n*.json
 targets_n*.txt
 results/enzexpand_*.csv
@@ -199,6 +208,12 @@ archive/cleanup_*/docs/
 docs/**/report_*/
 docs/**/*_report.pdf
 docs/**/*_report.png
+docs/evaluation/evidence/**/rendered-pages/
+docs/evaluation/evidence/**/*.pdf
+docs/evaluation/evidence/**/SynthEx-source/
+docs/evaluation/evidence/**/synthelite-source/
+docs/evaluation/figures/*.tif
+docs/evaluation/figures/*.tiff
 *.aux
 *.bbl
 *.blg

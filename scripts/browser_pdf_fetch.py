@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -26,6 +27,7 @@ from cascade_planner.harness.local_pdf_proxy import (  # noqa: E402
     local_pdf_proxy_download_manifest_path,
     local_pdf_proxy_pdfs_dir,
     local_pdf_proxy_request_queue_path,
+    local_pdf_proxy_work_dir,
 )
 
 
@@ -39,16 +41,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-ref", action="append", default=[])
     parser.add_argument("--title-contains", action="append", default=[])
     parser.add_argument("--max-items", type=int)
-    parser.add_argument("--timeout-ms", type=int, default=90000)
+    parser.add_argument(
+        "--timeout-ms",
+        type=int,
+        default=180000,
+        help=(
+            "One source-wide browser deadline. The 180 s default allows first-use "
+            "institutional authentication and dynamically rendered full text."
+        ),
+    )
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--no-publisher-provider", action="store_true")
+    parser.add_argument("--publisher-provider-python", default="")
+    parser.add_argument("--publisher-provider-timeout-s", type=int, default=300)
+    parser.add_argument("--publisher-package-root", default="")
+    parser.add_argument("--chrome-major", type=int, default=0)
     args = parser.parse_args(argv)
 
     output_dir = Path(args.output_dir).resolve()
     queue_path = local_pdf_proxy_request_queue_path(output_dir)
     manifest_path = local_pdf_proxy_download_manifest_path(output_dir)
     pdf_dir = local_pdf_proxy_pdfs_dir(output_dir)
+    html_dir = local_pdf_proxy_work_dir(output_dir) / "html"
     pdf_dir.mkdir(parents=True, exist_ok=True)
+    html_dir.mkdir(parents=True, exist_ok=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     requests = filter_pdf_requests(
@@ -72,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
 
     existing = _existing_successes(manifest_path)
     written: list[dict[str, Any]] = []
+    provider_python = "" if args.no_publisher_provider else (
+        args.publisher_provider_python or _find_publisher_provider_python()
+    )
     with sync_playwright() as pw:
         browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{int(args.debug_port)}")
         context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
@@ -88,12 +108,28 @@ def main(argv: list[str] | None = None) -> int:
                     page,
                     request,
                     pdf_dir=pdf_dir,
+                    html_dir=html_dir,
                     timeout_ms=int(args.timeout_ms),
                 )
             finally:
                 page.close()
+            if result.get("status") != "downloaded" and provider_python:
+                result = _publisher_provider_fallback(
+                    request,
+                    prior_result=result,
+                    provider_python=provider_python,
+                    provider_root=(
+                        local_pdf_proxy_work_dir(output_dir) / "publisher-provider"
+                    ),
+                    manifest_root=output_dir,
+                    manifest_path=manifest_path,
+                    timeout_s=max(30, int(args.publisher_provider_timeout_s)),
+                    package_root=str(args.publisher_package_root or ""),
+                    chrome_major=max(0, int(args.chrome_major)),
+                )
             written.append(result)
-            _append_manifest(manifest_path, result)
+            if not result.pop("_manifest_already_written", False):
+                _append_manifest(manifest_path, result)
         browser.close()
 
     downloaded = sum(1 for row in written if row.get("status") == "downloaded")
@@ -113,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
                         "request_id": row.get("request_id"),
                         "status": row.get("status"),
                         "pdf_path": row.get("pdf_path", ""),
+                        "html_path": row.get("html_path", ""),
+                        "artifact_kind": row.get("artifact_kind", ""),
                         "reason": row.get("reason", ""),
                         "final_url": row.get("final_url", ""),
                     }
@@ -141,6 +179,106 @@ def _find_browser() -> str:
     return ""
 
 
+def _find_publisher_provider_python() -> str:
+    configured = os.getenv("AUTOPLANNER_PUBLISHER_PROVIDER_PYTHON", "").strip()
+    candidates = [
+        configured,
+        r"D:\conda\envs\py312\python.exe",
+    ]
+    return next((path for path in candidates if path and Path(path).is_file()), "")
+
+
+def _publisher_provider_fallback(
+    request: dict[str, Any],
+    *,
+    prior_result: dict[str, Any],
+    provider_python: str,
+    provider_root: Path,
+    manifest_root: Path,
+    manifest_path: Path,
+    timeout_s: int,
+    package_root: str,
+    chrome_major: int,
+) -> dict[str, Any]:
+    doi = str(request.get("doi") or "").strip()
+    if not doi:
+        return prior_result
+    request_id = str(request.get("request_id") or hashlib.sha256(doi.encode()).hexdigest()[:16])
+    output_dir = provider_root / _safe_id(request_id)
+    command = [
+        provider_python,
+        str(ROOT / "scripts" / "authorized_literature_fetch.py"),
+        "--doi",
+        doi,
+        "--output-dir",
+        str(output_dir),
+        "--manifest-root",
+        str(manifest_root),
+        "--request-id",
+        request_id,
+        "--case-id",
+        str(request.get("case_id") or ""),
+        "--source-ref",
+        str(request.get("source_ref") or f"doi:{doi}"),
+        "--url",
+        str(request.get("url") or f"https://doi.org/{doi}"),
+        "--title",
+        str(request.get("title") or ""),
+    ]
+    if package_root:
+        command.extend(["--package-root", package_root])
+    if chrome_major:
+        command.extend(["--chrome-major", str(chrome_major)])
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout_s,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            **prior_result,
+            "reason": (
+                f"{str(prior_result.get('reason') or '')}; "
+                f"publisher_provider_timeout:{timeout_s}s"
+            )[:2000],
+        }
+    matched = _manifest_result_for_request(manifest_path, request_id)
+    if completed.returncode == 0 and matched:
+        return {**matched, "_manifest_already_written": True}
+    provider_reason = " ".join(
+        (completed.stderr or completed.stdout or "publisher_provider_failed").split()
+    )[:600]
+    return {
+        **prior_result,
+        "reason": (
+            f"{str(prior_result.get('reason') or '')}; "
+            f"publisher_provider_failed:{completed.returncode}:{provider_reason}"
+        )[:2000],
+    }
+
+
+def _manifest_result_for_request(path: Path, request_id: str) -> dict[str, Any]:
+    matched: dict[str, Any] = {}
+    if not path.is_file():
+        return matched
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if (
+            str(row.get("request_id") or "") == request_id
+            and row.get("accepted") is True
+            and row.get("status") == "downloaded"
+        ):
+            matched = dict(row)
+    return matched
+
+
 def _ensure_browser(chrome: str, *, debug_port: int, profile_dir: str, headless: bool) -> None:
     if _cdp_ready(debug_port):
         return
@@ -158,7 +296,12 @@ def _ensure_browser(chrome: str, *, debug_port: int, profile_dir: str, headless:
     ]
     if headless:
         args.append("--headless=new")
-    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen(
+        args,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
         if _cdp_ready(debug_port):
@@ -175,28 +318,55 @@ def _cdp_ready(debug_port: int) -> bool:
         return False
 
 
-def _fetch_one(page: Any, request: dict[str, Any], *, pdf_dir: Path, timeout_ms: int) -> dict[str, Any]:
+def _fetch_one(
+    page: Any,
+    request: dict[str, Any],
+    *,
+    pdf_dir: Path,
+    html_dir: Path,
+    timeout_ms: int,
+) -> dict[str, Any]:
     url = str(request.get("url") or "").strip()
     doi = str(request.get("doi") or "").strip()
     if not url and doi:
         url = f"https://doi.org/{doi}"
-    request_id = str(request.get("request_id") or _safe_id(doi or url or "request"))
     started = _now()
     candidates = _candidate_pdf_urls(url, doi)
     errors: list[str] = []
     landing_url = ""
+    landing_html = b""
+    landing_html_usable = False
+    deadline = time.monotonic() + max(5.0, timeout_ms / 1000.0)
     if url:
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            response = page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=_remaining_timeout_ms(deadline),
+            )
+            if response is not None:
+                body = response.body()
+                if _is_pdf_bytes(body):
+                    return _write_pdf_result(
+                        request,
+                        data=body,
+                        pdf_dir=pdf_dir,
+                        started_at_utc=started,
+                        final_url=str(response.url or url),
+                        content_type=str(response.headers.get("content-type") or ""),
+                    )
             try:
-                page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 15000))
+                page.wait_for_load_state(
+                    "networkidle",
+                    timeout=min(_remaining_timeout_ms(deadline), 10000),
+                )
             except Exception:
                 pass
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(min(_remaining_timeout_ms(deadline), 1500))
             landing_url = str(page.url or "")
             landing_text = _page_body_text(page)
             if _looks_like_robot_challenge(landing_text):
-                page.wait_for_timeout(min(timeout_ms, 30000))
+                page.wait_for_timeout(min(_remaining_timeout_ms(deadline), 15000))
                 landing_url = str(page.url or "")
                 landing_text = _page_body_text(page)
             landing_access_block = _landing_access_block_reason(landing_text)
@@ -208,6 +378,11 @@ def _fetch_one(page: Any, request: dict[str, Any], *, pdf_dir: Path, timeout_ms:
                     final_url=landing_url,
                     reason=landing_access_block,
                 )
+            landing_html = _page_html_bytes(page)
+            landing_html_usable = _is_usable_article_html(
+                landing_html,
+                doi=doi,
+            )
             landing_pii = _pii_from_url(landing_url)
             if landing_pii:
                 candidates = _dedupe(
@@ -226,59 +401,74 @@ def _fetch_one(page: Any, request: dict[str, Any], *, pdf_dir: Path, timeout_ms:
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{url}: landing_warm_failed {type(exc).__name__}: {str(exc)[:300]}")
     for candidate_url in candidates:
+        if time.monotonic() >= deadline:
+            errors.append("source_fetch_deadline_exhausted")
+            break
+        api_response = None
         try:
-            nav_response = page.goto(candidate_url, wait_until="domcontentloaded", timeout=timeout_ms)
+            # BrowserContext.request shares the persistent browser's cookies
+            # but is not constrained by page JavaScript CORS.  The previous
+            # page.evaluate(fetch(...)) path failed even when the browser was
+            # institutionally authorized.
+            api_response = page.context.request.get(
+                candidate_url,
+                timeout=_remaining_timeout_ms(deadline),
+                fail_on_status_code=False,
+            )
+            data = api_response.body()
+            content_type = str(api_response.headers.get("content-type") or "").lower()
+            if _is_pdf_bytes(data):
+                return _write_pdf_result(
+                    request,
+                    data=data,
+                    pdf_dir=pdf_dir,
+                    started_at_utc=started,
+                    final_url=str(api_response.url or candidate_url),
+                    content_type=content_type,
+                )
+            errors.append(
+                f"{candidate_url}: context_request_not_pdf "
+                f"status={api_response.status} content_type={content_type} bytes={len(data)}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{candidate_url}: context_request {type(exc).__name__}: {str(exc)[:300]}")
+        finally:
+            if api_response is not None:
+                api_response.dispose()
+        if time.monotonic() >= deadline:
+            break
+        try:
+            nav_response = page.goto(
+                candidate_url,
+                wait_until="domcontentloaded",
+                timeout=_remaining_timeout_ms(deadline),
+            )
             if nav_response is not None:
                 content_type = str(nav_response.headers.get("content-type") or "").lower()
                 body = nav_response.body()
                 if _is_pdf_bytes(body):
-                    filename = _safe_id(request_id) + ".pdf"
-                    path = pdf_dir / filename
-                    path.write_bytes(body)
-                    return _manifest_row(
+                    return _write_pdf_result(
                         request,
-                        status="downloaded",
+                        data=body,
+                        pdf_dir=pdf_dir,
                         started_at_utc=started,
-                        pdf_path=str(path.resolve()),
                         final_url=str(nav_response.url or candidate_url),
                         content_type=content_type,
-                        byte_count=len(body),
                     )
-            result = page.evaluate(
-                """async ({url}) => {
-                    const response = await fetch(url, { credentials: "include", cache: "no-store" });
-                    const buffer = await response.arrayBuffer();
-                    const bytes = Array.from(new Uint8Array(buffer));
-                    return {
-                        ok: response.ok,
-                        status: response.status,
-                        finalUrl: response.url,
-                        contentType: response.headers.get("content-type") || "",
-                        bytes
-                    };
-                }""",
-                {"url": candidate_url},
-            )
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"{candidate_url}: {type(exc).__name__}: {str(exc)[:300]}")
+            errors.append(f"{candidate_url}: navigation {type(exc).__name__}: {str(exc)[:300]}")
             continue
-        data = bytes(int(value) & 0xFF for value in result.get("bytes") or [])
-        content_type = str(result.get("contentType") or "").lower()
-        if _is_pdf_bytes(data):
-            filename = _safe_id(request_id) + ".pdf"
-            path = pdf_dir / filename
-            path.write_bytes(data)
-            return _manifest_row(
-                request,
-                status="downloaded",
-                started_at_utc=started,
-                pdf_path=str(path.resolve()),
-                final_url=str(result.get("finalUrl") or candidate_url),
-                content_type=content_type,
-                byte_count=len(data),
-            )
-        errors.append(
-            f"{candidate_url}: not_pdf status={result.get('status')} content_type={content_type} bytes={len(data)}"
+    # A publisher page can expose both useful HTML and an authenticated main
+    # PDF link.  Prefer the PDF so legacy image-only articles can enter the
+    # visual extractor; retain HTML as the bounded fallback when no PDF works.
+    if landing_html_usable:
+        return _write_html_result(
+            request,
+            data=landing_html,
+            html_dir=html_dir,
+            started_at_utc=started,
+            final_url=landing_url or url,
+            content_type="text/html",
         )
     return _manifest_row(
         request,
@@ -295,10 +485,39 @@ def _page_body_text(page: Any) -> str:
         return ""
 
 
+def _page_html_bytes(page: Any) -> bytes:
+    try:
+        return str(page.content() or "").encode("utf-8")
+    except Exception:  # noqa: BLE001
+        return b""
+
+
+def _is_usable_article_html(data: bytes, *, doi: str) -> bool:
+    if len(data) < 2_000:
+        return False
+    text = data.decode("utf-8", errors="ignore").casefold()
+    normalized_doi = str(doi or "").strip().casefold()
+    if normalized_doi and normalized_doi not in text:
+        return False
+    fulltext_signals = (
+        "experimental",
+        "materials and methods",
+        "general procedure",
+        "reaction mixture",
+        "supplementary information",
+        "supporting information",
+        "was stirred",
+        "was added",
+        "purified by",
+    )
+    return sum(signal in text for signal in fulltext_signals) >= 2
+
+
 def _pdf_links_from_page(page: Any, base_url: str) -> list[str]:
     try:
         raw_links = page.evaluate(
-            """() => Array.from(document.querySelectorAll('a[href]')).map((node) => {
+            """() => {
+              const anchors = Array.from(document.querySelectorAll('a[href]')).map((node) => {
                 const label = [
                     node.textContent || '',
                     node.getAttribute('aria-label') || '',
@@ -306,7 +525,19 @@ def _pdf_links_from_page(page: Any, base_url: str) -> list[str]:
                     node.getAttribute('href') || ''
                 ].join(' ');
                 return { href: node.getAttribute('href') || '', label };
-            })"""
+              });
+              const meta = Array.from(document.querySelectorAll('meta[content]'))
+                .filter((node) => /pdf/i.test([
+                  node.getAttribute('name') || '',
+                  node.getAttribute('property') || '',
+                  node.getAttribute('content') || ''
+                ].join(' ')))
+                .map((node) => ({
+                  href: node.getAttribute('content') || '',
+                  label: [node.getAttribute('name') || '', node.getAttribute('property') || ''].join(' ')
+                }));
+              return anchors.concat(meta);
+            }"""
         )
     except Exception:  # noqa: BLE001
         return []
@@ -322,6 +553,60 @@ def _pdf_links_from_page(page: Any, base_url: str) -> list[str]:
             continue
         out.append(urljoin(base_url or "", href))
     return _dedupe(out)
+
+
+def _remaining_timeout_ms(deadline: float) -> int:
+    return max(1000, int((deadline - time.monotonic()) * 1000))
+
+
+def _write_pdf_result(
+    request: dict[str, Any],
+    *,
+    data: bytes,
+    pdf_dir: Path,
+    started_at_utc: str,
+    final_url: str,
+    content_type: str,
+) -> dict[str, Any]:
+    request_id = str(request.get("request_id") or "request")
+    path = pdf_dir / (_safe_id(request_id) + ".pdf")
+    path.write_bytes(data)
+    return _manifest_row(
+        request,
+        status="downloaded",
+        started_at_utc=started_at_utc,
+        pdf_path=str(path.resolve()),
+        final_url=final_url,
+        content_type=content_type,
+        byte_count=len(data),
+        artifact_kind="publisher_or_supplementary_pdf",
+    )
+
+
+def _write_html_result(
+    request: dict[str, Any],
+    *,
+    data: bytes,
+    html_dir: Path,
+    started_at_utc: str,
+    final_url: str,
+    content_type: str,
+) -> dict[str, Any]:
+    request_id = str(request.get("request_id") or "request")
+    digest = hashlib.sha256(data).hexdigest()
+    path = html_dir / f"{_safe_id(request_id)}-{digest[:16]}.html"
+    path.write_bytes(data)
+    return _manifest_row(
+        request,
+        status="downloaded",
+        started_at_utc=started_at_utc,
+        html_path=str(path.resolve()),
+        html_sha256=digest,
+        final_url=final_url,
+        content_type=content_type,
+        byte_count=len(data),
+        artifact_kind="publisher_fulltext_html",
+    )
 
 
 def _looks_like_robot_challenge(text: str) -> bool:
@@ -351,6 +636,30 @@ def _candidate_pdf_urls(url: str, doi: str) -> list[str]:
                 f"https://pubs.acs.org/doi/suppl/{doi}/suppl_file/",
             ]
         )
+    if "10.1002/" in doi_lower:
+        urls.extend(
+            [
+                f"https://onlinelibrary.wiley.com/doi/pdfdirect/{doi}",
+                f"https://onlinelibrary.wiley.com/doi/pdf/{doi}",
+                f"https://onlinelibrary.wiley.com/doi/epdf/{doi}",
+            ]
+        )
+    if "10.1007/" in doi_lower:
+        urls.append(f"https://link.springer.com/content/pdf/{doi}.pdf")
+    if "10.1038/" in doi_lower:
+        suffix = doi.split("/", 1)[-1]
+        urls.append(f"https://www.nature.com/articles/{suffix}.pdf")
+    if "10.1039/" in doi_lower:
+        suffix = doi.split("/", 1)[-1].casefold()
+        if len(suffix) >= 4:
+            year_code = suffix[:2]
+            journal_code = suffix[2:4]
+            urls.append(
+                "https://www.rsc.org/suppdata/"
+                f"{journal_code}/{year_code}/{suffix}/{suffix}1.pdf"
+            )
+    if "10.1080/" in doi_lower:
+        urls.append(f"https://www.tandfonline.com/doi/pdf/{doi}?download=1")
     pii = _pii_from_doi(doi)
     if pii:
         urls.extend(
@@ -393,10 +702,13 @@ def _manifest_row(
     status: str,
     started_at_utc: str,
     pdf_path: str = "",
+    html_path: str = "",
+    html_sha256: str = "",
     final_url: str = "",
     content_type: str = "",
     byte_count: int = 0,
     reason: str = "",
+    artifact_kind: str = "",
 ) -> dict[str, Any]:
     return {
         "schema_version": "local_pdf_proxy_result.v1",
@@ -409,6 +721,9 @@ def _manifest_row(
         "status": status,
         "accepted": status == "downloaded",
         "pdf_path": pdf_path,
+        "html_path": html_path,
+        "html_sha256": html_sha256,
+        "artifact_kind": artifact_kind,
         "final_url": final_url,
         "content_type": content_type,
         "byte_count": int(byte_count),

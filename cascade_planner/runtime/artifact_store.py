@@ -26,6 +26,7 @@ ARTIFACT_POINTER_SCHEMA = "autoplanner_artifact_pointer.v1"
 ARTIFACT_GC_PLAN_SCHEMA = "autoplanner_artifact_gc_plan.v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_POINTER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$")
+_POINTER_WRITE_LOCKS = tuple(threading.RLock() for _ in range(64))
 
 
 class ArtifactStoreError(RuntimeError):
@@ -304,6 +305,7 @@ class ArtifactStore:
         metadata: Mapping[str, Any] | None = None,
     ) -> Path:
         pointer_path = self._pointer_path(name)
+        pointer_path.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, Any] = {
             "schema_version": ARTIFACT_POINTER_SCHEMA,
             "name": name,
@@ -316,7 +318,8 @@ class ArtifactStore:
                 "pointer_grants_no_scientific_authority": True,
             },
         }
-        self._atomic_write_json(pointer_path, payload)
+        with _pointer_write_lock(pointer_path):
+            self._atomic_write_json(pointer_path, payload)
         return pointer_path
 
     def load_pointer(self, name: str) -> tuple[ArtifactRef, dict[str, Any]]:
@@ -446,16 +449,27 @@ class ArtifactStore:
         digest: str,
         size_bytes: int | None,
     ) -> None:
-        if not path.is_file():
-            raise ArtifactCorruptionError(f"artifact_object_missing:{digest}")
-        if size_bytes is not None and path.stat().st_size != int(size_bytes):
-            raise ArtifactCorruptionError(f"artifact_object_size_mismatch:{digest}")
-        observed = hashlib.sha256()
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                observed.update(block)
-        if observed.hexdigest() != str(digest).lower():
-            raise ArtifactCorruptionError(f"artifact_object_digest_mismatch:{digest}")
+        for attempt in range(8):
+            try:
+                if not path.is_file():
+                    raise ArtifactCorruptionError(f"artifact_object_missing:{digest}")
+                if size_bytes is not None and path.stat().st_size != int(size_bytes):
+                    raise ArtifactCorruptionError(
+                        f"artifact_object_size_mismatch:{digest}"
+                    )
+                observed = hashlib.sha256()
+                with path.open("rb") as handle:
+                    for block in iter(lambda: handle.read(1024 * 1024), b""):
+                        observed.update(block)
+                if observed.hexdigest() != str(digest).lower():
+                    raise ArtifactCorruptionError(
+                        f"artifact_object_digest_mismatch:{digest}"
+                    )
+                return
+            except PermissionError:
+                if attempt == 7:
+                    raise
+                time.sleep(min(0.4, 0.025 * (2**attempt)))
 
     def _publish_temporary(
         self,
@@ -487,10 +501,13 @@ class ArtifactStore:
             or ".." in normalized.split("/")
         ):
             raise ArtifactReferenceError("artifact_pointer_name_invalid")
-        path = (self.pointers_root / f"{normalized}.json").resolve()
+        path = self.pointers_root / f"{normalized}.json"
         try:
-            path.relative_to(self.pointers_root)
-        except ValueError as exc:
+            root_key = _portable_realpath_key(self.pointers_root)
+            path_key = _portable_realpath_key(path)
+            if os.path.commonpath((root_key, path_key)) != root_key:
+                raise ValueError("pointer path escaped root")
+        except (OSError, ValueError) as exc:
             raise ArtifactReferenceError("artifact_pointer_path_escape") from exc
         return path
 
@@ -539,7 +556,7 @@ class ArtifactStore:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, path)
+            _replace_with_bounded_retry(temporary, path)
             ArtifactStore._fsync_directory(path.parent)
         finally:
             temporary.unlink(missing_ok=True)
@@ -553,6 +570,35 @@ class ArtifactStore:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+
+def _portable_realpath_key(path: str | os.PathLike[str]) -> str:
+    """Normalize Windows extended paths before containment comparison."""
+
+    value = os.path.normcase(os.path.normpath(os.path.realpath(os.fspath(path))))
+    if value.startswith("\\\\?\\UNC\\"):
+        value = "\\\\" + value[8:]
+    elif value.startswith("\\\\?\\"):
+        value = value[4:]
+    return value
+
+
+def _pointer_write_lock(path: Path) -> threading.RLock:
+    key = _portable_realpath_key(path)
+    return _POINTER_WRITE_LOCKS[hash(key) % len(_POINTER_WRITE_LOCKS)]
+
+
+def _replace_with_bounded_retry(source: Path, destination: Path) -> None:
+    """Survive short Windows reader/peer-writer locks without losing atomicity."""
+
+    for attempt in range(8):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(min(0.4, 0.025 * (2**attempt)))
 
 
 def _utc_now() -> str:

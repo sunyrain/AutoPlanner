@@ -40,7 +40,7 @@ candidate rerankers while still returning candidates only:
 AUTOPLANNER_SOURCE_GATE=results/shared/proposal_rankers/full_20260508/source_gate.pt \
 AUTOPLANNER_ENABLE_PROPOSAL_RANKERS=1 \
 AUTOPLANNER_PROPOSAL_RANKER_DIR=results/shared/proposal_rankers/full_20260508 \
-AUTOPLANNER_ENABLE_V3_RETRIEVAL_PROPOSALS=1
+AUTOPLANNER_ROUTE_TREE_V3_RETRIEVAL_ALL=1
 ```
 
 If the env flag is not enabled or the checkpoint cannot be loaded, the planner
@@ -48,6 +48,11 @@ still runs with deterministic heuristic node/action scores. That fallback is
 for smoke tests and data bootstrapping, not the target production setting.
 Uncalibrated checkpoints may score node/action choices, but their value logits
 are not used for route-value backup.
+
+Frozen CCTS v0/v3 checkpoints are not discovered by the active planner, even
+when old `AUTOPLANNER_CCTS_*` variables are present. Historical replay must
+call `cascade_planner.legacy.route_tree_runtime.plan_with_legacy_ccts`, which
+requires `AUTOPLANNER_ALLOW_LEGACY_RESEARCH=1` and injects the scorer explicitly.
 
 ## Trace Collection
 

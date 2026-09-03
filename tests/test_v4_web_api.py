@@ -1,14 +1,44 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from threading import Event, RLock
 import time
+from unittest.mock import Mock
 
 from flask import Flask
+import pytest
 
+from cascade_planner.application.biocatalytic_programs import (
+    BIOCATALYSIS_PROGRAM_VALIDATION_SCHEMA,
+    with_biocatalysis_program_validation_digest,
+)
+from cascade_planner.application.experiment_execution_results import (
+    build_experiment_execution_result,
+)
+from cascade_planner.application.experiment_external_jobs import (
+    build_experiment_cancellation_request,
+    build_experiment_external_job_receipt,
+    build_experiment_operator_identity,
+)
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
+from cascade_planner.interfaces.target_solve_request import solve_target_request
+from cascade_planner.interfaces.target_solver import TargetSolveCancelled
 from cascade_planner.runtime.paths import RuntimePaths
+from cascade_planner.runtime.run_index import RUN_MANIFEST_SCHEMA, RunIndex
+from cascade_planner.runtime.run_registry_catalog import (
+    RunRegistryCatalog,
+    binding_from_registry_root,
+    registry_catalog_path,
+)
 from cascade_planner.web.v4_api import create_v4_blueprint
-from cascade_planner.web.v4_target_runtime import historical_job
+from cascade_planner.web.v4_app import create_v4_app
+from cascade_planner.web.v4_target_runtime import (
+    _model_cost_with_in_flight_checkpoints,
+    historical_job,
+    live_job_progress,
+)
+from cascade_planner.web.v4_target_runtime import run_target_job
 from cascade_planner.interfaces.target_delivery import delivery_projection
 
 
@@ -25,6 +55,945 @@ def _gateway(tmp_path: Path) -> CampaignGateway:
     return CampaignGateway(paths)
 
 
+def test_live_progress_uses_active_action_before_first_checkpoint_stage(
+    tmp_path: Path,
+) -> None:
+    class Gateway:
+        def status(self, _run_id):
+            return {
+                "run_dir": str(tmp_path),
+                "status": {
+                    "status": "running",
+                    "stop_decision": {"terminal": False},
+                    "active_actions": [
+                        {
+                            "execution_id": "campaign-action:initial",
+                            "action_id": "action:codex_global_architecture:initial",
+                            "kind": "codex_global_architecture",
+                            "producer": "codex_global_director",
+                            "resource_class": "model",
+                        }
+                    ],
+                    "portfolio": {
+                        "selected_routes": [
+                            {"all_leaves_stock_closed": True},
+                            {"all_leaves_stock_closed": False},
+                        ],
+                        "closeout": {"complete_route_count": 0},
+                    },
+                    "frontier": [],
+                },
+            }
+
+    progress = live_job_progress(
+        Gateway,
+        {"run_id": "initial", "status": "running", "phase": "initializing"},
+    )
+
+    assert progress["phase"] == "codex_global_architecture"
+    assert progress["portfolio"]["selected_route_count"] == 2
+    assert progress["portfolio"]["stock_closed_route_count"] == 1
+    assert progress["portfolio"]["strict_proof_complete_route_count"] == 0
+
+
+def test_paused_director_progress_includes_latest_unsettled_kernel_checkpoint() -> None:
+    projected = _model_cost_with_in_flight_checkpoints(
+        {
+            "model_totals": {
+                "model_invocations": 2,
+                "input_tokens": 20,
+                "output_tokens": 5,
+            },
+            "in_flight_tasks": {
+                "director:one": {"kind": "model"},
+            },
+            "task_checkpoints": {
+                "director:one": [
+                    {
+                        "metadata": {
+                            "model_usage": {
+                                "model_invocations": 21,
+                                "input_tokens": 2_100,
+                                "output_tokens": 210,
+                            }
+                        }
+                    }
+                ],
+                # A settled task's historical checkpoint must not be added a
+                # second time after its usage entered model_totals.
+                "director:settled": [{"metadata": {"model_usage": {"model_invocations": 9}}}],
+            },
+        }
+    )
+
+    assert projected["model_invocations"] == 23
+    assert projected["input_tokens"] == 2_120
+    assert projected["output_tokens"] == 215
+    assert projected["in_flight_checkpoint_count"] == 1
+    assert projected["includes_unsettled_checkpoint_observations"] is True
+
+
+def test_paused_job_reads_recoverable_prefix_from_kernel_checkpoint(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "paused-run"
+    checkpoint = run_dir / ".autoplanner" / "target-solver-checkpoint.json"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "stages": [
+                    {
+                        "stage": "global_campaign",
+                        "status": "runtime_unavailable",
+                    }
+                ],
+                "director_outcomes": [
+                    {
+                        "status": "runtime_unavailable",
+                        "runtime_pause": True,
+                        "resume_required_task_ids": ["critic:branch:2"],
+                        "artifact_sha256": "checkpoint-sha",
+                        "plan": {
+                            "route_families": [{}, {}, {}],
+                            "multi_step_skeletons": [{}, {}, {}],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    job = {
+        "run_id": "paused-run",
+        "status": "paused",
+        "phase": "runtime_unavailable",
+        "runtime_pause": True,
+        "cancellation_available": True,
+        "_status_result": {
+            "run_dir": str(run_dir),
+            "status": {
+                "status": "paused",
+                "stop_decision": {"decision": "paused", "terminal": False},
+                "model_totals": {"model_invocations": 2},
+                "in_flight_tasks": {"director:one": {"kind": "model"}},
+                "task_checkpoints": {
+                    "director:one": [{"metadata": {"model_usage": {"model_invocations": 7}}}]
+                },
+                "portfolio": {"selected_routes": []},
+                "frontier": [],
+            },
+        },
+    }
+
+    progress = live_job_progress(lambda: None, job)
+
+    assert progress["execution_active"] is False
+    assert progress["cancellation_available"] is False
+    assert progress["model_cost"]["model_invocations"] == 9
+    assert progress["portfolio"]["route_count"] == 3
+    assert progress["recoverable_director_prefix"] == {
+        "available": True,
+        "route_family_count": 3,
+        "route_skeleton_count": 3,
+        "resume_required_task_ids": ["critic:branch:2"],
+        "artifact_sha256": "checkpoint-sha",
+        "semantics": {
+            "route_count_is_not_canonical_admission": True,
+            "resume_replays_completed_worker_records": True,
+        },
+    }
+
+
+def _catalog_manifest(
+    run_id: str,
+    *,
+    run_dir: Path,
+    updated_at: str,
+    target_name: str,
+) -> dict:
+    return {
+        "schema_version": RUN_MANIFEST_SCHEMA,
+        "run_id": run_id,
+        "case_id": "catalog-case",
+        "target_name": target_name,
+        "status": "completed",
+        "revision": 1,
+        "updated_at": updated_at,
+        "run_dir": str(run_dir),
+        "accepted": False,
+        "cost_totals": {"model_invocations": 1},
+        "graph": {"complete_route_count": 0},
+        "deficits": {},
+    }
+
+
+def test_v4_job_catalog_paginates_and_preserves_same_run_id_across_registries(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path / "primary")
+    shared_run_id = "same-run-id"
+    gateway.index.upsert_run(
+        _catalog_manifest(
+            shared_run_id,
+            run_dir=tmp_path / "primary-run",
+            updated_at="2026-08-27T08:00:00Z",
+            target_name="main copy",
+        )
+    )
+    external_root = tmp_path / "paper-panel" / "case1"
+    external_index = RunIndex(external_root / "runtime" / "run_index.sqlite3")
+    external_index.upsert_run(
+        _catalog_manifest(
+            shared_run_id,
+            run_dir=external_root / "runs" / "target",
+            updated_at="2026-08-27T09:00:00Z",
+            target_name="paper copy",
+        )
+    )
+    RunRegistryCatalog(registry_catalog_path(gateway.paths)).register(
+        binding_from_registry_root(
+            external_root,
+            registry_id="paper-case1",
+            registry_label="Paper case 1",
+            project_id="paper25",
+            project_label="Paper 25-step panel",
+            case_id="case1",
+            repository_root=tmp_path,
+        )
+    )
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+
+    first = client.get("/api/v4/jobs?limit=1&offset=0").get_json()
+    second = client.get("/api/v4/jobs?limit=1&offset=1").get_json()
+
+    assert first["total_count"] == 2
+    assert first["returned_count"] == 1
+    assert first["has_more"] is True
+    assert first["next_offset"] == 1
+    assert second["has_more"] is False
+    jobs = first["jobs"] + second["jobs"]
+    assert {row["catalog_identity"] for row in jobs} == {
+        "main:same-run-id",
+        "paper-case1:same-run-id",
+    }
+    assert {row["job_id"] for row in jobs} == {
+        "solve:@main:same-run-id",
+        "solve:@paper-case1:same-run-id",
+    }
+
+    project = client.get("/api/v4/jobs?project_id=paper25").get_json()
+    assert project["total_count"] == 1
+    assert project["jobs"][0]["target_name"] == "paper copy"
+    external_job_id = project["jobs"][0]["job_id"]
+    detail = client.get(f"/api/v4/jobs/{external_job_id}")
+    assert detail.status_code == 200
+    assert detail.get_json()["registry_id"] == "paper-case1"
+    assert detail.get_json()["registry_read_only"] is True
+
+    retired_identity = client.get("/api/v4/jobs/solve:same-run-id")
+    assert retired_identity.status_code == 404
+    assert client.get("/api/v4/jobs/solve:@missing:same-run-id").status_code == 404
+
+
+def test_v4_job_catalog_reports_unavailable_registry_without_blocking_main(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path / "primary")
+    gateway.index.upsert_run(
+        _catalog_manifest(
+            "main-run",
+            run_dir=tmp_path / "main-run",
+            updated_at="2026-08-27T08:00:00Z",
+            target_name="main run",
+        )
+    )
+    missing_root = tmp_path / "missing-panel"
+    RunRegistryCatalog(registry_catalog_path(gateway.paths)).register(
+        binding_from_registry_root(
+            missing_root,
+            registry_id="missing-panel",
+            registry_label="Missing panel",
+            project_id="paper25",
+            project_label="Paper 25-step panel",
+            repository_root=tmp_path,
+        )
+    )
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+
+    payload = app.test_client().get("/api/v4/jobs?limit=20").get_json()
+
+    assert payload["total_count"] == 1
+    assert payload["jobs"][0]["run_id"] == "main-run"
+    missing = next(row for row in payload["registries"] if row["registry_id"] == "missing-panel")
+    assert missing["available"] is False
+    assert missing["error"] == "run_index_missing"
+
+
+def test_terminal_main_catalog_row_does_not_reload_kernel_status(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path / "primary")
+    gateway.index.upsert_run(
+        _catalog_manifest(
+            "settled-main-run",
+            run_dir=tmp_path / "settled-main-run",
+            updated_at="2026-08-27T08:00:00Z",
+            target_name="settled main run",
+        )
+    )
+    gateway.status = Mock(side_effect=AssertionError("terminal status was reloaded"))
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+
+    payload = app.test_client().get("/api/v4/jobs?limit=20").get_json()
+
+    assert payload["total_count"] == 1
+    assert payload["jobs"][0]["status"] == "historical"
+    gateway.status.assert_not_called()
+
+
+def test_terminal_main_detail_reads_kernel_status_once_and_projects_saved_routes(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path / "primary")
+    run_id = "settled-main-detail"
+    run_dir = tmp_path / run_id
+    gateway.index.upsert_run(
+        _catalog_manifest(
+            run_id,
+            run_dir=run_dir,
+            updated_at="2026-08-27T08:00:00Z",
+            target_name="settled detail run",
+        )
+    )
+    gateway.status = Mock(
+        return_value={
+            "run_dir": str(run_dir),
+            "status": {
+                "status": "unresolved",
+                "stop_decision": {"decision": "unresolved", "terminal": True},
+                "model_totals": {"model_invocations": 9},
+                "portfolio": {
+                    "selected_routes": [
+                        {"all_leaves_stock_closed": True},
+                        {"all_leaves_stock_closed": True},
+                        {"all_leaves_stock_closed": False},
+                    ],
+                    "closeout": {"complete_route_count": 1},
+                    "deficits": [],
+                },
+                "frontier": [],
+            },
+        }
+    )
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+
+    listed = client.get("/api/v4/jobs?limit=20").get_json()["jobs"][0]
+    gateway.status.assert_not_called()
+    detail = client.get(f"/api/v4/jobs/solve:@main:{run_id}").get_json()
+
+    gateway.status.assert_called_once_with(run_id)
+    assert listed["progress"]["portfolio"]["route_count"] == 0
+    assert detail["progress"]["model_cost"]["model_invocations"] == 9
+    assert detail["progress"]["portfolio"]["route_count"] == 3
+    assert detail["progress"]["portfolio"]["stock_closed_route_count"] == 2
+    assert detail["progress"]["portfolio"]["complete_route_count"] == 1
+    assert "_status_result" not in detail
+
+
+def test_paused_main_catalog_row_does_not_reload_kernel_status(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path / "primary")
+    manifest = _catalog_manifest(
+        "paused-main-run",
+        run_dir=tmp_path / "paused-main-run",
+        updated_at="2026-08-27T08:00:00Z",
+        target_name="paused main run",
+    )
+    manifest["status"] = "paused"
+    gateway.index.upsert_run(manifest)
+    gateway.status = Mock(side_effect=AssertionError("paused status was reloaded"))
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+
+    client = app.test_client()
+    listed = client.get("/api/v4/jobs?limit=20").get_json()["jobs"][0]
+    detail = client.get("/api/v4/jobs/solve:@main:paused-main-run").get_json()
+
+    assert listed["status"] == "paused"
+    assert listed["progress"]["execution_active"] is False
+    assert detail["status"] == "paused"
+    assert detail["progress"]["execution_active"] is False
+    gateway.status.assert_not_called()
+
+
+def test_completed_paper_panel_projects_outcome_without_overwriting_pause(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path / "primary")
+    run_id = "paper-panel-complete"
+    run_dir = tmp_path / "paper-panel" / "runs" / "target"
+    run_dir.mkdir(parents=True)
+    (run_dir.parent.parent / "panel-status.json").write_text(
+        json.dumps(
+            {
+                "complete": True,
+                "targets": {
+                    "opaque target": {
+                        "run_id": run_id,
+                        "status": "paused",
+                        "scientific_status": "unresolved",
+                        "paper_equivalent": {
+                            "paper_reach": True,
+                            "paper_equivalent_solved": True,
+                        },
+                        "final_state": {
+                            "claim": {"benchmark_search_completed": True},
+                            "stop_decision": {
+                                "decision": "paused",
+                                "terminal": False,
+                            },
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest = _catalog_manifest(
+        run_id,
+        run_dir=run_dir,
+        updated_at="2026-08-27T08:00:00Z",
+        target_name="paper panel target",
+    )
+    manifest["status"] = "paused"
+    gateway.index.upsert_run(manifest)
+    gateway.status = Mock(side_effect=AssertionError("paused status was reloaded"))
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+
+    job = app.test_client().get("/api/v4/jobs?limit=20").get_json()["jobs"][0]
+
+    assert job["status"] == "paused"
+    assert job["campaign_status"] == "paused"
+    assert job["experiment_status"] == "complete"
+    assert job["paper_equivalent_status"] == "solved"
+    assert job["campaign_resumable"] is True
+    assert job["scientific_status"] == "unresolved"
+    gateway.status.assert_not_called()
+
+
+def _web_reduction_capability() -> dict:
+    return {
+        "capability_id": "fixture:web-carbonyl-reduction",
+        "enzyme": {"classes": ["alcohol dehydrogenase"]},
+        "match": {
+            "net_motif_delta": {"carbonyl": -1, "hydroxyl": 1},
+            "element_delta": {"C": 0, "O": 0},
+            "min_scaffold_similarity": 0.05,
+            "max_abs_heavy_atom_delta": 0,
+            "min_substrate_carbons": 2,
+            "min_window_steps": 1,
+            "max_window_steps": 1,
+            "reject_unlisted_motif_changes": True,
+        },
+        "selectivity_objective": "Reduce the carbonyl without changing carbon count.",
+        "substrate_scope_basis": "web fixture analog",
+        "precedent_refs": ["doi:10.1000/web-reduction"],
+    }
+
+
+def _web_biocatalysis_validation(proposal: dict) -> dict:
+    return with_biocatalysis_program_validation_digest(
+        {
+            "schema_version": BIOCATALYSIS_PROGRAM_VALIDATION_SCHEMA,
+            "validation_id": "validation:web-reduction",
+            "program_id": proposal["program_id"],
+            "innovation_id": proposal["source_innovation_id"],
+            "accepted": True,
+            "evidence_tier": "exact_substrate_screen",
+            "input_state_ids": proposal["input_state_ids"],
+            "output_state_ids": proposal["output_state_ids"],
+            "claim_refs": ["claim:web-exact-substrate-screen"],
+            "condition_record_ids": [],
+            "selectivity_assessed": True,
+            "cofactor_ledger_closed": True,
+            "outcome": {"conversion_fraction": 0.88},
+        }
+    )
+
+
+def test_web_routes_explicit_experiment_transport_operations() -> None:
+    gateway = Mock()
+    methods = {
+        "submit": "submit_route_experiment_job",
+        "poll": "poll_route_experiment_job",
+        "cancel": "transmit_route_experiment_cancellation",
+    }
+    for operation, method_name in methods.items():
+        getattr(gateway, method_name).return_value = {
+            "operation": operation,
+            "run_id": "web-transport",
+        }
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    payload = {
+        "route_id": "route:web-transport",
+        "capabilities": [],
+        "dispatch_id": "experiment-dispatch:" + "b" * 32,
+        "timeout_s": 9.5,
+        "enable_experiment_transport": True,
+    }
+    for operation, method_name in methods.items():
+        response = client.post(
+            f"/api/v4/runs/web-transport/programs/innovations/experiments/transport/{operation}",
+            json=payload,
+        )
+        assert response.status_code == 200
+        assert response.get_json()["operation"] == operation
+        getattr(gateway, method_name).assert_called_once_with(
+            "web-transport",
+            route_id="route:web-transport",
+            capabilities=[],
+            mechanism_proposals=[],
+            validations=[],
+            dispatch_id="experiment-dispatch:" + "b" * 32,
+            timeout_s=9.5,
+            enable_experiment_transport=True,
+        )
+
+
+def test_background_job_finishes_on_the_unified_acceptance_projection(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "cascade_planner.web.v4_target_runtime.solve_target_request",
+        lambda _gateway, _payload: {
+            "run_id": "benchmark-objective",
+            "report_path": "report.json",
+            "claim": {
+                "accepted_under_configured_policy": False,
+                "objective_mode": "scientific_proof",
+                "objective_achieved": True,
+            },
+            "gates": {"gates": {"B4_stock_boundary": True}, "counts": {}},
+            "model_cost": {},
+            "stop_decision": {"decision": "completed", "terminal": True},
+        },
+    )
+    jobs = {"job-1": {"status": "queued"}}
+
+    run_target_job(lambda: object(), {}, "job-1", jobs, RLock())
+
+    assert jobs["job-1"]["status"] == "complete"
+    assert jobs["job-1"]["result"]["accepted"] is False
+    assert jobs["job-1"]["result"]["objective_achieved"] is True
+
+
+def test_v4_active_job_can_be_cancelled_idempotently() -> None:
+    entered = Event()
+
+    class CancellableGateway:
+        cancellations: list[dict[str, object]] = []
+
+        def solve_target(self, **kwargs):
+            cancel_event = kwargs["cancel_event"]
+            entered.set()
+            cancel_event.wait(timeout=5.0)
+            raise TargetSolveCancelled("target_solve_cancelled_by_user")
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+        def cancel(self, run_id, *, reasons, idempotency_key):
+            self.cancellations.append(
+                {
+                    "run_id": run_id,
+                    "reasons": tuple(reasons),
+                    "idempotency_key": idempotency_key,
+                }
+            )
+            return {"operation": "cancel"}
+
+        def list_runs(self, **_kwargs):
+            return {"runs": []}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(CancellableGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "cancel me", "target_smiles": "CCO"},
+    ).get_json()
+    assert entered.wait(timeout=2.0)
+
+    requested = client.post(
+        f"/api/v4/jobs/{started['job_id']}/cancel",
+        json={"reason": "operator_requested"},
+    )
+    assert requested.status_code == 202
+    assert requested.get_json()["status"] == "cancelling"
+
+    for _ in range(100):
+        value = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+        if value["status"] == "cancelled":
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("cancelled job did not reach its terminal state")
+
+    assert value["phase"] == "cancelled"
+    assert value["error"] == ""
+    assert value["cancellation_reason"] == "operator_requested"
+    assert value["cancel_requested_at"]
+    assert value["cancelled_at"]
+    assert CancellableGateway.cancellations == [
+        {
+            "run_id": started["run_id"],
+            "reasons": ("user_requested_termination", "operator_requested"),
+            "idempotency_key": f"web:{started['job_id']}:cancel",
+        }
+    ]
+    repeated = client.post(
+        f"/api/v4/jobs/{started['job_id']}/cancel",
+        json={"reason": "duplicate_request"},
+    )
+    assert repeated.status_code == 200
+    assert repeated.get_json()["cancellation_reason"] == "operator_requested"
+
+
+def test_v4_terminal_and_historical_jobs_reject_cancellation() -> None:
+    class FinishedGateway:
+        def solve_target(self, **kwargs):
+            return {
+                "run_id": kwargs["run_id"],
+                "gates": {},
+                "claim": {},
+                "stop_decision": {"decision": "completed", "terminal": True},
+            }
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+        def list_runs(self, **_kwargs):
+            return {
+                "runs": [
+                    {
+                        "run_id": "archived-cancel-target",
+                        "target_name": "archived",
+                        "updated_at": "2026-08-24T00:00:00Z",
+                    }
+                ]
+            }
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(FinishedGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "finished", "target_smiles": "CCO"},
+    ).get_json()
+    for _ in range(100):
+        current = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+        if current["status"] == "unresolved":
+            break
+        time.sleep(0.01)
+
+    terminal = client.post(
+        f"/api/v4/jobs/{started['job_id']}/cancel",
+        json={},
+    )
+    historical = client.post(
+        "/api/v4/jobs/solve:@main:archived-cancel-target/cancel",
+        json={},
+    )
+
+    assert terminal.status_code == 409
+    assert terminal.get_json()["status"] == "unresolved"
+    assert historical.status_code == 409
+    assert historical.get_json()["status"] == "historical"
+
+
+def test_v4_live_job_derives_terminality_from_kernel_not_stale_worker_row() -> None:
+    entered = Event()
+    release = Event()
+
+    class TerminalKernelGateway:
+        def solve_target(self, **kwargs):
+            entered.set()
+            release.wait(timeout=5.0)
+            return {"run_id": kwargs["run_id"], "gates": {}, "claim": {}}
+
+        def status(self, _run_id):
+            return {
+                "status": {
+                    "status": "cancelled",
+                    "stop_decision": {
+                        "decision": "cancelled",
+                        "terminal": True,
+                    },
+                    # Deliberately stale input: terminality must suppress it.
+                    "active_actions": [
+                        {
+                            "execution_id": "campaign-action:stale",
+                            "action_id": "action:stale",
+                            "kind": "codex_global_architecture",
+                        }
+                    ],
+                    "portfolio": {},
+                    "frontier": [],
+                }
+            }
+
+        def list_runs(self, **_kwargs):
+            return {"runs": []}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(TerminalKernelGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "terminal", "target_smiles": "CCO"},
+    ).get_json()
+    assert entered.wait(timeout=2.0)
+
+    job = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+    release.set()
+
+    assert job["status"] == "cancelled"
+    assert job["phase"] == "cancelled"
+    assert job["campaign_status"] == "cancelled"
+    assert job["campaign_terminal"] is True
+    assert job["cancellation_available"] is False
+    assert job["progress"]["execution_active"] is False
+    assert job["progress"]["action_timeline"]["record_count"] == 0
+
+
+def test_v4_registry_kernel_run_is_visible_as_external_live_job(
+    tmp_path: Path,
+) -> None:
+    run_id = "external-live-target"
+    checkpoint = tmp_path / ".autoplanner" / "target-solver-checkpoint.json"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "stages": [
+                    {
+                        "stage": "sequential_strategy_director",
+                        "status": "running",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ExternalLiveGateway:
+        def list_runs(self, **_kwargs):
+            return {
+                "runs": [
+                    {
+                        "run_id": run_id,
+                        "target_name": "external live target",
+                        "status": "running",
+                        "updated_at": "2026-08-27T02:00:00Z",
+                        "cost_totals": {"task_wall_time_s": 18.5},
+                    }
+                ]
+            }
+
+        def status(self, requested_run_id):
+            assert requested_run_id == run_id
+            return {
+                "run_id": run_id,
+                "run_dir": str(tmp_path),
+                "campaign_spec": {"target": {"canonical_smiles": "CC(=O)Oc1ccccc1C(=O)O"}},
+                "status": {
+                    "status": "running",
+                    "stop_decision": {"terminal": False},
+                    "active_actions": [
+                        {
+                            "execution_id": "campaign-action:director",
+                            "action_id": "action:sequential_strategy_director:1",
+                            "kind": "sequential_strategy_director",
+                            "producer": "codex_global_director",
+                            "resource_class": "model",
+                        }
+                    ],
+                    "model_totals": {"model_invocations": 4},
+                    "portfolio": {},
+                    "frontier": [],
+                },
+            }
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(ExternalLiveGateway))
+    client = app.test_client()
+
+    listed = client.get("/api/v4/jobs").get_json()["jobs"]
+    detail = client.get(f"/api/v4/jobs/solve:@main:{run_id}").get_json()
+    cancellation = client.post(
+        f"/api/v4/jobs/solve:@main:{run_id}/cancel",
+        json={},
+    )
+    deletion = client.delete(f"/api/v4/jobs/solve:@main:{run_id}")
+
+    assert len(listed) == 1
+    assert listed[0]["status"] == "running"
+    assert listed[0]["phase"] == "sequential_strategy_director"
+    assert listed[0]["target_smiles"] == "CC(=O)Oc1ccccc1C(=O)O"
+    assert listed[0]["execution_source"] == "kernel_registry"
+    assert listed[0]["cancellation_available"] is False
+    assert listed[0]["progress"]["execution_active"] is True
+    assert listed[0]["progress"]["action_timeline"]["state_counts"] == {"running": 1}
+    assert detail["status"] == "running"
+    assert detail["cancellation_available"] is False
+    assert cancellation.status_code == 409
+    assert cancellation.get_json()["reason"] == ("external_job_has_no_web_cancel_signal")
+    assert deletion.status_code == 409
+    assert deletion.get_json()["reason"] == "active_job_cannot_be_deleted"
+
+
+def test_v4_registry_terminal_decision_remains_historical() -> None:
+    run_id = "external-terminal-target"
+
+    class ExternalTerminalGateway:
+        def list_runs(self, **_kwargs):
+            return {
+                "runs": [
+                    {
+                        "run_id": run_id,
+                        "target_name": "external terminal target",
+                        # Deliberately stale discovery status.  The Kernel stop
+                        # decision below owns terminality.
+                        "status": "running",
+                        "updated_at": "2026-08-27T03:00:00Z",
+                    }
+                ]
+            }
+
+        def status(self, requested_run_id):
+            assert requested_run_id == run_id
+            return {
+                "run_id": run_id,
+                "status": {
+                    "status": "running",
+                    "stop_decision": {
+                        "terminal": True,
+                        "decision": "unresolved",
+                    },
+                    "active_actions": [],
+                },
+            }
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(ExternalTerminalGateway))
+    listed = app.test_client().get("/api/v4/jobs").get_json()["jobs"]
+
+    assert len(listed) == 1
+    assert listed[0]["status"] == "historical"
+    assert listed[0]["progress"]["execution_active"] is False
+    assert listed[0]["cancellation_available"] is False
+
+
+def test_v4_registry_stale_nonterminal_reservation_is_not_live() -> None:
+    run_id = "external-stale-reservation"
+
+    class StaleReservationGateway:
+        def list_runs(self, **_kwargs):
+            return {
+                "runs": [
+                    {
+                        "run_id": run_id,
+                        "target_name": "stale reservation",
+                        "status": "running",
+                        "updated_at": "2026-08-20T00:00:00Z",
+                    }
+                ]
+            }
+
+        def status(self, requested_run_id):
+            assert requested_run_id == run_id
+            return {
+                "run_id": run_id,
+                "status": {
+                    "status": "running",
+                    "stop_decision": {"terminal": False},
+                    "active_actions": [
+                        {
+                            "execution_id": "campaign-action:stale",
+                            "action_id": "action:stale",
+                            "kind": "codex_global_architecture",
+                        }
+                    ],
+                },
+            }
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(StaleReservationGateway))
+    listed = app.test_client().get("/api/v4/jobs").get_json()["jobs"]
+
+    assert len(listed) == 1
+    assert listed[0]["status"] == "historical"
+    assert listed[0]["activity_stale"] is True
+    assert listed[0]["progress"]["execution_active"] is False
+
+
+def test_v4_api_marks_legacy_objective_mode_as_deprecated(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    gateway = _gateway(tmp_path)
+    monkeypatch.setattr(
+        "cascade_planner.web.v4_api._run_target_job",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "cascade_planner.web.v4_api._solve_target_request",
+        lambda _gateway, _payload: {"run_id": "legacy-sync"},
+    )
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+
+    synchronous = client.post(
+        "/api/v4/solve-target",
+        json={
+            "target_name": "legacy sync view",
+            "target_smiles": "CCO",
+            "objective_mode": "procurement_delivery",
+        },
+    )
+    response = client.post(
+        "/api/v4/jobs",
+        json={
+            "target_name": "legacy view",
+            "target_smiles": "CCO",
+            "objective_mode": "benchmark_search",
+        },
+    )
+
+    assert synchronous.status_code == 201
+    assert synchronous.headers["Deprecation"] == "true"
+    assert "objective_mode is deprecated" in synchronous.headers["Warning"]
+    assert response.status_code == 202
+    assert response.headers["Deprecation"] == "true"
+    assert "objective_mode is deprecated" in response.headers["Warning"]
+    assert response.get_json()["request_warnings"] == [
+        "objective_mode is deprecated compatibility metadata; configure stock, "
+        "acceptance and budgets directly. It does not change the unified solver."
+    ]
+
+
 def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> None:
     gateway = _gateway(tmp_path)
     app = Flask(__name__)
@@ -37,26 +1006,742 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
             "run_id": "web-example",
             "target_name": "ethanol",
             "target_smiles": "CCO",
+            "forbidden_reagents": ["benzene"],
+            "max_route_steps": 8,
+            "allowed_execution_domains": ["chemical", "hybrid"],
+            "safety_limits": {"max_temperature_c": 120},
+            "stock_source_ids": ["host-default"],
         },
     )
     assert created.status_code == 201
     assert created.get_json()["status"]["model_totals"]["model_invocations"] == 0
+    constraints = created.get_json()["campaign_spec"]["constraints"]
+    assert constraints["forbidden_reagents"] == ["benzene"]
+    assert constraints["max_route_steps"] == 8
+    assert constraints["allowed_execution_domains"] == ["chemical", "hybrid"]
+    assert constraints["safety_limits"] == {"max_temperature_c": 120}
 
     status = client.get("/api/v4/runs/web-example/status")
     workbench = client.get("/api/v4/runs/web-example/workbench")
+    programs = client.get("/api/v4/runs/web-example/programs")
+    program_routes = client.get("/api/v4/runs/web-example/programs/routes")
+    program_audit = client.get("/api/v4/program-migration", query_string={"run_id": "web-example"})
     rendered = client.get("/api/v4/runs/web-example/workbench.html")
     index = client.get("/v4")
+    retired_pages = [
+        client.get(path)
+        for path in (
+            "/v4/console",
+            "/v4/showcase",
+            "/agent",
+            "/statins",
+            "/showcase",
+        )
+    ]
+    workspace = client.get("/api/v4/workspace")
 
     assert status.status_code == 200
     assert workbench.status_code == 200
     assert rendered.status_code == 200
     assert index.status_code == 200
+    assert {response.status_code for response in retired_pages} == {404}
+    assert workspace.status_code == 200
+    assert workspace.get_json()["backend"]["available"] is True
+    assert workspace.get_json()["runs"][0]["run_id"] == "web-example"
+    assert workspace.get_json()["runs"][0]["workbench_pdf_url"].endswith(
+        "/web-example/workbench.pdf"
+    )
+    assert workspace.get_json()["runs"][0]["history_delete_url"].endswith("/web-example/history")
+    assert workspace.get_json()["self_evolution"]["schema_version"] == (
+        "autoplanner.self_evolution_catalog.v1"
+    )
+    assert "compiled_program_benchmarks" not in workspace.get_json()["self_evolution"]
+    assert workspace.get_json()["route_workbench"]["program_benchmarks"]["record_count"] >= 1
+    assert workspace.get_json()["route_workbench"]["semantics"][
+        "program_benchmarks_are_not_self_evolution_memory"
+    ]
+    assert workspace.get_json()["entrypoints"]["self_evolution"] == "/v4#evolution"
+    assert workspace.get_json()["entrypoints"]["primary_page"] == "/"
+    assert workspace.get_json()["entrypoints"]["launch"] == "/"
+    assert workspace.get_json()["entrypoints"]["workspace"] == "/v4"
     assert workbench.get_json()["snapshot"]["run_id"] == "web-example"
+    assert programs.status_code == 200
+    assert programs.get_json()["oracle"]["accepted"] is True
+    assert programs.get_json()["projection"]["counts"]["programs"] == 0
+    assert program_routes.status_code == 200
+    assert program_routes.get_json()["oracle"]["accepted"] is True
+    assert program_routes.get_json()["overlay"]["counts"]["displayed_routes"] == 0
+    assert program_audit.status_code == 200
+    assert program_audit.get_json()["run_count"] == 1
+    assert program_audit.get_json()["semantics"]["read_only"] is True
     assert b"/api/v4/runs" in index.data
-    assert "逆合成控制台" in index.get_data(as_text=True)
-    assert "路线候选已经可审查" in index.get_data(as_text=True)
-    assert "只看每个目标最新结果" in index.get_data(as_text=True)
+    assert "AutoPlanner · 运行与审计档案" in index.get_data(as_text=True)
+    assert "路线候选可供审查，不代表证据、库存或工艺已经闭合" in index.get_data(as_text=True)
+    assert 'id="objectiveMode"' not in index.get_data(as_text=True)
+    assert "objective_mode:$('objectiveMode').value" not in index.get_data(as_text=True)
+    assert "单个任务的路线、反应详情" in index.get_data(as_text=True)
+    assert "/api/v4/workspace" in index.get_data(as_text=True)
+    assert 'id="collapseLibrary"' in index.get_data(as_text=True)
+    assert 'id="restoreLibrary"' in index.get_data(as_text=True)
+    assert 'id="launchDialog"' not in index.get_data(as_text=True)
+    assert 'data-view-panel="overview"' in index.get_data(as_text=True)
+    assert 'data-view-panel="routes"' in index.get_data(as_text=True)
+    assert 'data-view-panel="runs"' in index.get_data(as_text=True)
+    assert 'data-view-panel="evolution"' in index.get_data(as_text=True)
+    assert 'data-view-panel="audits"' in index.get_data(as_text=True)
+    assert "sidebar-collapsed" in index.get_data(as_text=True)
+    assert "catalog-collapsed" in index.get_data(as_text=True)
+    assert "embed=1" in index.get_data(as_text=True)
+    assert 'id="solveForm"' not in index.get_data(as_text=True)
+    assert "data-open-launch" not in index.get_data(as_text=True)
+    assert 'href="/">返回实时任务</a>' in index.get_data(as_text=True)
+    assert "自进化库" in index.get_data(as_text=True)
+    assert "多步 Program 作为宿主路线内的可验证替代层展示" in index.get_data(as_text=True)
+    assert "Program 在所属路线的准确区间内显示" in index.get_data(as_text=True)
+    assert "programHostRoutes" in index.get_data(as_text=True)
+    assert "路线锚定机理假设" in index.get_data(as_text=True)
+    assert 'class="targetGroup"' in index.get_data(as_text=True)
+    assert 'id="runFrame"' not in index.get_data(as_text=True)
+    assert 'id="runDetail"' in index.get_data(as_text=True)
+    assert "统一 Action 时间线" in index.get_data(as_text=True)
+    assert "renderSelectedRunActionTimeline" in index.get_data(as_text=True)
+    assert "ChemEnzy · Codex · 证据 · 验证 · Program" in index.get_data(as_text=True)
+    assert 'id="memoryDialog"' in index.get_data(as_text=True)
+    assert "enhanceMemoryRows" in index.get_data(as_text=True)
+    assert "reaction_smarts" in index.get_data(as_text=True)
+    assert "'/api/v4/jobs'" in index.get_data(as_text=True)
+    assert 'id="downloadRoutePdf"' in index.get_data(as_text=True)
+    assert "删除队列记录" in index.get_data(as_text=True)
+    assert 'id="deleteRoute"' in index.get_data(as_text=True)
+    assert 'id="restoreDeletedRoutes"' in index.get_data(as_text=True)
+    assert 'id="restoreDeletedRuns"' in index.get_data(as_text=True)
+    assert "计算结束，但科学结论未收敛" in index.get_data(as_text=True)
+    assert "function mergeRunSnapshots" in index.get_data(as_text=True)
+    assert "hydratedRuns:new Set()" in index.get_data(as_text=True)
+    index_html = index.get_data(as_text=True)
+    assert "state.jobs=mergeRunSnapshots(await jobsWithProgress(rows))" in index_html
+    assert "catalogRefreshMs=60000" in index_html
+    assert "setInterval(pollJobs" not in index_html
+    assert "['queued','running','cancelling'].includes(row.status)" in index_html
     assert b"<!doctype html>" in rendered.data.lower()
+    assert rendered.get_data(as_text=True).count('id="dashboardReturn"') == 1
+    assert rendered.get_data(as_text=True).count('id="pdfExport"') == 1
+    assert 'aria-label="返回统一总控台"' in rendered.get_data(as_text=True)
+
+    benchmark = next(
+        row
+        for row in workspace.get_json()["route_workbench"]["program_benchmarks"]["records"]
+        if row["target_name"] == "bufotalin" and row["chemical_step_equivalent_count"] == 6
+    )
+    assert benchmark["mechanism_hypothesis_count"] == 1
+    materialized = client.post(benchmark["materialize_url"])
+    assert materialized.status_code == 201
+    assert materialized.get_json()["chemical_baseline_step_count"] == 20
+    assert materialized.get_json()["hypothetical_operation_count"] == 15
+    assert materialized.get_json()["semantics"]["materialization_does_not_admit_the_program"]
+    host_snapshot = client.get(
+        f"/api/v4/runs/{materialized.get_json()['run_id']}/workbench"
+    ).get_json()["snapshot"]
+    planned = next(iter(host_snapshot["planned_routes"].values()))
+    assert planned["declared_step_count"] == 20
+    assert planned["materialized_step_count"] == 15
+    assert planned["admission_rejected_step_count"] == 5
+    program_workbench = client.get(materialized.get_json()["workbench_url"])
+    assert program_workbench.status_code == 200
+    assert "program-overlay-card" in program_workbench.get_data(as_text=True)
+    assert "mechanism-hypothesis-callout" in program_workbench.get_data(as_text=True)
+    assert "proposed unprotected C16-ketone" in program_workbench.get_data(as_text=True)
+    assert "anchor_evidence_not_promoted" in program_workbench.get_data(as_text=True)
+    assert "PRODUCT_NOT_ROUTE_REJOINED" in program_workbench.get_data(as_text=True)
+    assert "Ct3alpha-HSDH" in program_workbench.get_data(as_text=True)
+    assert '"chemical_step_equivalent_count":6' in program_workbench.get_data(as_text=True)
+    assert '"primary_branch_id":"planned-route:' in program_workbench.get_data(as_text=True)
+    refreshed_workspace = client.get("/api/v4/workspace").get_json()
+    benchmark_run = next(
+        row
+        for row in refreshed_workspace["runs"]
+        if row["run_id"] == materialized.get_json()["run_id"]
+    )
+    assert benchmark_run["surface_role"] == "route_example"
+    assert benchmark_run["show_in_task_queue"] is False
+
+
+def test_v4_workbench_pdf_download_uses_print_renderer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    gateway = _gateway(tmp_path)
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    created = client.post(
+        "/api/v4/runs",
+        json={
+            "run_id": "pdf-example",
+            "target_name": "ethanol",
+            "target_smiles": "CCO",
+        },
+    )
+    assert created.status_code == 201
+    captured: dict[str, dict] = {}
+
+    def fake_pdf(snapshot: dict) -> bytes:
+        captured["snapshot"] = snapshot
+        return b"%PDF-1.7\nfixture"
+
+    monkeypatch.setattr(
+        "cascade_planner.web.v4_api.render_workbench_pdf",
+        fake_pdf,
+    )
+    response = client.get("/api/v4/runs/pdf-example/workbench.pdf")
+
+    assert response.status_code == 200
+    assert response.mimetype == "application/pdf"
+    assert response.data.startswith(b"%PDF-1.7")
+    assert "pdf-example-retrosynthesis-dossier.pdf" in response.headers["Content-Disposition"]
+    assert captured["snapshot"]["run_id"] == "pdf-example"
+
+
+def test_v4_history_delete_hides_queue_entry_but_preserves_run_directory(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path)
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    created = client.post(
+        "/api/v4/runs",
+        json={
+            "run_id": "history-example",
+            "target_name": "ethanol",
+            "target_smiles": "CCO",
+        },
+    ).get_json()
+    run_dir = Path(created["run_dir"])
+    assert run_dir.is_dir()
+
+    removed = client.delete("/api/v4/runs/history-example/history")
+
+    assert removed.status_code == 200
+    assert removed.get_json()["removed"] is True
+    assert removed.get_json()["scientific_artifacts_preserved"] is True
+    assert run_dir.is_dir()
+    assert all(
+        row["run_id"] != "history-example" for row in client.get("/api/v4/runs").get_json()["runs"]
+    )
+
+
+def test_v4_workspace_route_and_queue_deletions_are_independent_and_recoverable(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path)
+    app = create_v4_app(lambda: gateway)
+    client = app.test_client()
+    created = client.post(
+        "/api/v4/runs",
+        json={
+            "run_id": "visibility-example",
+            "target_name": "ethanol",
+            "target_smiles": "CCO",
+        },
+    ).get_json()
+    run_dir = Path(created["run_dir"])
+
+    route_removed = client.delete(
+        "/api/v4/workspace/routes",
+        json={"route_id": "run:main:visibility-example"},
+    )
+    queue_removed = client.delete(
+        "/api/v4/jobs/solve%3A%40main%3Avisibility-example",
+        json={},
+    )
+
+    assert route_removed.status_code == 200
+    assert queue_removed.status_code == 200
+    assert route_removed.get_json()["scientific_artifacts_preserved"] is True
+    assert queue_removed.get_json()["scientific_artifacts_preserved"] is True
+    assert run_dir.is_dir()
+    workspace = client.get("/api/v4/workspace").get_json()
+    assert "run:main:visibility-example" in workspace["workspace_visibility"]["hidden_route_ids"]
+    assert "main:visibility-example" in workspace["workspace_visibility"]["hidden_queue_run_ids"]
+    job = next(
+        row
+        for row in client.get("/api/v4/jobs").get_json()["jobs"]
+        if row["run_id"] == "visibility-example"
+    )
+    assert job["show_in_route_catalog"] is False
+    assert job["show_in_task_queue"] is False
+
+    restored = client.post(
+        "/api/v4/workspace/visibility/restore",
+        json={"scope": "all"},
+    )
+
+    assert restored.status_code == 200
+    assert restored.get_json()["restored_count"] == 2
+    workspace = client.get("/api/v4/workspace").get_json()
+    assert workspace["workspace_visibility"]["hidden_route_ids"] == []
+    assert workspace["workspace_visibility"]["hidden_queue_run_ids"] == []
+
+    invalid = client.delete("/api/v4/workspace/routes", json={})
+    assert invalid.status_code == 400
+    assert invalid.is_json
+    assert invalid.get_json()["reason"] == "route_id_missing"
+
+
+def test_v4_active_job_cannot_be_deleted_from_queue(tmp_path: Path, monkeypatch) -> None:
+    gateway = _gateway(tmp_path)
+    release = __import__("threading").Event()
+
+    def blocked_job(*_args, **_kwargs):
+        release.wait(timeout=5)
+
+    monkeypatch.setattr("cascade_planner.web.v4_api._run_target_job", blocked_job)
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    job = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "active", "target_smiles": "CCO"},
+    ).get_json()
+
+    removed = client.delete(f"/api/v4/jobs/{job['job_id']}", json={})
+    release.set()
+
+    assert removed.status_code == 409
+    assert removed.get_json()["reason"] == "active_job_cannot_be_deleted"
+
+
+def test_v4_workbench_html_uses_a_human_readable_integrity_fallback() -> None:
+    class BrokenGateway:
+        def workbench(self, _run_id):
+            return {"snapshot": {"schema_version": "retrosynthesis_route_workbench.v1"}}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(BrokenGateway))
+    response = app.test_client().get("/api/v4/runs/broken/workbench.html")
+
+    assert response.status_code == 422
+    assert response.mimetype == "text/html"
+    assert "工作台暂不可用" in response.get_data(as_text=True)
+    assert "原始运行快照没有被修改" in response.get_data(as_text=True)
+    assert "invalid_request" not in response.get_data(as_text=True)
+
+
+def test_v4_http_exposes_read_only_route_program_innovation_review(
+    tmp_path: Path,
+    reported_ethanol_program_pack: dict,
+) -> None:
+    gateway = _gateway(tmp_path)
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    created = client.post(
+        "/api/v4/runs",
+        json={
+            "run_id": "web-program-innovation",
+            "target_name": "ethanol",
+            "target_smiles": "CCO",
+            "materialize": True,
+            "global_plan": {
+                "schema_version": "global_campaign_plan.v1",
+                "route_families": [
+                    {
+                        "route_family_id": "family:reduction",
+                        "strategic_disconnection": "carbonyl reduction",
+                    }
+                ],
+                "multi_step_skeletons": [
+                    {
+                        "skeleton_id": "skeleton:reduction",
+                        "route_family_id": "family:reduction",
+                        "steps": [
+                            {
+                                "step_id": "step:reduction",
+                                "product_smiles": "CCO",
+                                "precursor_smiles": ["CC=O"],
+                                "transformation_hypothesis": "carbonyl reduction",
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    )
+    route_id = next(
+        iter(
+            client.get("/api/v4/runs/web-program-innovation/workbench").get_json()["snapshot"][
+                "routes"
+            ]
+        )
+    )
+    response = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations",
+        json={
+            "route_id": route_id,
+            "capabilities": [],
+            "reported_candidate_packs": [reported_ethanol_program_pack],
+        },
+    )
+
+    assert created.status_code == 201
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["operation"] == "route-program-innovations"
+    assert payload["oracle"]["accepted"] is True
+    assert payload["mechanism_oracle"]["accepted"] is True
+    assert payload["execution_oracle"]["accepted"] is True
+    assert payload["program_optimizer_oracle"]["accepted"] is True
+    assert payload["program_route_candidates"]["counts"]["candidates"] == 2
+    assert payload["program_route_candidates"]["counts"]["literature"] == 1
+    assert payload["program_optimizer"]["profiles"]["exploration"]["pareto_front_ids"]
+    assert payload["program_bundle"]["counts"]["program_proposals"] == 0
+    assert payload["mechanism_program_bundle"]["counts"]["program_proposals"] == 0
+    assert payload["mechanism_validation_frontier"]["counts"]["experiment_required"] == 0
+    assert payload["mechanism_experiment_feedback"]["counts"]["feedback_records"] == 0
+    assert payload["mechanism_feedback_oracle"]["accepted"] is True
+    assert payload["execution_program_bundle"]["counts"]["program_proposals"] == 0
+    assert payload["execution_validation_frontier"]["counts"]["experiment_required"] == 0
+    assert payload["execution_capability_feedback"]["counts"]["feedback_records"] == 0
+    assert payload["execution_feedback_oracle"]["accepted"] is True
+    assert payload["experimental_claims"]["counts"]["claims"] == 0
+    assert payload["experimental_claims_oracle"]["accepted"] is True
+    assert payload["capability_calibration"]["counts"]["calibrations"] == 0
+    assert payload["capability_calibration_oracle"]["accepted"] is True
+    assert payload["semantics"]["canonical_graph_not_mutated"] is True
+    assert payload["semantics"]["execution_programs_have_no_store_admission_path"] is True
+    assert payload["semantics"]["feedback_does_not_mutate_or_disable_capability_catalog"] is True
+
+    capability = _web_reduction_capability()
+    positive = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations",
+        json={"route_id": route_id, "capabilities": [capability]},
+    ).get_json()
+    proposal = next(iter(positive["program_bundle"]["program_proposals"].values()))
+    assert positive["experimental_work_frontier_oracle"]["accepted"] is True
+    request = next(iter(positive["experimental_work_frontier"]["work_items"].values()))[
+        "execution_request"
+    ]
+    executor_result = build_experiment_execution_result(
+        request,
+        result_id="experiment-result:web-reduction",
+        executor_id="web-fixture-lab",
+        executor_version="1",
+        status="success",
+        artifact_refs=[
+            {"sha256": "e" * 64, "media_type": "application/json", "role": "raw_record"}
+        ],
+        domain_validation_candidate=_web_biocatalysis_validation(proposal),
+    )
+    audited_result = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/audit",
+        json={
+            "route_id": route_id,
+            "capabilities": [capability],
+            "result": executor_result,
+        },
+    )
+    assert audited_result.status_code == 200
+    assert audited_result.get_json()["result_audit"]["accepted_for_domain_gate"] is True
+
+    staged = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/artifacts/json",
+        json={
+            "artifact": {"conversion_fraction": 0.88},
+            "logical_name": "web-experiment-record.json",
+            "enable_experiment_artifact_staging": True,
+        },
+    )
+    policy = {
+        "schema_version": "experiment_executor_policy.v1",
+        "enabled": True,
+        "allowed_provider_ids": ["autoplanner.manual_experiment_executor"],
+        "preferred_provider_ids": ["autoplanner.manual_experiment_executor"],
+        "allowed_domains": ["biocatalytic"],
+        "allow_network_access": False,
+        "max_estimated_cost_units": 0,
+    }
+    dispatch_payload = {
+        "route_id": route_id,
+        "capabilities": [capability],
+        "request_id": request["request_id"],
+        "provider_policy": policy,
+        "enable_experiment_dispatch": True,
+    }
+    disabled_dispatch = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/dispatch",
+        json={**dispatch_payload, "enable_experiment_dispatch": False},
+    )
+    dispatched = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/dispatch",
+        json=dispatch_payload,
+    )
+    assert staged.status_code == 201
+    assert disabled_dispatch.status_code == 400
+    assert dispatched.status_code == 200
+    dispatch = dispatched.get_json()["dispatch"]
+    operator = build_experiment_operator_identity(
+        principal_id="operator:web-fixture",
+        principal_type="service",
+        authentication_context_sha256="d" * 64,
+    )
+    running_job = build_experiment_external_job_receipt(
+        dispatch_id=dispatch["dispatch_id"],
+        task_id=dispatch["task_id"],
+        request_id=request["request_id"],
+        request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id="external-job:web",
+        provider_sequence=1,
+        status="running",
+        recorded_by=operator,
+    )
+    disabled_job = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/job",
+        json={
+            "route_id": route_id,
+            "capabilities": [capability],
+            "dispatch_id": dispatch["dispatch_id"],
+            "job_receipt": running_job,
+            "enable_experiment_job_receipt": False,
+        },
+    )
+    recorded_job = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/job",
+        json={
+            "route_id": route_id,
+            "capabilities": [capability],
+            "dispatch_id": dispatch["dispatch_id"],
+            "job_receipt": running_job,
+            "enable_experiment_job_receipt": True,
+        },
+    )
+    assert disabled_job.status_code == 400
+    assert recorded_job.status_code == 200
+    assert recorded_job.get_json()["dispatch"] == running_job
+    cancellation = build_experiment_cancellation_request(
+        dispatch_id=dispatch["dispatch_id"],
+        task_id=dispatch["task_id"],
+        request_id=request["request_id"],
+        request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id=running_job["external_job_id"],
+        current_external_job_receipt_sha256=running_job["content_sha256"],
+        requested_by=operator,
+        reason_code="web-race-test",
+    )
+    cancellation_response = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/cancel",
+        json={
+            "route_id": route_id,
+            "capabilities": [capability],
+            "dispatch_id": dispatch["dispatch_id"],
+            "cancellation_request": cancellation,
+            "enable_experiment_cancellation": True,
+        },
+    )
+    assert cancellation_response.status_code == 200
+    assert cancellation_response.get_json()["dispatch"] == cancellation
+    completed_job = build_experiment_external_job_receipt(
+        dispatch_id=dispatch["dispatch_id"],
+        task_id=dispatch["task_id"],
+        request_id=request["request_id"],
+        request_sha256=request["content_sha256"],
+        provider_id=dispatch["provider_id"],
+        provider_version=dispatch["provider_version"],
+        external_job_id=running_job["external_job_id"],
+        provider_sequence=2,
+        status="completed",
+        predecessor_receipt_sha256=running_job["content_sha256"],
+        cancellation_request_sha256=cancellation["content_sha256"],
+        recorded_by=operator,
+    )
+    completed_response = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/job",
+        json={
+            "route_id": route_id,
+            "capabilities": [capability],
+            "dispatch_id": dispatch["dispatch_id"],
+            "job_receipt": completed_job,
+            "enable_experiment_job_receipt": True,
+        },
+    )
+    assert completed_response.status_code == 200
+    assert completed_response.get_json()["dispatch"] == completed_job
+    manual_result = build_experiment_execution_result(
+        request,
+        result_id="experiment-result:web-manual-dispatch",
+        executor_id="autoplanner.manual_experiment_executor",
+        executor_version="1.0.0",
+        status="success",
+        artifact_refs=[
+            {
+                "sha256": staged.get_json()["artifact"]["sha256"],
+                "media_type": "application/json",
+                "role": "raw_record",
+            }
+        ],
+        domain_validation_candidate=_web_biocatalysis_validation(proposal),
+    )
+    settled = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experiments/settle",
+        json={
+            "route_id": route_id,
+            "capabilities": [capability],
+            "dispatch_id": dispatch["dispatch_id"],
+            "result": manual_result,
+            "enable_experiment_settlement": True,
+        },
+    )
+    assert settled.status_code == 200
+    assert settled.get_json()["dispatch"]["status"] == "settled"
+    assert settled.get_json()["dispatch"]["next_boundary"] == (
+        "submit_candidate_to_existing_domain_validation_gate"
+    )
+    admission_payload = {
+        "route_id": route_id,
+        "capabilities": [capability],
+        "validations": [_web_biocatalysis_validation(proposal)],
+    }
+    review_only_rejected = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/admit",
+        json={
+            **admission_payload,
+            "reported_candidate_packs": [reported_ethanol_program_pack],
+            "enable_biocatalytic_program_admission": True,
+        },
+    )
+    assert review_only_rejected.status_code == 400
+    assert review_only_rejected.get_json()["reason"] == "reported_candidate_packs_are_review_only"
+    validated_review = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations",
+        json=admission_payload,
+    ).get_json()
+    validated_front = validated_review["program_optimizer"]["profiles"]["shadow_optimizer"][
+        "pareto_front_ids"
+    ]
+    assert validated_review["program_optimizer_oracle"]["accepted"] is True
+    assert validated_review["experimental_claims"]["counts"]["biocatalytic"] == 1
+    assert validated_review["experimental_claims_oracle"]["accepted"] is True
+    assert any(
+        validated_review["program_route_candidates"]["candidates"][candidate_id]["source_kind"]
+        == "biocatalytic"
+        for candidate_id in validated_front
+    )
+    graph_revision = client.get("/api/v4/runs/web-program-innovation/status").get_json()["status"][
+        "graph_revision"
+    ]
+    disabled = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/admit",
+        json=admission_payload,
+    )
+    empty_store = client.get("/api/v4/runs/web-program-innovation/programs/innovations/store")
+    admitted = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/admit",
+        json={
+            **admission_payload,
+            "enable_biocatalytic_program_admission": True,
+        },
+    )
+    repeated = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/admit",
+        json={
+            **admission_payload,
+            "enable_biocatalytic_program_admission": True,
+        },
+    )
+    durable = client.get("/api/v4/runs/web-program-innovation/programs/innovations/store")
+    claim_disabled = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/claims/admit",
+        json=admission_payload,
+    )
+    empty_claim_store = client.get(
+        "/api/v4/runs/web-program-innovation/programs/innovations/claims/store"
+    )
+    claim_admitted = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/claims/admit",
+        json={
+            **admission_payload,
+            "enable_experimental_claim_admission": True,
+        },
+    )
+    claim_repeated = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/claims/admit",
+        json={
+            **admission_payload,
+            "enable_experimental_claim_admission": True,
+        },
+    )
+    durable_claims = client.get(
+        "/api/v4/runs/web-program-innovation/programs/innovations/claims/store"
+    )
+    empty_experience = client.get(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience"
+    )
+    experience_disabled = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience/learn",
+        json={},
+    )
+    experience_learned = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience/learn",
+        json={"enable_program_experience_learning": True},
+    )
+    experience_repeated = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience/learn",
+        json={"enable_program_experience_learning": True},
+    )
+    durable_experience = client.get(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience"
+    )
+    memory_review = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations",
+        json=admission_payload,
+    ).get_json()
+
+    assert disabled.status_code == 409
+    assert empty_store.get_json()["replay"]["event_count"] == 0
+    assert admitted.status_code == 201
+    assert admitted.get_json()["created"] is True
+    assert repeated.status_code == 200
+    assert repeated.get_json()["created"] is False
+    assert durable.get_json()["replay"]["event_count"] == 1
+    assert claim_disabled.status_code == 409
+    assert empty_claim_store.get_json()["replay"]["event_count"] == 0
+    assert claim_admitted.status_code == 201
+    assert claim_admitted.get_json()["event"]["counts"]["claims"] == 1
+    assert claim_repeated.status_code == 200
+    assert durable_claims.get_json()["replay"]["event_count"] == 1
+    assert empty_experience.get_json()["library"]["experiences"] == {}
+    assert experience_disabled.status_code == 409
+    assert experience_learned.get_json()["new_claim_count"] == 1
+    assert experience_repeated.get_json()["new_claim_count"] == 0
+    assert len(durable_experience.get_json()["library"]["experiences"]) == 1
+    assert memory_review["program_experience"]["matched_candidate_count"] == 1
+    memory_candidate = next(iter(memory_review["program_bundle"]["program_proposals"].values()))
+    assert "EXACT_SUBSTRATE_UNVALIDATED" in memory_candidate["warning_codes"]
+    assert (
+        client.get("/api/v4/runs/web-program-innovation/status").get_json()["status"][
+            "graph_revision"
+        ]
+        == graph_revision
+    )
+
+
+def test_isolated_v4_app_serves_strategy_builder_home_and_keeps_security_guards() -> None:
+    app = create_v4_app(lambda: None)
+    client = app.test_client()
+
+    root = client.get("/")
+    rejected = client.post("/api/v4/runs", data="{}", content_type="text/plain")
+    response = client.get("/v4")
+
+    assert root.status_code == 200
+    assert "LLM-directed retrosynthesis" in root.get_data(as_text=True)
+    assert "进入可审查的路线" in root.get_data(as_text=True)
+    assert rejected.status_code == 415
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
 
 
 def test_v4_http_does_not_accept_arbitrary_run_directories(tmp_path: Path) -> None:
@@ -74,7 +1759,59 @@ def test_v4_http_does_not_accept_arbitrary_run_directories(tmp_path: Path) -> No
     assert response.get_json()["reason"] == "run_not_found:missing"
 
 
-def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
+def test_v4_program_admission_is_explicit_idempotent_and_shadow_only(
+    tmp_path: Path,
+) -> None:
+    gateway = _gateway(tmp_path)
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    client.post(
+        "/api/v4/runs",
+        json={
+            "run_id": "web-program-store",
+            "target_name": "ethanol",
+            "target_smiles": "CCO",
+        },
+    )
+
+    empty = client.get("/api/v4/runs/web-program-store/programs/store")
+    validation_before = client.get("/api/v4/runs/web-program-store/validate").get_json()
+    rejected = client.post("/api/v4/runs/web-program-store/programs/admit", json={})
+    admitted = client.post(
+        "/api/v4/runs/web-program-store/programs/admit",
+        json={"enable_program_admission": True},
+    )
+    repeated = client.post(
+        "/api/v4/runs/web-program-store/programs/admit",
+        json={"enable_program_admission": True},
+    )
+    durable = client.get("/api/v4/runs/web-program-store/programs/store")
+    validated = client.get("/api/v4/runs/web-program-store/validate")
+
+    assert empty.status_code == 200
+    assert empty.get_json()["status"]["event_count"] == 0
+    assert rejected.status_code == 409
+    assert rejected.get_json()["reason"].endswith("explicit_enable_required")
+    assert admitted.status_code == 201
+    assert admitted.get_json()["created"] is True
+    assert repeated.status_code == 200
+    assert repeated.get_json()["created"] is False
+    assert durable.get_json()["status"]["oracle"]["accepted"] is True
+    assert (
+        durable.get_json()["status"]["semantics"]["edge_ids_remain_production_route_authority"]
+        is True
+    )
+    validation_after = validated.get_json()
+    assert validation_after["accepted"] is validation_before["accepted"]
+    assert validation_after["checks"] == validation_before["checks"]
+    assert validation_after["graph_revision"] == validation_before["graph_revision"]
+    assert (
+        validation_after["graph_scientific_sha256"] == validation_before["graph_scientific_sha256"]
+    )
+
+
+def test_v4_solve_target_maps_target_baseline_controls_to_shared_config() -> None:
     captured: dict = {}
 
     class RecordingGateway:
@@ -97,7 +1834,20 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
             "max_chemenzy_iterations": 4,
             "chemenzy_expansion_topk": 9,
             "chemenzy_timeout_s": 45,
+            "chemenzy_seed": 37,
             "max_model_invocations": 1,
+            "forbidden_reagents": ["benzene"],
+            "max_route_steps": 7,
+            "allowed_execution_domains": ["chemical", "hybrid"],
+            "safety_limits": {"max_temperature_c": 100},
+            "stock_source_ids": ["test-stock"],
+            "max_total_tasks": 90,
+            "max_evidence_tasks": 21,
+            "max_stock_tasks": 22,
+            "max_validation_tasks": 23,
+            "max_program_tasks": 11,
+            "max_experiment_tasks": 4,
+            "max_run_wall_time_s": 1800,
         },
     )
 
@@ -111,15 +1861,144 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
     assert config.max_chemenzy_iterations == 4
     assert config.chemenzy_expansion_topk == 9
     assert config.chemenzy_timeout_s == 45.0
-    assert config.max_guided_chemenzy_frontiers == 3
-    assert config.max_guided_chemenzy_iterations == 6
+    assert config.chemenzy_seed == 37
+    assert config.delivery_boundary == "stock_result"
     assert config.execution_profile == "standard"
     assert config.enable_initial_director_web_search is True
     assert config.max_visual_evidence_pages == 6
+    assert config.max_total_tasks == 90
+    assert config.max_evidence_tasks == 21
+    assert config.max_stock_tasks == 22
+    assert config.max_validation_tasks == 23
+    assert config.max_program_tasks == 11
+    assert config.max_experiment_tasks == 4
+    assert config.max_run_wall_time_s == 1800
     assert captured["budget"].max_model_invocations == 1
+    constraints = captured["constraints"]
+    assert constraints.forbidden_reagents == ("benzene",)
+    assert constraints.max_route_steps == 7
+    assert constraints.allowed_execution_domains == ("chemical", "hybrid")
+    assert constraints.safety_limits["max_temperature_c"] == 100
+    assert constraints.stock_source_ids == ("test-stock",)
 
 
-def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
+def test_v4_paper_profile_is_topology_first_before_gateway_dispatch() -> None:
+    captured: dict = {}
+
+    class RecordingGateway:
+        def solve_target(self, **kwargs):
+            captured.update(kwargs)
+            return {"schema_version": "fixture", "run_id": "api-paper"}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    response = app.test_client().post(
+        "/api/v4/solve-target",
+        json={
+            "run_id": "api-paper",
+            "target_name": "paper target",
+            "target_smiles": "CCO",
+            "execution_profile": "paper_synthex",
+            "enable_web_search": True,
+            "enable_initial_director_web_search": True,
+            "enable_auto_patent_evidence": True,
+            "enable_patent_self_evolution": True,
+            "enable_condition_enrichment": True,
+            "enable_program_discovery": True,
+            "max_visual_invocations": 1,
+            "max_evidence_tasks": 64,
+            "max_program_tasks": 64,
+            "max_experiment_tasks": 32,
+            "max_run_wall_time_s": 7200,
+        },
+    )
+
+    assert response.status_code == 201
+    config = captured["config"]
+    assert captured["evidence_connector"] is None
+    assert captured["visual_evidence_provider"] is None
+    assert config.execution_profile == "paper_synthex"
+    assert config.strategy_search_profile == "synthex_matched"
+    assert config.require_complete_route_json is True
+    assert config.allow_editor_route_mutations is True
+    assert config.enable_web_search is False
+    assert config.enable_initial_director_web_search is False
+    assert config.enable_patent_self_evolution is False
+    assert config.enable_condition_enrichment is False
+    assert config.enable_program_discovery is False
+    assert config.max_evidence_tasks == 0
+    assert config.max_program_tasks == 0
+    assert config.max_experiment_tasks == 0
+    assert config.max_run_wall_time_s == 86_400.0
+
+
+def test_v4_milestone_subscription_route_is_explicit_product_policy() -> None:
+    captured: dict = {}
+
+    class RecordingGateway:
+        def observe_milestone(self, run_id, **kwargs):
+            captured.update({"run_id": run_id, **kwargs})
+            return {
+                "schema_version": "campaign_milestone_subscription_result.v1",
+                "run_id": run_id,
+                "observed": True,
+            }
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    response = app.test_client().post(
+        "/api/v4/runs/run-1/milestone-subscriptions/observe",
+        json={"policy": "notify-and-cancel"},
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "run_id": "run-1",
+        "policy": "notify-and-cancel",
+        "milestone": "B4_stock_boundary",
+    }
+
+
+def test_v4_proof_profile_uses_the_declared_result_first_search_budget() -> None:
+    captured: dict = {}
+
+    class RecordingGateway:
+        def solve_target(self, **kwargs):
+            captured.update(kwargs)
+            return {"schema_version": "fixture", "run_id": "proof-budget"}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    response = app.test_client().post(
+        "/api/v4/solve-target",
+        json={
+            "run_id": "proof-budget",
+            "target_name": "proof target",
+            "target_smiles": "CCO",
+            "execution_profile": "proof",
+        },
+    )
+
+    assert response.status_code == 201
+    config = captured["config"]
+    assert config.strategy_search_profile == "synthex_matched"
+    assert config.strategy_branch_count == 3
+    assert config.max_node_expansions_per_branch == 25
+    assert config.max_chemenzy_steps == 6
+    assert config.max_chemenzy_iterations == 500
+    assert config.delivery_boundary == "stock_result"
+    assert config.chemenzy_expansion_topk == 120
+    assert config.chemenzy_timeout_s == 1200.0
+    assert config.enable_target_chemenzy_baseline is False
+    assert config.chemenzy_pandarallel_workers == 2
+    assert config.max_director_wall_time_s == 1800.0
+    budget = captured["budget"]
+    assert budget.max_total_input_tokens == 1_200_000
+    assert budget.max_total_output_tokens == 200_000
+    assert budget.max_total_wall_time_s == 1800.0
+
+
+def test_v4_async_job_separates_execution_end_from_scientific_acceptance() -> None:
     class RecordingGateway:
         def solve_target(self, **kwargs):
             time.sleep(0.02)
@@ -132,6 +2011,15 @@ def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
                 },
                 "claim": {"accepted_under_configured_policy": False},
                 "model_cost": {"model_invocations": 1},
+                "resource_envelope": {
+                    "within_budget": True,
+                    "observed": {"run_wall_time_s": 1.5},
+                    "task_budget": {
+                        "schema_version": "campaign_task_budget.v1",
+                        "dimensions": {"program": {"limit": 7}},
+                    },
+                    "violations": [],
+                },
             }
 
         def status(self, _run_id):
@@ -152,7 +2040,7 @@ def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
         current = client.get(f"/api/v4/jobs/{job['job_id']}")
         assert current.status_code == 200
         value = current.get_json()
-        if value["status"] == "complete":
+        if value["status"] == "unresolved":
             break
         time.sleep(0.01)
     else:
@@ -160,6 +2048,438 @@ def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
 
     assert value["result"]["highest_contiguous_gate"] == "B1"
     assert value["result"]["model_cost"]["model_invocations"] == 1
+    assert value["result"]["resource_envelope"]["observed"] == {"run_wall_time_s": 1.5}
+    assert value["result"]["resource_envelope"]["task_budget"]["dimensions"]["program"] == {
+        "limit": 7
+    }
+    assert value["progress"]["delivery"]["proof_closure_complete"] is False
+
+
+def test_interactive_paper_request_does_not_infer_stock_from_native_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "aizynthfinder.paper.yml"
+    config_path.write_text(
+        "stock:\n  paper_zinc_emolecules:\n    path: provider-stock.sqlite3\n",
+        encoding="utf-8",
+    )
+
+    class RecordingGateway:
+        observed = {}
+
+        def solve_target(self, **kwargs):
+            self.observed.update(kwargs)
+            return {"run_id": kwargs["run_id"]}
+
+    standard_builder = Mock(
+        catalog_name="ZINC+eMolecules",
+        index_path=tmp_path / "standard-stock.sqlite3",
+    )
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.target_solve_request.standard_stock_catalog_builder",
+        lambda: standard_builder,
+    )
+
+    result = solve_target_request(
+        RecordingGateway(),
+        {
+            "run_id": "interactive-stock-binding",
+            "target_name": "interactive stock binding",
+            "target_smiles": "CCO",
+            "run_scope": "interactive",
+            "execution_profile": "paper_synthex",
+            "aizynthfinder_config_path": str(config_path),
+            "aizynthfinder_runtime_root": str(tmp_path),
+        },
+    )
+
+    assert result["run_id"] == "interactive-stock-binding"
+    assert RecordingGateway.observed["stock_catalog_builder"] is standard_builder
+    config = RecordingGateway.observed["config"]
+    assert config.chemenzy_stock_names == ("ZINC+eMolecules",)
+    assert config.chemenzy_stock_paths == (
+        ("ZINC+eMolecules", str(tmp_path / "standard-stock.sqlite3")),
+    )
+
+
+def test_interactive_paper_request_ignores_missing_native_provider_stock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "aizynthfinder.paper.yml"
+    config_path.write_text(
+        "stock:\n  paper_zinc_emolecules:\n    type: fixture\n    path: missing-stock.sqlite3\n",
+        encoding="utf-8",
+    )
+
+    class RecordingGateway:
+        observed = {}
+
+        def solve_target(self, **kwargs):
+            self.observed.update(kwargs)
+            return {"run_id": kwargs["run_id"]}
+
+    standard_builder = Mock(
+        catalog_name="ZINC+eMolecules",
+        index_path=tmp_path / "standard-stock.sqlite3",
+    )
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.target_solve_request.standard_stock_catalog_builder",
+        lambda: standard_builder,
+    )
+
+    result = solve_target_request(
+        RecordingGateway(),
+        {
+            "run_id": "missing-interactive-stock",
+            "target_name": "missing interactive stock",
+            "target_smiles": "CCO",
+            "run_scope": "interactive",
+            "execution_profile": "paper_synthex",
+            "aizynthfinder_config_path": str(config_path),
+            "aizynthfinder_runtime_root": str(tmp_path),
+        },
+    )
+
+    assert result["run_id"] == "missing-interactive-stock"
+    assert RecordingGateway.observed["stock_catalog_builder"] is standard_builder
+
+
+def test_interactive_job_rejects_invalid_smiles_before_creating_a_job() -> None:
+    class UnusedGateway:
+        def __init__(self) -> None:
+            raise AssertionError("invalid SMILES must not construct a gateway")
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(UnusedGateway))
+    client = app.test_client()
+
+    response = client.post(
+        "/api/v4/jobs",
+        json={
+            "target_name": "invalid interactive target",
+            "target_smiles": "C1(CC",
+            "run_scope": "interactive",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "error": "invalid_target_smiles",
+        "reason": "invalid_target_smiles",
+    }
+
+
+def test_interactive_repository_hit_is_returned_without_starting_a_job(
+    tmp_path: Path,
+) -> None:
+    canonical = "CC(=O)O"
+    (tmp_path / "molecule-repository.csv").write_text(
+        f"name,smiles\nacetic acid,{canonical}\n",
+        encoding="utf-8",
+    )
+
+    class RepositoryGateway:
+        paths = type("Paths", (), {"repository_root": tmp_path})()
+
+        def solve_target(self, **_kwargs):
+            raise AssertionError("repository hits must not start the solver")
+
+        def list_runs(self, *, limit=100):
+            return {"runs": []}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RepositoryGateway))
+    client = app.test_client()
+
+    response = client.post(
+        "/api/v4/jobs",
+        json={
+            "target_name": "acetic acid",
+            "target_smiles": "CC(O)=O",
+            "run_scope": "interactive",
+        },
+    )
+
+    assert response.status_code == 200
+    value = response.get_json()
+    assert value["status"] == "repository_hit"
+    assert value["target_smiles"] == canonical
+    assert value["repository_paths"] == ["molecule-repository.csv"]
+    assert value["workspace_url"] == "/v4#routes"
+    assert client.get("/api/v4/jobs").get_json()["jobs"] == []
+
+
+def test_interactive_force_new_run_bypasses_repository_reuse(
+    tmp_path: Path,
+) -> None:
+    canonical = "CC(=O)O"
+    (tmp_path / "molecule-repository.csv").write_text(
+        f"name,smiles\nacetic acid,{canonical}\n",
+        encoding="utf-8",
+    )
+    called = Event()
+
+    class RecordingGateway:
+        paths = type("Paths", (), {"repository_root": tmp_path})()
+
+        def solve_target(self, **kwargs):
+            called.set()
+            return {
+                "run_id": kwargs["run_id"],
+                "gates": {},
+                "claim": {"accepted_under_configured_policy": True},
+                "stop_decision": {"decision": "completed", "terminal": True},
+            }
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    client = app.test_client()
+
+    response = client.post(
+        "/api/v4/jobs",
+        json={
+            "target_name": "acetic acid repeat",
+            "target_smiles": canonical,
+            "run_scope": "interactive",
+            "force_new_run": True,
+            "enable_live_benchmark_stock": False,
+            "enable_auto_patent_evidence": False,
+            "enable_auto_literature_evidence": False,
+        },
+    )
+
+    assert response.status_code == 202
+    assert called.wait(timeout=2)
+    assert response.get_json()["status"] in {"queued", "running"}
+
+
+def test_interactive_novel_target_passes_scope_and_canonical_smiles_to_solver(
+    tmp_path: Path,
+) -> None:
+    called = Event()
+
+    class RecordingGateway:
+        paths = type("Paths", (), {"repository_root": tmp_path})()
+        observed = {}
+
+        def solve_target(self, **kwargs):
+            self.observed.update(kwargs)
+            called.set()
+            return {
+                "run_id": kwargs["run_id"],
+                "gates": {},
+                "claim": {
+                    "accepted_under_configured_policy": True,
+                    "objective_achieved": True,
+                },
+                "stop_decision": {"decision": "completed", "terminal": True},
+            }
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    client = app.test_client()
+
+    response = client.post(
+        "/api/v4/jobs",
+        json={
+            "target_name": "novel interactive target",
+            "target_smiles": "OC(C)C",
+            "run_scope": "interactive",
+            "enable_auto_patent_evidence": False,
+            "enable_auto_literature_evidence": False,
+        },
+    )
+
+    assert response.status_code == 202
+    assert called.wait(timeout=2)
+    assert response.get_json()["target_smiles"] == "CC(C)O"
+    assert RecordingGateway.observed["target_smiles"] == "CC(C)O"
+    assert RecordingGateway.observed["config"].run_scope == "interactive"
+
+
+def test_v4_async_job_automatically_resumes_a_bounded_unaccepted_pass() -> None:
+    class RecordingGateway:
+        calls: list[bool] = []
+
+        def solve_target(self, **kwargs):
+            self.calls.append(bool(kwargs["resume"]))
+            accepted = len(self.calls) == 2
+            return {
+                "run_id": kwargs["run_id"],
+                "gates": {},
+                "claim": {"accepted_under_configured_policy": accepted},
+                "model_cost": {"model_invocations": len(self.calls)},
+                "stop_decision": {
+                    "decision": "completed" if accepted else "paused",
+                    "terminal": accepted,
+                },
+            }
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "auto continuation", "target_smiles": "CCO"},
+    ).get_json()
+
+    for _ in range(100):
+        value = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+        if value["status"] == "complete":
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("async V4 job did not automatically continue")
+
+    assert RecordingGateway.calls == [False, True]
+    assert value["continuation_pass_count"] == 1
+    assert value["result"]["accepted"] is True
+
+
+def test_v4_async_job_waits_for_explicit_resume_after_provider_pause() -> None:
+    class RecordingGateway:
+        calls: list[bool] = []
+
+        def solve_target(self, **kwargs):
+            self.calls.append(bool(kwargs["resume"]))
+            return {
+                "run_id": kwargs["run_id"],
+                "gates": {},
+                "claim": {"accepted_under_configured_policy": False},
+                "model_cost": {"model_invocations": 21},
+                "director_outcomes": [
+                    {
+                        "status": "runtime_unavailable",
+                        "runtime_unavailable": True,
+                        "runtime_pause": True,
+                        "resume_required_task_ids": ["critic:branch:2"],
+                    }
+                ],
+                "stop_decision": {
+                    "decision": "paused",
+                    "terminal": False,
+                },
+            }
+
+        def status(self, _run_id):
+            raise RuntimeError("fixture has no persistent kernel")
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "provider pause", "target_smiles": "CCO"},
+    ).get_json()
+
+    for _ in range(100):
+        value = client.get(f"/api/v4/jobs/{started['job_id']}").get_json()
+        if value["status"] == "paused":
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("async V4 job did not expose the provider pause")
+
+    assert RecordingGateway.calls == [False]
+    assert value["phase"] == "runtime_unavailable"
+    assert value["runtime_pause"] is True
+    assert value["continuation_pass_count"] == 0
+    assert value["result"]["model_cost"]["model_invocations"] == 21
+
+
+def test_v4_job_list_projects_the_live_checkpoint_stage(tmp_path: Path) -> None:
+    run_dir = tmp_path / "active-run"
+    checkpoint = run_dir / ".autoplanner" / "target-solver-checkpoint.json"
+    release = Event()
+
+    class LiveGateway:
+        def solve_target(self, **kwargs):
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint.write_text(
+                json.dumps(
+                    {
+                        "stages": [
+                            {
+                                "stage": "campaign_action_unified_core_01",
+                                "status": "completed",
+                                "detail": {
+                                    "action": {
+                                        "execution_id": "campaign-action:chemenzy",
+                                        "action_id": "action:chemenzy_target_expand:1",
+                                        "kind": "chemenzy_target_expand",
+                                    },
+                                    "outcome": {"status": "completed"},
+                                },
+                            },
+                            {"stage": "chemenzy_baseline", "status": "running"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            release.wait(2)
+            return {"run_id": kwargs["run_id"], "gates": {}, "claim": {}}
+
+        def status(self, _run_id):
+            return {
+                "run_dir": str(run_dir),
+                "status": {
+                    "status": "running",
+                    "active_actions": [
+                        {
+                            "execution_id": "campaign-action:codex",
+                            "action_id": "action:codex_global_architecture:1",
+                            "kind": "codex_global_architecture",
+                            "producer": "codex_global_director",
+                            "resource_class": "model",
+                        }
+                    ],
+                    "portfolio": {},
+                    "frontier": [],
+                    "stop_decision": {},
+                },
+            }
+
+        def list_runs(self, **_kwargs):
+            return {"runs": []}
+
+    gateway = LiveGateway()
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "live", "target_smiles": "CCO"},
+    )
+    assert started.status_code == 202
+    for _ in range(100):
+        if checkpoint.is_file():
+            break
+        time.sleep(0.01)
+    else:
+        release.set()
+        raise AssertionError("live checkpoint was not written")
+
+    listed = client.get("/api/v4/jobs").get_json()["jobs"]
+    release.set()
+
+    assert listed[0]["phase"] == "chemenzy_baseline"
+    assert listed[0]["progress"]["stages"][-1]["status"] == "running"
+    timeline = listed[0]["progress"]["action_timeline"]
+    assert timeline["record_count"] == 2
+    assert timeline["actor_counts"] == {"ChemEnzy": 1, "Codex": 1}
+    assert timeline["state_counts"] == {"running": 1, "succeeded": 1}
 
 
 def test_v4_delivery_projection_exposes_routes_before_proof_closure() -> None:
@@ -175,6 +2495,34 @@ def test_v4_delivery_projection_exposes_routes_before_proof_closure() -> None:
     assert delivery["state"] == "route_candidates_ready_evidence_running"
     assert delivery["route_candidates_available"] is True
     assert delivery["workbench_available"] is True
+    assert delivery["proof_closure_complete"] is False
+
+
+def test_v4_delivery_projection_distinguishes_structure_binding_from_proof() -> None:
+    delivery = delivery_projection(
+        [
+            {"stage": "initial_workbench", "status": "completed"},
+            {
+                "stage": "evidence_acquisition",
+                "status": "structure_bound_unproven",
+            },
+        ],
+        job_status="running",
+    )
+
+    assert delivery["state"] == "proof_review_ready"
+    assert delivery["evidence_stage_complete"] is True
+    assert delivery["proof_closure_complete"] is False
+
+
+def test_v4_delivery_projection_marks_finished_unaccepted_job_unresolved() -> None:
+    delivery = delivery_projection(
+        [{"stage": "initial_workbench", "status": "completed"}],
+        job_status="unresolved",
+    )
+
+    assert delivery["state"] == "unresolved"
+    assert delivery["proof_closure_known"] is True
     assert delivery["proof_closure_complete"] is False
 
 
@@ -194,9 +2542,49 @@ def test_historical_job_never_projects_archived_kernel_as_live_or_proven() -> No
     assert job["phase"] == "historical_snapshot"
     assert job["progress"]["execution_active"] is False
     assert job["progress"]["campaign_status"] == "running"
+    assert job["progress"]["scientific_status"] == "accepted"
     delivery = job["progress"]["delivery"]
     assert delivery["state"] == "historical"
     assert delivery["route_candidates_available"] is True
     assert delivery["proof_closure_known"] is False
     assert delivery["proof_closure_complete"] is False
     assert delivery["semantics"]["portfolio_policy_accepted"] is True
+
+
+def test_historical_detail_uses_resolved_kernel_status_for_saved_routes() -> None:
+    job = historical_job(
+        {
+            "run_id": "settled-cli-run",
+            "target_name": "saved target",
+            "status": "unresolved",
+            "accepted": False,
+            "graph": {"complete_route_count": 0},
+            "cost_totals": {},
+        }
+    )
+    job["_status_result"] = {
+        "run_dir": "",
+        "status": {
+            "status": "unresolved",
+            "stop_decision": {"decision": "unresolved", "terminal": True},
+            "model_totals": {"model_invocations": 7},
+            "portfolio": {
+                "selected_routes": [
+                    {"all_leaves_stock_closed": True},
+                    {"all_leaves_stock_closed": False},
+                ],
+                "closeout": {"complete_route_count": 0},
+                "deficits": [],
+            },
+            "frontier": [],
+        },
+    }
+
+    progress = live_job_progress(lambda: None, job)
+
+    assert progress["campaign_terminal"] is True
+    assert progress["phase"] == "unresolved"
+    assert progress["model_cost"]["model_invocations"] == 7
+    assert progress["portfolio"]["route_count"] == 2
+    assert progress["portfolio"]["stock_closed_route_count"] == 1
+    assert progress["delivery"]["route_candidates_available"] is True

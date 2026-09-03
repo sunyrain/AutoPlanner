@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,82 @@ def test_pointer_pins_object_and_gc_requires_confirmation(tmp_path: Path) -> Non
     assert result["removed"] == [unpinned.sha256]
     assert store.contains(pinned)
     assert not store.contains(unpinned)
+
+
+def test_concurrent_pointer_writers_across_store_instances_remain_valid(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "store"
+    store = ArtifactStore(root)
+    ref = store.put_json({"status": "settled"})
+    stores = [ArtifactStore(root) for _ in range(8)]
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        paths = list(
+            pool.map(
+                lambda value: value.write_pointer(
+                    "runs/example/current",
+                    ref,
+                    metadata={"status": "settled"},
+                ),
+                stores,
+            )
+        )
+
+    assert len({path.resolve() for path in paths}) == 1
+    loaded, pointer = store.load_pointer("runs/example/current")
+    assert loaded == ref
+    assert pointer["metadata"] == {"status": "settled"}
+    assert list(store.pointers_root.rglob("*.tmp")) == []
+
+
+def test_pointer_retries_transient_atomic_replace_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ArtifactStore(tmp_path / "store")
+    ref = store.put_bytes(b"pointer target")
+    real_replace = os.replace
+    attempts = 0
+
+    def flaky_replace(source: str | Path, destination: str | Path) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            raise PermissionError("transient pointer reader lock")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(
+        "cascade_planner.runtime.artifact_store.os.replace",
+        flaky_replace,
+    )
+
+    store.write_pointer("runs/example/retry", ref)
+
+    assert attempts == 3
+    assert store.load_pointer("runs/example/retry")[0] == ref
+
+
+def test_immutable_object_verification_retries_transient_reader_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ArtifactStore(tmp_path / "store")
+    ref = store.put_bytes(b"immutable object")
+    object_path = store.object_path(ref.sha256)
+    real_open = Path.open
+    attempts = 0
+
+    def flaky_open(path: Path, *args: object, **kwargs: object):
+        nonlocal attempts
+        if path == object_path and attempts < 2:
+            attempts += 1
+            raise PermissionError("transient immutable reader lock")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", flaky_open)
+    assert store.put_bytes(b"immutable object") == ref
+    assert attempts == 2
 
 
 def test_pointer_rejects_path_escape_and_invalid_json(tmp_path: Path) -> None:

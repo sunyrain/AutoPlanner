@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 from rdkit import Chem, RDLogger
 
 from cascade_planner.routes.admission import audit_retrosynthetic_candidate
+from cascade_planner.application.strategy_contract import normalize_strategy_card
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -23,8 +24,20 @@ def molecule_identity(smiles: Any) -> tuple[str, str]:
 def reaction_edge_identity(
     product_smiles: Any,
     precursor_smiles: Iterable[Any],
+    *,
+    mapped_reaction_smiles: Any = "",
+    mapped_product_smiles: Any = "",
+    reaction_operations: Iterable[Mapping[str, Any]] = (),
+    reactionjson_audit: Mapping[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    audit = audit_retrosynthetic_candidate(product_smiles, precursor_smiles)
+    audit = audit_retrosynthetic_candidate(
+        product_smiles,
+        precursor_smiles,
+        mapped_reaction_smiles=mapped_reaction_smiles,
+        mapped_product_smiles=mapped_product_smiles,
+        reaction_operations=reaction_operations,
+        reactionjson_audit=reactionjson_audit,
+    )
     digest = str(audit.get("edge_digest") or "")
     return (f"edge:{digest}" if digest else ""), audit
 
@@ -62,6 +75,7 @@ def route_family_identity(
     target_molecule_id: str,
 ) -> str:
     row = dict(value)
+    strategy_card = normalize_strategy_card(row.get("strategy_card") or {})
     identity = {
         "target_molecule_id": target_molecule_id,
         "family_key": str(
@@ -77,6 +91,21 @@ def route_family_identity(
             or row.get("rationale")
             or ""
         ),
+        # Structured strategy identity is stronger than a prose family label,
+        # but legacy families without a card retain their historical ids.
+        **(
+            {"strategy_digest": strategy_card["strategy_digest"]}
+            if any(
+                str(strategy_card.get(field) or "")
+                for field in (
+                    "scaffold_motif",
+                    "key_forward_transformation",
+                    "key_bond_signature",
+                    "reaction_edit_digest",
+                )
+            )
+            else {}
+        ),
     }
     return f"route-family:{_digest(identity)}"
 
@@ -84,8 +113,20 @@ def route_family_identity(
 def hypothesis_identity(
     product_smiles: Any,
     precursor_smiles: Iterable[Any],
+    *,
+    mapped_reaction_smiles: Any = "",
+    mapped_product_smiles: Any = "",
+    reaction_operations: Iterable[Mapping[str, Any]] = (),
+    reactionjson_audit: Mapping[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    edge_id, audit = reaction_edge_identity(product_smiles, precursor_smiles)
+    edge_id, audit = reaction_edge_identity(
+        product_smiles,
+        precursor_smiles,
+        mapped_reaction_smiles=mapped_reaction_smiles,
+        mapped_product_smiles=mapped_product_smiles,
+        reaction_operations=reaction_operations,
+        reactionjson_audit=reactionjson_audit,
+    )
     digest = str(audit.get("edge_digest") or "")
     return (f"hypothesis:{digest}" if edge_id else ""), audit
 

@@ -14,7 +14,7 @@ from cascade_planner.harness.route_forest_delivery import (
     render_route_forest_html,
     route_forest_delivery_integrity_reasons,
 )
-from cascade_planner.harness.route_forest_layout import canonical_sha256
+from cascade_planner.runtime.canonical_json import canonical_json_sha256
 
 
 def _forest() -> dict:
@@ -579,7 +579,7 @@ def _safe_json(value: object) -> str:
 def _resign_payload(payload: dict) -> None:
     payload.pop("embedded_json_sha256", None)
     payload.pop("delivery_sha256", None)
-    payload["delivery_sha256"] = canonical_sha256(payload)
+    payload["delivery_sha256"] = canonical_json_sha256(payload)
     payload["embedded_json_sha256"] = hashlib.sha256(
         _safe_json(payload).encode("utf-8")
     ).hexdigest()
@@ -603,7 +603,7 @@ def test_delivery_payload_is_digest_bound_compact_and_non_mutating() -> None:
     assert forest == original
     assert payload["schema_version"] == DELIVERY_SCHEMA_VERSION
     assert payload["source_schema_version"] == "explored_route_forest.v1"
-    assert payload["source_forest_sha256"] == canonical_sha256(forest)
+    assert payload["source_forest_sha256"] == canonical_json_sha256(forest)
     assert len(payload["delivery_sha256"]) == 64
     assert len(payload["embedded_json_sha256"]) == 64
     assert "artifact_revision" not in payload
@@ -726,7 +726,7 @@ def test_renderer_escapes_script_data_and_binds_exact_source_digest() -> None:
         r"<script id='forest-data' type='application/json'>(.*?)</script>", rendered
     ).group(1)
     payload = json.loads(embedded)
-    assert payload["source_forest_sha256"] == canonical_sha256(forest)
+    assert payload["source_forest_sha256"] == canonical_json_sha256(forest)
     assert payload["target"]["name"] == forest["target"]["name"]
     unsigned_embedded = re.sub(
         r'"embedded_json_sha256":"[0-9a-f]{64}",',
@@ -919,7 +919,7 @@ def test_integrity_rejects_resigned_invalid_payload_and_source_graphs() -> None:
     forest = _forest()
     payload = build_route_forest_delivery_payload(forest)
     forest["dependency_graph"]["edges"][0]["target_graph_node_id"] = "graph:missing"
-    payload["source_forest_sha256"] = canonical_sha256(forest)
+    payload["source_forest_sha256"] = canonical_json_sha256(forest)
     _resign_payload(payload)
 
     reasons = route_forest_delivery_integrity_reasons(
@@ -1061,6 +1061,7 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
         "overviewMetrics",
         "integrityStatus",
         "layoutPreset",
+        "dashboardReturn",
         "themeToggle",
         "navToggle",
         "inspectorToggle",
@@ -1075,6 +1076,9 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
         "graphSubtitle",
         "graphVisibleCount",
         "closureStatusTitle",
+        "closureStatusPanel",
+        "ledgerToggle",
+        "closureDismiss",
         "ledgerAuthorityBadge",
         "ledgerProgressMetrics",
         "closureStatusGrid",
@@ -1103,11 +1107,13 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
     assert template.count('aria-controls="branchGroups"') >= 5
     assert "laneMatchesStage" in script
     assert "route_forest_branch_lanes.v2" in script
-    assert "route_forest_branch_stage_evidence.v2" in script
+    assert "route_forest_branch_stage_evidence.v3" in script
     assert "stageMembershipIsAuthoritative" in script
     assert "partialExpansionProgress" in script
     assert "fully_expanded" in script
     assert "partial_expanded" in script
+    assert "ledgerOpen" in script
+    assert "closureStatusPanel" in script
     assert "all_leaves_stock_bound" not in script
     assert "旧版数据、聚合 proof tier、步骤数量与库存别名" in script
     assert "ensureSelectedBranchMatchesFilters();" in script

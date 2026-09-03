@@ -16,6 +16,8 @@ from pathlib import Path
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.runtime.paths import RuntimePaths
+
 RDLogger.DisableLog("rdApp.*")
 
 
@@ -308,7 +310,15 @@ if __name__ == "__main__":
     import collections
     import sys
 
-    path = sys.argv[1] if len(sys.argv) > 1 else "cascade_dataset_v2.normalized.json"
+    path = (
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else str(
+            RuntimePaths.discover().external_data_root
+            / "cascade"
+            / "cascade_dataset_v2.normalized.json"
+        )
+    )
     sr, pr, cr = load_v2(path)
     print(f"steps : {len(sr)}   pairs : {len(pr)}   cascades : {len(cr)}")
     print(f"DOIs : {len({c.doi for c in cr})}")

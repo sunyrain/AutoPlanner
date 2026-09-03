@@ -40,6 +40,14 @@ __STYLES__
     </div>
 
     <div class="header-actions">
+      <button id="pdfExport" class="icon-button" type="button" aria-label="导出路线工作台 PDF">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l3 3v15H7z"></path><path d="M14 3v4h4M9 15h6M9 18h4"></path></svg>
+        <span class="button-label">导出 PDF</span>
+      </button>
+      <a id="dashboardReturn" class="icon-button dashboard-return" href="/v4" target="_top" aria-label="返回统一总控台">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6-6 6 6 6M4 12h11a5 5 0 0 0 5-5V5"></path></svg>
+        <span class="button-label">总控台</span>
+      </a>
       <label class="control-field layout-preset-field" for="layoutPreset">
         <span>布局</span>
         <select id="layoutPreset" aria-label="选择工作台布局">
@@ -86,7 +94,11 @@ __STYLES__
           <button class="filter-chip" type="button" data-stage-filter="suggestion" aria-controls="branchGroups" aria-pressed="false">断键建议</button>
           <button class="filter-chip" type="button" data-stage-filter="expanded" aria-controls="branchGroups" aria-pressed="false">全路径已展开</button>
           <button class="filter-chip" type="button" data-stage-filter="reaction" aria-controls="branchGroups" aria-pressed="false">反应验证路线</button>
-          <button class="filter-chip" type="button" data-stage-filter="stock" aria-controls="branchGroups" aria-pressed="false">库存闭合路线</button>
+          <button class="filter-chip" type="button" data-stage-filter="literature" aria-controls="branchGroups" aria-pressed="false">文献落地路线</button>
+          <button class="filter-chip" type="button" data-stage-filter="conditions" aria-controls="branchGroups" aria-pressed="false">条件完整路线</button>
+          <button class="filter-chip" type="button" data-stage-filter="stock" aria-controls="branchGroups" aria-pressed="false">配置边界闭合</button>
+          <button class="filter-chip" type="button" data-stage-filter="procurement" aria-controls="branchGroups" aria-pressed="false">真实采购闭合</button>
+          <button class="filter-chip" type="button" data-stage-filter="process" aria-controls="branchGroups" aria-pressed="false">工艺候选</button>
         </div>
         <p id="partialExpandedSummary" class="stage-progress-note" role="status" aria-live="polite" hidden></p>
         <p id="stageFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
@@ -124,11 +136,16 @@ __STYLES__
           <div class="graph-title-line">
             <h2 id="graphTitle">完整路线依赖图</h2>
             <span id="graphVisibleCount" class="visible-count" aria-live="polite"></span>
+            <span id="ledgerAuthorityBadge" class="ledger-authority-badge ledger-authority-badge--compact" role="status">正在校验账本</span>
           </div>
           <p id="graphSubtitle">每条边均表示显式的分子→反应或反应→分子依赖。</p>
         </div>
 
         <div class="graph-primary-actions" role="toolbar" aria-label="图视图控制">
+          <button id="ledgerToggle" class="tool-button ledger-toggle" type="button" aria-controls="closureStatusPanel" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"></path><path d="M8 8h8M8 12h8M8 16h5"></path></svg>
+            <span>闭合证明</span>
+          </button>
           <button class="tool-button" type="button" data-graph-action="fit" aria-label="适应可视区域">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"></path><path d="m3 8 5-5M21 8l-5-5M3 16l5 5M21 16l-5 5"></path></svg>
             <span>适应</span>
@@ -148,17 +165,24 @@ __STYLES__
         </div>
       </div>
 
-      <section class="closure-status-panel" aria-labelledby="closureStatusTitle">
+      <section id="closureStatusPanel" class="closure-status-panel" aria-labelledby="closureStatusTitle" hidden>
         <div class="closure-status-heading">
           <div>
             <span class="closure-status-eyebrow">FRONTIER LEDGER</span>
             <strong id="closureStatusTitle">路线闭合证明</strong>
           </div>
-          <span id="ledgerAuthorityBadge" class="ledger-authority-badge" role="status">正在校验账本</span>
+          <button id="closureDismiss" class="closure-dismiss" type="button">收起证明</button>
         </div>
         <div class="closure-status-content">
           <div id="ledgerProgressMetrics" class="ledger-progress-metrics" aria-label="断键、工作、反应与库存进度"></div>
           <div id="runControlMetrics" class="run-control-metrics" aria-label="验收、下一缺口与全局模型成本"></div>
+          <section id="trajectoryHistoryPanel" class="trajectory-history-panel" aria-label="当前状态与历史里程碑">
+            <div class="trajectory-history-heading">
+              <strong>当前状态与历史里程碑</strong>
+              <span id="trajectoryHistoryMeta"></span>
+            </div>
+            <div id="trajectoryMilestones" class="trajectory-milestones"></div>
+          </section>
           <div id="closureStatusGrid" class="closure-status-grid" aria-live="polite"></div>
         </div>
       </section>
@@ -166,7 +190,7 @@ __STYLES__
       <div class="graph-toolbar" aria-label="路线图显示设置">
         <div class="toolbar-scroll">
           <div id="graphModeControl" class="graph-mode-control" role="group" aria-label="路线图模式">
-            <button class="is-active" type="button" data-graph-mode="current" aria-pressed="true">重点分支</button>
+            <button class="is-active" type="button" data-graph-mode="current" aria-pressed="true">当前路线</button>
             <button type="button" data-graph-mode="shared" aria-pressed="false">共享骨架</button>
             <button type="button" data-graph-mode="clusters" aria-pressed="false">路线全景</button>
           </div>
@@ -250,6 +274,7 @@ __STYLES__
               <div class="legend-row tier-l2-validated" role="listitem"><span class="trust-swatch trust-pattern--striped"></span><span><strong>L2</strong> 反应重验</span></div>
               <div class="legend-row tier-l2-mapping" role="listitem"><span class="trust-swatch trust-pattern--striped-advisory"></span><span><strong>L2</strong> 映射一致（建议）</span></div>
               <div class="legend-row tier-l1" role="listitem"><span class="trust-swatch trust-pattern--dashed"></span><span><strong>L1</strong> 图连通 + 库存闭合</span></div>
+              <div class="legend-row tier-l0-materialized" role="listitem"><span class="trust-swatch trust-pattern--dotted"></span><span><strong>L1</strong> 结构已物化</span></div>
               <div class="legend-row tier-l0-materialized" role="listitem"><span class="trust-swatch trust-pattern--dotted"></span><span><strong>L0</strong> 结构已具象化</span></div>
               <div class="legend-row tier-l0-advisory" role="listitem"><span class="trust-swatch trust-pattern--dotted"></span><span><strong>L0</strong> 探索建议</span></div>
               <div class="legend-row tier-l0-rejected" role="listitem"><span class="trust-swatch trust-pattern--crosshatched"></span><span><strong>L0</strong> 已拒绝</span></div>

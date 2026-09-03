@@ -12,7 +12,10 @@ from typing import Any
 
 import torch
 
-from cascade_planner.eval.train_skeleton_reranker import SkeletonReranker, row_features
+from cascade_planner.cascadeboard.skeleton_reranker_contract import (
+    SkeletonReranker,
+    skeleton_row_features,
+)
 
 
 DEFAULT_SKELETON_RERANKER_PATH = Path("results/shared/skeleton_reranker/hard_negative_v2_metadata_20260507.pt")
@@ -38,7 +41,10 @@ class SkeletonRerankerInference:
             "type_sequence": list(getattr(skeleton, "types", []) or []),
             "ec1_sequence": [str(value or "") for value in getattr(skeleton, "ec1s", []) or []],
         }
-        x = torch.tensor(row_features(row, self.schema), dtype=torch.float32).unsqueeze(0)
+        x = torch.tensor(
+            skeleton_row_features(row, self.schema),
+            dtype=torch.float32,
+        ).unsqueeze(0)
         with torch.no_grad():
             return float(torch.sigmoid(self.model(x))[0].item())
 

@@ -1,0 +1,1491 @@
+{
+  "chemical_states": {
+    "candidate-state:0ce1ddb54f37d245c78de160": {
+      "authoritative": false,
+      "canonical_smiles": "O=C(Cl)Cc1ccccc1",
+      "content_sha256": "c80d649726d1a87e2caad143cd9b89b4c36e44d58de6a14dcf7021bf70eb884f",
+      "label": "O=C(Cl)Cc1ccccc1",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:o_c_cl_cc1ccccc1",
+      "state_id": "candidate-state:0ce1ddb54f37d245c78de160",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:0d9018b16082a1b169bcf49b": {
+      "authoritative": false,
+      "canonical_smiles": "CC(=O)c1ccccc1",
+      "content_sha256": "07a85c22037fc8171b7560e4547fdfd2e570c459e14b2d88f4d29fe8b372beb3",
+      "label": "CC(=O)c1ccccc1",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_o_c1ccccc1",
+      "state_id": "candidate-state:0d9018b16082a1b169bcf49b",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:131625b4d0ff838339985006": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(C)OC(=O)CC(Br)C(=O)OC(C)(C)C",
+      "content_sha256": "c34984c12d0ff663c56d5fd3ef264853e5df33dd1ec9196d254785ac1f6f3246",
+      "label": "CC(C)(C)OC(=O)CC(Br)C(=O)OC(C)(C)C",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c_oc_o_cc_br_c_o_oc_c_c_c",
+      "state_id": "candidate-state:131625b4d0ff838339985006",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:1a453e70c6cb469e315f0929": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H](O)C[C@@H](O)CC(=O)O",
+      "content_sha256": "7a1edb155d986191af18d4d3120c0bc6c926559ff6c3a7808d0ce33d5b72a0bc",
+      "label": "atorvastatin free acid",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c1_c_c_c_n1cc_c_h_c_c_h_cc_o_o_o_o_c2_cc_c_c_c2_f_c3_cc_cc_c3_c_o_nc4_cc_cc_c4",
+      "state_id": "candidate-state:1a453e70c6cb469e315f0929",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:21ca791be9a30e842b16dee5": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(C)OC(=O)CBr",
+      "content_sha256": "ba4a5749a6475777298b8d2f8fb6a4c222dba579e60ce9bbb63a27c9ba94c1bc",
+      "label": "CC(C)(C)OC(=O)CBr",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c_oc_o_cbr",
+      "state_id": "candidate-state:21ca791be9a30e842b16dee5",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:56e1503dd8a5cd9b01f0ef9a": {
+      "authoritative": false,
+      "canonical_smiles": "CO",
+      "content_sha256": "f0f0e18ebc24a8aebac5b0b6487bf399e4bb07fc2f2c66ac393880aafaad76be",
+      "label": "CO",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:co",
+      "state_id": "candidate-state:56e1503dd8a5cd9b01f0ef9a",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:631f20021548e46c4f1758cd": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(C)OC(=O)CC(Br)C(O)C(=O)O",
+      "content_sha256": "326f595dfad6efbd1cee003e871cdfb343a09cbd65265d4f1586dd74ab1a2c59",
+      "label": "CC(C)(C)OC(=O)CC(Br)C(O)C(=O)O",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c_oc_o_cc_br_c_o_c_o_o",
+      "state_id": "candidate-state:631f20021548e46c4f1758cd",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:664d282b8375ce905df3b620": {
+      "authoritative": false,
+      "canonical_smiles": "COC(=O)C(C)C",
+      "content_sha256": "2e79bd75de3891aaafdc247ba67c8e41da496f8174ddfd0e2fb6defc12de3d34",
+      "label": "COC(=O)C(C)C",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:coc_o_c_c_c",
+      "state_id": "candidate-state:664d282b8375ce905df3b620",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:6d901cb41ced0d58d16c29af": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(C)OC(=O)CC(Br)C1OC(C)(C)OC1=O",
+      "content_sha256": "14eae7f9fb5ea6cfc7cc8997a63d982c5375cfd85dc2ae0df08cb5b480f5776e",
+      "label": "CC(C)(C)OC(=O)CC(Br)C1OC(C)(C)OC1=O",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c_oc_o_cc_br_c1oc_c_c_oc1_o",
+      "state_id": "candidate-state:6d901cb41ced0d58d16c29af",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:7ae5a983d335799dc6562c4a": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+      "content_sha256": "f8cd365c1278d5fcc0759f55c16e04e4d56e26345fa37b58bb2ce31a0b6be4e9",
+      "label": "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c_oc_o_c_c_h_1c_c_h_ccn_oc_c_c_o1",
+      "state_id": "candidate-state:7ae5a983d335799dc6562c4a",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:7c3dbff613e7be6f28a972e1": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C",
+      "content_sha256": "41913bbca3dfd324c428db84365c73c874b1edffd9d61d59131737b37c4d1a98",
+      "label": "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c_oc_o_ccc_o_oc_c_c_c",
+      "state_id": "candidate-state:7c3dbff613e7be6f28a972e1",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:7e183c4763a6921b606ae5d0": {
+      "authoritative": false,
+      "canonical_smiles": "COC(C)(C)OC",
+      "content_sha256": "969198a1c6a52527d4a23d315f463f733c323e40bc235bc7f7ffb015d6bb730b",
+      "label": "COC(C)(C)OC",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:coc_c_c_oc",
+      "state_id": "candidate-state:7e183c4763a6921b606ae5d0",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:7ea00e72cea77e89d6c0de29": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H]1C[C@H](CC(=O)OC(C)(C)C)OC(C)(C)O1",
+      "content_sha256": "0fa3277f2608c4cff3bf3ad40cd92eb63350bacf7284fbc84460a71c9f7d587b",
+      "label": "CC(C)c1c(C(=O)Nc2ccccc2)c(-...(CC(=O)OC(C)(C)C)OC(C)(C)O1",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c1c_c_o_nc2ccccc2_c_c2ccccc2_c_c2ccc_f_cc2_n1cc_c_h_1c_c_h_cc_o_oc_c_c_c_oc_c_c_o1",
+      "state_id": "candidate-state:7ea00e72cea77e89d6c0de29",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:90219353f599a25e804b0cd6": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1",
+      "content_sha256": "84fef67056fd45fe1adb5c8a66af49f63cc32d347b6264ec75cb4f7e6068e883",
+      "label": "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c_o_c_c_o_nc1ccccc1_c_c_o_c1ccc_f_cc1_c1ccccc1",
+      "state_id": "candidate-state:90219353f599a25e804b0cd6",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:9cccdd5a35193288c2d439de": {
+      "authoritative": false,
+      "canonical_smiles": "NCCN",
+      "content_sha256": "3957b8cdc0b1c709bb6dc682afa1ee67ee17072a7ac5b00da0cafecf60190ee2",
+      "label": "NCCN",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:nccn",
+      "state_id": "candidate-state:9cccdd5a35193288c2d439de",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:9e5dc3c3587918ef7c7efa97": {
+      "authoritative": false,
+      "canonical_smiles": "O=C(Cc1ccccc1)c1ccc(F)cc1",
+      "content_sha256": "9173434b94586e37ade8369682d28e2aabb355e9cf93aaa28fe49c3f58df1215",
+      "label": "O=C(Cc1ccccc1)c1ccc(F)cc1",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:o_c_cc1ccccc1_c1ccc_f_cc1",
+      "state_id": "candidate-state:9e5dc3c3587918ef7c7efa97",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:b69cee95f3662f4137f20a80": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)OB(OC(C)C)OC(C)C",
+      "content_sha256": "ae59aee29a02223e45d92f8b70bb14e6157555db2c9337cad013cc10d9b80407",
+      "label": "CC(C)OB(OC(C)C)OC(C)C",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_ob_oc_c_c_oc_c_c",
+      "state_id": "candidate-state:b69cee95f3662f4137f20a80",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:c0773dbc269c9d1933c971fd": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)C(=O)CC(=O)c1ccccc1",
+      "content_sha256": "1d0edd990437fdf634e1ff7e9bab3e965f42ca85a352b6fc5b8980303c2ca8c5",
+      "label": "CC(C)C(=O)CC(=O)c1ccccc1",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c_o_cc_o_c1ccccc1",
+      "state_id": "candidate-state:c0773dbc269c9d1933c971fd",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:c366e2ca70d8b8abf2231e3c": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)C(=O)O",
+      "content_sha256": "e569274f637ab6c2d8f15333cce6a8a2a7167df9000b3aa40fa0d1879d26f826",
+      "label": "CC(C)C(=O)O",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_c_c_o_o",
+      "state_id": "candidate-state:c366e2ca70d8b8abf2231e3c",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:da2097374ba698c538d9e787": {
+      "authoritative": false,
+      "canonical_smiles": "Fc1ccccc1",
+      "content_sha256": "71a84ada9d702e329ca3ea07d80c869de792546172e23a89a0672b6845f96991",
+      "label": "Fc1ccccc1",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:fc1ccccc1",
+      "state_id": "candidate-state:da2097374ba698c538d9e787",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:dadd10bb5f0872b2e8c698bf": {
+      "authoritative": false,
+      "canonical_smiles": "CC(=O)OC(C)(C)C",
+      "content_sha256": "2e5a97018113f72ed589eb9f748299deda76ec67d2e6bfc23d3f4dd062c58e02",
+      "label": "CC(=O)OC(C)(C)C",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cc_o_oc_c_c_c",
+      "state_id": "candidate-state:dadd10bb5f0872b2e8c698bf",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:de009f67012da282ce428cba": {
+      "authoritative": false,
+      "canonical_smiles": "COB(OC)OC",
+      "content_sha256": "d58a16bbae49b1f779dcc554498a9dda68ab2fb8b9f459331c6fc42960e36a7f",
+      "label": "COB(OC)OC",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:cob_oc_oc",
+      "state_id": "candidate-state:de009f67012da282ce428cba",
+      "status": "candidate_route_observation"
+    }
+  },
+  "content_sha256": "2510d9f622e40e7b9321625aa8c44e32df44c16d2e861ca88a2b2cd3bab85bc3",
+  "counts": {
+    "blocked_candidate": 0,
+    "canonical_admissible": 11,
+    "chemical_states": 22,
+    "inventory_gap": 0,
+    "operation_nodes": 11,
+    "programs": 11,
+    "routes": 1
+  },
+  "observation_id": "candidate-route:af825e9ee00e4e6a1f8ba4ed",
+  "operation_nodes": {
+    "candidate-operation:10f675d1b9e10d52aefc5cdc": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "20b7671d6f7f992aaf708f76407baffee04a231e01a2e2b95be11a7314d9b2fd",
+      "input_state_ids": [
+        "candidate-state:de009f67012da282ce428cba",
+        "candidate-state:131625b4d0ff838339985006"
+      ],
+      "operation_id": "candidate-operation:10f675d1b9e10d52aefc5cdc",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:631f20021548e46c4f1758cd"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:07",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:3d775a181fd4666e7d37edbb": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "d5e8b2997eea914ced42566fd8c9b605611cdc6d5f553f35095ee03c04f69b39",
+      "input_state_ids": [
+        "candidate-state:da2097374ba698c538d9e787",
+        "candidate-state:0ce1ddb54f37d245c78de160"
+      ],
+      "operation_id": "candidate-operation:3d775a181fd4666e7d37edbb",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:9e5dc3c3587918ef7c7efa97"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:01",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:41a48decc121061f84534eb5": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "dbae68e6d5d1daaba1353182c71db7f95c808ee0b86310b176a44cf3aacd82cb",
+      "input_state_ids": [
+        "candidate-state:7ae5a983d335799dc6562c4a",
+        "candidate-state:90219353f599a25e804b0cd6"
+      ],
+      "operation_id": "candidate-operation:41a48decc121061f84534eb5",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:7ea00e72cea77e89d6c0de29"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:10",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:8533cb25dd61b32a939864c0": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "2a7eb28777c03172813088700d79f35c008b9b042b20696715f573a8666a21ce",
+      "input_state_ids": [
+        "candidate-state:b69cee95f3662f4137f20a80",
+        "candidate-state:7c3dbff613e7be6f28a972e1"
+      ],
+      "operation_id": "candidate-operation:8533cb25dd61b32a939864c0",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:131625b4d0ff838339985006"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:06",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:9a07c57ef09077818ea9731e": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "7f255937a8a659a66f48ea1ce27bdbdc9a31bf778165a8f4bb126357dc0f39c3",
+      "input_state_ids": [
+        "candidate-state:7ea00e72cea77e89d6c0de29"
+      ],
+      "operation_id": "candidate-operation:9a07c57ef09077818ea9731e",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:1a453e70c6cb469e315f0929"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:11",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:a5b087fcded1e8b2b7b1d7de": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "8dd56fceff313c04c1e3334a54f4d5a07f3e8e18a7704d7aabbaa6f4fce28597",
+      "input_state_ids": [
+        "candidate-state:9cccdd5a35193288c2d439de",
+        "candidate-state:6d901cb41ced0d58d16c29af"
+      ],
+      "operation_id": "candidate-operation:a5b087fcded1e8b2b7b1d7de",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:7ae5a983d335799dc6562c4a"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:09",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:baa85c026cd81566e0935d6a": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "9e3830369d16e6d0d5944a55d23459f49571c86c36ad77c6e8f4ec890272b980",
+      "input_state_ids": [
+        "candidate-state:dadd10bb5f0872b2e8c698bf",
+        "candidate-state:21ca791be9a30e842b16dee5"
+      ],
+      "operation_id": "candidate-operation:baa85c026cd81566e0935d6a",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:7c3dbff613e7be6f28a972e1"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:05",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:c5b9ade51b4b1864e45ad44c": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "5fe678e412fd8222d157e35794dd619d9b3f12bc00766faf6df273013fc0bde3",
+      "input_state_ids": [
+        "candidate-state:631f20021548e46c4f1758cd",
+        "candidate-state:7e183c4763a6921b606ae5d0"
+      ],
+      "operation_id": "candidate-operation:c5b9ade51b4b1864e45ad44c",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:6d901cb41ced0d58d16c29af"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:08",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:d0166fe669aad69f4893495d": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "0c6deb5921df6839a3ff8299bcd97eb548e1ea6b3e9f7db366c0035b53b52492",
+      "input_state_ids": [
+        "candidate-state:c0773dbc269c9d1933c971fd",
+        "candidate-state:9e5dc3c3587918ef7c7efa97"
+      ],
+      "operation_id": "candidate-operation:d0166fe669aad69f4893495d",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:90219353f599a25e804b0cd6"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:04",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:e4d1d36720183b1bc7640170": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "041c3aac7549f9026a792232cb98917e2413f728af4bfaca06182b2520d145b8",
+      "input_state_ids": [
+        "candidate-state:664d282b8375ce905df3b620",
+        "candidate-state:0d9018b16082a1b169bcf49b"
+      ],
+      "operation_id": "candidate-operation:e4d1d36720183b1bc7640170",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:c0773dbc269c9d1933c971fd"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:03",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:f98cd4d0ce245757c33fc635": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "dd81936dc81ea292c544f3dda154e07700057a02c53ad3011f45727e771117df",
+      "input_state_ids": [
+        "candidate-state:c366e2ca70d8b8abf2231e3c",
+        "candidate-state:56e1503dd8a5cd9b01f0ef9a"
+      ],
+      "operation_id": "candidate-operation:f98cd4d0ce245757c33fc635",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:664d282b8375ce905df3b620"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:atorvastatin:migrated:02",
+      "status": "canonical_admissible"
+    }
+  },
+  "programs": {
+    "candidate-program:10f675d1b9e10d52aefc5cdc": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "2ae43747e62569cf9776cd477ebb185fecf2f7bd1ddf2d87355f85b494085b07",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(C)OC(=O)CC(Br)C(=O)OC(C)(C)C",
+            "COB(OC)OC"
+          ],
+          "product_smiles": "CC(C)(C)OC(=O)CC(Br)C(O)C(=O)O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "B": 1,
+          "Br": 1,
+          "C": 15,
+          "O": 7
+        },
+        "precursor_heavy_atom_count": 24,
+        "precursor_smiles": [
+          "COB(OC)OC",
+          "CC(C)(C)OC(=O)CC(Br)C(=O)OC(C)(C)C"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(C)OC(=O)CC(Br)C(=O)OC(C)(C)C",
+          "COB(OC)OC"
+        ],
+        "product_element_counts": {
+          "Br": 1,
+          "C": 9,
+          "O": 5
+        },
+        "product_heavy_atom_count": 15,
+        "product_smiles": "CC(C)(C)OC(=O)CC(Br)C(O)C(=O)O",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "2336147fded0b5db9ed253cc476d97dbff0acd08be282145b70101f59f50d9c8",
+      "input_state_ids": [
+        "candidate-state:de009f67012da282ce428cba",
+        "candidate-state:131625b4d0ff838339985006"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:10f675d1b9e10d52aefc5cdc"
+      ],
+      "output_state_ids": [
+        "candidate-state:631f20021548e46c4f1758cd"
+      ],
+      "program_id": "candidate-program:10f675d1b9e10d52aefc5cdc",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:07",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:3d775a181fd4666e7d37edbb": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "f2f19bfcc7bb73e489a61c442a5a56f8c63e423363937f48b1ee907a4da9b7bb",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "Fc1ccccc1",
+            "O=C(Cl)Cc1ccccc1"
+          ],
+          "product_smiles": "O=C(Cc1ccccc1)c1ccc(F)cc1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 14,
+          "Cl": 1,
+          "F": 1,
+          "O": 1
+        },
+        "precursor_heavy_atom_count": 17,
+        "precursor_smiles": [
+          "Fc1ccccc1",
+          "O=C(Cl)Cc1ccccc1"
+        ],
+        "precursor_smiles_multiset": [
+          "Fc1ccccc1",
+          "O=C(Cl)Cc1ccccc1"
+        ],
+        "product_element_counts": {
+          "C": 14,
+          "F": 1,
+          "O": 1
+        },
+        "product_heavy_atom_count": 16,
+        "product_smiles": "O=C(Cc1ccccc1)c1ccc(F)cc1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "74aab2a9baaeaadb55cb6fc37cf6a4822c4ab50e6bb6afdd07af2f1d6d2bbc99",
+      "input_state_ids": [
+        "candidate-state:da2097374ba698c538d9e787",
+        "candidate-state:0ce1ddb54f37d245c78de160"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:3d775a181fd4666e7d37edbb"
+      ],
+      "output_state_ids": [
+        "candidate-state:9e5dc3c3587918ef7c7efa97"
+      ],
+      "program_id": "candidate-program:3d775a181fd4666e7d37edbb",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:01",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:41a48decc121061f84534eb5": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "aa9a602c4f45b9d592dbc82bc049c1367de35572645e1a13100234e19d0e2b1c",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+            "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1"
+          ],
+          "product_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H]1C[C@H](CC(=O)OC(C)(C)C)OC(C)(C)O1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 40,
+          "F": 1,
+          "N": 2,
+          "O": 7
+        },
+        "precursor_heavy_atom_count": 50,
+        "precursor_smiles": [
+          "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+          "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+          "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1"
+        ],
+        "product_element_counts": {
+          "C": 40,
+          "F": 1,
+          "N": 2,
+          "O": 5
+        },
+        "product_heavy_atom_count": 48,
+        "product_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H]1C[C@H](CC(=O)OC(C)(C)C)OC(C)(C)O1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "4754a13130fac602b50c78257f9fd3ce81a46989eaf576c611a2d0381da692b7",
+      "input_state_ids": [
+        "candidate-state:7ae5a983d335799dc6562c4a",
+        "candidate-state:90219353f599a25e804b0cd6"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:41a48decc121061f84534eb5"
+      ],
+      "output_state_ids": [
+        "candidate-state:7ea00e72cea77e89d6c0de29"
+      ],
+      "program_id": "candidate-program:41a48decc121061f84534eb5",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:10",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:8533cb25dd61b32a939864c0": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "2e03fa1571c0608e7890722ef5dfd9947454deeb204078f924024563948285d1",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C",
+            "CC(C)OB(OC(C)C)OC(C)C"
+          ],
+          "product_smiles": "CC(C)(C)OC(=O)CC(Br)C(=O)OC(C)(C)C",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "Br": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 1,
+        "precursor_element_counts": {
+          "B": 1,
+          "C": 21,
+          "O": 7
+        },
+        "precursor_heavy_atom_count": 29,
+        "precursor_smiles": [
+          "CC(C)OB(OC(C)C)OC(C)C",
+          "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C",
+          "CC(C)OB(OC(C)C)OC(C)C"
+        ],
+        "product_element_counts": {
+          "Br": 1,
+          "C": 12,
+          "O": 4
+        },
+        "product_heavy_atom_count": 17,
+        "product_smiles": "CC(C)(C)OC(=O)CC(Br)C(=O)OC(C)(C)C",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "f8f1474a1e5217399fa6db28a256927a4383c653da8aa8f38c003b9ebcc7a965",
+      "input_state_ids": [
+        "candidate-state:b69cee95f3662f4137f20a80",
+        "candidate-state:7c3dbff613e7be6f28a972e1"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:8533cb25dd61b32a939864c0"
+      ],
+      "output_state_ids": [
+        "candidate-state:131625b4d0ff838339985006"
+      ],
+      "program_id": "candidate-program:8533cb25dd61b32a939864c0",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:06",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:9a07c57ef09077818ea9731e": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "74621567063f393ad21d3bc7633c7d4573c9c7d4be1c9af551581e17cb8dd1d3",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H]1C[C@H](CC(=O)OC(C)(C)C)OC(C)(C)O1"
+          ],
+          "product_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H](O)C[C@@H](O)CC(=O)O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 40,
+          "F": 1,
+          "N": 2,
+          "O": 5
+        },
+        "precursor_heavy_atom_count": 48,
+        "precursor_smiles": [
+          "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H]1C[C@H](CC(=O)OC(C)(C)C)OC(C)(C)O1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H]1C[C@H](CC(=O)OC(C)(C)C)OC(C)(C)O1"
+        ],
+        "product_element_counts": {
+          "C": 33,
+          "F": 1,
+          "N": 2,
+          "O": 5
+        },
+        "product_heavy_atom_count": 41,
+        "product_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H](O)C[C@@H](O)CC(=O)O",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "87b0556a4a651a0a9c7a2fb577b44716190f6b06d51cf61eee92d4f9fd9df53f",
+      "input_state_ids": [
+        "candidate-state:7ea00e72cea77e89d6c0de29"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:9a07c57ef09077818ea9731e"
+      ],
+      "output_state_ids": [
+        "candidate-state:1a453e70c6cb469e315f0929"
+      ],
+      "program_id": "candidate-program:9a07c57ef09077818ea9731e",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:11",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:a5b087fcded1e8b2b7b1d7de": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "b7c88f4f092c639366e765da71dfbea2a63fe7a01682b8ab7926ce978264b907",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(C)OC(=O)CC(Br)C1OC(C)(C)OC1=O",
+            "NCCN"
+          ],
+          "product_smiles": "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "Br": 1,
+          "C": 14,
+          "N": 2,
+          "O": 5
+        },
+        "precursor_heavy_atom_count": 22,
+        "precursor_smiles": [
+          "NCCN",
+          "CC(C)(C)OC(=O)CC(Br)C1OC(C)(C)OC1=O"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(C)OC(=O)CC(Br)C1OC(C)(C)OC1=O",
+          "NCCN"
+        ],
+        "product_element_counts": {
+          "C": 14,
+          "N": 1,
+          "O": 4
+        },
+        "product_heavy_atom_count": 19,
+        "product_smiles": "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "2cce2307ccfc364df407c31d178a9dc2157bd6de9ba8410d72447203663c10b4",
+      "input_state_ids": [
+        "candidate-state:9cccdd5a35193288c2d439de",
+        "candidate-state:6d901cb41ced0d58d16c29af"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:a5b087fcded1e8b2b7b1d7de"
+      ],
+      "output_state_ids": [
+        "candidate-state:7ae5a983d335799dc6562c4a"
+      ],
+      "program_id": "candidate-program:a5b087fcded1e8b2b7b1d7de",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:09",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:baa85c026cd81566e0935d6a": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "3a912bc72864667ca72cf7b28d9248bf47f16b162f16ac9e08db5ebe219ad1db",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(=O)OC(C)(C)C",
+            "CC(C)(C)OC(=O)CBr"
+          ],
+          "product_smiles": "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "Br": 1,
+          "C": 12,
+          "O": 4
+        },
+        "precursor_heavy_atom_count": 17,
+        "precursor_smiles": [
+          "CC(=O)OC(C)(C)C",
+          "CC(C)(C)OC(=O)CBr"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(=O)OC(C)(C)C",
+          "CC(C)(C)OC(=O)CBr"
+        ],
+        "product_element_counts": {
+          "C": 12,
+          "O": 4
+        },
+        "product_heavy_atom_count": 16,
+        "product_smiles": "CC(C)(C)OC(=O)CCC(=O)OC(C)(C)C",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "eb49a8357e7d9adb7f0f90d3432982ec5f43f20d81be5d6c4327e19eba559ca5",
+      "input_state_ids": [
+        "candidate-state:dadd10bb5f0872b2e8c698bf",
+        "candidate-state:21ca791be9a30e842b16dee5"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:baa85c026cd81566e0935d6a"
+      ],
+      "output_state_ids": [
+        "candidate-state:7c3dbff613e7be6f28a972e1"
+      ],
+      "program_id": "candidate-program:baa85c026cd81566e0935d6a",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:05",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:c5b9ade51b4b1864e45ad44c": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "b56c194b4f9d54abacba5c73828ce05c3ac59920e3eb9d8ab877a3ca5cb776a3",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(C)OC(=O)CC(Br)C(O)C(=O)O",
+            "COC(C)(C)OC"
+          ],
+          "product_smiles": "CC(C)(C)OC(=O)CC(Br)C1OC(C)(C)OC1=O",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "Br": 1,
+          "C": 14,
+          "O": 7
+        },
+        "precursor_heavy_atom_count": 22,
+        "precursor_smiles": [
+          "CC(C)(C)OC(=O)CC(Br)C(O)C(=O)O",
+          "COC(C)(C)OC"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(C)OC(=O)CC(Br)C(O)C(=O)O",
+          "COC(C)(C)OC"
+        ],
+        "product_element_counts": {
+          "Br": 1,
+          "C": 12,
+          "O": 5
+        },
+        "product_heavy_atom_count": 18,
+        "product_smiles": "CC(C)(C)OC(=O)CC(Br)C1OC(C)(C)OC1=O",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "4296e3ee38272dfe4b65bc091c1d6597a9b01781ba00e0dc658ce1c3cd773404",
+      "input_state_ids": [
+        "candidate-state:631f20021548e46c4f1758cd",
+        "candidate-state:7e183c4763a6921b606ae5d0"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:c5b9ade51b4b1864e45ad44c"
+      ],
+      "output_state_ids": [
+        "candidate-state:6d901cb41ced0d58d16c29af"
+      ],
+      "program_id": "candidate-program:c5b9ade51b4b1864e45ad44c",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:08",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:d0166fe669aad69f4893495d": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "6a45b4efb47319b80dbf4319cdb8ef23f6dd6b552f24a6189bfd597e443c86b3",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)C(=O)CC(=O)c1ccccc1",
+            "O=C(Cc1ccccc1)c1ccc(F)cc1"
+          ],
+          "product_smiles": "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {
+          "N": 1
+        },
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 1,
+        "precursor_element_counts": {
+          "C": 26,
+          "F": 1,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 30,
+        "precursor_smiles": [
+          "CC(C)C(=O)CC(=O)c1ccccc1",
+          "O=C(Cc1ccccc1)c1ccc(F)cc1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)C(=O)CC(=O)c1ccccc1",
+          "O=C(Cc1ccccc1)c1ccc(F)cc1"
+        ],
+        "product_element_counts": {
+          "C": 26,
+          "F": 1,
+          "N": 1,
+          "O": 3
+        },
+        "product_heavy_atom_count": 31,
+        "product_smiles": "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "2a68e6d66711519e5294961edf5cf0c8a3cb951f53c2a4367effc9f36b4b7aa3",
+      "input_state_ids": [
+        "candidate-state:c0773dbc269c9d1933c971fd",
+        "candidate-state:9e5dc3c3587918ef7c7efa97"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:d0166fe669aad69f4893495d"
+      ],
+      "output_state_ids": [
+        "candidate-state:90219353f599a25e804b0cd6"
+      ],
+      "program_id": "candidate-program:d0166fe669aad69f4893495d",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:04",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:e4d1d36720183b1bc7640170": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "4c3af544208caa10d3729d81a93b3ca25f38142803616176761666dd7513f5aa",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(=O)c1ccccc1",
+            "COC(=O)C(C)C"
+          ],
+          "product_smiles": "CC(C)C(=O)CC(=O)c1ccccc1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 13,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 16,
+        "precursor_smiles": [
+          "COC(=O)C(C)C",
+          "CC(=O)c1ccccc1"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(=O)c1ccccc1",
+          "COC(=O)C(C)C"
+        ],
+        "product_element_counts": {
+          "C": 12,
+          "O": 2
+        },
+        "product_heavy_atom_count": 14,
+        "product_smiles": "CC(C)C(=O)CC(=O)c1ccccc1",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "55d5da582210983348fda32345d3700e8e4ec479bb4c36c1198048c25bdb40a8",
+      "input_state_ids": [
+        "candidate-state:664d282b8375ce905df3b620",
+        "candidate-state:0d9018b16082a1b169bcf49b"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:e4d1d36720183b1bc7640170"
+      ],
+      "output_state_ids": [
+        "candidate-state:c0773dbc269c9d1933c971fd"
+      ],
+      "program_id": "candidate-program:e4d1d36720183b1bc7640170",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:03",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    },
+    "candidate-program:f98cd4d0ce245757c33fc635": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "dd8762931210c2284fd8422d206df554fbeb3db0d84bc555cdda13b75ec1411d",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)C(=O)O",
+            "CO"
+          ],
+          "product_smiles": "COC(=O)C(C)C",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "external_atom_source_requires_validation": false,
+        "forbidden_return_smiles": [],
+        "mapped_atom_contributing_precursor_indices": [],
+        "mapped_reaction_atom_mapping_used": false,
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 5,
+          "O": 3
+        },
+        "precursor_heavy_atom_count": 8,
+        "precursor_smiles": [
+          "CC(C)C(=O)O",
+          "CO"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)C(=O)O",
+          "CO"
+        ],
+        "product_element_counts": {
+          "C": 5,
+          "O": 2
+        },
+        "product_heavy_atom_count": 7,
+        "product_smiles": "COC(=O)C(C)C",
+        "reasons": [],
+        "replayed_external_atom_deficit_bound": false,
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "mapped_atom_contribution_overrides_inventory_redundancy": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "replayed_external_atom_edits_grant_no_reaction_proof": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "468152069e6a7ab4857c1fc068f2880c437e342a2a378718a9be9c69031e8fee",
+      "input_state_ids": [
+        "candidate-state:c366e2ca70d8b8abf2231e3c",
+        "candidate-state:56e1503dd8a5cd9b01f0ef9a"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:f98cd4d0ce245757c33fc635"
+      ],
+      "output_state_ids": [
+        "candidate-state:664d282b8375ce905df3b620"
+      ],
+      "program_id": "candidate-program:f98cd4d0ce245757c33fc635",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:atorvastatin:migrated:02",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "mapped",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "current_host_proof_missing",
+        "exact_conditions_missing"
+      ]
+    }
+  },
+  "routes": {
+    "route:atorvastatin:11-step-migrated-candidate": {
+      "accepted": false,
+      "blocked_program_ids": [],
+      "canonical_admissible_program_ids": [
+        "candidate-program:3d775a181fd4666e7d37edbb",
+        "candidate-program:f98cd4d0ce245757c33fc635",
+        "candidate-program:e4d1d36720183b1bc7640170",
+        "candidate-program:d0166fe669aad69f4893495d",
+        "candidate-program:baa85c026cd81566e0935d6a",
+        "candidate-program:8533cb25dd61b32a939864c0",
+        "candidate-program:10f675d1b9e10d52aefc5cdc",
+        "candidate-program:c5b9ade51b4b1864e45ad44c",
+        "candidate-program:a5b087fcded1e8b2b7b1d7de",
+        "candidate-program:41a48decc121061f84534eb5",
+        "candidate-program:9a07c57ef09077818ea9731e"
+      ],
+      "content_sha256": "47e85f7b92d6870b0a190b9d1872a41ed4de459572f0e7f9fff1bd0a6172d9e4",
+      "inventory_gap_program_ids": [],
+      "production_closed": false,
+      "program_ids": [
+        "candidate-program:3d775a181fd4666e7d37edbb",
+        "candidate-program:f98cd4d0ce245757c33fc635",
+        "candidate-program:e4d1d36720183b1bc7640170",
+        "candidate-program:d0166fe669aad69f4893495d",
+        "candidate-program:baa85c026cd81566e0935d6a",
+        "candidate-program:8533cb25dd61b32a939864c0",
+        "candidate-program:10f675d1b9e10d52aefc5cdc",
+        "candidate-program:c5b9ade51b4b1864e45ad44c",
+        "candidate-program:a5b087fcded1e8b2b7b1d7de",
+        "candidate-program:41a48decc121061f84534eb5",
+        "candidate-program:9a07c57ef09077818ea9731e"
+      ],
+      "route_id": "route:atorvastatin:11-step-migrated-candidate",
+      "source_edge_ids": [
+        "edge:atorvastatin:migrated:01",
+        "edge:atorvastatin:migrated:02",
+        "edge:atorvastatin:migrated:03",
+        "edge:atorvastatin:migrated:04",
+        "edge:atorvastatin:migrated:05",
+        "edge:atorvastatin:migrated:06",
+        "edge:atorvastatin:migrated:07",
+        "edge:atorvastatin:migrated:08",
+        "edge:atorvastatin:migrated:09",
+        "edge:atorvastatin:migrated:10",
+        "edge:atorvastatin:migrated:11"
+      ],
+      "source_exploration_closed": true,
+      "status": "candidate_route_only",
+      "warning_codes": []
+    }
+  },
+  "schema_version": "candidate_program_projection.v1",
+  "semantics": {
+    "all_programs_are_non_authoritative": true,
+    "canonical_v4_rejections_remain_in_force": true,
+    "complete_display_route_does_not_mean_scientific_closure": true,
+    "no_program_store_admission_performed": true,
+    "read_only_candidate_projection": true
+  },
+  "source_observation_sha256": "e2768560fb7d1c613e13bd26eda6ed798eb77991dffa855b18c16c2931022c74",
+  "target_state_id": "candidate-state:1a453e70c6cb469e315f0929"
+}

@@ -4,12 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cascade_planner.harness.downstream_compiler import compile_downstream_consumables
+from cascade_planner.research.downstream_compiler import compile_downstream_consumables
 from cascade_planner.harness.deterministic_literature_registry import (
     PARSER_AUTHORITY_ID,
 )
 from cascade_planner.agent.chem_enzy_policy import validate_chem_enzy_search_policy
-from cascade_planner.harness.open_research_experience import (
+from cascade_planner.research.open_research_experience import (
     OPEN_RESEARCH_EXPERIENCE_SCHEMA,
     OPEN_RESEARCH_MANIFEST_SCHEMA,
     audit_local_pdf_proxy_fallback,
@@ -22,42 +22,37 @@ from cascade_planner.harness.local_pdf_proxy import (
     local_pdf_proxy_request_queue_path,
     write_pdf_request_queue,
 )
-from cascade_planner.harness.open_research_retrieval import (
+from cascade_planner.research.open_research_retrieval import (
     prefetch_open_research_evidence,
     retrieval_prefetch_manifest_entry,
     validate_retrieval_prefetch_consumption,
     write_prefetch_checkpoint_seed,
     write_retrieval_prefetch_error,
 )
-from cascade_planner.harness.open_research_seed_consumables import (
+from cascade_planner.research.open_research_seed_consumables import (
     build_local_downstream_seed,
     write_local_downstream_seed_artifacts,
 )
-from cascade_planner.harness.open_research_contract import (
+from cascade_planner.research.open_research_contract import (
     normalize_open_research_json_payload,
     validate_open_research_json_payload,
 )
-from cascade_planner.harness.source_detail_resolution import (
+from cascade_planner.research.source_detail_resolution import (
     resolve_source_detail_extraction_pack,
     source_detail_curator_records_path,
     source_detail_resolution_manifest_entry,
     source_detail_resolution_pack_path,
     write_source_detail_resolution_error,
 )
-from cascade_planner.harness.source_detail_chain_builder import (
-    build_source_detail_curator_records_from_chain,
+from cascade_planner.research.source_detail_chain_builder import (
     compile_source_detail_chain_route,
-    compile_hybrid_route_set,
-    probe_literature_plugin_chain,
-    resolve_curator_records_to_source_detail_steps,
 )
-from cascade_planner.harness.source_material_locator import (
+from cascade_planner.research.source_material_locator import (
     locate_source_materials,
     source_material_locator_manifest_entry,
     source_material_locator_pack_path,
     write_source_material_locator_error,
 )
-from cascade_planner.harness.visual_structure_extraction import validate_visual_structure_chain
 
 
 def _explicit_steroid_anchor_catalog():
@@ -1547,84 +1542,6 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(compiled["literature_template_plugin"]["one_step_rows"], [])
         self.assertEqual(len(compiled["literature_template_plugin"]["template_cards"]), 1)
         self.assertIn("source_detail_step_not_trusted_curated", compiled["reasons"])
-
-    def test_visual_literature_chain_builds_source_detail_rows_and_plugin_probe(self):
-        candidate_chain = {
-            "schema_version": "visual_structure_candidate_chain.v1",
-            "case_id": "acetaldehyde_chain",
-            "target_name": "acetaldehyde",
-            "target_smiles": "CC=O",
-            "source_ref": "doi:10.0000/visual-chain",
-            "source_title": "Visual chain source",
-            "evidence_refs": ["scheme:1"],
-            "route_order": "forward_start_to_target",
-            "source_excerpt": "Scheme 1 reports conversion of compound 1 to compound 3.",
-            "default_condition_candidate": {
-                "solvent": "water",
-                "temperature": "25 C",
-            },
-            "chain": [
-                {"label": "1", "smiles": "CC", "source_locator": "Scheme 1, compound 1"},
-                {"label": "2", "smiles": "CCO", "source_locator": "Scheme 1, compound 2"},
-                {"label": "3", "smiles": "CC=O", "source_locator": "Scheme 1, compound 3"},
-            ],
-        }
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            validation = validate_visual_structure_chain(
-                candidate_chain,
-                output_dir=root,
-                target_smiles="CC=O",
-            )
-            curator = build_source_detail_curator_records_from_chain(validation, output_dir=root)
-            resolution = resolve_curator_records_to_source_detail_steps(
-                curator,
-                output_dir=root,
-                target_name="acetaldehyde",
-                target_smiles="CC=O",
-                source_ref="doi:10.0000/visual-chain",
-            )
-            compiled_route = compile_source_detail_chain_route(
-                source_detail_steps=resolution["source_detail_route_steps"],
-                output_dir=root,
-                target_smiles="CC=O",
-                case_id="acetaldehyde_chain",
-                terminal_smiles="CC",
-                terminal_name="compound 1",
-            )
-            plugin_probe = probe_literature_plugin_chain(
-                plugin_payload=compiled_route["compiled_downstream"]["literature_template_plugin"],
-                validation=validation,
-                output_dir=root,
-            )
-            hybrid = compile_hybrid_route_set(
-                output_dir=root,
-                case_id="acetaldehyde_chain",
-                target_smiles="CC=O",
-                literature_chain_audit=compiled_route["chain_audit"],
-                chemenzy_result={"routes": [{"route": ["exploratory"]}]},
-                verifier_report={"accepted": False, "reasons": ["fake_closed"]},
-            )
-
-        self.assertTrue(validation["accepted"], validation["reasons"])
-        self.assertTrue(validation["continuity_audit"]["target_match"])
-        self.assertEqual(validation["summary"]["step_count"], 2)
-        self.assertEqual(len(curator["records"]), 2)
-        self.assertEqual(resolution["summary"]["source_detail_route_step_count"], 2)
-        self.assertFalse(compiled_route["accepted"])
-        self.assertIn("source_detail_step_not_trusted_curated", compiled_route["reasons"])
-        self.assertEqual(
-            compiled_route["compiled_downstream"]["literature_template_plugin"]["one_step_rows"],
-            [],
-        )
-        self.assertEqual(compiled_route["chain_audit"]["step_count"], 0)
-        self.assertFalse(compiled_route["chain_audit"]["terminal_reached"])
-        self.assertFalse(plugin_probe["accepted"])
-        self.assertEqual(plugin_probe["matched_count"], 0)
-        self.assertTrue(hybrid["accepted"])
-        self.assertEqual(hybrid["summary"]["literature_route_count"], 0)
-        self.assertEqual(hybrid["summary"]["literature_advisory_route_count"], 1)
 
     def test_source_detail_resolution_rejects_unsubstantiated_codex_translation(self):
         pack = {

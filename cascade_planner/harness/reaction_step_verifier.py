@@ -22,15 +22,21 @@ claim is recomputed from the mapped reaction and materialized structures.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
+import re
 from typing import Any, Iterable, Mapping
 
 from rdkit import Chem, RDLogger
 
 from cascade_planner.application.reaction_proof_versions import (
     CURRENT_REACTION_VALIDATOR_VERSION,
+)
+from cascade_planner.application.reactionjson_replay import (
+    ReactionJsonReplayError,
+    replay_reactionjson,
 )
 from cascade_planner.providers.stock import replay_stock_provider_result
 
@@ -50,6 +56,17 @@ PROOF_LEVEL_ORDER = {
     "L4_procurement_ready": 5,
 }
 
+_EXTERNAL_ATOM_DONOR_ALIASES = {
+    "dioxygen": "O=O",
+    "h2o": "O",
+    "h2o2": "OO",
+    "hydrogen peroxide": "OO",
+    "molecular oxygen": "O=O",
+    "o2": "O=O",
+    "oxygen": "O=O",
+    "water": "O",
+}
+
 
 @dataclass(frozen=True)
 class ReactionStepProof:
@@ -66,6 +83,7 @@ class ReactionStepProof:
     atom_map_audit: dict[str, Any] = field(default_factory=dict)
     bond_change_audit: dict[str, Any] = field(default_factory=dict)
     deterministic_transform_audit: dict[str, Any] = field(default_factory=dict)
+    external_atom_source_audit: dict[str, Any] = field(default_factory=dict)
     trusted_precedent_binding: dict[str, Any] = field(default_factory=dict)
     procurement_binding: dict[str, Any] = field(default_factory=dict)
     reaction_digest: str = ""
@@ -88,6 +106,8 @@ def verify_reaction_step(
     trusted_stock_providers: Mapping[str, Any] | None = None,
     source_supported_multicentre: bool = False,
     exact_source_records: Iterable[Mapping[str, Any]] | None = None,
+    source_procedure_records: Iterable[Mapping[str, Any]] | None = None,
+    source_bindings: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Materialize and independently validate one reaction edge."""
     raw = dict(step or {})
@@ -118,7 +138,9 @@ def verify_reaction_step(
         "ring_change_plausible": False,
         "bond_change_present": False,
         "reaction_edit_budget_plausible": False,
+        "reaction_edit_budget_source_supported": False,
         "deterministic_transform_reapplied": False,
+        "external_atom_source_replayed": False,
         "stereochemical_product_matches": False,
         "trusted_precedent_bound": False,
         "conditions_complete": False,
@@ -136,6 +158,7 @@ def verify_reaction_step(
     atom_audit: dict[str, Any] = {}
     bond_audit: dict[str, Any] = {}
     transform_audit: dict[str, Any] = {}
+    external_atom_source_audit: dict[str, Any] = {}
     if checks["structures_materialized"] and mapped_reaction:
         atom_audit, bond_audit = _audit_mapped_reaction(
             mapped_reaction,
@@ -163,16 +186,35 @@ def verify_reaction_step(
         checks["reaction_edit_budget_plausible"] = bool(
             bond_audit.get("reaction_edit_budget_plausible")
         )
+        external_atom_source_audit = _audit_external_atom_source(
+            raw,
+            product=product,
+            reactants=reactants,
+            mapped_reaction=mapped_reaction,
+            atom_audit=atom_audit,
+            bond_audit=bond_audit,
+        )
+        checks["external_atom_source_replayed"] = bool(
+            external_atom_source_audit.get("accepted")
+        )
         transform_audit = _deterministic_transform_reapply_audit(
             mapped_reaction,
             atom_audit=atom_audit,
             bond_audit=bond_audit,
             source_supported_multicentre=source_supported_multicentre,
+            external_atom_source_audit=external_atom_source_audit,
         )
         checks["deterministic_transform_reapplied"] = bool(
             transform_audit.get("accepted")
         )
-        reasons.extend(str(value) for value in atom_audit.get("reasons") or [])
+        reasons.extend(
+            str(value)
+            for value in atom_audit.get("reasons") or []
+            if not (
+                checks["external_atom_source_replayed"]
+                and str(value) == "product_heavy_atom_without_reactant_provenance"
+            )
+        )
         reasons.extend(str(value) for value in bond_audit.get("reasons") or [])
         reasons.extend(str(value) for value in transform_audit.get("reasons") or [])
     elif checks["structures_materialized"]:
@@ -182,6 +224,8 @@ def verify_reaction_step(
     provided_precedent = dict(trusted_precedent_binding or {})
     derived_precedent = _trusted_precedent_from_exact_source_records(
         exact_source_records or (),
+        source_procedure_records=source_procedure_records or (),
+        source_bindings=source_bindings or (),
         expected_product=product,
         expected_reactants=reactants,
         expected_reaction_digest=reaction_digest,
@@ -222,7 +266,25 @@ def verify_reaction_step(
         "reaction_edit_budget_plausible",
         "stereochemical_product_matches",
     )
-    mapping_consistent = all(checks[key] for key in l2_checks)
+    mapping_integrity_checks = tuple(
+        key
+        for key in l2_checks
+        if key
+        not in {
+            "reaction_edit_budget_plausible",
+            "product_atoms_have_reactant_provenance",
+        }
+    )
+    mapping_integrity_consistent = all(
+        checks[key] for key in mapping_integrity_checks
+    ) and bool(
+        checks["product_atoms_have_reactant_provenance"]
+        or checks["external_atom_source_replayed"]
+    )
+    mapping_consistent = bool(
+        mapping_integrity_consistent
+        and checks["reaction_edit_budget_plausible"]
+    )
     # Atom-map consistency alone cannot establish a chemically meaningful
     # transform: a cut/glue construction can conserve atoms and maps while
     # inventing an implausible reaction.  Only a host-derived reaction-centre
@@ -230,8 +292,23 @@ def verify_reaction_step(
     deterministic_transform_validated = bool(
         mapping_consistent and checks["deterministic_transform_reapplied"]
     )
+    # The edit budget is a conservative screening heuristic, not scientific
+    # authority.  A hash-bound exact structure+procedure record may support a
+    # larger mapped edit set once every structural mapping-integrity check has
+    # independently passed.  The raw audit remains false and visible; only
+    # the L3 precedent path receives this narrowly scoped allowance.
+    checks["reaction_edit_budget_source_supported"] = bool(
+        mapping_integrity_consistent
+        and not checks["reaction_edit_budget_plausible"]
+        and checks["trusted_precedent_bound"]
+    )
     precedent_validated = bool(
-        mapping_consistent and checks["trusted_precedent_bound"]
+        mapping_integrity_consistent
+        and checks["trusted_precedent_bound"]
+        and (
+            checks["reaction_edit_budget_plausible"]
+            or checks["reaction_edit_budget_source_supported"]
+        )
     )
     reaction_validated = deterministic_transform_validated or precedent_validated
     if precedent_validated:
@@ -260,6 +337,7 @@ def verify_reaction_step(
         "mapped_reaction": mapped_reaction,
         "mapping_source": mapping_source,
         "deterministic_transform_audit": transform_audit,
+        "external_atom_source_audit": external_atom_source_audit,
         "graph_and_stock_closed": bool(graph_and_stock_closed),
         "trusted_precedent_binding": precedent,
         "procurement_binding": procurement,
@@ -285,6 +363,7 @@ def verify_reaction_step(
         "atom_map_audit": atom_audit,
         "bond_change_audit": bond_audit,
         "deterministic_transform_audit": transform_audit,
+        "external_atom_source_audit": external_atom_source_audit,
         "trusted_precedent_binding": precedent,
         "procurement_binding": procurement,
         "reaction_digest": reaction_digest,
@@ -306,6 +385,7 @@ def verify_reaction_step(
         atom_map_audit=atom_audit,
         bond_change_audit=bond_audit,
         deterministic_transform_audit=transform_audit,
+        external_atom_source_audit=external_atom_source_audit,
         trusted_precedent_binding=precedent,
         procurement_binding=procurement,
         reaction_digest=reaction_digest,
@@ -645,12 +725,181 @@ def _audit_mapped_reaction(
     return atom_audit, bond_audit
 
 
+def _audit_external_atom_source(
+    step: Mapping[str, Any],
+    *,
+    product: str,
+    reactants: tuple[str, ...],
+    mapped_reaction: str,
+    atom_audit: Mapping[str, Any],
+    bond_audit: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Rebind a ReactionJSON-installed atom to an explicit forward donor.
+
+    This closes a representation gap without validating an enzyme claim. The
+    allowance is available only when the host can replay the exact
+    retrosynthetic edit, the missing element inventory equals the mapper's new
+    product atoms, and a structured step contract names a donor that contains
+    that inventory. A free-text reaction-family label or a self-reported
+    provenance boolean is never sufficient.
+    """
+
+    raw = dict(step or {})
+    supplied_audit = dict(raw.get("reactionjson_audit") or {})
+    operations = [
+        dict(value)
+        for value in raw.get("reaction_operations") or []
+        if isinstance(value, Mapping)
+    ]
+    reasons: list[str] = []
+    if supplied_audit.get("external_atom_source_required") is not True:
+        reasons.append("external_atom_source_not_declared_by_host_replay")
+    if supplied_audit.get("external_atom_source_grants_reaction_proof") is not False:
+        reasons.append("external_atom_source_authority_scope_invalid")
+    mapped_product = str(supplied_audit.get("mapped_product_smiles") or "")
+    replay: dict[str, Any] = {}
+    if not mapped_product or not operations:
+        reasons.append("external_atom_reactionjson_binding_missing")
+    else:
+        try:
+            replay = replay_reactionjson(
+                mapped_product_smiles=mapped_product,
+                operations=operations,
+                expected_precursor_smiles=reactants,
+            )
+        except ReactionJsonReplayError as exc:
+            reasons.append(f"external_atom_reactionjson_replay_failed:{exc}")
+
+    product_inventory = _heavy_atom_inventory(product)
+    reactant_inventory: Counter[int] = Counter()
+    for reactant in reactants:
+        reactant_inventory.update(_heavy_atom_inventory(reactant))
+    deficit = Counter(
+        {
+            atomic_number: count - reactant_inventory[atomic_number]
+            for atomic_number, count in product_inventory.items()
+            if reactant_inventory[atomic_number] < count
+        }
+    )
+    if not deficit:
+        reasons.append("external_atom_inventory_deficit_absent")
+
+    route_product = Chem.MolFromSmiles(mapped_product)
+    route_atoms = {
+        int(atom.GetAtomMapNum()): int(atom.GetAtomicNum())
+        for atom in route_product.GetAtoms()
+        if route_product is not None
+        and atom.GetAtomicNum() > 1
+        and int(atom.GetAtomMapNum()) > 0
+    } if route_product is not None else {}
+    edited_external_inventory: Counter[int] = Counter()
+    unsupported_external_edit = False
+    for operation in operations:
+        if str(operation.get("op") or "") != "remove_group":
+            continue
+        for raw_map in operation.get("map_indices") or []:
+            try:
+                atomic_number = route_atoms[int(raw_map)]
+            except (KeyError, TypeError, ValueError):
+                unsupported_external_edit = True
+                continue
+            edited_external_inventory[atomic_number] += 1
+    if unsupported_external_edit or edited_external_inventory != deficit:
+        reasons.append("external_atom_reactionjson_inventory_mismatch")
+
+    parts = str(mapped_reaction or "").split(">")
+    mapped_product_mol = (
+        Chem.MolFromSmiles(parts[2]) if len(parts) == 3 and parts[2] else None
+    )
+    mapped_product_atoms = (
+        _mapped_atoms([mapped_product_mol])[0]
+        if mapped_product_mol is not None
+        else {}
+    )
+    mapped_new_inventory = Counter(
+        mapped_product_atoms.get(int(map_number), 0)
+        for map_number in atom_audit.get("new_product_atom_maps") or []
+        if mapped_product_atoms.get(int(map_number), 0) > 1
+    )
+    if mapped_new_inventory != deficit:
+        reasons.append("external_atom_mapper_inventory_mismatch")
+
+    donor_inventory: Counter[int] = Counter()
+    donor_bindings: list[dict[str, str]] = []
+    for raw_step in raw.get("biocatalytic_steps") or []:
+        if not isinstance(raw_step, Mapping):
+            continue
+        ledger = dict(raw_step.get("cofactor_ledger") or {})
+        labels = [
+            str(value).strip()
+            for field in ("cosubstrates", "requirements")
+            for value in ledger.get(field) or []
+            if str(value).strip()
+        ]
+        for label in labels:
+            donor_smiles = _external_atom_donor_smiles(label)
+            if not donor_smiles:
+                continue
+            inventory = _heavy_atom_inventory(donor_smiles)
+            donor_inventory.update(inventory)
+            donor_bindings.append(
+                {"source_label": label, "source_smiles": donor_smiles}
+            )
+    if not deficit or any(
+        donor_inventory[atomic_number] < count
+        for atomic_number, count in deficit.items()
+    ):
+        reasons.append("external_atom_donor_inventory_missing")
+
+    if not bond_audit.get("bond_change_present"):
+        reasons.append("external_atom_bond_installation_missing")
+    accepted = bool(replay.get("accepted") is True and not reasons)
+    return {
+        "schema_version": "replayed_external_atom_source_audit.v1",
+        "accepted": accepted,
+        "product_inventory_deficit": dict(sorted(deficit.items())),
+        "reactionjson_external_inventory": dict(
+            sorted(edited_external_inventory.items())
+        ),
+        "mapped_new_product_inventory": dict(sorted(mapped_new_inventory.items())),
+        "donor_inventory": dict(sorted(donor_inventory.items())),
+        "donor_bindings": sorted(
+            donor_bindings,
+            key=lambda value: (value["source_smiles"], value["source_label"]),
+        ),
+        "reactionjson_replayed": replay.get("accepted") is True,
+        "reasons": sorted(set(reasons)),
+        "semantics": {
+            "validates_structure_and_atom_donor_only": True,
+            "does_not_validate_enzyme_or_substrate_scope": True,
+            "self_reported_provenance_is_not_authority": True,
+        },
+    }
+
+
+def _external_atom_donor_smiles(label: str) -> str:
+    normalized = re.sub(r"\s+", " ", str(label or "").strip().lower())
+    return _EXTERNAL_ATOM_DONOR_ALIASES.get(normalized, "")
+
+
+def _heavy_atom_inventory(smiles: str) -> Counter[int]:
+    molecule = Chem.MolFromSmiles(str(smiles or ""))
+    if molecule is None:
+        return Counter()
+    return Counter(
+        int(atom.GetAtomicNum())
+        for atom in molecule.GetAtoms()
+        if atom.GetAtomicNum() > 1
+    )
+
+
 def _deterministic_transform_reapply_audit(
     reaction_smiles: str,
     *,
     atom_audit: Mapping[str, Any],
     bond_audit: Mapping[str, Any],
     source_supported_multicentre: bool = False,
+    external_atom_source_audit: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reapply mapped bond edits and match a conservative transform family.
 
@@ -673,7 +922,18 @@ def _deterministic_transform_reapply_audit(
         "ring_change_plausible",
         "stereochemical_product_matches",
     )
-    if not all(atom_audit.get(key) is True for key in base_checks):
+    external_atom_source = dict(external_atom_source_audit or {})
+    base_checks_pass = all(
+        (
+            atom_audit.get(key) is True
+            or (
+                key == "product_atoms_have_reactant_provenance"
+                and external_atom_source.get("accepted") is True
+            )
+        )
+        for key in base_checks
+    )
+    if not base_checks_pass:
         return {
             "schema_version": "deterministic_transform_reapply_audit.v1",
             "accepted": False,
@@ -743,6 +1003,7 @@ def _deterministic_transform_reapply_audit(
         atom_audit=atom_audit,
         bond_audit=bond_audit,
         source_supported_multicentre=source_supported_multicentre,
+        external_atom_source_audit=external_atom_source,
     )
     reasons: list[str] = []
     if not reconstructed:
@@ -786,6 +1047,7 @@ def _recognized_transform_family(
     atom_audit: Mapping[str, Any],
     bond_audit: Mapping[str, Any],
     source_supported_multicentre: bool,
+    external_atom_source_audit: Mapping[str, Any],
 ) -> str:
     # RXNMapper can permute symmetry-equivalent aromatic atom maps, producing
     # paired aromatic delete/add noise even though both unmapped structures
@@ -797,6 +1059,29 @@ def _recognized_transform_family(
     edit_count = len(formed) + len(broken) + len(departing_unmapped_bonds)
     if edit_count <= 0:
         return ""
+
+    # ReactionJSON may remove an atom retrosynthetically that a declared
+    # forward co-substrate supplies (for example O2 in an oxygenation).  The
+    # mapper therefore has no reactant-side map for that atom. Admit only the
+    # independently replayed, inventory-exact case: all new maps must be the
+    # audited external atoms and all new bonds must touch one of those maps.
+    if external_atom_source_audit.get("accepted") is True:
+        external_maps = {
+            int(value)
+            for value in atom_audit.get("new_product_atom_maps") or []
+        }
+        externally_centred_bonds = bool(formed) and all(
+            left in external_maps or right in external_maps
+            for left, right, _order in formed
+        )
+        if (
+            external_maps
+            and externally_centred_bonds
+            and not broken
+            and edit_count <= 4
+            and int(atom_audit.get("net_ring_increase") or 0) <= 1
+        ):
+            return "replayed_external_atom_installation"
 
     formed_by_pair = {(left, right): order for left, right, order in formed}
     broken_by_pair = {(left, right): order for left, right, order in broken}
@@ -1211,6 +1496,45 @@ def _recognized_transform_family(
 
     formed_only_pairs = [row for row in formed if row[:2] not in changed_pairs]
     broken_only_pairs = [row for row in broken if row[:2] not in changed_pairs]
+
+    # Net carbon-nucleophile addition to a C=C bond has one deliberately
+    # small local signature: one intercomponent C--C single bond is formed and
+    # the C=C bond at that same centre is reduced to C--C.  This covers, for
+    # example, a fluorenyl anion adding to a fulvene followed by protonation.
+    # Requiring the edits to share the electrophilic carbon prevents an
+    # unrelated alkene reduction plus an arbitrary fragment join from gaining
+    # deterministic-transform proof.
+    if (
+        len(formed_only_pairs) == 1
+        and len(changed_pairs) == 1
+        and not broken_only_pairs
+        and not departing_unmapped_bonds
+        and edit_count == 3
+        and int(atom_audit.get("net_ring_increase") or 0) == 0
+    ):
+        new_bond = formed_only_pairs[0]
+        changed = next(iter(changed_pairs))
+        shared_centres = set(new_bond[:2]) & set(changed)
+        new_bond_crosses_components = (
+            reactant_components.get(new_bond[0]) is not None
+            and reactant_components.get(new_bond[1]) is not None
+            and reactant_components.get(new_bond[0])
+            != reactant_components.get(new_bond[1])
+        )
+        all_centres_are_carbon = all(
+            reactant_atoms.get(map_num) == product_atoms.get(map_num) == 6
+            for map_num in set(new_bond[:2]) | set(changed)
+        )
+        if (
+            new_bond[2] == "SINGLE"
+            and len(shared_centres) == 1
+            and broken_by_pair[changed] == "DOUBLE"
+            and formed_by_pair[changed] == "SINGLE"
+            and new_bond_crosses_components
+            and all_centres_are_carbon
+        ):
+            return "carbon_nucleophile_addition_to_carbon_carbon_double_bond"
+
     # Nucleophile addition to an isocyanate/isothiocyanate converts one C=N
     # double bond to single and forms one new C-N bond from another component.
     if len(formed_only_pairs) == 1 and len(changed_pairs) == 1:
@@ -1529,6 +1853,8 @@ def _trusted_precedent_from_step(step: Mapping[str, Any]) -> dict[str, Any]:
 def _trusted_precedent_from_exact_source_records(
     records: Iterable[Mapping[str, Any]],
     *,
+    source_procedure_records: Iterable[Mapping[str, Any]] = (),
+    source_bindings: Iterable[Mapping[str, Any]] = (),
     expected_product: str,
     expected_reactants: tuple[str, ...],
     expected_reaction_digest: str,
@@ -1540,6 +1866,14 @@ def _trusted_precedent_from_exact_source_records(
     """
 
     candidates: list[dict[str, Any]] = []
+    procedures = [
+        dict(value)
+        for value in source_procedure_records
+        if isinstance(value, Mapping)
+    ]
+    bindings = [
+        dict(value) for value in source_bindings if isinstance(value, Mapping)
+    ]
     expected_reactant_multiset = sorted(expected_reactants)
     for raw in records:
         row = dict(raw) if isinstance(raw, Mapping) else {}
@@ -1562,19 +1896,30 @@ def _trusted_precedent_from_exact_source_records(
             if value
         )
         location_refs = [str(value) for value in row.get("location_refs") or []]
+        evidence_refs = [str(value) for value in row.get("evidence_refs") or []]
         hash_bound_location = any(
             item.startswith(("pdf_sha256:", "image_sha256:"))
             and _is_sha256(item.split(":", 1)[1].lower())
-            for item in location_refs
+            for item in [*location_refs, *evidence_refs]
         )
-        page_bound_location = any("page:" in item.lower() for item in location_refs)
+        page_bound_location = any(
+            _has_page_locator(item) for item in location_refs
+        )
         source_ref = str(row.get("source_ref") or "").strip()
+        procedure_authoritative = bool(
+            row.get("procedure_authority_scope")
+            == "source_exact_reaction_procedure"
+            or _trusted_source_procedure_for_exact_record(
+                row,
+                procedures,
+                source_bindings=bindings,
+            )
+        )
         if not (
             row.get("schema_version") == "exact_source_reaction_record.v1"
             and row.get("relation_type") == "exact"
             and row.get("authority_scope") == "source_exact_structure_observation"
-            and row.get("procedure_authority_scope")
-            == "source_exact_reaction_procedure"
+            and procedure_authoritative
             and row.get("not_reaction_validation") is True
             and authority
             and str(extractor.get("producer_id") or "").strip()
@@ -1610,6 +1955,104 @@ def _trusted_precedent_from_exact_source_records(
         sorted(candidates, key=lambda value: str(value["binding_id"]))[0]
         if candidates
         else {}
+    )
+
+
+def _trusted_source_procedure_for_exact_record(
+    exact_record: Mapping[str, Any],
+    procedure_records: Iterable[Mapping[str, Any]],
+    *,
+    source_bindings: Iterable[Mapping[str, Any]],
+) -> bool:
+    """Join a structure observation to a separately hash-bound procedure."""
+
+    exact_id = str(exact_record.get("record_id") or "")
+    expected_ids = {
+        str(value)
+        for value in exact_record.get("procedure_record_ids") or []
+        if str(value)
+    }
+    exact_evidence = {
+        str(value) for value in exact_record.get("evidence_refs") or [] if str(value)
+    }
+    for raw in procedure_records:
+        row = dict(raw) if isinstance(raw, Mapping) else {}
+        supplied_digest = str(row.get("content_sha256") or "").lower()
+        body = {key: value for key, value in row.items() if key != "content_sha256"}
+        source_fragment = dict(row.get("source_fragment") or {})
+        fragment_evidence = {
+            str(value)
+            for value in source_fragment.get("evidence_refs") or []
+            if str(value)
+        }
+        procedure_text_sha256 = str(
+            source_fragment.get("procedure_text_sha256") or ""
+        ).lower()
+        source_artifact_sha256 = str(
+            source_fragment.get("source_artifact_sha256") or ""
+        ).lower()
+        source_binding_valid = any(
+            _source_binding_matches_procedure(
+                binding,
+                procedure=row,
+                source_artifact_sha256=source_artifact_sha256,
+            )
+            for binding in source_bindings
+        )
+        if (
+            row.get("schema_version") == "source_reaction_procedure_record.v1"
+            and row.get("procedure_authority_scope")
+            == "source_exact_reaction_procedure"
+            and str(row.get("procedure_record_id") or "") in expected_ids
+            and str(row.get("exact_record_id") or "") == exact_id
+            and str(row.get("edge_digest") or "")
+            == str(exact_record.get("edge_digest") or "")
+            and str(row.get("source_binding_id") or "")
+            == str(exact_record.get("source_binding_id") or "")
+            and str(row.get("source_ref") or "")
+            == str(exact_record.get("source_ref") or "")
+            and fragment_evidence
+            and fragment_evidence.issubset(exact_evidence)
+            and _is_sha256(procedure_text_sha256)
+            and any(
+                value in exact_evidence
+                for value in (
+                    f"procedure-text-sha256:{procedure_text_sha256}",
+                    f"text_sha256:{procedure_text_sha256}",
+                )
+            )
+            and _is_sha256(source_artifact_sha256)
+            and source_binding_valid
+            and _is_sha256(supplied_digest)
+            and supplied_digest == _digest(body)
+        ):
+            return True
+    return False
+
+
+def _source_binding_matches_procedure(
+    raw: Mapping[str, Any],
+    *,
+    procedure: Mapping[str, Any],
+    source_artifact_sha256: str,
+) -> bool:
+    row = dict(raw) if isinstance(raw, Mapping) else {}
+    supplied_digest = str(row.get("content_sha256") or "").lower()
+    body = {key: value for key, value in row.items() if key != "content_sha256"}
+    procedure_binding_id = str(procedure.get("source_binding_id") or "")
+    return bool(
+        row.get("schema_version") == "normalized_source_binding.v1"
+        and row.get("usable_for_extraction") is True
+        and str(row.get("acquisition_status") or "") == "materialized"
+        and str(row.get("external_binding_id") or row.get("source_binding_id") or "")
+        == procedure_binding_id
+        and str(row.get("source_ref") or "")
+        == str(procedure.get("source_ref") or "")
+        and str(row.get("artifact_sha256") or "").lower()
+        == source_artifact_sha256
+        and _is_sha256(source_artifact_sha256)
+        and _is_sha256(supplied_digest)
+        and supplied_digest == _digest(body)
     )
 
 
@@ -1780,6 +2223,19 @@ def build_verified_procurement_binding(
 
 def _is_sha256(value: str) -> bool:
     return bool(len(value) == 64 and all(character in "0123456789abcdef" for character in value.lower()))
+
+
+def _has_page_locator(value: str) -> bool:
+    """Recognize common, source-agnostic page locator spellings."""
+
+    return bool(
+        re.search(
+            r"(?:^|[#:;/?&=_-])pages?(?:[:=/_-])\d+"
+            r"(?:[-\u2013]\d+)?(?:$|[.&#?:;/,_-])",
+            str(value or ""),
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _conditions_complete(step: Mapping[str, Any]) -> bool:

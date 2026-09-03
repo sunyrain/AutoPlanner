@@ -14,7 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from cascade_planner.cascadeboard.route_recovery import canonical_reaction, canonical_side, canonical_smiles
-from cascade_planner.eval.rerank_native_routes_with_v4_value import _read_rows, _routes_for_target
+from cascade_planner.eval.native_route_pool_contract import (
+    read_json_rows,
+    routes_for_target,
+)
 
 
 TOP_KS = (1, 5, 10)
@@ -28,7 +31,7 @@ def evaluate_paroutes_topk_proxy(
     output_md: Path | None = None,
 ) -> dict[str, Any]:
     run = json.loads(run_path.read_text(encoding="utf-8"))
-    bench_rows = _read_rows(benchmark)
+    bench_rows = read_json_rows(benchmark)
     bench_by_target = {str(row.get("target_smiles") or ""): row for row in bench_rows}
     rows = []
     for idx, target in enumerate(run.get("targets") or []):
@@ -60,7 +63,7 @@ def _target_metrics(target: dict[str, Any], bench: dict[str, Any]) -> dict[str, 
     gt_rxns = _gt_reactions(bench)
     gt_counter = Counter(gt_rxns)
     gt_leaves = _route_leaves_from_reactions(gt_rxns)
-    routes = _routes_for_target(target)
+    routes = routes_for_target(target)
     route_rows = []
     for rank, route in enumerate(routes, start=1):
         pred_rxns = _route_reactions(route)

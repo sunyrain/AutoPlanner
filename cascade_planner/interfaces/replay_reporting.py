@@ -9,6 +9,7 @@ from cascade_planner.orchestration.retrosynthesis_service import (
 )
 
 from .replay_contract import REPLAY_RESULT_SCHEMA
+from .replay_observations import replay_scientific_observations
 
 
 def build_replay_report(
@@ -24,27 +25,7 @@ def build_replay_report(
         graph, acceptance_spec=service.kernel.spec.acceptance
     )
     observed = {
-        "accepted": portfolio["accepted"],
-        "complete_route_count": portfolio["closeout"]["complete_route_count"],
-        "selected_route_count": len(portfolio["selected_routes"]),
-        "hyperedge_count": len(graph["edges"]),
-        "validated_edge_count": sum(
-            any(dict(proof).get("accepted") is True for proof in edge.get("reaction_proofs") or [])
-            for edge in graph["edges"].values()
-        ),
-        "exact_record_count": len(graph["exact_records"]),
-        "stock_terminal_count": sum(
-            dict(proof).get("accepted") is True
-            for proof in portfolio["leaf_proofs"].values()
-        ),
-        "independent_source_groups": sorted(
-            {
-                str(group)
-                for edge in graph["edges"].values()
-                for group in edge.get("independent_source_groups") or []
-                if str(group)
-            }
-        ),
+        **replay_scientific_observations(graph, portfolio, workbench),
         "accepted_expansion_count": service.kernel.state.accepted_expansion_count,
         "attempt_count": service.kernel.state.attempt_count,
         "settled_task_count": service.kernel.state.settled_task_count,

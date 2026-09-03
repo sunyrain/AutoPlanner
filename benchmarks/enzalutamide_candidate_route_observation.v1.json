@@ -1,0 +1,529 @@
+{
+  "content_sha256": "5b7a241682999a8cd6c2e5fb61ea65d1ec50b4ddd21b8a4fc7047531a77038c7",
+  "counts": {
+    "molecules": 16,
+    "routes": 3,
+    "transformations": 10
+  },
+  "molecules": {
+    "mol:08b4d85bc2f0473bd3a101f15279b7096218b908a8b07f37c11137b2bbce5d99": {
+      "canonical_smiles": "N#Cc1ccc(NC(=S)Nc2ccc(C(=O)O)c(F)c2)cc1C(F)(F)F",
+      "content_sha256": "99945ac951f15e13ad37a3d4b8bdd8cd0764cbbb053a49898960bca10420542b",
+      "label": "",
+      "molecule_id": "mol:08b4d85bc2f0473bd3a101f15279b7096218b908a8b07f37c11137b2bbce5d99",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:116f248003478731022f0cd97dd32d3407787f95ba296220b2a74572e7547678": {
+      "canonical_smiles": "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1",
+      "content_sha256": "6a4f42002a49144e4f6d59074e0d80178aa6368cff2fd4543357b1e275f94c7d",
+      "label": "",
+      "molecule_id": "mol:116f248003478731022f0cd97dd32d3407787f95ba296220b2a74572e7547678",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:1660d74f90fb522b1ca4181f6942a0d79a235743b83e7e17b02609bfd1288345": {
+      "canonical_smiles": "N#Cc1ccc(N=C=S)cc1C(F)(F)F",
+      "content_sha256": "fbfb616c64175fd62434cc60edd5151a2712278e643b4145914fdb66d3d8d9e5",
+      "label": "",
+      "molecule_id": "mol:1660d74f90fb522b1ca4181f6942a0d79a235743b83e7e17b02609bfd1288345",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:3ccf33a5e05618b427421c6bfb2275606a522329418f98be3e363eeeba8db2ca": {
+      "canonical_smiles": "CC(C)(N)C(=O)O",
+      "content_sha256": "f8b844452ed3bc3f4da1ecc375a480022b01b8e2a94a3f4ca64dcfe6a98536aa",
+      "label": "",
+      "molecule_id": "mol:3ccf33a5e05618b427421c6bfb2275606a522329418f98be3e363eeeba8db2ca",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:4213d4338b2a285a4d16a0927fa72b5ca6f863599f846e9fcac5d3d6bd753113": {
+      "canonical_smiles": "S=C(Cl)Cl",
+      "content_sha256": "5fcc719e86de018d422d063d0bb04471dc6409a29d1622f41206fc307440d268",
+      "label": "",
+      "molecule_id": "mol:4213d4338b2a285a4d16a0927fa72b5ca6f863599f846e9fcac5d3d6bd753113",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:504cf10818bc4c8a7153be10db0f65abec461aa5e8d5b394d2fb769b9f1d5675": {
+      "canonical_smiles": "COC(=O)c1ccc(Br)cc1F",
+      "content_sha256": "adf30cab9f8350d8d8c1f0239b1644224d2a0a7e95a65d36e2d8fa4e6cf312f0",
+      "label": "",
+      "molecule_id": "mol:504cf10818bc4c8a7153be10db0f65abec461aa5e8d5b394d2fb769b9f1d5675",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:5d6836aa26692fa6cc5b964a14b483f70d37b7d7ad69ed6983a29d652b4538cc": {
+      "canonical_smiles": "CNC(=O)c1ccc(N)cc1F",
+      "content_sha256": "5c284207a20c9fcd36a8e9435da98ed07480113e9412b3c35027311f1f3bee59",
+      "label": "",
+      "molecule_id": "mol:5d6836aa26692fa6cc5b964a14b483f70d37b7d7ad69ed6983a29d652b4538cc",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:6584fdfb4fd590b0db669e1b6e505f92c8c2120c7563b461bc95870f936865fa": {
+      "canonical_smiles": "CN",
+      "content_sha256": "c2a9bcbae5cef43f05f47880d42b112df277728c9e90f59dad385f3ad7aab049",
+      "label": "",
+      "molecule_id": "mol:6584fdfb4fd590b0db669e1b6e505f92c8c2120c7563b461bc95870f936865fa",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:6a13a26950558649a70610bf729b2bfa6542f28e915d2fd30d3b21276656d7eb": {
+      "canonical_smiles": "CNC(=O)c1ccc(Br)cc1F",
+      "content_sha256": "c9fd8b3d02f01c6db8845b0b036d4e763e43df78d6d023f47fe6ef7fadb28464",
+      "label": "",
+      "molecule_id": "mol:6a13a26950558649a70610bf729b2bfa6542f28e915d2fd30d3b21276656d7eb",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:72c884819c9e8ece0e328185bc6a8242476e07f3530831bf2cc8031cde53a396": {
+      "canonical_smiles": "N#Cc1ccc(N)cc1C(F)(F)F",
+      "content_sha256": "a88ed99fa35fb7ca386fed0e2a0c143f4c816d0025cc1db4f026d3e1c369145c",
+      "label": "",
+      "molecule_id": "mol:72c884819c9e8ece0e328185bc6a8242476e07f3530831bf2cc8031cde53a396",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:74ab41f2dbfa99bccbf4a9f84e6c2aa34f49bba3ed3c2a138061f493169dfea8": {
+      "canonical_smiles": "CNC(=O)c1ccc(NC(=S)Nc2ccc(C#N)c(C(F)(F)F)c2)cc1F",
+      "content_sha256": "44d1c3cda17831c22e6bc783129323e8cc61061e04e23f5c2e7c72f22657c9b5",
+      "label": "",
+      "molecule_id": "mol:74ab41f2dbfa99bccbf4a9f84e6c2aa34f49bba3ed3c2a138061f493169dfea8",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:8a6cfd3327ef266227612abc98dc7009de55ad304bc393d7543b053df7ca53fd": {
+      "canonical_smiles": "COC(=O)c1ccc(N)cc1F",
+      "content_sha256": "0227067ed97c2f6663fd26111e3e9671212748bf60bbbaa459a01fde0e3ebbd7",
+      "label": "",
+      "molecule_id": "mol:8a6cfd3327ef266227612abc98dc7009de55ad304bc393d7543b053df7ca53fd",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:8d821dbb4848d560c4a0ee7316e97320141dda4700b85134f9380a1fa4c64292": {
+      "canonical_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+      "content_sha256": "8601a320810b8cf33d55710ceee403a451bfcd9cdd4ea6bc90f5b7b25780662b",
+      "label": "",
+      "molecule_id": "mol:8d821dbb4848d560c4a0ee7316e97320141dda4700b85134f9380a1fa4c64292",
+      "role": "target",
+      "source_stock_closed": false
+    },
+    "mol:ceaca618be028e1ee4a543c5a0fe00cf2af84977c6265b235c021eb5867a3802": {
+      "canonical_smiles": "CC(C)(Cl)C(=O)Cl",
+      "content_sha256": "fc4775dd9c00521921607555afadffc96396054ba9d8b03770198735f95c7ffe",
+      "label": "",
+      "molecule_id": "mol:ceaca618be028e1ee4a543c5a0fe00cf2af84977c6265b235c021eb5867a3802",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:d55bcdf9312180b1deeeb9694c9251d6b1b5f58baaf33c26895d1293cfe044fb": {
+      "canonical_smiles": "Nc1ccc(C(=O)O)cc1F",
+      "content_sha256": "25d6d6f3a0cbf89624bba6be98b4e746e8769c26844b33554c91519b86c87d23",
+      "label": "",
+      "molecule_id": "mol:d55bcdf9312180b1deeeb9694c9251d6b1b5f58baaf33c26895d1293cfe044fb",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:f58b685d26b1efbe5bc699013dcc158a2438ebb085a600ad983ce9958c28e519": {
+      "canonical_smiles": "CC1(C)C(=O)N(c2ccc(C#N)c(C(F)(F)F)c2)C(=S)N1c1ccc(C(=O)O)c(F)c1",
+      "content_sha256": "524bdfbebc78d5026a4ef01620ec9b3bc7d426f5bcabc3d65353d7319e87160f",
+      "label": "",
+      "molecule_id": "mol:f58b685d26b1efbe5bc699013dcc158a2438ebb085a600ad983ce9958c28e519",
+      "role": "intermediate",
+      "source_stock_closed": false
+    }
+  },
+  "observation_id": "candidate-route:a6b7bb163ab385e54896cba0",
+  "routes": {
+    "route:0364b9680a7ec18f9422d3be5a2dead31af5ff567f9d0a7fb6bf13fe8d7841cb": {
+      "content_sha256": "71cecb9cd76279daa7c2001a0c57ccdf1cebcc07675bdeb86ad9d7ff050f1e44",
+      "edge_ids": [
+        "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+        "edge:7da3ab807238220463a5ff3a02e5d9193e53f95e34011e61f9ea7aea6e61b48f",
+        "edge:dd7d02270b4cf853565f0a0d6e24cf53db0a187533467b2da57e1f99e9e50813",
+        "edge:eeb672f17da0df4fe7996549b99d14e42c5b80df51a548d2daf46502a9eb0f7a"
+      ],
+      "leaf_molecule_ids": [
+        "mol:4213d4338b2a285a4d16a0927fa72b5ca6f863599f846e9fcac5d3d6bd753113",
+        "mol:6584fdfb4fd590b0db669e1b6e505f92c8c2120c7563b461bc95870f936865fa",
+        "mol:72c884819c9e8ece0e328185bc6a8242476e07f3530831bf2cc8031cde53a396",
+        "mol:8a6cfd3327ef266227612abc98dc7009de55ad304bc393d7543b053df7ca53fd",
+        "mol:ceaca618be028e1ee4a543c5a0fe00cf2af84977c6265b235c021eb5867a3802"
+      ],
+      "root_edge_ids": [
+        "edge:eeb672f17da0df4fe7996549b99d14e42c5b80df51a548d2daf46502a9eb0f7a"
+      ],
+      "route_id": "route:0364b9680a7ec18f9422d3be5a2dead31af5ff567f9d0a7fb6bf13fe8d7841cb",
+      "source_closure_profile": "",
+      "source_complete": true,
+      "source_refs": [],
+      "warning_codes": []
+    },
+    "route:69a0dc3f3c689776956616e86fcb54a3687646b4b360527de90085e3dab4d316": {
+      "content_sha256": "683e9f8122b1d50234a4ecb4f8e87a5e2bb9dd647d1259fc326eacbb91ae5195",
+      "edge_ids": [
+        "edge:34cd5c7ef8b1d0eeb0b94b57a22c36d213f96b0c82e23e5f02a55d66175c61ba",
+        "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+        "edge:581e50e593fb24d7072c0648266015fc83ad6ab994ded22ed6d1c00d851ece5b",
+        "edge:f6983436ff2859acf54c15fa99db253588331242dff7b2269da3801e19fef821"
+      ],
+      "leaf_molecule_ids": [
+        "mol:4213d4338b2a285a4d16a0927fa72b5ca6f863599f846e9fcac5d3d6bd753113",
+        "mol:6584fdfb4fd590b0db669e1b6e505f92c8c2120c7563b461bc95870f936865fa",
+        "mol:72c884819c9e8ece0e328185bc6a8242476e07f3530831bf2cc8031cde53a396",
+        "mol:ceaca618be028e1ee4a543c5a0fe00cf2af84977c6265b235c021eb5867a3802",
+        "mol:d55bcdf9312180b1deeeb9694c9251d6b1b5f58baaf33c26895d1293cfe044fb"
+      ],
+      "root_edge_ids": [
+        "edge:34cd5c7ef8b1d0eeb0b94b57a22c36d213f96b0c82e23e5f02a55d66175c61ba"
+      ],
+      "route_id": "route:69a0dc3f3c689776956616e86fcb54a3687646b4b360527de90085e3dab4d316",
+      "source_closure_profile": "",
+      "source_complete": true,
+      "source_refs": [],
+      "warning_codes": []
+    },
+    "route:aefa3586f8a05164f45a9c00f0af4b6b6db954203ab20dc776394db3ff072eec": {
+      "content_sha256": "f9df614a39765b6adfb9fb71a1871fd145f55f8d602e263691a0bc1069b46ed1",
+      "edge_ids": [
+        "edge:17d55e1e31c0a03e2b09fd94d0b6761fbddb62be23414d7c1c0714407ff436e3",
+        "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+        "edge:9728e4c9d291e112f36a09b18b46b55027fb65b08e9c0d90786be27bd3581f3e",
+        "edge:dfa4c88cb7a90a71fa4dbd79dcd401a7710cdc8f8514b7135f6ff1b6c4d5221c"
+      ],
+      "leaf_molecule_ids": [
+        "mol:3ccf33a5e05618b427421c6bfb2275606a522329418f98be3e363eeeba8db2ca",
+        "mol:4213d4338b2a285a4d16a0927fa72b5ca6f863599f846e9fcac5d3d6bd753113",
+        "mol:504cf10818bc4c8a7153be10db0f65abec461aa5e8d5b394d2fb769b9f1d5675",
+        "mol:6584fdfb4fd590b0db669e1b6e505f92c8c2120c7563b461bc95870f936865fa",
+        "mol:72c884819c9e8ece0e328185bc6a8242476e07f3530831bf2cc8031cde53a396"
+      ],
+      "root_edge_ids": [
+        "edge:17d55e1e31c0a03e2b09fd94d0b6761fbddb62be23414d7c1c0714407ff436e3"
+      ],
+      "route_id": "route:aefa3586f8a05164f45a9c00f0af4b6b6db954203ab20dc776394db3ff072eec",
+      "source_closure_profile": "",
+      "source_complete": false,
+      "source_refs": [],
+      "warning_codes": []
+    }
+  },
+  "schema_version": "candidate_route_observation.v1",
+  "semantics": {
+    "read_only_route_observation": true,
+    "reported_route_may_remain_visible_with_open_transformations": true,
+    "workbench_is_not_promoted_to_scientific_authority": true
+  },
+  "source_snapshot": {
+    "content_sha256": "a6b7bb163ab385e54896cba0b53066e003f9d508df9b4467ff5669ab52b10a04",
+    "revision": {
+      "evidence": 5,
+      "graph": 5,
+      "graph_scientific_sha256": "3c91da00d6e569a37fec793f556b9af14578616ff1e73a9dbd4d4b0874da5509",
+      "portfolio_sha256": "5aeb2120ceb7eb8f90e48bdfcd46c63f7e420d27d106e45f213f58b92981001d"
+    },
+    "run_id": "blind-enzalutamide-live-03",
+    "schema_version": "retrosynthesis_route_workbench.v1"
+  },
+  "target": {
+    "canonical_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+    "molecule_id": "mol:8d821dbb4848d560c4a0ee7316e97320141dda4700b85134f9380a1fa4c64292",
+    "name": "Enzalutamide"
+  },
+  "transformations": {
+    "edge:17d55e1e31c0a03e2b09fd94d0b6761fbddb62be23414d7c1c0714407ff436e3": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "d5e3b551d8d4a39dabc8bb44bcd7b108550e9451e5a23cb645c7fa3a28bc17f4",
+      "precursor_molecule_ids": [
+        "mol:116f248003478731022f0cd97dd32d3407787f95ba296220b2a74572e7547678",
+        "mol:6a13a26950558649a70610bf729b2bfa6542f28e915d2fd30d3b21276656d7eb"
+      ],
+      "product_molecule_id": "mol:8d821dbb4848d560c4a0ee7316e97320141dda4700b85134f9380a1fa4c64292",
+      "proof_level": 1,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "6dd842a41a506e84ff6d8d1f6ada2fb2e41da8ef98860685837926b365084618",
+          "proposal_id": "SK2-S1",
+          "route_family_id": "RF2",
+          "skeleton_id": "SK2",
+          "transformation_hypothesis": "Late aryl-N bond formation between a preformed N-aryl thiohydantoin and a bromofluoro N-methylbenzamide electrophile could provide the target if N-arylation is selective over S-arylation."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:17d55e1e31c0a03e2b09fd94d0b6761fbddb62be23414d7c1c0714407ff436e3",
+      "warning_codes": [
+        "reaction_validation_missing"
+      ]
+    },
+    "edge:34cd5c7ef8b1d0eeb0b94b57a22c36d213f96b0c82e23e5f02a55d66175c61ba": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "c3feb24b62fd481c60d4aa498d511f7bbf008909d381f069be20c6f5b99f2854",
+      "precursor_molecule_ids": [
+        "mol:f58b685d26b1efbe5bc699013dcc158a2438ebb085a600ad983ce9958c28e519",
+        "mol:6584fdfb4fd590b0db669e1b6e505f92c8c2120c7563b461bc95870f936865fa"
+      ],
+      "product_molecule_id": "mol:8d821dbb4848d560c4a0ee7316e97320141dda4700b85134f9380a1fa4c64292",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "b26c23e410d0cfeafd337ad274e2b579238cc9bb5a18d44f4017e8d6d1ed0ad3",
+          "proposal_id": "SK3-S1",
+          "route_family_id": "RF3",
+          "skeleton_id": "SK3",
+          "transformation_hypothesis": "Late conversion of the aryl carboxylic acid analogue to the N-methylbenzamide could furnish the target using amide-forming activation followed by methylamine incorporation."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:34cd5c7ef8b1d0eeb0b94b57a22c36d213f96b0c82e23e5f02a55d66175c61ba",
+      "warning_codes": []
+    },
+    "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "1bebef49d5b625af8babb1661f3b1e9e7bd7d52ddd62407367cdac1e47d2f636",
+      "precursor_molecule_ids": [
+        "mol:72c884819c9e8ece0e328185bc6a8242476e07f3530831bf2cc8031cde53a396",
+        "mol:4213d4338b2a285a4d16a0927fa72b5ca6f863599f846e9fcac5d3d6bd753113"
+      ],
+      "product_molecule_id": "mol:1660d74f90fb522b1ca4181f6942a0d79a235743b83e7e17b02609bfd1288345",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "1fdffb62ffb57db035c4c962a1f6f8c1b5c2e2b475d5cd84cf7bb50a97c8172c",
+          "proposal_id": "SK2-S3",
+          "route_family_id": "RF2",
+          "skeleton_id": "SK2",
+          "transformation_hypothesis": "Thiocarbonyl transfer from a chlorothiocarbonyl reagent to the right aryl aniline could form the aryl isothiocyanate."
+        },
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "7fad79ddc8228e893c65fd42247dfd190d2105f41ba1d7cca7ff6a6cd2483cb5",
+          "proposal_id": "SK3-S4",
+          "route_family_id": "RF3",
+          "skeleton_id": "SK3",
+          "transformation_hypothesis": "Right aryl aniline conversion to isothiocyanate using a thiocarbonyl transfer reagent provides the shared electrophile."
+        },
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "e9a586b90f4d7fff31bd29217c8e7ff9941505a85493cea0182523142de4b0a9",
+          "proposal_id": "SK1-S4",
+          "route_family_id": "RF1",
+          "skeleton_id": "SK1",
+          "transformation_hypothesis": "Conversion of the electron-poor aniline to an aryl isothiocyanate using a thiocarbonyl transfer reagent could furnish the right aryl isothiocyanate."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+      "warning_codes": []
+    },
+    "edge:581e50e593fb24d7072c0648266015fc83ad6ab994ded22ed6d1c00d851ece5b": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "c64e96c9da6e736c542939fca238f01d3e24de399bd597e3689df1935b892088",
+      "precursor_molecule_ids": [
+        "mol:ceaca618be028e1ee4a543c5a0fe00cf2af84977c6265b235c021eb5867a3802",
+        "mol:08b4d85bc2f0473bd3a101f15279b7096218b908a8b07f37c11137b2bbce5d99"
+      ],
+      "product_molecule_id": "mol:f58b685d26b1efbe5bc699013dcc158a2438ebb085a600ad983ce9958c28e519",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "db3b93dcf2c04948ecc10646006edb65bc2b443dffeb0db843ac37fbb0864fbf",
+          "proposal_id": "SK3-S2",
+          "route_family_id": "RF3",
+          "skeleton_id": "SK3",
+          "transformation_hypothesis": "A diaryl thiourea bearing a left aryl carboxylic acid could annulate with an activated dimethyl carbonyl equivalent to provide the carboxylic acid analogue of the target core."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:581e50e593fb24d7072c0648266015fc83ad6ab994ded22ed6d1c00d851ece5b",
+      "warning_codes": []
+    },
+    "edge:7da3ab807238220463a5ff3a02e5d9193e53f95e34011e61f9ea7aea6e61b48f": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "cebbb3600a97abd1b1e1e4c71a1a2a716ecfb4b5dd2690f1c7ad24f89546ee31",
+      "precursor_molecule_ids": [
+        "mol:6584fdfb4fd590b0db669e1b6e505f92c8c2120c7563b461bc95870f936865fa",
+        "mol:8a6cfd3327ef266227612abc98dc7009de55ad304bc393d7543b053df7ca53fd"
+      ],
+      "product_molecule_id": "mol:5d6836aa26692fa6cc5b964a14b483f70d37b7d7ad69ed6983a29d652b4538cc",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "dff06a8c2fb0d01734c35b589558234528158b3ea64e684494d777aae8aea023",
+          "proposal_id": "SK1-S3",
+          "route_family_id": "RF1",
+          "skeleton_id": "SK1",
+          "transformation_hypothesis": "Methyl ester aminolysis or carboxyl activation followed by methylamine addition could provide 4-amino-2-fluoro-N-methylbenzamide."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:7da3ab807238220463a5ff3a02e5d9193e53f95e34011e61f9ea7aea6e61b48f",
+      "warning_codes": []
+    },
+    "edge:9728e4c9d291e112f36a09b18b46b55027fb65b08e9c0d90786be27bd3581f3e": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "1317f2f63f1919013038560ecc215f67fe6431b54158cec6e24e915a1f5dcb5a",
+      "precursor_molecule_ids": [
+        "mol:6584fdfb4fd590b0db669e1b6e505f92c8c2120c7563b461bc95870f936865fa",
+        "mol:504cf10818bc4c8a7153be10db0f65abec461aa5e8d5b394d2fb769b9f1d5675"
+      ],
+      "product_molecule_id": "mol:6a13a26950558649a70610bf729b2bfa6542f28e915d2fd30d3b21276656d7eb",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "4ba3e4d33ff60ae35555bc20ba796332301c231d95e7814c01b489d8512abcfb",
+          "proposal_id": "SK2-S4",
+          "route_family_id": "RF2",
+          "skeleton_id": "SK2",
+          "transformation_hypothesis": "A bromofluoro methyl benzoate could undergo aminolysis or activated amidation with methylamine to provide the late arylation electrophile."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:9728e4c9d291e112f36a09b18b46b55027fb65b08e9c0d90786be27bd3581f3e",
+      "warning_codes": []
+    },
+    "edge:dd7d02270b4cf853565f0a0d6e24cf53db0a187533467b2da57e1f99e9e50813": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "7f42da88c726aa755a424df1540dbd476660b53650cc4390d58abc3a58c3207c",
+      "precursor_molecule_ids": [
+        "mol:5d6836aa26692fa6cc5b964a14b483f70d37b7d7ad69ed6983a29d652b4538cc",
+        "mol:1660d74f90fb522b1ca4181f6942a0d79a235743b83e7e17b02609bfd1288345"
+      ],
+      "product_molecule_id": "mol:74ab41f2dbfa99bccbf4a9f84e6c2aa34f49bba3ed3c2a138061f493169dfea8",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "1386ad4278e745283a35158234a02aad348d6db92e75de9647a688cbc5ec99dd",
+          "proposal_id": "SK1-S2",
+          "route_family_id": "RF1",
+          "skeleton_id": "SK1",
+          "transformation_hypothesis": "An aniline derivative could add to an aryl isothiocyanate to form the unsymmetrical diaryl thiourea precursor."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:dd7d02270b4cf853565f0a0d6e24cf53db0a187533467b2da57e1f99e9e50813",
+      "warning_codes": []
+    },
+    "edge:dfa4c88cb7a90a71fa4dbd79dcd401a7710cdc8f8514b7135f6ff1b6c4d5221c": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "a900e9bfdbd347ac29840a07875f3250415b397edd9f809fde54ab824f270522",
+      "precursor_molecule_ids": [
+        "mol:3ccf33a5e05618b427421c6bfb2275606a522329418f98be3e363eeeba8db2ca",
+        "mol:1660d74f90fb522b1ca4181f6942a0d79a235743b83e7e17b02609bfd1288345"
+      ],
+      "product_molecule_id": "mol:116f248003478731022f0cd97dd32d3407787f95ba296220b2a74572e7547678",
+      "proof_level": 1,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "65d02983b69598bc0633851b3c8c974b0fc08ad0e684b5f54b8a8ab3ef16cc96",
+          "proposal_id": "SK2-S2",
+          "route_family_id": "RF2",
+          "skeleton_id": "SK2",
+          "transformation_hypothesis": "Right aryl isothiocyanate and alpha-aminoisobutyric acid could condense and cyclize to the mono-aryl 5,5-dimethyl thiohydantoin."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:dfa4c88cb7a90a71fa4dbd79dcd401a7710cdc8f8514b7135f6ff1b6c4d5221c",
+      "warning_codes": [
+        "reaction_validation_missing"
+      ]
+    },
+    "edge:eeb672f17da0df4fe7996549b99d14e42c5b80df51a548d2daf46502a9eb0f7a": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "08a333148345cd573c5d3613e7d0320a4a4c9f58c600cf3a61775120d3675c57",
+      "precursor_molecule_ids": [
+        "mol:ceaca618be028e1ee4a543c5a0fe00cf2af84977c6265b235c021eb5867a3802",
+        "mol:74ab41f2dbfa99bccbf4a9f84e6c2aa34f49bba3ed3c2a138061f493169dfea8"
+      ],
+      "product_molecule_id": "mol:8d821dbb4848d560c4a0ee7316e97320141dda4700b85134f9380a1fa4c64292",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "508d3dd48e63155e8db18cf4b71ab2ed97ca029475a756a49a61c28e7ca792b2",
+          "proposal_id": "SK1-S1",
+          "route_family_id": "RF1",
+          "skeleton_id": "SK1",
+          "transformation_hypothesis": "Cyclocondensation or annulation of a diaryl thiourea with an activated alpha,alpha-dimethyl carbonyl equivalent could form the 5,5-dimethyl thiohydantoin core."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:eeb672f17da0df4fe7996549b99d14e42c5b80df51a548d2daf46502a9eb0f7a",
+      "warning_codes": []
+    },
+    "edge:f6983436ff2859acf54c15fa99db253588331242dff7b2269da3801e19fef821": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "e2e6f6d76cf44ad61568e2bb63fe317de6b19fcedaa250711026d6ac93b4894f",
+      "precursor_molecule_ids": [
+        "mol:1660d74f90fb522b1ca4181f6942a0d79a235743b83e7e17b02609bfd1288345",
+        "mol:d55bcdf9312180b1deeeb9694c9251d6b1b5f58baaf33c26895d1293cfe044fb"
+      ],
+      "product_molecule_id": "mol:08b4d85bc2f0473bd3a101f15279b7096218b908a8b07f37c11137b2bbce5d99",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "e3d34a45d0ee6fc578bf028281bb7639ec579e7f65c9aec62ef1edd8504cf463",
+          "proposal_id": "SK3-S3",
+          "route_family_id": "RF3",
+          "skeleton_id": "SK3",
+          "transformation_hypothesis": "An aminofluorobenzoic acid could add to the right aryl isothiocyanate to produce a carboxylic acid diaryl thiourea intermediate."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:f6983436ff2859acf54c15fa99db253588331242dff7b2269da3801e19fef821",
+      "warning_codes": []
+    }
+  }
+}

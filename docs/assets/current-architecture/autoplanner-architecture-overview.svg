@@ -1,0 +1,223 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1060" viewBox="0 0 1600 1060" role="img" aria-labelledby="title desc">
+  <title id="title">AutoPlanner current architecture overview</title>
+  <desc id="desc">One Canonical Host runs paper-matched and self-correcting sequential search. Model and provider outputs are proposals; Host replay, canonical ingestion, exact stock and independent validation own facts. Explicit Run Registry Catalog federation discovers owning run indexes without copying their state.</desc>
+  <defs>
+    <filter id="shadow" x="-12%" y="-20%" width="124%" height="150%">
+      <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0B2637" flood-opacity=".10"/>
+    </filter>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2478D4"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#D88A24"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#7557C7"/>
+    </marker>
+    <style>
+      text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; }
+      .kicker { font-size: 15px; font-weight: 700; letter-spacing: 2px; }
+      .heading { font-size: 31px; font-weight: 700; }
+      .subtitle { font-size: 15px; }
+      .lane-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; }
+      .node-title { font-size: 18px; font-weight: 700; }
+      .node-sub { font-size: 13px; }
+      .tiny { font-size: 12px; }
+      .badge { font-size: 11px; font-weight: 700; letter-spacing: .6px; }
+      .node { filter: url(#shadow); }
+      .flow { fill: none; stroke: #2478D4; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-blue); }
+      .proposal { fill: none; stroke: #D88A24; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 8 7; marker-end: url(#arrow-orange); }
+      .review { fill: none; stroke: #7557C7; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 5 6; marker-end: url(#arrow-purple); }
+      .loop { fill: none; stroke: #2478D4; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 9 8; marker-end: url(#arrow-blue); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1060" rx="28" fill="#F4F8FA"/>
+  <text x="48" y="48" class="kicker" fill="#2478D4">AUTOPLANNER · CURRENT SYSTEM MAP</text>
+  <text x="48" y="88" class="heading" fill="#102C3D">Canonical Host · one unified retrosynthesis architecture</text>
+  <text x="48" y="116" class="subtitle" fill="#607783">模型提出候选 · Host 编译事实 · 搜索控制分支 · 验证与完成分轴 · UI 只读投影</text>
+
+  <rect x="34" y="145" width="1532" height="132" rx="20" fill="#EAF2FA"/>
+  <text x="54" y="170" class="lane-title" fill="#2478D4">1 · INTERFACE &amp; RUN CONTROL</text>
+
+  <g class="node">
+    <rect x="70" y="190" width="250" height="65" rx="14" fill="#FFFFFF" stroke="#2478D4" stroke-width="2"/>
+    <text x="92" y="218" class="node-title" fill="#173243">Web · CLI · API</text>
+    <text x="92" y="240" class="node-sub" fill="#607783">target / profile / constraints</text>
+  </g>
+  <g class="node">
+    <rect x="380" y="190" width="280" height="65" rx="14" fill="#FFFFFF" stroke="#2478D4" stroke-width="2"/>
+    <text x="402" y="218" class="node-title" fill="#173243">Request Compiler</text>
+    <text x="402" y="240" class="node-sub" fill="#607783">budget · provider · stock binding</text>
+  </g>
+  <g class="node">
+    <rect x="720" y="190" width="270" height="65" rx="14" fill="#FFFFFF" stroke="#2478D4" stroke-width="2"/>
+    <text x="742" y="218" class="node-title" fill="#173243">TargetSolver</text>
+    <text x="742" y="240" class="node-sub" fill="#607783">one run · one execution surface</text>
+  </g>
+  <g class="node">
+    <rect x="1050" y="190" width="220" height="65" rx="14" fill="#FFFFFF" stroke="#2478D4" stroke-width="2"/>
+    <text x="1072" y="218" class="node-title" fill="#173243">RunKernel</text>
+    <text x="1072" y="240" class="node-sub" fill="#607783">resume · task · cost</text>
+  </g>
+  <g class="node">
+    <rect x="1330" y="190" width="200" height="65" rx="14" fill="#FFFFFF" stroke="#2478D4" stroke-width="2"/>
+    <text x="1352" y="218" class="node-title" fill="#173243">Action Runtime</text>
+    <text x="1352" y="240" class="node-sub" fill="#607783">reserve · execute · settle</text>
+  </g>
+  <path d="M320 222 H380" class="flow"/>
+  <path d="M660 222 H720" class="flow"/>
+  <path d="M990 222 H1050" class="flow"/>
+  <path d="M1270 222 H1330" class="flow"/>
+
+  <rect x="34" y="298" width="1532" height="286" rx="20" fill="#FFF6E8"/>
+  <text x="54" y="324" class="lane-title" fill="#B66F17">2 · STRATEGY SEARCH · PAPER CONTROL / SELF-CORRECTING</text>
+  <text x="1255" y="324" class="tiny" fill="#8A6C48">proposal + search state · not chemical fact</text>
+
+  <g class="node">
+    <rect x="70" y="354" width="220" height="82" rx="14" fill="#FFFFFF" stroke="#D88A24" stroke-width="2"/>
+    <rect x="84" y="366" width="74" height="20" rx="10" fill="#F7DDAF"/>
+    <text x="121" y="380" text-anchor="middle" class="badge" fill="#9B5C10">LLM</text>
+    <text x="92" y="408" class="node-title" fill="#173243">Strategist</text>
+    <text x="92" y="428" class="node-sub" fill="#607783">one call → 3 cards</text>
+  </g>
+  <g class="node">
+    <rect x="345" y="354" width="235" height="82" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>
+    <rect x="359" y="366" width="88" height="20" rx="10" fill="#E6DFFA"/>
+    <text x="403" y="380" text-anchor="middle" class="badge" fill="#6043AE">SELF-CORRECTING</text>
+    <text x="367" y="408" class="node-title" fill="#173243">Portfolio Review</text>
+    <text x="367" y="428" class="node-sub" fill="#607783">same 3-card contract</text>
+  </g>
+  <g class="node">
+    <rect x="640" y="344" width="250" height="102" rx="14" fill="#FFFFFF" stroke="#D88A24" stroke-width="2"/>
+    <text x="662" y="374" class="node-title" fill="#173243">3 × AiZ MCTS</text>
+    <text x="662" y="397" class="node-sub" fill="#607783">independent tree / leaf selection</text>
+    <text x="662" y="420" class="node-sub" fill="#607783">≤25 Builder calls per branch</text>
+  </g>
+  <g class="node">
+    <rect x="955" y="344" width="230" height="102" rx="14" fill="#FFFFFF" stroke="#D88A24" stroke-width="2"/>
+    <rect x="969" y="357" width="74" height="20" rx="10" fill="#F7DDAF"/>
+    <text x="1006" y="371" text-anchor="middle" class="badge" fill="#9B5C10">LLM</text>
+    <text x="977" y="400" class="node-title" fill="#173243">Builder</text>
+    <text x="977" y="422" class="node-sub" fill="#607783">one ReactionJSON action</text>
+  </g>
+  <g class="node">
+    <rect x="1250" y="344" width="280" height="102" rx="14" fill="#FFFFFF" stroke="#24956F" stroke-width="3"/>
+    <rect x="1264" y="357" width="74" height="20" rx="10" fill="#D9F1E8"/>
+    <text x="1301" y="371" text-anchor="middle" class="badge" fill="#197253">HOST</text>
+    <text x="1272" y="400" class="node-title" fill="#173243">ReactionJSON Replay</text>
+    <text x="1272" y="422" class="node-sub" fill="#607783">mapped precursors · stereo · maps</text>
+  </g>
+  <path d="M290 395 H345" class="proposal"/>
+  <path d="M580 395 H640" class="review"/>
+  <path d="M890 395 H955" class="proposal"/>
+  <path d="M1185 395 H1250" class="proposal"/>
+  <path d="M1390 446 V482 H765 V446" class="flow"/>
+
+  <g class="node">
+    <rect x="190" y="482" width="340" height="76" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>
+    <text x="212" y="512" class="node-title" fill="#173243">Chemistry Reviewer</text>
+    <text x="212" y="535" class="node-sub" fill="#607783">key-event audit · final audit</text>
+  </g>
+  <g class="node">
+    <rect x="650" y="482" width="350" height="76" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>
+    <text x="672" y="512" class="node-title" fill="#173243">Critic ↔ Editor replace_span</text>
+    <text x="672" y="535" class="node-sub" fill="#607783">full route input · Host replay after edit</text>
+  </g>
+  <g class="node">
+    <rect x="1120" y="482" width="310" height="76" rx="14" fill="#FFFFFF" stroke="#D88A24" stroke-width="2"/>
+    <text x="1142" y="512" class="node-title" fill="#173243">AiZ Short-tail</text>
+    <text x="1142" y="535" class="node-sub" fill="#607783">6 transforms · 500 · 1200 s</text>
+  </g>
+  <path d="M1250 431 C1120 470 1040 474 1000 501" class="review"/>
+  <path d="M650 520 H530" class="review"/>
+  <path d="M1000 520 H1120" class="proposal"/>
+
+  <rect x="34" y="605" width="1532" height="244" rx="20" fill="#EAF7F2"/>
+  <text x="54" y="631" class="lane-title" fill="#197253">3 · HOST FACT KERNEL · ONLY PATH TO CHEMICAL FACT</text>
+  <text x="1190" y="631" class="tiny" fill="#4D7466">structure · topology · exact stock · completion axes</text>
+
+  <g class="node">
+    <rect x="70" y="663" width="260" height="80" rx="14" fill="#FFFFFF" stroke="#24956F" stroke-width="3"/>
+    <text x="92" y="694" class="node-title" fill="#173243">Canonical Identity</text>
+    <text x="92" y="718" class="node-sub" fill="#607783">molecule · map provenance</text>
+  </g>
+  <g class="node">
+    <rect x="390" y="663" width="280" height="80" rx="14" fill="#FFFFFF" stroke="#24956F" stroke-width="3"/>
+    <text x="412" y="694" class="node-title" fill="#173243">Admission + Reconcile</text>
+    <text x="412" y="718" class="node-sub" fill="#607783">connectivity · cycle · lineage</text>
+  </g>
+  <g class="node">
+    <rect x="730" y="653" width="300" height="100" rx="14" fill="#FFFFFF" stroke="#24956F" stroke-width="3"/>
+    <text x="752" y="686" class="node-title" fill="#173243">Canonical Hypergraph</text>
+    <text x="752" y="710" class="node-sub" fill="#607783">molecules · reaction edges</text>
+    <text x="752" y="733" class="node-sub" fill="#607783">route families · current revision</text>
+  </g>
+  <g class="node">
+    <rect x="1090" y="663" width="210" height="80" rx="14" fill="#FFFFFF" stroke="#24956F" stroke-width="3"/>
+    <text x="1112" y="694" class="node-title" fill="#173243">Exact Stock</text>
+    <text x="1112" y="718" class="node-sub" fill="#607783">full-InChIKey oracle</text>
+  </g>
+  <g class="node">
+    <rect x="1360" y="663" width="170" height="80" rx="14" fill="#FFFFFF" stroke="#24956F" stroke-width="3"/>
+    <text x="1382" y="694" class="node-title" fill="#173243">Metrics</text>
+    <text x="1382" y="718" class="node-sub" fill="#607783">closure by axis</text>
+  </g>
+  <path d="M330 703 H390" class="flow"/>
+  <path d="M670 703 H730" class="flow"/>
+  <path d="M1030 703 H1090" class="flow"/>
+  <path d="M1300 703 H1360" class="flow"/>
+  <path d="M1390 558 V604 H200 V663" class="flow"/>
+
+  <g class="node">
+    <rect x="290" y="776" width="330" height="52" rx="13" fill="#FFFFFF" stroke="#2478D4" stroke-width="2"/>
+    <text x="312" y="808" class="node-title" fill="#173243">DeficitFrontier</text>
+    <text x="482" y="808" class="node-sub" fill="#607783">one next-work authority</text>
+  </g>
+  <g class="node">
+    <rect x="720" y="776" width="390" height="52" rx="13" fill="#FFFFFF" stroke="#2478D4" stroke-width="2"/>
+    <text x="742" y="808" class="node-title" fill="#173243">Validation · Evidence · Conditions · Program</text>
+  </g>
+  <path d="M880 753 V776" class="flow"/>
+  <path d="M620 802 H720" class="flow"/>
+  <path d="M1110 802 C1270 802 1320 850 1430 850 V255" class="loop"/>
+
+  <rect x="34" y="870" width="1532" height="144" rx="20" fill="#F0EDF9"/>
+  <text x="54" y="896" class="lane-title" fill="#6043AE">4 · DERIVED PRODUCTS · READ ONLY</text>
+  <g class="node">
+    <rect x="90" y="924" width="300" height="62" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>
+    <text x="112" y="951" class="node-title" fill="#173243">Target Report</text>
+    <text x="112" y="972" class="node-sub" fill="#607783">quality axes · paper metric</text>
+  </g>
+  <g class="node">
+    <rect x="470" y="924" width="300" height="62" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>
+    <text x="492" y="951" class="node-title" fill="#173243">Trajectory / Journal</text>
+    <text x="492" y="972" class="node-sub" fill="#607783">events · model I/O · receipts</text>
+  </g>
+  <g class="node">
+    <rect x="850" y="924" width="300" height="62" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>
+    <text x="872" y="951" class="node-title" fill="#173243">Route Workbench</text>
+    <text x="872" y="972" class="node-sub" fill="#607783">same revision · no new proof</text>
+  </g>
+  <g class="node">
+    <rect x="1230" y="924" width="280" height="62" rx="14" fill="#FFFFFF" stroke="#7557C7" stroke-width="2"/>
+    <text x="1252" y="951" class="node-title" fill="#173243">Registry Catalog + Web</text>
+    <text x="1252" y="972" class="node-sub" fill="#607783">(registry_id, run_id) · read only</text>
+  </g>
+  <path d="M1445 743 V870 H240 V924" class="review"/>
+  <path d="M390 955 H470" class="review"/>
+  <path d="M770 955 H850" class="review"/>
+  <path d="M1150 955 H1230" class="review"/>
+
+  <g transform="translate(70,1029)">
+    <line x1="0" y1="0" x2="42" y2="0" stroke="#D88A24" stroke-width="3" stroke-dasharray="8 7"/>
+    <text x="52" y="5" class="tiny" fill="#607783">proposal / advisory</text>
+    <line x1="205" y1="0" x2="247" y2="0" stroke="#2478D4" stroke-width="3"/>
+    <text x="257" y="5" class="tiny" fill="#607783">runtime / fact flow</text>
+    <line x1="425" y1="0" x2="467" y2="0" stroke="#7557C7" stroke-width="3" stroke-dasharray="5 6"/>
+    <text x="477" y="5" class="tiny" fill="#607783">review / projection</text>
+    <rect x="660" y="-10" width="22" height="18" rx="4" fill="#FFFFFF" stroke="#24956F" stroke-width="3"/>
+    <text x="694" y="5" class="tiny" fill="#607783">Host-owned chemical fact</text>
+    <text x="1040" y="5" class="tiny" fill="#197253">solved ≠ validation ≠ evidence ≠ reviewer pass</text>
+  </g>
+</svg>

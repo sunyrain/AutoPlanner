@@ -1471,7 +1471,10 @@ class CascadeSubgoalEvidenceProvider:
         return actions
 
     def _score_leaf(self, leaf: str, *, state: Any, top_k: int) -> list[dict[str, Any]]:
-        from cascade_planner.eval.train_cascade_subgoal_scorer import _candidate_row, _fp
+        from cascade_planner.cascade_search.subgoal_evidence_contract import (
+            candidate_row,
+            molecule_fingerprint,
+        )
 
         subgoals = _runtime_subgoal_candidates(
             leaf,
@@ -1483,7 +1486,7 @@ class CascadeSubgoalEvidenceProvider:
             return []
         scored = []
         for subgoal in subgoals:
-            qfp = _fp(subgoal["smiles"])
+            qfp = molecule_fingerprint(subgoal["smiles"])
             if qfp is None:
                 continue
             sims = DataStructs.BulkTanimotoSimilarity(qfp, self._evidence_fps)
@@ -1493,7 +1496,7 @@ class CascadeSubgoalEvidenceProvider:
                 evidence = self._evidence[int(idx)]
                 sim = float(sims[int(idx)])
                 motif_similarity = max(sim, _runtime_motif_similarity(subgoal["smiles"], str(evidence.get("smiles") or "")))
-                row = _candidate_row(
+                row = candidate_row(
                     query,
                     evidence,
                     similarity=motif_similarity,
@@ -2204,6 +2207,19 @@ def _cached_condition_predictor(vendor_root: Path | str, model_name: str) -> Any
     return predictor
 
 
+def local_condition_predictor(
+    vendor_root: Path | str, model_name: str = "rcr"
+) -> Any:
+    """Return the shared local predictor for canonical-edge enrichment stages.
+
+    Proposal providers may still request conditions while generating routes,
+    but callers outside ChemEnzy should use this public boundary instead of
+    depending on a provider-private implementation.
+    """
+
+    return _cached_condition_predictor(vendor_root, model_name)
+
+
 def _call_condition_predictor(predictor: Any, rxn_smiles: str, top_k: int) -> Any:
     if hasattr(predictor, "get_n_conditions"):
         return predictor.get_n_conditions(rxn_smiles, n=max(1, int(top_k or 1)), return_scores=True)
@@ -2484,14 +2500,20 @@ def _load_subgoal_model_bundle(model_path: Path) -> dict[str, Any]:
 
 
 def _load_subgoal_train_evidence(program_manifest: Path) -> list[dict[str, Any]]:
-    from cascade_planner.eval.train_cascade_subgoal_scorer import _evidence_items, _load_program_splits
+    from cascade_planner.cascade_search.subgoal_evidence_contract import (
+        evidence_items,
+        load_program_splits,
+    )
 
-    programs = _load_program_splits(Path(program_manifest))
-    return _evidence_items(programs["train"], min_heavy_atoms=7)
+    programs = load_program_splits(Path(program_manifest))
+    return evidence_items(programs["train"], min_heavy_atoms=7)
 
 
 def _runtime_subgoal_candidates(leaf: str, state: Any, *, max_subgoals: int, min_heavy_atoms: int) -> list[dict[str, Any]]:
-    from cascade_planner.eval.train_cascade_subgoal_scorer import _fragments, _mol_props
+    from cascade_planner.cascade_search.subgoal_evidence_contract import (
+        fragments,
+        molecule_properties,
+    )
 
     target = str(getattr(state, "target_smiles", "") or "")
     steps = list(getattr(state, "step_annotations", None) or getattr(state, "steps", None) or [])
@@ -2499,7 +2521,7 @@ def _runtime_subgoal_candidates(leaf: str, state: Any, *, max_subgoals: int, min
     rows: dict[str, dict[str, Any]] = {}
 
     def add(smiles: str, source: str, role: str) -> None:
-        props = _mol_props(smiles)
+        props = molecule_properties(smiles)
         if not props.get("valid") or int(props.get("heavy_atoms") or 0) < min_heavy_atoms:
             return
         rows.setdefault(
@@ -2515,16 +2537,18 @@ def _runtime_subgoal_candidates(leaf: str, state: Any, *, max_subgoals: int, min
 
     add(leaf, "leaf", root_role)
     fragment_role = "target_fragment" if root_role == "program_target" else "step_product_fragment"
-    for frag in _fragments(leaf):
+    for frag in fragments(leaf):
         add(frag, "leaf_fragment", fragment_role)
     out = sorted(rows.values(), key=lambda row: (row["source"] != "leaf", -row["heavy_atoms"], -row["hetero_atoms"], row["smiles"]))
     return out[: max(1, int(max_subgoals or 1))]
 
 
 def _runtime_subgoal_query(leaf: str, state: Any, *, role: str | None = None) -> dict[str, Any]:
-    from cascade_planner.eval.train_cascade_subgoal_scorer import _mol_props
+    from cascade_planner.cascade_search.subgoal_evidence_contract import (
+        molecule_properties,
+    )
 
-    props = _mol_props(leaf)
+    props = molecule_properties(leaf)
     target = str(getattr(state, "target_smiles", "") or "")
     steps = list(getattr(state, "step_annotations", None) or getattr(state, "steps", None) or [])
     role = role or ("program_target" if leaf == target and not steps else "step_product")

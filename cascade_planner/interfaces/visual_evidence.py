@@ -2,31 +2,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import json
 from pathlib import Path
-import re
 from typing import Any, Callable, Mapping
 
 from cascade_planner.application.run_kernel import RunKernelError
-from cascade_planner.application.retrosynthesis_workers import (
-    materialization_commands_for_proposals,
-)
 from cascade_planner.harness.visual_literature_chain_agent import (
     run_visual_literature_chain_agent,
+)
+from cascade_planner.interfaces.visual_evidence_contract import (
+    VISUAL_EVIDENCE_REQUEST_SCHEMA,
+    VisualEvidenceError,
+    normalized_usage as _normalized_usage,
+    stage as _stage,
+    validate_request_digest as _validate_request_digest,
 )
 from cascade_planner.interfaces.visual_observation_normalization import (
     VISUAL_EVIDENCE_OBSERVATION_SCHEMA as VISUAL_EVIDENCE_OBSERVATION_SCHEMA,
     normalize_visual_observation as _normalize_visual_observation,
 )
+from cascade_planner.interfaces.visual_evidence_materialization import (
+    materialize_visual_evidence_candidates,
+)
+from cascade_planner.interfaces.visual_evidence_request import (
+    _compile_visual_evidence_request,
+    _visual_no_candidate_reason,
+    compile_visual_evidence_request,
+)
 
-
-VISUAL_EVIDENCE_REQUEST_SCHEMA = "visual_source_candidate_request.v1"
 VisualEvidenceProvider = Callable[[Mapping[str, Any]], Mapping[str, Any]]
-
-
-class VisualEvidenceError(RuntimeError):
-    """A visual provider or its output violated the bounded draft contract."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,33 +138,148 @@ def acquire_visual_evidence_candidates(
     provider: VisualEvidenceProvider | None,
     max_pages: int = 6,
     max_steps: int = 16,
+    max_source_attempts: int = 3,
 ) -> dict[str, Any]:
-    """Run at most one visual task and return only host-normalized hypotheses."""
+    """Try ranked sources until an exact segment with conditions is bound.
+
+    Each source remains one independently budgeted visual invocation.  A
+    generic/analogous paper is retained for audit but no longer consumes the
+    entire campaign's chance to inspect a later exact-target paper.
+    """
 
     if provider is None:
         return _stage("disabled", reason="visual_evidence_provider_not_configured")
-    request = compile_visual_evidence_request(
+    if not 1 <= max_source_attempts <= 8:
+        raise ValueError("visual_evidence_source_attempt_limit_invalid")
+    attempted_refs: set[str] = set()
+    attempts: list[dict[str, Any]] = []
+    aggregate_usage = _empty_usage()
+    best_stage: dict[str, Any] = {}
+    best_quality: tuple[int, ...] = ()
+    last_diagnostics: list[dict[str, Any]] = []
+
+    for _attempt_index in range(max_source_attempts):
+        if not _visual_invocation_budget_available(service):
+            break
+        request, candidate_diagnostics = _compile_visual_evidence_request(
+            evidence_request=evidence_request,
+            discovery=discovery,
+            max_pages=max_pages,
+            excluded_source_refs=attempted_refs,
+        )
+        last_diagnostics = candidate_diagnostics
+        if not request:
+            break
+        source_ref = str(dict(request.get("source") or {}).get("source_ref") or "")
+        attempted_refs.add(source_ref)
+        stage = _acquire_one_visual_source(
+            service,
+            request=request,
+            provider=provider,
+            max_steps=max_steps,
+        )
+        aggregate_usage = _sum_usage(
+            aggregate_usage,
+            dict(stage.get("model_usage") or {}),
+        )
+        observation = dict(stage.get("observation") or {})
+        quality = _visual_observation_quality(observation)
+        attempts.append(
+            {
+                "attempt_index": len(attempts) + 1,
+                "source_ref": source_ref,
+                "status": str(stage.get("status") or ""),
+                "reason": str(stage.get("reason") or ""),
+                "request_sha256": str(request.get("content_sha256") or ""),
+                "observation_ref": dict(stage.get("observation_ref") or {}),
+                "quality": _visual_quality_projection(observation),
+                "model_usage": dict(stage.get("model_usage") or {}),
+            }
+        )
+        if observation and (not best_stage or quality > best_quality):
+            best_stage = stage
+            best_quality = quality
+        if _visual_observation_closes_source_loop(observation):
+            best_stage = stage
+            break
+        if stage.get("status") == "budget_blocked":
+            break
+
+    if best_stage:
+        selected_source_ref = str(
+            dict(dict(best_stage.get("request") or {}).get("source") or {}).get(
+                "source_ref"
+            )
+            or ""
+        )
+        return _stage(
+            str(best_stage.get("status") or "completed"),
+            reason=str(best_stage.get("reason") or ""),
+            request=dict(best_stage.get("request") or {}),
+            observation=dict(best_stage.get("observation") or {}),
+            observation_ref=dict(best_stage.get("observation_ref") or {}),
+            model_usage=aggregate_usage,
+            material_events=list(best_stage.get("material_events") or []),
+            attempts=attempts,
+            attempted_source_count=len(attempts),
+            selected_source_ref=selected_source_ref,
+            source_loop_closed=_visual_observation_closes_source_loop(
+                dict(best_stage.get("observation") or {})
+            ),
+            candidate_diagnostics=last_diagnostics,
+            semantics={
+                "non_exact_visual_source_triggers_next_ranked_source": True,
+                "each_source_attempt_is_run_kernel_budgeted": True,
+                "selection_prefers_exact_segment_edge_and_condition_binding": True,
+            },
+        )
+
+    if attempts:
+        last = attempts[-1]
+        return _stage(
+            str(last.get("status") or "unresolved"),
+            reason=str(last.get("reason") or "visual_source_attempts_unresolved"),
+            model_usage=aggregate_usage,
+            attempts=attempts,
+            attempted_source_count=len(attempts),
+            candidate_diagnostics=last_diagnostics,
+        )
+    request, candidate_diagnostics = _compile_visual_evidence_request(
         evidence_request=evidence_request,
         discovery=discovery,
         max_pages=max_pages,
     )
-    if not request:
-        return _stage("not_needed", reason="visual_candidate_pages_missing")
+    if request:
+        return _stage(
+            "budget_blocked",
+            reason=_visual_budget_block_reason(service, request),
+            request=request,
+            candidate_diagnostics=candidate_diagnostics,
+            model_usage=aggregate_usage,
+        )
+    return _stage(
+        "not_needed",
+        reason=_visual_no_candidate_reason(candidate_diagnostics),
+        candidate_diagnostics=candidate_diagnostics,
+        model_usage=aggregate_usage,
+    )
+
+
+def _acquire_one_visual_source(
+    service: Any,
+    *,
+    request: Mapping[str, Any],
+    provider: VisualEvidenceProvider,
+    max_steps: int,
+) -> dict[str, Any]:
+    """Execute and settle one already-ranked visual source request."""
+
     task_id = f"visual-evidence:{str(request['content_sha256'])[:24]}"
     prompt_bytes = len(
         json.dumps(request, ensure_ascii=False, sort_keys=True).encode("utf-8")
     )
     usage: dict[str, Any] = {}
     provider_called = False
-    if service.kernel.count_task_reservations(
-        kind="model",
-        metadata={"visual_evidence": True},
-    ):
-        return _stage(
-            "budget_blocked",
-            reason="campaign_visual_evidence_call_already_admitted",
-            request=request,
-        )
     try:
         service.kernel.reserve_task(
             task_id=task_id,
@@ -244,465 +363,222 @@ def acquire_visual_evidence_candidates(
     )
 
 
-def compile_visual_evidence_request(
-    *,
-    evidence_request: Mapping[str, Any],
-    discovery: Mapping[str, Any],
-    max_pages: int,
-) -> dict[str, Any]:
-    if not 1 <= max_pages <= 12:
-        raise ValueError("visual_evidence_page_limit_invalid")
-    if str(discovery.get("request_sha256") or "") != str(
-        evidence_request.get("content_sha256") or ""
-    ):
-        return {}
-    candidates = []
-    for source in discovery.get("sources") or []:
-        if not isinstance(source, Mapping):
-            continue
-        publication_number = str(source.get("publication_number") or "").strip()
-        source_kind = str(source.get("source_kind") or "").strip().lower()
-        source_ref = _source_ref(source)
-        source_pdf_sha256 = str(
-            source.get("source_pdf_sha256") or source.get("pdf_sha256") or ""
-        ).strip().lower()
-        source_fulltext_sha256 = str(
-            source.get("source_fulltext_sha256")
-            or source.get("fulltext_xml_sha256")
-            or ""
-        ).strip().lower()
-        source_artifact_sha256 = source_fulltext_sha256 or source_pdf_sha256
-        if not source_ref or not _is_sha256(source_artifact_sha256):
-            continue
-        exact_row_count = int(source.get("exact_row_count") or 0)
-        unresolved_edge_count = int(source.get("unresolved_edge_count") or 0)
-        if unresolved_edge_count <= 0 and exact_row_count > 0:
-            continue
-        target_relevance = _visual_source_target_relevance(
-            source,
-            evidence_request=evidence_request,
-        )
-        if target_relevance["accepted"] is not True:
-            continue
-        pages = []
-        for page in source.get("visual_candidate_pages") or []:
-            if not isinstance(page, Mapping):
-                continue
-            row = dict(page)
-            path = Path(str(row.get("image_path") or "")).expanduser().resolve()
-            digest = str(row.get("image_sha256") or "")
-            page_number = int(row.get("page_number") or 0)
-            if (
-                page_number <= 0
-                or not path.is_file()
-                or not _is_sha256(digest)
-                or _sha256(path) != digest
-            ):
-                continue
-            pages.append(
-                {
-                    "page_number": page_number,
-                    "image_path": str(path),
-                    "image_sha256": digest,
-                }
-            )
-            if len(pages) >= max_pages:
-                break
-        if not pages:
-            continue
-        labels = [
-            str(row.get("label") or "")
-            for row in source.get("procedure_inventory") or []
-            if isinstance(row, Mapping)
-            and row.get("visual_expected") is not False
-            and str(row.get("label") or "").strip()
-        ]
-        selected_page_numbers = {
-            int(row.get("page_number") or 0) for row in pages
-        }
-        text_snippets = []
-        for raw in source.get("procedure_inventory") or []:
-            if not isinstance(raw, Mapping):
-                continue
-            row = dict(raw)
-            page_number = int(row.get("page_number") or 0)
-            excerpt = " ".join(
-                str(
-                    row.get("procedure_excerpt")
-                    or row.get("procedure")
-                    or row.get("text")
-                    or ""
-                ).split()
-            )
-            if (
-                not excerpt
-                or (selected_page_numbers and page_number not in selected_page_numbers)
-            ):
-                continue
-            text_snippets.append(
-                {
-                    "compound_label": str(row.get("label") or row.get("name") or "")[:200],
-                    "page_number": page_number,
-                    "snippet": excerpt[:1_200],
-                }
-            )
-            if len(text_snippets) >= 12:
-                break
-        route_rows = [
-            dict(row)
-            for row in dict(source.get("source_route_observation") or {}).get(
-                "proposals"
-            )
-            or []
-            if isinstance(row, Mapping)
-        ]
-        route_sequence_hint = " -> ".join(
-            str(
-                row.get("product_name")
-                or dict(row.get("source_location") or {}).get("label")
-                or row.get("proposal_id")
-                or ""
-            )[:160]
-            for row in route_rows[:16]
-            if str(
-                row.get("product_name")
-                or dict(row.get("source_location") or {}).get("label")
-                or row.get("proposal_id")
-                or ""
-            ).strip()
-        )
-        candidates.append(
-            {
-                "source_ref": source_ref,
-                "source_kind": source_kind or _source_kind(source_ref),
-                "publication_number": publication_number,
-                "doi": str(source.get("doi") or "")[:500],
-                "pmid": str(source.get("pmid") or "")[:100],
-                "family_id": str(source.get("family_id") or ""),
-                "title": str(source.get("title") or "")[:1000],
-                "source_pdf_sha256": source_pdf_sha256,
-                "source_fulltext_sha256": source_fulltext_sha256,
-                "source_artifact_sha256": source_artifact_sha256,
-                "source_artifact_kind": (
-                    "europe_pmc_fulltext_xml"
-                    if source_fulltext_sha256
-                    else "pdf"
-                ),
-                "expected_labels": list(dict.fromkeys(labels))[:24],
-                "text_snippets": text_snippets,
-                "route_sequence_hint": route_sequence_hint[:2_000],
-                "pages": pages,
-                "exact_row_count": exact_row_count,
-                "unresolved_edge_count": unresolved_edge_count,
-                "source_route_proposal_count": int(
-                    source.get("source_route_proposal_count") or len(route_rows)
-                ),
-                "procedure_count": len(source.get("procedure_inventory") or []),
-                "target_relevance": target_relevance,
-            }
-        )
-    if not candidates:
-        return {}
-    candidates.sort(
-        key=lambda row: (
-            -int(row["source_route_proposal_count"]),
-            -int(row["procedure_count"]),
-            -int(row["unresolved_edge_count"]),
-            int(row["exact_row_count"] > 0),
-            str(row["source_ref"]),
-        )
-    )
-    request = {
-        "schema_version": VISUAL_EVIDENCE_REQUEST_SCHEMA,
-        "evidence_request_sha256": str(evidence_request.get("content_sha256") or ""),
-        "run_id": str(evidence_request.get("run_id") or ""),
-        "target_name": str(evidence_request.get("target_name") or ""),
-        "target_smiles": str(evidence_request.get("target_smiles") or ""),
-        "edges": [dict(row) for row in evidence_request.get("edges") or []],
-        "source": candidates[0],
-        "limits": {"max_pages": max_pages, "max_model_invocations": 1},
-        "semantics": {
-            "visual_output_is_hypothesis_only": True,
-            "visual_output_cannot_grant_L2_L3_or_stock": True,
-            "host_smiles_and_reaction_normalization_required": True,
-        },
-    }
-    request["content_sha256"] = _digest(request)
-    return request
-
-
-def _visual_source_target_relevance(
-    source: Mapping[str, Any],
-    *,
-    evidence_request: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Require a source-to-target bridge before spending a visual call.
-
-    Search results mentioning a therapeutic class are common patent noise.
-    They may remain frozen source observations, but vision is reserved for a
-    named-target match, an exact current edge, or a source-route proposal that
-    is structurally connected to the target/frontier.
-    """
-
-    target_name = " ".join(
-        str(evidence_request.get("target_name") or "").split()
-    ).casefold()
-    generic_name = (
-        not target_name
-        or target_name in {"target", "blind target"}
-        or "blind" in target_name
-        or bool(re.fullmatch(r"target-[0-9a-f]{8,64}", target_name))
-    )
-    identity = dict(evidence_request.get("target_identity") or {})
-    name_terms = {
-        target_name,
-        " ".join(str(identity.get("preferred_name") or "").split()).casefold(),
-        *(
-            " ".join(str(value).split()).casefold()
-            for value in identity.get("synonyms") or []
-        ),
-    } - {""}
-    searchable = " ".join(
-        [
-            str(source.get("title") or ""),
-            *[
-                str(item.get("name") or item.get("label") or "")
-                for item in source.get("procedure_inventory") or []
-                if isinstance(item, Mapping)
-            ],
-        ]
-    ).casefold()
-    named_match = any(term in searchable for term in name_terms)
-    exact_match = bool(
-        int(source.get("exact_row_count") or 0)
-        or source.get("exact_edge_ids")
-        or int(source.get("source_route_exact_row_count") or 0)
-    )
-    target_smiles = str(evidence_request.get("target_smiles") or "")
-    frontier_products = {
-        target_smiles,
-        *(
-            str(edge.get("product_smiles") or "")
-            for edge in evidence_request.get("edges") or []
-            if isinstance(edge, Mapping)
-        ),
-    } - {""}
-    proposals = [
-        dict(value)
-        for value in dict(source.get("source_route_observation") or {}).get(
-            "proposals"
-        )
-        or []
-        if isinstance(value, Mapping)
-    ]
-    connected_route = any(
-        str(proposal.get("product_smiles") or "") in frontier_products
-        or str(proposal.get("root_anchor") or "").strip()
-        for proposal in proposals
-    )
-    accepted = bool(generic_name or named_match or exact_match or connected_route)
-    reasons = [
-        reason
-        for condition, reason in (
-            (generic_name, "generic_target_name_cannot_support_text_filter"),
-            (named_match, "named_target_mentioned_in_source"),
-            (exact_match, "source_matches_current_exact_edge"),
-            (connected_route, "source_route_connects_to_target_frontier"),
-        )
-        if condition
-    ]
-    if not accepted:
-        reasons.append("source_has_no_target_or_frontier_bridge")
+def _empty_usage() -> dict[str, Any]:
     return {
-        "schema_version": "visual_source_target_relevance.v1",
-        "accepted": accepted,
-        "reasons": reasons,
-        "semantics": {
-            "search_result_presence_is_not_relevance": True,
-            "rejected_source_bytes_remain_frozen_for_audit": True,
-        },
+        "model_invocations": 0,
+        "visual_invocations": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "wall_time_s": 0.0,
     }
 
 
-def materialize_visual_evidence_candidates(
+def _visual_invocation_budget_available(service: Any) -> bool:
+    budget = service.kernel.spec.limits.model
+    totals = service.kernel.state.model_totals
+    return bool(
+        int(totals.get("model_invocations") or 0) < budget.max_model_invocations
+        and int(totals.get("visual_invocations") or 0)
+        < budget.max_visual_invocations
+    )
+
+
+def _visual_budget_block_reason(
     service: Any,
-    *,
-    observation: Mapping[str, Any],
+    request: Mapping[str, Any],
+) -> str:
+    task_id = f"visual-evidence:{str(request['content_sha256'])[:24]}"
+    lifecycle = service.kernel.task_lifecycle(task_id)
+    if lifecycle["status"] != "absent":
+        return "campaign_visual_evidence_call_already_admitted"
+
+    budget = service.kernel.spec.limits.model
+    totals = service.kernel.state.model_totals
+    reasons: list[str] = []
+    if int(totals.get("visual_invocations") or 0) >= budget.max_visual_invocations:
+        reasons.append("visual_invocation_budget_exhausted")
+    if int(totals.get("model_invocations") or 0) >= budget.max_model_invocations:
+        reasons.append("model_invocation_budget_exhausted")
+    return "campaign_visual_evidence_budget_exhausted:" + ",".join(
+        reasons or ["run_kernel_budget_unavailable"]
+    )
+
+
+def _sum_usage(
+    left: Mapping[str, Any], right: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Admit a visually extracted literature chain as L0/L1 proposals.
+    return {
+        "model_invocations": int(left.get("model_invocations") or 0)
+        + int(right.get("model_invocations") or 0),
+        "visual_invocations": int(left.get("visual_invocations") or 0)
+        + int(right.get("visual_invocations") or 0),
+        "input_tokens": int(left.get("input_tokens") or 0)
+        + int(right.get("input_tokens") or 0),
+        "output_tokens": int(left.get("output_tokens") or 0)
+        + int(right.get("output_tokens") or 0),
+        "wall_time_s": float(left.get("wall_time_s") or 0.0)
+        + float(right.get("wall_time_s") or 0.0),
+    }
 
-    Page-bound visual extraction is useful chemistry generation, but it is not
-    deterministic source proof.  Every step therefore goes through the same
-    host materialization gates as ChemEnzy/Codex and remains below L3 until an
-    independent structured extractor or curator supplies exact rows.
-    """
 
+def _visual_observation_quality(observation: Mapping[str, Any]) -> tuple[int, ...]:
+    projection = _visual_quality_projection(observation)
+    return (
+        int(projection["source_loop_closed"]),
+        int(projection["exact_source_segment_count"]),
+        int(projection["matched_current_edge_count"]),
+        int(projection["target_anchored_step_count"]),
+        int(projection["condition_bound_step_count"]),
+        int(projection["admission_eligible_step_count"]),
+        int(projection["candidate_step_count"]),
+    )
+
+
+def _visual_quality_projection(observation: Mapping[str, Any]) -> dict[str, Any]:
     steps = [
         dict(row)
         for row in observation.get("candidate_steps") or []
-        if isinstance(row, Mapping) and row.get("admission_eligible") is True
+        if isinstance(row, Mapping)
     ]
-    if not steps:
-        return _materialization_stage("not_needed", reason="visual_candidate_steps_missing")
-    graph = service.graph_store.load()
-    existing = [
-        str(row.get("edge_digest") or "")
-        for row in dict(graph.get("edges") or {}).values()
-        if isinstance(row, Mapping) and str(row.get("edge_digest") or "")
+    exact_segments = [
+        row
+        for row in steps
+        if row.get("admission_eligible") is True
+        and row.get("exact_structure_binding_candidate") is True
+        and row.get("not_exact_literature_segment") is not True
+        and str(row.get("source_locator") or "").strip()
     ]
-    source_ref = str(observation.get("source_ref") or "")
-    proposals = []
-    for row in steps:
-        condition = dict(row.get("condition_candidate") or {})
-        proposals.append(
+    condition_bound = [
+        row for row in exact_segments if _meaningful_visual_condition(row)
+    ]
+    closed = any(
+        str(row.get("matched_current_edge_id") or "").strip()
+        and _meaningful_visual_condition(row)
+        for row in exact_segments
+    )
+    return {
+        "source_loop_closed": closed,
+        "exact_source_segment_count": len(exact_segments),
+        "matched_current_edge_count": int(
+            observation.get("matched_current_edge_count") or 0
+        ),
+        "target_anchored_step_count": int(
+            observation.get("target_anchored_step_count") or 0
+        ),
+        "condition_bound_step_count": len(condition_bound),
+        "admission_eligible_step_count": int(
+            observation.get("admission_eligible_step_count") or 0
+        ),
+        "candidate_step_count": int(observation.get("candidate_step_count") or 0),
+    }
+
+
+def _meaningful_visual_condition(step: Mapping[str, Any]) -> bool:
+    condition = dict(step.get("condition_candidate") or {})
+    ignored = {
+        "schema_version",
+        "condition_status",
+        "source_type",
+        "grants_exact_evidence",
+        "source_reference_annotation",
+    }
+    return any(
+        key not in ignored and value not in (None, "", [], {})
+        for key, value in condition.items()
+    )
+
+
+def _visual_observation_closes_source_loop(
+    observation: Mapping[str, Any],
+) -> bool:
+    return bool(_visual_quality_projection(observation)["source_loop_closed"])
+
+
+def rebind_visual_evidence_observation(
+    service: Any,
+    *,
+    request: Mapping[str, Any],
+    prior_observation: Mapping[str, Any],
+    max_steps: int = 16,
+) -> dict[str, Any]:
+    """Re-normalize one already-paid visual result against the current graph."""
+
+    source = dict(request.get("source") or {})
+    prior = dict(prior_observation or {})
+    if not request or not prior:
+        return _stage("not_needed", reason="prior_visual_observation_missing")
+    if str(prior.get("source_ref") or "") != str(source.get("source_ref") or ""):
+        return _stage("not_needed", reason="prior_visual_source_mismatch")
+    current_artifact = str(source.get("source_artifact_sha256") or "")
+    prior_artifact = str(prior.get("source_artifact_sha256") or "")
+    if current_artifact and prior_artifact and current_artifact != prior_artifact:
+        return _stage("not_needed", reason="prior_visual_artifact_mismatch")
+
+    raw_steps = []
+    for value in prior.get("candidate_steps") or []:
+        if not isinstance(value, Mapping):
+            continue
+        row = dict(value)
+        raw_steps.append(
             {
                 "product_smiles": str(row.get("product_smiles") or ""),
-                "precursor_smiles": list(row.get("precursor_smiles") or []),
-                "origin_kind": "literature_visual_extraction",
-                "origin_ref": source_ref,
-                "proposal_id": str(row.get("candidate_id") or ""),
-                "transformation_hypothesis": (
-                    "page-bound literature structure-chain extraction"
+                "reactant_smiles": [
+                    *list(row.get("precursor_smiles") or []),
+                    *list(row.get("spectator_reactant_smiles") or []),
+                ],
+                "product_label": str(row.get("product_label") or ""),
+                "reactant_labels": [
+                    *list(row.get("reactant_labels") or []),
+                    *list(row.get("spectator_reactant_labels") or []),
+                ],
+                "source_locator": str(row.get("source_locator") or ""),
+                "condition_candidate": dict(row.get("condition_candidate") or {}),
+                "structure_derivation": dict(row.get("structure_derivation") or {}),
+                "stereochemistry_status": str(
+                    row.get("stereochemistry_status") or ""
                 ),
-                "condition_predictions": (
-                    [
-                        {
-                            **condition,
-                            "source_ref": source_ref,
-                            "source_locator": str(row.get("source_locator") or ""),
-                            "authority_scope": "model_extracted_source_condition_candidate",
-                            "not_reaction_proof": True,
-                        }
-                    ]
-                    if condition
-                    else []
+                "not_exact_literature_segment": bool(
+                    row.get("not_exact_literature_segment")
                 ),
+                "risk_flags": list(row.get("risk_flags") or []),
             }
         )
-    revision = service.kernel.revision
-    commands = materialization_commands_for_proposals(
-        proposals,
-        run_id=service.kernel.spec.run_id,
-        input_revision=revision.graph_revision,
-        dependency_revisions={
-            "graph_revision": revision.graph_revision,
-            "evidence_revision": revision.evidence_revision,
+    if not raw_steps:
+        return _stage("not_needed", reason="prior_visual_candidate_steps_missing")
+    observation = _normalize_visual_observation(
+        request,
+        result={
+            "request_sha256": str(request.get("content_sha256") or ""),
+            "provider_status": str(prior.get("provider_status") or "completed"),
+            "provider_receipt": dict(prior.get("provider_receipt") or {}),
+            "candidate_chain": {"steps": raw_steps},
         },
-        existing_edge_digests=existing,
+        max_steps=max_steps,
     )
-    if not commands:
-        return _materialization_stage(
-            "reused_or_empty",
-            reason="visual_chain_already_materialized_or_ineligible",
-            proposal_count=len(proposals),
-        )
-    execution = service.execute_commands(
-        commands,
-        idempotency_key=f"visual-chain:{str(observation.get('content_sha256') or '')}",
+    ref = service.kernel.artifacts.put_json(
+        observation,
+        logical_name="visual_source_candidate_observation_rebound.json",
+        producer="autoplanner.visual_evidence.rebind",
     )
-    return _materialization_stage(
-        "completed" if execution.get("changed") else "partial",
-        proposal_count=len(proposals),
-        command_count=len(commands),
-        execution=execution,
+    return _stage(
+        "reused",
+        reason="prior_visual_observation_rebound_without_model_call",
+        request=dict(request),
+        observation=observation,
+        observation_ref=ref.to_dict(),
+        model_usage={
+            "model_invocations": 0,
+            "visual_invocations": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "wall_time_s": 0.0,
+        },
         material_events=(
-            ["visual_literature_chain_materialized"]
-            if execution.get("changed")
+            ["visual_source_candidates_reused"]
+            if observation["candidate_step_count"]
             else []
         ),
-        semantics={
-            "visual_chain_enters_canonical_hypergraph": True,
-            "visual_chain_grants_exact_evidence": False,
-            "host_validation_still_required": True,
-        },
     )
-
-
-def _validate_request_digest(request: Mapping[str, Any]) -> None:
-    body = {key: value for key, value in request.items() if key != "content_sha256"}
-    if (
-        request.get("schema_version") != VISUAL_EVIDENCE_REQUEST_SCHEMA
-        or str(request.get("content_sha256") or "") != _digest(body)
-    ):
-        raise VisualEvidenceError("visual_evidence_request_invalid")
-
-
-def _source_ref(source: Mapping[str, Any]) -> str:
-    explicit = str(source.get("source_ref") or "").strip()
-    if explicit:
-        return explicit[:500]
-    doi = str(source.get("doi") or "").strip()
-    if doi:
-        return f"doi:{doi.removeprefix('https://doi.org/').removeprefix('http://doi.org/')}"[:500]
-    pmid = str(source.get("pmid") or "").strip()
-    if pmid:
-        return f"pmid:{pmid}"[:500]
-    publication = str(source.get("publication_number") or "").strip()
-    return f"patent:{publication}" if publication else ""
-
-
-def _source_kind(source_ref: str) -> str:
-    prefix = str(source_ref).split(":", 1)[0].lower()
-    return "paper_si" if prefix in {"doi", "pmid", "pmc"} else prefix
-
-
-def _materialization_stage(status: str, *, reason: str = "", **values: Any) -> dict[str, Any]:
-    return {
-        "stage": "visual_chain_materialization",
-        "status": status,
-        "reason": reason,
-        **values,
-    }
-
-
-def _normalized_usage(value: Any) -> dict[str, Any]:
-    row = dict(value) if isinstance(value, Mapping) else {}
-    invocations = max(0, int(row.get("model_invocations") or 0))
-    visual = max(0, int(row.get("visual_invocations") or 0))
-    if invocations > 1 or visual > 1 or visual > invocations:
-        raise VisualEvidenceError("visual_provider_usage_invalid")
-    return {
-        "model_invocations": invocations,
-        "visual_invocations": visual,
-        "input_tokens": max(0, int(row.get("input_tokens") or 0)),
-        "output_tokens": max(0, int(row.get("output_tokens") or 0)),
-        "wall_time_s": max(0.0, float(row.get("wall_time_s") or 0.0)),
-    }
-
-
-def _stage(status: str, *, reason: str = "", **values: Any) -> dict[str, Any]:
-    return {
-        "stage": "visual_evidence",
-        "status": status,
-        "reason": str(reason),
-        "model_invocations": int(
-            dict(values.get("model_usage") or {}).get("model_invocations") or 0
-        ),
-        "visual_invocations": int(
-            dict(values.get("model_usage") or {}).get("visual_invocations") or 0
-        ),
-        **values,
-    }
-
-
-def _digest(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _is_sha256(value: str) -> bool:
-    return bool(re.fullmatch(r"[0-9a-f]{64}", str(value or "")))
 
 
 __all__ = [
@@ -715,4 +591,5 @@ __all__ = [
     "build_codex_visual_evidence_provider",
     "compile_visual_evidence_request",
     "materialize_visual_evidence_candidates",
+    "rebind_visual_evidence_observation",
 ]

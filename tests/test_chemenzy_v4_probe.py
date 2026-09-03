@@ -3,12 +3,31 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from cascade_planner.application.run_kernel import RunLimits, RunSpec
 from cascade_planner.interfaces.chemenzy_probe import (
     ChemEnzyProposalRequest,
     _guided_native_search_policy,
     _normalized_routes,
+    _provider_reaction_metadata,
     _provider_capability_snapshot,
+    _opaque_target_name,
+    _select_host_route_portfolio,
     _select_runtime,
+    run_chemenzy_proposal_stage,
+)
+from cascade_planner.interfaces.chemenzy_parameter_binding import (
+    provider_parameter_binding,
+)
+from cascade_planner.interfaces.chemenzy_probe_contract import provider_invocation_binding
+from cascade_planner.interfaces.chemenzy_probe_routes import (
+    compile_chemenzy_route_fingerprints,
+)
+from cascade_planner.interfaces.chemenzy_advisory import (
+    normalized_quarantined_routes,
+)
+from cascade_planner.interfaces.chemenzy_probe import _normalize_proposal_route
+from cascade_planner.orchestration.retrosynthesis_service import (
+    RetrosynthesisCampaignService,
 )
 
 
@@ -38,13 +57,170 @@ def test_explicit_chemenzy_runtime_is_never_silently_replaced(tmp_path: Path) ->
             "_registered_conda_prefixes"
         ) as discover,
     ):
-        selected, discovery = _select_runtime(env_prefix=explicit, timeout_s=3.0)
+        selected, discovery = _select_runtime(
+            env_prefix=explicit,
+            timeout_s=3.0,
+            one_step_models=("graphfp_models.fixture",),
+        )
 
     assert selected == report
     assert discovery["source"] == "target_solve_config"
     assert discovery["selected_env_prefix"] == str(explicit)
     assert diagnose.call_args.kwargs["env_prefix"] == str(explicit)
+    assert diagnose.call_args.kwargs["one_step_models"] == (
+        "graphfp_models.fixture",
+    )
     discover.assert_not_called()
+
+
+def test_chemenzy_parameter_binding_freezes_three_execution_layers(
+    tmp_path: Path,
+) -> None:
+    stock = tmp_path / "stock.sqlite3"
+    stock.write_bytes(b"stock")
+    models = [
+        "graphfp_models.USPTO-full_remapped",
+        "onmt_models.bionav_native_one_step",
+    ]
+    request = ChemEnzyProposalRequest(
+        target_name="bound",
+        target_smiles="CCO",
+        random_seed=17,
+        limits={
+            "search_preset": "standard",
+            "max_routes": 2,
+            "max_steps": 14,
+            "max_iterations": 12,
+            "expansion_topk": 100,
+            "timeout_s": 240.0,
+            "random_seed": 17,
+            "one_step_models": models,
+            "stock_names": ["stock"],
+            "stock_paths": {"stock": str(stock)},
+            "enable_condition_prediction": False,
+            "enable_enzyme_assignment": False,
+            "enable_enzyme_coverage_sidecar": False,
+            "pandarallel_workers": 2,
+        },
+    ).to_dict()
+    launcher_request = {
+        "target_smiles": "CCO",
+        "search_preset": "standard",
+        "max_routes": 2,
+        "max_steps": 14,
+        "chem_enzy_iterations": 12,
+        "chem_enzy_expansion_topk": 100,
+        "timeout_s": 240.0,
+        "chemenzy_seed": 17,
+        "one_step_models": models,
+        "stock_names": ["stock"],
+        "stock_paths": {"stock": str(stock)},
+        "enable_condition_prediction": False,
+        "enable_enzyme_assignment": False,
+        "enable_enzyme_coverage_sidecar": False,
+        "pandarallel_workers": 2,
+    }
+    raw = {
+        "target": "CCO",
+        "ui_metadata": {
+            "search_preset": "standard",
+            "max_routes": 2,
+            "max_depth": 14,
+            "iterations": 12,
+            "expansion_topk": 100,
+            "timeout_s": 240.0,
+            "random_seed": 17,
+            "one_step_models": models,
+            "stock_names": ["stock"],
+            "stock_paths": {"stock": str(stock)},
+            "condition_prediction_enabled": False,
+            "enzyme_assignment_enabled": False,
+            "enzyme_coverage_sidecar_enabled": False,
+            "pandarallel_workers": 2,
+        },
+    }
+
+    binding = provider_parameter_binding(
+        request,
+        launcher_request=launcher_request,
+        raw_result=raw,
+        runtime_preflight={"requested_one_step_models": models},
+    )
+
+    assert binding["accepted"] is True
+    assert binding["identity_complete"] is True
+    assert binding["mismatch_fields"] == []
+    assert binding["incomplete_fields"] == []
+    assert len(binding["content_sha256"]) == 64
+
+    raw["ui_metadata"]["expansion_topk"] = 99
+    mismatch = provider_parameter_binding(
+        request,
+        launcher_request=launcher_request,
+        raw_result=raw,
+        runtime_preflight={"requested_one_step_models": models},
+    )
+    assert mismatch["accepted"] is False
+    assert mismatch["mismatch_fields"] == ["expansion_topk"]
+
+
+def test_builtin_probe_retains_parameter_mismatch_as_advisory(
+    tmp_path: Path,
+) -> None:
+    service = RetrosynthesisCampaignService.create(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=RunSpec(
+            run_id="parameter-binding-mismatch",
+            target_name="parameter binding mismatch",
+            target_smiles="CCO",
+            created_at="2026-08-11T00:00:00Z",
+            limits=RunLimits(max_total_tasks=8),
+        ),
+        artifact_store_root=tmp_path / "cas",
+        run_index_path=tmp_path / "index" / "runs.sqlite3",
+    )
+    binding = {
+        "schema_version": "chemenzy_parameter_binding.v1",
+        "accepted": False,
+        "identity_complete": True,
+        "mismatch_fields": ["expansion_topk"],
+        "incomplete_fields": [],
+        "content_sha256": "f" * 64,
+    }
+    with (
+        patch(
+            "cascade_planner.interfaces.chemenzy_probe._run_builtin_probe",
+            return_value={
+                "search_executed": True,
+                "provider_result_replayed": True,
+                "runtime_preflight": {},
+                "runtime_discovery": {},
+                "routes": [],
+            },
+        ),
+        patch(
+            "cascade_planner.interfaces.chemenzy_parameter_binding."
+            "provider_parameter_binding",
+            return_value=binding,
+        ),
+    ):
+        result = run_chemenzy_proposal_stage(
+            service,
+            target_name="parameter binding mismatch",
+            target_smiles="CCO",
+            enabled=True,
+        )
+
+    assert result["status"] == "unresolved"
+    recorded = result["provider_parameter_binding"]
+    assert recorded["accepted"] is False
+    assert recorded["mismatch_fields"] == ["expansion_topk"]
+    assert recorded["disposition"] == "advisory_warning"
+    assert recorded["semantics"][
+        "parameter_mismatch_does_not_discard_provider_routes"
+    ] is True
+    assert result["provider_result_replayed"] is True
 
 
 def test_chemenzy_runtime_can_fall_back_to_bounded_conda_discovery(
@@ -75,6 +251,43 @@ def test_chemenzy_runtime_can_fall_back_to_bounded_conda_discovery(
     assert discovery["source"] == "conda_auto_discovery"
     assert discovery["selected_env_prefix"] == str(conda_runtime)
     assert len(discovery["attempts"]) == 2
+
+
+def test_chemenzy_runtime_can_use_capability_probed_host_python(
+    tmp_path: Path,
+) -> None:
+    repository_default = tmp_path / "packed-linux-runtime"
+    host_runtime = tmp_path / "working-host-python"
+    unavailable = _preflight(repository_default, ready=False, source="default")
+    available = _preflight(
+        host_runtime, ready=True, source="host_python_auto_discovery"
+    )
+
+    with (
+        patch(
+            "cascade_planner.interfaces.chemenzy_runtime_selection."
+            "diagnose_chem_enzy_runtime",
+            side_effect=[unavailable, available],
+        ),
+        patch(
+            "cascade_planner.interfaces.chemenzy_runtime_selection."
+            "_registered_conda_prefixes",
+            return_value=[],
+        ),
+        patch(
+            "cascade_planner.interfaces.chemenzy_runtime_selection."
+            "_host_python_prefixes",
+            return_value=[host_runtime],
+        ),
+    ):
+        selected, discovery = _select_runtime(env_prefix=None, timeout_s=3.0)
+
+    assert selected == available
+    assert discovery["source"] == "host_python_auto_discovery"
+    assert discovery["selected_env_prefix"] == str(host_runtime)
+    assert discovery["semantics"][
+        "all_auto_discovered_runtimes_require_capability_probe"
+    ]
 
 
 def test_provider_capability_does_not_call_import_probe_campaign_ready() -> None:
@@ -111,6 +324,46 @@ def test_provider_capability_does_not_call_import_probe_campaign_ready() -> None
     assert executed["levels"]["campaign_ready"] is True
 
 
+def test_builtin_runtime_preflight_failure_is_not_counted_as_provider_search(
+    tmp_path: Path,
+) -> None:
+    service = RetrosynthesisCampaignService.create(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=RunSpec(
+            run_id="preflight-not-search",
+            target_name="preflight not search",
+            target_smiles="CCO",
+            created_at="2026-08-14T00:00:00Z",
+            limits=RunLimits(max_total_tasks=8),
+        ),
+        artifact_store_root=tmp_path / "cas",
+        run_index_path=tmp_path / "index" / "runs.sqlite3",
+    )
+    with patch(
+        "cascade_planner.interfaces.chemenzy_probe._run_builtin_probe",
+        return_value={
+            "status": "runtime_unavailable",
+            "search_executed": False,
+            "runtime_preflight": {
+                "production_ready": False,
+                "issues": ["fixture_runtime_unavailable"],
+            },
+            "routes": [],
+        },
+    ):
+        result = run_chemenzy_proposal_stage(
+            service,
+            target_name="preflight not search",
+            target_smiles="CCO",
+            enabled=True,
+        )
+
+    assert result["proposal_count"] == 0
+    assert result["provider_invocation_count"] == 0
+    assert result["provider_capability"]["search_executed"] is False
+
+
 def test_current_launcher_route_schema_is_normalized_without_solved_flag() -> None:
     routes = _normalized_routes(
         {
@@ -138,6 +391,70 @@ def test_current_launcher_route_schema_is_normalized_without_solved_flag() -> No
     assert routes[0]["steps"][0]["reactant_smiles"] == ["CCO", "CC(=O)Cl"]
 
 
+def test_provider_stage_imports_complete_route_beyond_search_depth_contract(
+    tmp_path: Path,
+) -> None:
+    service = RetrosynthesisCampaignService.create(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=RunSpec(
+            run_id="complete-provider-route",
+            target_name="complete provider route",
+            target_smiles="CCCCO",
+            created_at="2026-08-14T00:00:00Z",
+            limits=RunLimits(max_total_tasks=16),
+        ),
+        artifact_store_root=tmp_path / "cas",
+        run_index_path=tmp_path / "index" / "runs.sqlite3",
+    )
+    route = {
+        "steps": [
+            {
+                "product": "CCCCO",
+                "main_reactant": "CCCC=O",
+                "aux_reactants": [],
+            },
+            {
+                "product": "CCCC=O",
+                "main_reactant": "CCC(C)=O",
+                "aux_reactants": [],
+            },
+        ]
+    }
+
+    result = run_chemenzy_proposal_stage(
+        service,
+        target_name="complete provider route",
+        target_smiles="CCCCO",
+        enabled=True,
+        max_routes=1,
+        max_host_routes=1,
+        max_steps=1,
+        provider=lambda **_kwargs: {"status": "completed", "routes": [route]},
+    )
+
+    assert result["proposal_count"] == 2
+    assert result["returned_route_exceeds_search_depth_count"] == 1
+    assert result["max_returned_route_steps"] == 2
+    assert result["topology_conservation_accepted"] is True
+    assert result["topology_conservation_failure_count"] == 0
+    lineage = next(
+        row
+        for row in result["route_lineage"]
+        if row["host_portfolio_selected"] is True
+    )
+    assert lineage["provider_step_count"] == 2
+    assert lineage["normalized_step_count"] == 2
+    assert lineage["imported_proposal_count"] == 2
+    assert lineage["canonical_bound_step_count"] == 2
+    assert lineage["missing_imported_proposal_ids"] == []
+    assert lineage["missing_canonical_proposal_ids"] == []
+    assert lineage["topology_conservation_accepted"] is True
+    assert result["semantics"]["complete_provider_routes_are_never_truncated"] is True
+    graph = service.graph_store.load()
+    assert len(graph["hypotheses"]) == 2
+
+
 def test_structurally_invalid_launcher_route_is_rejected_by_host_not_solved_flag() -> None:
     routes = _normalized_routes(
         {
@@ -159,6 +476,33 @@ def test_structurally_invalid_launcher_route_is_rejected_by_host_not_solved_flag
 
     assert routes[0]["proposal_eligible"] is False
     assert "target_or_current_node_self_loop" in routes[0]["admission_reasons"]
+
+
+def test_verifier_dropped_route_is_preserved_as_explicit_advisory() -> None:
+    routes = normalized_quarantined_routes(
+        {
+            "quarantined_routes": [
+                {
+                    "warning_codes": ["atom_balance_violation"],
+                    "steps": [
+                        {
+                            "product": "CC(=O)OCC",
+                            "main_reactant": "CCO",
+                            "aux_reactants": ["CC(=O)Cl"],
+                        }
+                    ],
+                }
+            ]
+        },
+        start_index=3,
+        normalizer=_normalize_proposal_route,
+    )
+
+    assert len(routes) == 1
+    assert routes[0]["route_index"] == 3
+    assert routes[0]["proposal_eligible"] is False
+    assert "provider_route_quarantined" in routes[0]["admission_reasons"]
+    assert "atom_balance_violation" in routes[0]["admission_reasons"]
 
 
 def test_guided_chemenzy_request_binds_canonical_frontier_and_stop_contract() -> None:
@@ -191,3 +535,181 @@ def test_guided_chemenzy_request_binds_canonical_frontier_and_stop_contract() ->
         "acyl substitution"
     ]
     assert policy["compiler_metadata"]["not_raw_reaction_injection"] is True
+
+
+def test_chemenzy_request_seed_is_explicit_and_replay_binding_is_seed_bound() -> None:
+    request = ChemEnzyProposalRequest(
+        target_name="seeded",
+        target_smiles="CCO",
+        random_seed=17,
+        limits={"stock_names": ["stock"]},
+    ).to_dict()
+    binding = provider_invocation_binding(
+        request,
+        random_seed=17,
+        raw_proposal_sha256="a" * 64,
+        raw_result_sha256="b" * 64,
+        runtime_preflight={
+            "python_executable": "python",
+            "capability_probe": {
+                "model_content_binding_sha256": "c" * 64,
+                "model_content_identity_complete": True,
+            },
+        },
+    )
+    other = provider_invocation_binding(
+        {**request, "random_seed": 18},
+        random_seed=18,
+        raw_proposal_sha256="a" * 64,
+        raw_result_sha256="b" * 64,
+        runtime_preflight={"python_executable": "python"},
+    )
+
+    assert request["random_seed"] == 17
+    assert binding["random_seed"] == 17
+    assert binding["raw_proposal_sha256"] == "a" * 64
+    assert binding["runtime_binding"]["model_content_binding_sha256"] == "c" * 64
+    assert binding["runtime_binding"]["model_content_identity_complete"] is True
+    assert binding["runtime_binding"]["stock_content_identity_complete"] is False
+    assert binding["semantics"]["full_model_file_content_identity_is_not_proven"] is False
+    assert binding["replay_key_sha256"] != other["replay_key_sha256"]
+    assert binding["semantics"]["binding_does_not_fabricate_backend_determinism"]
+
+
+def test_provider_replay_binding_hashes_stock_override_content(tmp_path: Path) -> None:
+    stock = tmp_path / "retrostar.sqlite3"
+    stock.write_bytes(b"immutable stock fixture")
+    request = ChemEnzyProposalRequest(
+        target_name="stock-bound",
+        target_smiles="CCO",
+        random_seed=17,
+        limits={
+            "stock_names": ["RetroStar-stock"],
+            "stock_paths": {"RetroStar-stock": str(stock)},
+        },
+    ).to_dict()
+
+    binding = provider_invocation_binding(
+        request,
+        random_seed=17,
+        raw_proposal_sha256="a" * 64,
+        raw_result_sha256="b" * 64,
+        runtime_preflight={
+            "python_executable": "python",
+            "capability_probe": {
+                "model_content_binding_sha256": "c" * 64,
+                "model_content_identity_complete": True,
+            },
+        },
+    )
+
+    runtime = binding["runtime_binding"]
+    assert runtime["stock_content_identity_complete"] is True
+    assert runtime["stock_content_binding_sha256"]
+    assert runtime["stock_content_checks"][0]["content_sha256"]
+    assert binding["semantics"]["full_stock_file_content_identity_is_not_proven"] is False
+
+
+def test_raw_proposal_digest_ignores_operational_receipt_noise() -> None:
+    route = {
+        "steps": [
+            {
+                "product": "CC(=O)OCC",
+                "reactant_smiles": ["CCO", "CC(=O)Cl"],
+                "reaction_smiles": "CCO.CC(=O)Cl>>CC(=O)OCC",
+            }
+        ]
+    }
+    first = compile_chemenzy_route_fingerprints(
+        {
+            "routes": [route],
+            "status": "completed",
+            "stdout_path": "run-a/stdout.log",
+            "elapsed_s": 1.2,
+        },
+        target_smiles="CC(=O)OCC",
+    )
+    second = compile_chemenzy_route_fingerprints(
+        {
+            "routes": [route],
+            "status": "completed",
+            "stdout_path": "run-b/stdout.log",
+            "elapsed_s": 9.8,
+        },
+        target_smiles="CC(=O)OCC",
+    )
+
+    assert first["raw_proposal_sha256"] == second["raw_proposal_sha256"]
+    assert first["raw_result_sha256"] != second["raw_result_sha256"]
+
+
+def test_provider_target_label_is_derived_only_from_structure() -> None:
+    assert _opaque_target_name("CCO") == _opaque_target_name("OCC")
+    assert _opaque_target_name("CCO").startswith("target-")
+    assert "ethanol" not in _opaque_target_name("CCO")
+
+
+def test_host_route_portfolio_prefers_stock_hints_and_route_diversity() -> None:
+    routes = _normalized_routes(
+        {
+            "routes": [
+                {
+                    "score": 0.9,
+                    "steps": [
+                        {
+                            "product": "CC(=O)OCC",
+                            "reactant_smiles": ["CCO", "CC(=O)Cl"],
+                            "stock_status": {"CCO": True, "CC(=O)Cl": True},
+                            "rxn_smiles": "CCO.CC(=O)Cl>>CC(=O)OCC",
+                        }
+                    ],
+                },
+                {
+                    "score": 0.8,
+                    "steps": [
+                        {
+                            "product": "CC(=O)OCC",
+                            "reactant_smiles": ["CCO", "CC(=O)Cl"],
+                            "stock_status": {"CCO": True, "CC(=O)Cl": True},
+                        }
+                    ],
+                },
+                {
+                    "score": 0.7,
+                    "steps": [
+                        {
+                            "product": "CC(=O)OCC",
+                            "reactant_smiles": ["CCO", "CC(=O)Br"],
+                            "stock_status": {"CCO": True, "CC(=O)Br": True},
+                        }
+                    ],
+                },
+            ]
+        },
+        target_smiles="CC(=O)OCC",
+    )
+
+    selected = _select_host_route_portfolio(routes, limit=2)
+
+    assert [route["route_index"] for route in selected] == [1, 3]
+
+
+def test_provider_reaction_metadata_is_content_addressed_and_non_authoritative() -> None:
+    metadata = _provider_reaction_metadata(
+        {
+            "rxn_smiles": "CCO.CC(=O)Cl>>CC(=O)OCC",
+            "source_model": "fixture-chemenzy",
+            "score": 0.91,
+            "stock_status": {"CCO": True},
+            "raw_backend_metadata": {
+                "template": {"reaction_smarts": "[C:1](=[O:2])Cl>>[C:1](=[O:2])O"},
+                "cost": 0.2,
+            },
+            "host_search_admission": {"accepted": True, "not_reaction_proof": True},
+        }
+    )
+
+    assert len(metadata["content_sha256"]) == 64
+    assert metadata["template"]["reaction_smarts"].endswith(")O")
+    assert metadata["semantics"]["host_template_replay_required_for_reaction_proof"]
+    assert metadata["semantics"]["provider_stock_status_is_not_stock_authority"]

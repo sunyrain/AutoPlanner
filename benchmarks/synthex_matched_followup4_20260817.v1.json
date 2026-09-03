@@ -1,0 +1,93 @@
+{
+  "cases": [
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 256,
+        "max_model_invocations": 120,
+        "max_prompt_context_bytes": 64000,
+        "max_total_input_tokens": 1200000,
+        "max_total_output_tokens": 200000,
+        "max_total_wall_time_s": 70200
+      },
+      "case_id": "synthexfive-002-5cac6c0d9928",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque SynthEx five-target case 002",
+      "target_smiles": "COc1ccc2c3c1C(=O)CC(C)(C)N3C(=O)[C@@]21C[C@@]2([N+](=O)[O-])CN3CCC[C@@H]3C[C@H]2C1(C)C"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 256,
+        "max_model_invocations": 120,
+        "max_prompt_context_bytes": 64000,
+        "max_total_input_tokens": 1200000,
+        "max_total_output_tokens": 200000,
+        "max_total_wall_time_s": 70200
+      },
+      "case_id": "synthexfive-003-63956b2f8f73",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque SynthEx five-target case 003",
+      "target_smiles": "CC(C)=CC(=O)NC1=C(CC2=C(NC(=O)C=C(C)C)N3[C@@H](C)[C@H]4O[C@H]4[C@@]3(C)C2=O)C(=O)[C@]2(C)[C@@H]3O[C@@H]3[C@H](C)N12"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 256,
+        "max_model_invocations": 120,
+        "max_prompt_context_bytes": 64000,
+        "max_total_input_tokens": 1200000,
+        "max_total_output_tokens": 200000,
+        "max_total_wall_time_s": 70200
+      },
+      "case_id": "synthexfive-004-026027a93065",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque SynthEx five-target case 004",
+      "target_smiles": "CCOC(=O)C1(O)c2cc3c(cc2C(=O)C1(C)O)C1(CC(=O)C[C@@H](C)O1)O[C@H](C)C3"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 256,
+        "max_model_invocations": 120,
+        "max_prompt_context_bytes": 64000,
+        "max_total_input_tokens": 1200000,
+        "max_total_output_tokens": 200000,
+        "max_total_wall_time_s": 70200
+      },
+      "case_id": "synthexfive-005-ac25497d48",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque SynthEx five-target case 005",
+      "target_smiles": "COc1ccc(-c2cc3c(c(=O)o2)C[C@]2(O)[C@@]4(C)CCC(=O)C(C)(C)[C@]4(O)CC[C@@]2(C)O3)cc1"
+    }
+  ],
+  "schema_version": "blind_retrosynthesis_manifest.v1"
+}

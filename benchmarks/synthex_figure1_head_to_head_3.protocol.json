@@ -1,0 +1,181 @@
+{
+  "benchmark": {
+    "kind": "representative_case_head_to_head",
+    "population_claim_allowed": false,
+    "target_count": 3,
+    "target_selection": "SynthEx Figure 1 representative strategic routes",
+    "target_names_are_hidden_from_live_planner": true
+  },
+  "comparison": {
+    "autoplanner_arm": "three_independent_llm_builder_branches_with_uniform_leaf_continuation",
+    "external_arm": "frozen SynthAtlas public route snapshot",
+    "generation_compute_is_not_claimed_matched": true,
+    "paper_equivalent_endpoint": "one target-rooted route whose every leaf is an exact full-InChIKey member of the frozen ZINC+eMolecules stock",
+    "paper_endpoint_requires_conditions": false,
+    "paper_endpoint_requires_reaction_validation": false,
+    "strict_reaction_validation_evidence_and_conditions_are_reported_separately": true
+  },
+  "execution_contract": {
+    "execution_profile": "paper_matched_reach",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "medium",
+    "strategy_branches": 3,
+    "strategy_tree_engine": "aizynthfinder_mcts",
+    "strategy_node_selection": "AiZynthFinder MCTS/UCB",
+    "strategy_portfolio_mode": "paper_independent",
+    "strategy_branch_workers": 3,
+    "route_builder_calls_per_branch": 25,
+    "maximum_route_builder_calls": 75,
+    "reactionjson_candidates_per_node": 1,
+    "maximum_node_prompt_bytes": 96000,
+    "stop_on_first_stock_closed_branch": false,
+    "route_builder_is_one_open_node_per_call": true,
+    "route_builder_node_prompt_is_not_complete_route_json": true,
+    "host_compiles_reactionjson_into_routejson": true,
+    "require_complete_route_json_admission": true,
+    "partial_route_ingestion_allowed": false,
+    "global_initial_architecture_generation_allowed": false,
+    "complete_routejson_before_critic_editor": true,
+    "critic_receives_host_mapped_route_and_conditions": true,
+    "critic_forward_simulates_every_step": true,
+    "editor_capabilities": [
+      "reorder",
+      "insert",
+      "delete",
+      "change_conditions",
+      "change_functional_groups",
+      "replace_dependency_closed_subroute"
+    ],
+    "editor_complete_routejson_output_allowed": true,
+    "edited_route_recompiled_as_target_rooted_dag": true,
+    "actual_policy_call_authority": "worker_journal",
+    "primary_report_fields": [
+      "paper_reach",
+      "paper_equivalent_solved"
+    ],
+    "critic_editor_repair_rounds": 6,
+    "leaf_continuation": {
+      "engine": "same_llm_route_builder",
+      "reuses_original_branch_budget": true,
+      "applied_only_to_distinct_target_reachable_open_leaves": true,
+      "materialize_validate_stock_before_next_builder_call": true
+    }
+  },
+  "enhanced_search_ablation": {
+    "paper_equivalent": false,
+    "reactionjson_candidates_per_node": 3,
+    "search_policy": "multi_candidate_or_ucb_with_backtracking",
+    "purpose": "measure whether retaining alternative host-replayed ReactionJSON actions improves solve rate beyond the paper-matched top-1 policy"
+  },
+  "enzyme_extension": {
+    "enabled": false,
+    "arm_name": "enzyme_advantage_companion",
+    "requires_separate_protocol_and_run": true,
+    "strategy_portfolio_mode": "enzyme_advantage",
+    "strategy_branches": 3,
+    "strategy_branch_workers": 3,
+    "same_targets_stock_and_execution_limits_as_paper_arm": true,
+    "paper_equivalent_metrics_reported_separately": true,
+    "host_replayed_reactionjson_boundary_required": true,
+    "exact_substrate_biocatalysis_required_for_strict_validation": true,
+    "unvalidated_hypotheses_claim_no_step_savings": true
+  },
+  "planner_budget": {
+    "critic_call_timeout_s": 600,
+    "max_accepted_expansions": 96,
+    "max_attempt_runs": 256,
+    "max_model_invocations": 240,
+    "max_model_wall_time_s": 70200,
+    "max_run_wall_time_s": 86400,
+    "max_total_input_tokens": 6000000,
+    "max_total_output_tokens": 2000000,
+    "max_total_tasks": 1024,
+    "node_call_timeout_s": 600,
+    "paper_call_timeout_s": 600,
+    "maximum_route_builder_calls": 75,
+    "critic_editor_and_strategy_calls_are_accounted_separately": true,
+    "aggregate_wall_times_are_operational_not_paper_reported": true
+  },
+  "source_snapshot": {
+    "data_base_url": "https://data.synthatlas.xyz",
+    "data_version": "20260809-00e8823-5a1cf6",
+    "index_sha256": "2d23854cf76cdf6bea2e14f2ed5ab3e98cb07582b98cb666bc24d4025d0f76d9",
+    "manifest_sha256": "2e5008012a0017e622407577926af252cec8c25474883a2a81c8bae556438ce9",
+    "official_repository_commit": "5f41a6b21e3906fde93e84c88bb91f9dc4d37e6f",
+    "paper_version": "arXiv:2608.07454v1",
+    "route_ids": [
+      "npa000656_s1",
+      "npa000656_s2",
+      "npa000656_s3",
+      "npa006547_s1",
+      "npa006547_s2",
+      "npa006547_s3",
+      "npa030041_s1",
+      "npa030041_s2",
+      "npa030041_s3"
+    ],
+    "target_bindings": [
+      {
+        "case_id": "synthexfig1-001-9c1f431594a7",
+        "source_target_id": "npa000656",
+        "route_ids": ["npa000656_s1", "npa000656_s2", "npa000656_s3"]
+      },
+      {
+        "case_id": "synthexfig1-002-5cac6c0d9928",
+        "source_target_id": "npa006547",
+        "route_ids": ["npa006547_s1", "npa006547_s2", "npa006547_s3"]
+      },
+      {
+        "case_id": "synthexfig1-003-63956b2f8f73",
+        "source_target_id": "npa030041",
+        "route_ids": ["npa030041_s1", "npa030041_s2", "npa030041_s3"]
+      }
+    ],
+    "self_reported_solved_route_count": 0
+  },
+  "stock_binding": {
+    "catalog_name": "ZINC+eMolecules",
+    "identity_key": "full_inchikey",
+    "index_path": "data_external/synthatlas/zinc_synthelite_20260223_full_inchikey.sqlite3",
+    "index_sha256": "4d2f601ddd5af10b1c179ec583062d3ba3136553e285944d125e7b5ce19b5a65",
+    "unique_member_count": 39478827,
+    "paper_declared_entry_count": 39684411,
+    "member_count_semantics": "exact unique full-InChIKey membership oracle; the paper-declared entry count retains duplicate or invalid eMolecules input rows and is not a set cardinality",
+    "count_reconciliation": {
+      "zinc_unique_full_inchikeys": 17422831,
+      "emolecules_input_rows": 23081629,
+      "emolecules_valid_full_inchikey_rows": 23081535,
+      "emolecules_unique_full_inchikeys": 22876045,
+      "cross_source_overlap_full_inchikeys": 820049,
+      "emolecules_duplicate_valid_rows": 205490,
+      "emolecules_invalid_rows": 94,
+      "redundant_or_invalid_emolecules_rows": 205584,
+      "unique_union_formula": "17422831 + 22876045 - 820049 = 39478827",
+      "paper_declared_count_reconciliation": "39478827 + 205584 = 39684411"
+    },
+    "source_binding": {
+      "zinc_filename": "zinc_stock_17_04_20.hdf5",
+      "zinc_size_bytes": 663232280,
+      "zinc_md5": "00de71724ec1d4a8463c1b0d8a5d0941",
+      "zinc_sha256": "99d39a6f807c3e815487500bafc2b4a9dc66a31af189e3b1776874fb0d4a188d",
+      "emolecules_repository": "SchwallerGroup/synthelite",
+      "emolecules_commit": "f8d40df87601b69762cc7ef4831af3abda16a9dc",
+      "emolecules_filename": "stocks/eMolecule.csv",
+      "emolecules_size_bytes": 1938755026,
+      "emolecules_sha256": "007b75a4b576208c56ff2e540191ac02aebeaf5aba786d7090a4190e89caeb3c"
+    },
+    "required_for_paper_comparison": true,
+    "fallback_stock_allowed": false
+  },
+  "superiority_criterion": {
+    "all_conditions_required": false,
+    "independent_codex_critic_covered_target_count": 3,
+    "minimum_non_fgi_strategy_target_count": 3,
+    "minimum_pairwise_orthogonal_strategy_count_per_target": 2,
+    "paper_equivalent_solved_target_count": 3,
+    "reaction_edit_replay_accepted_target_count": 3,
+    "reference_self_reported_solved_target_count": 0,
+    "target_rooted_materialized_route_target_count": 3
+  },
+  "schema_version": "synthex_figure1_head_to_head_protocol.v1"
+}

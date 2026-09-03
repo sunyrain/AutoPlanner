@@ -1,0 +1,2038 @@
+{
+  "content_sha256": "0230f065ce67f48b2815a49f351a1877a8da0bbb56d5b495b8242711975a96be",
+  "counts": {
+    "molecules": 21,
+    "routes": 1,
+    "transformations": 20
+  },
+  "molecules": {
+    "m:paper:11": {
+      "canonical_smiles": "CC12CCC3C(CCC4=CC(=O)CCC43C)C1CCC2=O",
+      "content_sha256": "eed97d90732371e0d0667b950676376ca954477057841ef5255ab9877bcdffef",
+      "label": "Compound 11",
+      "molecule_id": "m:paper:11",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:14": {
+      "canonical_smiles": "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=CI)C2O",
+      "content_sha256": "2bd64d1537ebbfa811d5beac62253404f769fe7bdde574fe946c34577b20049f",
+      "label": "Compound 14",
+      "molecule_id": "m:paper:14",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:19": {
+      "canonical_smiles": "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1CC2",
+      "content_sha256": "b97ed79057e5b2b1cf686f323e407a0f216a6a4fe8034126dfe56eaff537d7b2",
+      "label": "Compound 19",
+      "molecule_id": "m:paper:19",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:20": {
+      "canonical_smiles": "CC12CCC(=O)C=C1C1CCC3C(O[Si](C)(C)C(C)(C)C)CCC3(C)C1C(O)C2",
+      "content_sha256": "40097f29e8c2a0e2c2d002926385cd026ea8291525cb317b5f04dc5aef7577e9",
+      "label": "Compound 20",
+      "molecule_id": "m:paper:20",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:22": {
+      "canonical_smiles": "CC12CCC3C(CCC4C(O[Si](C)(C)C(C)(C)C)CCC43C)C1CC(=Cc1ccc(=O)oc1)C2O",
+      "content_sha256": "db460ef7caa6873477551e68e5050be1144b14bb5dae95625532bb94f34e7b49",
+      "label": "Compound 22",
+      "molecule_id": "m:paper:22",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:23": {
+      "canonical_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+      "content_sha256": "87e5ef03de75e050979fa631a4882f78bec5afc56e9521adcfa5b4df7a5ba662",
+      "label": "Compound 23",
+      "molecule_id": "m:paper:23",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:24": {
+      "canonical_smiles": "CC12CCC(=O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1",
+      "content_sha256": "56e074a61eef2d70b9ddfc65dcc2a90e1ea093cc4885d343cc378267d7675d1d",
+      "label": "Compound 24",
+      "molecule_id": "m:paper:24",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:25": {
+      "canonical_smiles": "CC12CCC(=O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+      "content_sha256": "9a7bfcf3f68ba6f0853ee2b667f67de1db42dc136d3ef32039d52c68d77579cc",
+      "label": "Compound 25",
+      "molecule_id": "m:paper:25",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:26": {
+      "canonical_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1C(Br)CC21OCCO1",
+      "content_sha256": "4f6466a2d9b7517b6383651116200bbce3ca637127638e51e0a98fa513baa247",
+      "label": "Compound 26",
+      "molecule_id": "m:paper:26",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:27": {
+      "canonical_smiles": "CC12CCC(O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1",
+      "content_sha256": "36e36cbf2c01a815fee0a72b33567ee5efd06453d917c9a9f8c45ad581d29c28",
+      "label": "Compound 27",
+      "molecule_id": "m:paper:27",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:28": {
+      "canonical_smiles": "CC12CCC3C(CCC4=CC(O)CCC43C)C1CCC2=O",
+      "content_sha256": "18cb5bafe0441dee53f84cdf9da9f380ee0238203be6ca6705d86f428fd222a6",
+      "label": "Compound 28",
+      "molecule_id": "m:paper:28",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:30": {
+      "canonical_smiles": "CC12CCC(O[Si](C)(C)C(C)(C)C)C1CCC1C2CCC2(C)C1CC1(OC1c1ccc(=O)oc1)C2O",
+      "content_sha256": "c527d4f2818956f73d1934f42e236f52557c43e8d8c16fb650fd983f4cb9b7cf",
+      "label": "Compound 30",
+      "molecule_id": "m:paper:30",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:31": {
+      "canonical_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+      "content_sha256": "88c49cf400cd4a390e50c889c19ad31d07e8db7bea9081af1e0d3520829d6d41",
+      "label": "Compound 31",
+      "molecule_id": "m:paper:31",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:32": {
+      "canonical_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+      "content_sha256": "44fce6577cc4d7dc07feb8deb856ee98399621d25ed8ebdfe100b780fb010743",
+      "label": "Compound 32",
+      "molecule_id": "m:paper:32",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:33": {
+      "canonical_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "content_sha256": "62a9d289035347159bbc8944c7bb3e20fc21d39de9cee8769a57b16ba87c73fa",
+      "label": "Compound 33",
+      "molecule_id": "m:paper:33",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:paper:bufotalin": {
+      "canonical_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "content_sha256": "63b1ffc6f500b7cc1182ba2b7e903bfcc1dbf4efad356032b79be0257c66fa2f",
+      "label": "Bufotalin",
+      "molecule_id": "m:paper:bufotalin",
+      "role": "target",
+      "source_stock_closed": false
+    },
+    "m:planner:1": {
+      "canonical_smiles": "Cc1ccc(O)cc1",
+      "content_sha256": "17b613dcbba680fdd8d23bbe765d01330b49681d355c7c7ff0ca38b088ac775d",
+      "label": "Compound planner stock hit · p-cresol",
+      "molecule_id": "m:planner:1",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "m:planner:2": {
+      "canonical_smiles": "CC12CCC(=O)CC1=CC=CC2O",
+      "content_sha256": "ac56cc38a649ebd4a15db18f26f99aaa2630f9876f930244901300799dd0849a",
+      "label": "Compound planner U1",
+      "molecule_id": "m:planner:2",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:planner:3": {
+      "canonical_smiles": "CC12CCC(=O)CC1=CC=CC2=O",
+      "content_sha256": "a8ece75915cc4dd827b2be0d0d1c77be0bb71147246301f7a57d2556304d025e",
+      "label": "Compound planner U2",
+      "molecule_id": "m:planner:3",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:planner:4": {
+      "canonical_smiles": "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "content_sha256": "6490fc4a89c283033c802695df6b553c94e1c001c4f55bc638c53487ef41fce1",
+      "label": "Compound planner U3",
+      "molecule_id": "m:planner:4",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "m:planner:5": {
+      "canonical_smiles": "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "content_sha256": "1febdda83f31249455b9dc50f698eaffaeb9549e2225378c4ea5c61101ae8278",
+      "label": "Compound planner U4",
+      "molecule_id": "m:planner:5",
+      "role": "intermediate",
+      "source_stock_closed": false
+    }
+  },
+  "observation_id": "candidate-route:29a07549adf7a51263030a15",
+  "routes": {
+    "route:bufotalin-20-step-reported-candidate": {
+      "content_sha256": "cce2c6256325427f458cdd5000f810b9a65bbbe5ac7503900a082b177bcc883a",
+      "edge_ids": [
+        "edge:planner:1",
+        "edge:planner:2",
+        "edge:planner:3",
+        "edge:planner:4",
+        "edge:planner:5",
+        "edge:paper:24",
+        "edge:paper:25",
+        "edge:paper:23",
+        "edge:paper:26",
+        "edge:paper:27",
+        "edge:paper:28",
+        "edge:paper:19",
+        "edge:paper:20",
+        "edge:paper:14",
+        "edge:paper:22",
+        "edge:paper:30",
+        "edge:paper:31",
+        "edge:paper:32",
+        "edge:paper:33",
+        "edge:paper:bufotalin"
+      ],
+      "leaf_molecule_ids": [
+        "m:planner:1"
+      ],
+      "root_edge_ids": [
+        "edge:paper:bufotalin"
+      ],
+      "route_id": "route:bufotalin-20-step-reported-candidate",
+      "source_closure_profile": "exploration_closed",
+      "source_complete": true,
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "warning_codes": [
+        "reported_route_contains_unresolved_edges"
+      ]
+    }
+  },
+  "schema_version": "candidate_route_observation.v1",
+  "semantics": {
+    "read_only_route_observation": true,
+    "reported_route_may_remain_visible_with_open_transformations": true,
+    "workbench_is_not_promoted_to_scientific_authority": true
+  },
+  "source_snapshot": {
+    "content_sha256": "29a07549adf7a51263030a15dcf3cd93484d45239cb7cbac003cca9c3ee470e5",
+    "revision": {
+      "evidence": 1,
+      "graph": 1,
+      "graph_scientific_sha256": "d9609aab0cd893672bfc30ae97d5250eede1bcbdee329f8a579e419373e26862",
+      "portfolio_sha256": "9beda9795830d5173c5be09d6f74bfdd550acb08e08960a1db739652b3b9fad2"
+    },
+    "run_id": "bufotalin-v4-reported-candidate-20-step",
+    "schema_version": "retrosynthesis_route_workbench.v1"
+  },
+  "target": {
+    "canonical_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+    "molecule_id": "m:paper:bufotalin",
+    "name": "bufotalin"
+  },
+  "transformations": {
+    "edge:paper:14": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "base",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 20 (419 mg, 1.0 mmol) in THF:water = 1:1 (10.0 mL) was added Pd/C (42 mg, 10 wt%). To a stirred solution of the residue produced in the previous step in EtOH (10 mL) was added hydrazine monohydrate (1 mL, 20.5 mmol, 20.5 equiv.) and triethylamine (2.8 mL, 20.5 mmol, 20.5 equiv.). To a stirred solution of the crude hydrazone and triethylamine (2.8 mL, 20.5 mmol, 20.5 equiv.) in THF (10.0 mL) was added a solution of I2 (761 mg, 3.0 mmol, 3.0 equiv.) in THF (5.0 mL) dropwise at room temperature.",
+            "base": [
+              "triethylamine"
+            ],
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (4:1) to give compound 14 (387 mg, 73 %) as a white solid.",
+            "reagents": [
+              "compound 20",
+              "Pd/C",
+              "brine",
+              "hydrazine monohydrate",
+              "triethylamine",
+              "the crude hydrazone and triethylamine",
+              "I2"
+            ],
+            "scale": "419 mg, 1.0 mmol",
+            "solvent": [
+              "tetrahydrofuran",
+              "ethyl acetate",
+              "ethanol",
+              "water"
+            ],
+            "temperature": "room temperature → 50 °C",
+            "temperature_program": [
+              "room temperature",
+              "50 °C"
+            ],
+            "time": "1 h",
+            "time_program": [
+              "12 h",
+              "6 h",
+              "1 h"
+            ],
+            "workup": "The resultant mixture was diluted with water (10 mL), and extracted with EtOAc (3 × 20 mL). The combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was used directly in the next step without purification. The mixture was allowed to stir at that temperature for 1 h before it was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (4:1) to give compound 14 (387 mg, 73 %) as a white solid.",
+            "yield_percent": 73.0
+          },
+          "content_sha256": "2867b22299299b64806b02af6cd2820539c5c43549a1daeeccc8542c3fb9ab99",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 14"
+          ],
+          "record_id": "observation:14",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "4079f15b3c2d3f7999949127ee2ec0dbc0d69f71d5f04973e2f9d963a5a66cf9",
+      "precursor_molecule_ids": [
+        "m:paper:20"
+      ],
+      "product_molecule_id": "m:paper:14",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:14"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:14",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:19": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 28 (288 mg, 1.0 mmol) in DMF (8.0 mL) was added TBSCl (347 mg, 2.3 mmol, 2.3 equiv.) and imidazole (313 mg, 4.6 mmol, 4.6 equiv.).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (20:1 to 12:1) to give compound 19 (298 mg, 74 %) as a light yellow oil.",
+            "reagents": [
+              "compound 28",
+              "TBSCl",
+              "imidazole"
+            ],
+            "scale": "288 mg, 1.0 mmol",
+            "solvent": [
+              "dimethylformamide"
+            ],
+            "temperature": "70 °C",
+            "temperature_program": [
+              "70 °C"
+            ],
+            "time": "16 h",
+            "time_program": [
+              "16 h"
+            ],
+            "workup": "The mixture was allowed to stir at 70 °C for 16 h before it was quenched with water (20 mL). The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (20:1 to 12:1) to give compound 19 (298 mg, 74 %) as a light yellow oil.",
+            "yield_percent": 74.0
+          },
+          "content_sha256": "447a6c6d8bea47085944edd001462c568b233a2cbf4952afc38c38ce93ada8dc",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 19"
+          ],
+          "record_id": "observation:19",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "9d459d6ec8bebbfbf176d75c070d88a3c680e4fa8cfca623a343ae7a2c39c176",
+      "precursor_molecule_ids": [
+        "m:paper:28"
+      ],
+      "product_molecule_id": "m:paper:19",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:19"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:19",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:20": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 19 (402 mg, 1.0 mmol) in dioxane:water = 4:1 (10 mL) was added selenium dioxide (133 mg, 1.2 mmol, 1.2 equiv.) and formic acid (38 μL, 46 mg, 1.0 mmol, 1.0 equiv.).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 2:1) to give compound 20 (217 mg, 52 %) as a white solid.",
+            "reagents": [
+              "compound 19",
+              "selenium dioxide",
+              "formic acid",
+              "brine"
+            ],
+            "scale": "402 mg, 1.0 mmol",
+            "solvent": [
+              "dimethyl sulfoxide",
+              "ethyl acetate",
+              "dioxane",
+              "water"
+            ],
+            "temperature": "reflux → 125 °C → 13C",
+            "temperature_program": [
+              "reflux",
+              "125 °C",
+              "13C"
+            ],
+            "time": "6H",
+            "time_program": [
+              "16 h",
+              "1H",
+              "5H",
+              "4H",
+              "7H",
+              "3H",
+              "9H",
+              "6H"
+            ],
+            "workup": "The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 2:1) to give compound 20 (217 mg, 52 %) as a white solid.",
+            "yield_percent": 52.0
+          },
+          "content_sha256": "624d0a467c9c45ff7cf80cd9cedf8603b0e0ba363245f35006f33d623ec4713d",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 20"
+          ],
+          "record_id": "observation:20",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "7f02f12bdee8902a4da41f1c17936cfedd6964f620bdf9851b1d19053e5c9aeb",
+      "precursor_molecule_ids": [
+        "m:paper:19"
+      ],
+      "product_molecule_id": "m:paper:20",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:20"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:20",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:22": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 14 (50 mg, 0.1 mmol) in DMSO (6 mL) and THF (10 mL) was added Pd(PPh3)4 (58 mg, 0.05 mmol, 0.5 equiv.), CuI (95 mg, 0.5 mmol,5 equiv.), LiCl (25 mg,0.6 mmol, 6 equiv.) and compound 21 (77 mg,0.2 mmol, 2 equiv.)Then the solution was degassed by freeze-thaw method ( × 3).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (5:1 to 2:1) to give compound 22 (31 mg, 62 %) as a white solid.",
+            "reagents": [
+              "compound 14",
+              "Pd(PPh3)4",
+              "CuI",
+              "LiCl",
+              "compound 21",
+              "brine"
+            ],
+            "scale": "50 mg, 0.1 mmol",
+            "solvent": [
+              "dimethyl sulfoxide",
+              "tetrahydrofuran",
+              "ethyl acetate",
+              "water"
+            ],
+            "temperature": "60 °C → 13C",
+            "temperature_program": [
+              "60 °C",
+              "13C"
+            ],
+            "time": "12 h",
+            "time_program": [
+              "12 h",
+              "1H",
+              "2H",
+              "4H",
+              "5H",
+              "3H",
+              "9H",
+              "6H"
+            ],
+            "workup": "The mixture was allowed to stir at 60 °C for 12 h before it was filtered with a silica gel pad, and concentrated. The resultant mixture was diluted with water (10 mL) and then extracted with ethyl acetate (3 × 20 mL). The combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (5:1 to 2:1) to give compound 22 (31 mg, 62 %) as a white solid.",
+            "yield_percent": 62.0
+          },
+          "content_sha256": "c042f1155aa2938bf8d6346c6a668626ab930faf580de866a86f8f263a88b414",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 22"
+          ],
+          "record_id": "observation:22",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "79326c09685bdd6e62fac5973fed364f69c873a9512e589fd774bd5d0b4d4ee9",
+      "precursor_molecule_ids": [
+        "m:paper:14"
+      ],
+      "product_molecule_id": "m:paper:22",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:22"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:22",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:23": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": false
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 25 (332 mg, 1.0 mmol) in THF (5.0 mL) was added K-selectride (1.0 mL, 1.5 M in THF, 1.5 equiv.) dropwise at −20 °C.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 4:1) to give compound 23 (240 mg, 72 %, 3:1 dr) as a white solid.",
+            "reagents": [
+              "compound 25",
+              "K-selectride"
+            ],
+            "scale": "332 mg, 1.0 mmol",
+            "solvent": [
+              "tetrahydrofuran"
+            ],
+            "temperature": "20 °C → 5 °C",
+            "temperature_program": [
+              "20 °C",
+              "5 °C"
+            ],
+            "time": "10 min",
+            "time_program": [
+              "10 min"
+            ],
+            "workup": "Upon completion, the reaction was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 4:1) to give compound 23 (240 mg, 72 %, 3:1 dr) as a white solid."
+          },
+          "content_sha256": "f86ddf79a03c0e6e747fc3061aa59bd0f2421acc156e7695c86e3ce379024378",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 23"
+          ],
+          "record_id": "observation:23",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "d1e9f2adb179b155300f15f770411ea6347a2eb52e23f3004e1bc23518ca9fb1",
+      "precursor_molecule_ids": [
+        "m:paper:25"
+      ],
+      "product_molecule_id": "m:paper:23",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:23"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:23",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:24": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "base",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 11 (286 mg, 1.0 mmol) in ethylene glycol (5.0 mL) was added p-toluenesulfonic acid monohydrate (190 mg, 1.0 mmol, 1.0 equiv.).",
+            "base": [
+              "sodium bicarbonate"
+            ],
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (6:1) to give compound 24 (306 mg, 93 %) as a white solid.",
+            "reagents": [
+              "p-toluenesulfonic acid monohydrate",
+              "sat. NaHCO3",
+              "brine"
+            ],
+            "scale": "286 mg, 1.0 mmol",
+            "solvent": [
+              "ethyl acetate",
+              "ethylene glycol"
+            ],
+            "temperature": "room temperature → 13C",
+            "temperature_program": [
+              "room temperature",
+              "13C"
+            ],
+            "time": "2 h",
+            "time_program": [
+              "2 h",
+              "1H",
+              "2H",
+              "3H",
+              "4H"
+            ],
+            "workup": "The resultant mixture was washed with sat. NaHCO3 (30 mL), brine (30 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (6:1) to give compound 24 (306 mg, 93 %) as a white solid.",
+            "yield_percent": 93.0
+          },
+          "content_sha256": "aeb6251010ceab396071bcf85204aa76822e4a5c076ba3cd05742ff114945e29",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 24"
+          ],
+          "record_id": "observation:24",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "a3f9d11019e496384c1f0a7a4b0f5959eeae50742d887558e4a0ceba298628ad",
+      "precursor_molecule_ids": [
+        "m:paper:11"
+      ],
+      "product_molecule_id": "m:paper:24",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:24"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:24",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:25": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": false
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 24 (330 mg, 1.0 mmol) in 4-methylpyridine (5.0 mL) was added 33 mg Pd/C (10 wt%).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1) to give compound 25 (305 mg, 92 %, 1.5:1 dr) as a white solid.",
+            "reagents": [
+              "compound 24",
+              "sat. citric acid solution (3 × 20 mL), brine"
+            ],
+            "scale": "330 mg, 1.0 mmol",
+            "solvent": [
+              "dimethyl sulfoxide",
+              "ethyl acetate",
+              "4-methylpyridine"
+            ],
+            "temperature": "room temperature → 13C",
+            "temperature_program": [
+              "room temperature",
+              "13C"
+            ],
+            "time": "23 h",
+            "time_program": [
+              "23 h",
+              "1H",
+              "2H",
+              "3H",
+              "4H"
+            ],
+            "workup": "The reaction was allowed to stir at room temperature under H2 atmosphere for 23 h before it was filtrated by a pad of Celite and washed with EtOAc (5 mL). The filtrate was washed with sat. citric acid solution (3 × 20 mL), brine (30 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1) to give compound 25 (305 mg, 92 %, 1.5:1 dr) as a white solid."
+          },
+          "content_sha256": "17c28e00feb71138df71da9cada568685fbc3f9447d9cae6164a8da04000e16c",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 25"
+          ],
+          "record_id": "observation:25",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "ded0ee561d0affb069bb90ac4187669d7fe6181fd620ba23edfbc32d797a1ca5",
+      "precursor_molecule_ids": [
+        "m:paper:24"
+      ],
+      "product_molecule_id": "m:paper:25",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:25"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:25",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:26": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 23 (670 mg, 2.0 mmol) in THF (15 mL) was added pyridinium perbromide (672 mg, 2.1 mol, 1.05 equiv.) at 0 °C.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1) to give compound 26 (717 mg, 87 %) as a white solid.",
+            "reagents": [
+              "compound 23",
+              "pyridinium perbromide"
+            ],
+            "scale": "670 mg, 2.0 mmol",
+            "solvent": [
+              "tetrahydrofuran"
+            ],
+            "temperature": "0 °C → room temperature",
+            "temperature_program": [
+              "0 °C",
+              "room temperature"
+            ],
+            "time": "1 h",
+            "time_program": [
+              "1 h"
+            ],
+            "workup": "The mixture was allowed to stir at that temperature for 1 h, and then stirred at room temperature for another 1 h before it was quenched with water (20 mL). The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1) to give compound 26 (717 mg, 87 %) as a white solid.",
+            "yield_percent": 87.0
+          },
+          "content_sha256": "47f732d8114abf8f9c247f26d06a6afae7c78639ba970dda1e1c9c94e5155f41",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 26"
+          ],
+          "record_id": "observation:26",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "9e87d92301f6e13789bebfc8636846fef96aed5cb547ba7a07a371c87199170b",
+      "precursor_molecule_ids": [
+        "m:paper:23"
+      ],
+      "product_molecule_id": "m:paper:26",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:26"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:26",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:27": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 26 (412 mg, 1.0 mmol) in DMSO (12.0 mL) was added t-BuOK (449 mg, 4.0 mmol, 4.0 equiv.).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 4:1) to give compound 27 (243 mg, 73 %) as a light yellow oil.",
+            "reagents": [
+              "compound 26",
+              "t-BuOK",
+              "brine"
+            ],
+            "scale": "412 mg, 1.0 mmol",
+            "solvent": [
+              "dimethyl sulfoxide",
+              "ethyl acetate",
+              "water"
+            ],
+            "temperature": "70 °C → 13C",
+            "temperature_program": [
+              "70 °C",
+              "13C"
+            ],
+            "time": "16 h",
+            "time_program": [
+              "16 h",
+              "1H",
+              "2H",
+              "3H"
+            ],
+            "workup": "The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (8:1 to 4:1) to give compound 27 (243 mg, 73 %) as a light yellow oil.",
+            "yield_percent": 73.0
+          },
+          "content_sha256": "24bfc1da476702fff072adfba1898f228c99ad097435c3ca469aa0271014957b",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 27"
+          ],
+          "record_id": "observation:27",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "e995fdfbb5d62c7a141a09917749ab190540cd01dc68907230ed1e4c14ce127b",
+      "precursor_molecule_ids": [
+        "m:paper:26"
+      ],
+      "product_molecule_id": "m:paper:27",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:27"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:27",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:28": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of compound 27 (332 mg, 1.0 mmol) in acetone (8.0 mL) was added p-toluenesulfonic acid monohydrate (190 mg, 1.0 mmol, 1.0 equiv.).",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (6:1) to give compound 28 (162 mg, 56 %) as a colorless oil.",
+            "reagents": [
+              "compound 27",
+              "p-toluenesulfonic acid monohydrate"
+            ],
+            "scale": "332 mg, 1.0 mmol",
+            "solvent": [
+              "acetone"
+            ],
+            "temperature": "reflux → 60 °C",
+            "temperature_program": [
+              "reflux",
+              "60 °C"
+            ],
+            "time": "1.5 h",
+            "time_program": [
+              "1.5 h"
+            ],
+            "workup": "The reaction was allowed to reflux at 60 °C for 1.5 h before it was quenched with NaHCO3 (10 mL) at room temperature. The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (6:1) to give compound 28 (162 mg, 56 %) as a colorless oil.",
+            "yield_percent": 56.0
+          },
+          "content_sha256": "96406711e79cb8a65a2cfb1d7663e12ede4b3595d643a45ed97d34676cfdde52",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 28"
+          ],
+          "record_id": "observation:28",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "7b7564e7241ba5d3bb357fde563a26b0bada8db09977edbbd85bcff29829aea3",
+      "precursor_molecule_ids": [
+        "m:paper:27"
+      ],
+      "product_molecule_id": "m:paper:28",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:28"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:28",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:30": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 22 (24 mg, 0.05 mmol) in DCM (2.0 mL) was added m-CPBA (14 mg, 0.06 mmol, 77 % purity, 1.2 equiv) and Na2CO3 (6.6 mg, 0.06 mmol, 1.2 equiv) at −78 °C.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (10:1 to 5:1) to give compound 30 (18 mg, 70 %) as a white solid.",
+            "reagents": [
+              "m-CPBA",
+              "Na2CO3"
+            ],
+            "scale": "24 mg, 0.05 mmol",
+            "solvent": [
+              "dichloromethane"
+            ],
+            "temperature": "78 °C → 20 °C",
+            "temperature_program": [
+              "78 °C",
+              "20 °C"
+            ],
+            "time": "10 h",
+            "time_program": [
+              "10 h"
+            ],
+            "workup": "Then the reaction was allowed to warm up to −20 °C and stirred at that temperature for 10 h before it was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 10 mL), and the combined organic layer was washed with sat. NaHCO3 (5 mL), brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (10:1 to 5:1) to give compound 30 (18 mg, 70 %) as a white solid.",
+            "yield_percent": 70.0
+          },
+          "content_sha256": "ae0e5e5ea935981a6267838b62ad8de18452ba04fbbe6353b7f3c85b3183f001",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 30"
+          ],
+          "record_id": "observation:30",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "d08e5ee84d6aaf5721978f3ffaebc7f849f1b9799a1322e0d9d5118e1f5c63e0",
+      "precursor_molecule_ids": [
+        "m:paper:22"
+      ],
+      "product_molecule_id": "m:paper:30",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:30"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:30",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:31": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 30 (47 mg, 0.09 mmol) in DCM (5 mL) was added TMSOTf (37.5 μL, 0.21 mmol, 2.3 equiv.) and 2,6-lutidine (51 μL, 0.44 mmol, 4.9 equiv.) at −78 °C.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (10:1 to 5:1) to give compound 31 (36 mg, 68 %) as a white solid.",
+            "reagents": [
+              "TMSOTf",
+              "2,6-lutidine"
+            ],
+            "scale": "47 mg, 0.09 mmol",
+            "solvent": [
+              "dichloromethane"
+            ],
+            "temperature": "78 °C → room temperature",
+            "temperature_program": [
+              "78 °C",
+              "room temperature"
+            ],
+            "time": "1 h",
+            "time_program": [
+              "1 h"
+            ],
+            "workup": "Then the reaction was allowed to warm up to room temperature and stirred for 1 h before it was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 10 mL), and the combined organic layer was washed with sat. NaHCO3 (5 mL), brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (10:1 to 5:1) to give compound 31 (36 mg, 68 %) as a white solid.",
+            "yield_percent": 68.0
+          },
+          "content_sha256": "8f676a096d876983ee1f271c6e5cb03d7d0163540bf25dabfa5be82edfcf228b",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 31"
+          ],
+          "record_id": "observation:31",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "521aa151630e528a5b4b76fa22cb030befee191131ddff277ef4b05555eb955a",
+      "precursor_molecule_ids": [
+        "m:paper:30"
+      ],
+      "product_molecule_id": "m:paper:31",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:31"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:31",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:32": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 31 (35 mg, 0.06 mmol) in MeOH (2 mL) and THF (2 mL) was added NaBH4 (2.6 mg, 0.07 mmol, 1.2 equiv.) at 0 °C.The mixture was allowed to stir at that temperature for 2 h.Upon completion,",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:1) to give compound 32 (32 mg, 90 %) as a white solid.",
+            "reagents": [
+              "NaBH4"
+            ],
+            "scale": "35 mg, 0.06 mmol",
+            "solvent": [
+              "tetrahydrofuran",
+              "methanol"
+            ],
+            "temperature": "0 °C",
+            "temperature_program": [
+              "0 °C"
+            ],
+            "time": "2 h",
+            "time_program": [
+              "2 h"
+            ],
+            "workup": "To a stirred solution of 31 (35 mg, 0.06 mmol) in MeOH (2 mL) and THF (2 mL) was added NaBH4 (2.6 mg, 0.07 mmol, 1.2 equiv.) at 0 °C.The mixture was allowed to stir at that temperature for 2 h.Upon completion, the reaction was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:1) to give compound 32 (32 mg, 90 %) as a white solid.",
+            "yield_percent": 90.0
+          },
+          "content_sha256": "1c72c08ec47f736d87b3b7941a1e99f424547ee1f8dc9ee512bb3c17a636020c",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 32"
+          ],
+          "record_id": "observation:32",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "c90bb83ba8648e43bdce262115f9da6510c9bfe055b04db4487f6c849c2115bd",
+      "precursor_molecule_ids": [
+        "m:paper:31"
+      ],
+      "product_molecule_id": "m:paper:32",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:32"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:32",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:33": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 32 (15 mg, 0.03 mmol) in pyridine (1.5 mL) was added Ac2O (42 μL, 0.45 mmol, 15 equiv.) at room temperature.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:1) to give compound 33 (17 mg, 90 %) as a white solid.",
+            "reagents": [
+              "Ac2O"
+            ],
+            "scale": "15 mg, 0.03 mmol",
+            "solvent": [
+              "pyridine"
+            ],
+            "temperature": "room temperature",
+            "temperature_program": [
+              "room temperature"
+            ],
+            "time": "20 h",
+            "time_program": [
+              "20 h"
+            ],
+            "workup": "The reaction was allowed to stir at that temperature for 20 h.Upon completion, the reaction was quenched with sat. NH4Cl(30 mL).The resultant mixture was extracted with EtOAc (3 × 20 mL), and the combined organic layer was washed with brine (10 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:1) to give compound 33 (17 mg, 90 %) as a white solid.",
+            "yield_percent": 90.0
+          },
+          "content_sha256": "2f31e735dcbaecddafbcfd143cb602f6f8489caa6115c3dce2ce99c6bb944f51",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Compound 33"
+          ],
+          "record_id": "observation:33",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "619d3512c02d8ae1da517d492ad9d66cf2b42aaa0384a20ad3218ec9feac8f97",
+      "precursor_molecule_ids": [
+        "m:paper:32"
+      ],
+      "product_molecule_id": "m:paper:33",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:33"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:33",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:paper:bufotalin": {
+      "condition_observations": [
+        {
+          "condition_completeness": {
+            "complete": true,
+            "missing_required_groups": [],
+            "present_fields": [
+              "addition_order",
+              "purification",
+              "reagents",
+              "scale",
+              "solvent",
+              "temperature",
+              "temperature_program",
+              "time",
+              "time_program",
+              "workup",
+              "yield_percent"
+            ],
+            "purification_reported": true,
+            "schema_version": "reaction_condition_completeness.v1",
+            "workup_reported": true,
+            "yield_reported": true
+          },
+          "conditions": {
+            "addition_order": "To a stirred solution of 33 (15 mg, 0.02 mmol) in THF (1.5 mL) was added HF (70 %wt, 0.25 mL) and pyridine (0.25 mL) at room temperature.",
+            "purification": "The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:2) to give bufotalin(1)(8 mg, 93 %) as a white solid.",
+            "reagents": [
+              "HF"
+            ],
+            "scale": "15 mg, 0.02 mmol",
+            "solvent": [
+              "tetrahydrofuran",
+              "pyridine"
+            ],
+            "temperature": "room temperature",
+            "temperature_program": [
+              "room temperature"
+            ],
+            "time": "160 h",
+            "time_program": [
+              "160 h"
+            ],
+            "workup": "The mixture was allowed to stir for 160 h before it was quenched with sat. The resultant mixture was extracted with EtOAc (3 × 5 mL), and the combined organic layer was washed with brine (5 mL), dried over Na2SO4, and filtered. The solvent was evaporated under vacuum, and the residue was purified by column chromatography with petroleum ether:EtOAc (2:1 to 1:2) to give bufotalin(1)(8 mg, 93 %) as a white solid.",
+            "yield_percent": 93.0
+          },
+          "content_sha256": "3eb347f600f367d7052763a8ddb89b6537e9a50222899f2bfee2b90bef3a6792",
+          "grants_exact_structure_identity": false,
+          "grants_reaction_validation": false,
+          "location_refs": [
+            "Experimental section · Bufotalin (1)"
+          ],
+          "record_id": "observation:bufotalin",
+          "source_ref": "doi:10.1016/j.tet.2025.134610"
+        }
+      ],
+      "condition_status": "source_recorded_unverified",
+      "content_sha256": "00a8dc5e11551c45b01e8b1d39c6095e8fed76a469e3aff068412c557ed6d3a4",
+      "precursor_molecule_ids": [
+        "m:paper:33"
+      ],
+      "product_molecule_id": "m:paper:bufotalin",
+      "proof_level": 1,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "partial",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 1,
+        "conditions": "source_recorded_unverified",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "single_group",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "literature_visual_extraction",
+          "proposal_id": "paper:bufotalin"
+        }
+      ],
+      "source_refs": [
+        "doi:10.1016/j.tet.2025.134610"
+      ],
+      "source_step_accepted": false,
+      "transformation_id": "edge:paper:bufotalin",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "visual_structure_candidate_not_curator_exact"
+      ]
+    },
+    "edge:planner:1": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "8d53ec9b1bf5a17904a18b0d4f667ed65d3ca2832ed0b8da1c70cb729120b2cf",
+      "precursor_molecule_ids": [
+        "m:planner:1"
+      ],
+      "product_molecule_id": "m:planner:2",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "planner:1"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:planner:1",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "historical_atom_balance_violation",
+        "planner_hypothesis_not_literature_reported"
+      ]
+    },
+    "edge:planner:2": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "8fd906f24a1b94f6a7a7df7851827273dbc22e84207e75e5fdcc9817c53cb112",
+      "precursor_molecule_ids": [
+        "m:planner:2"
+      ],
+      "product_molecule_id": "m:planner:3",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "planner:2"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:planner:2",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "planner_hypothesis_not_literature_reported"
+      ]
+    },
+    "edge:planner:3": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "e2956a4355e22746bd94878b605c38762a239b8fee0fbaeef3ac51fa331ad6fe",
+      "precursor_molecule_ids": [
+        "m:planner:3"
+      ],
+      "product_molecule_id": "m:planner:4",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "planner:3"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:planner:3",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "historical_atom_balance_violation",
+        "planner_hypothesis_not_literature_reported"
+      ]
+    },
+    "edge:planner:4": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "c1761568fa3fcd1da0724f75ac46fbd46eaadab2a4b1bc6871c0a3a90dd28742",
+      "precursor_molecule_ids": [
+        "m:planner:4"
+      ],
+      "product_molecule_id": "m:planner:5",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "planner:4"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:planner:4",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "planner_hypothesis_not_literature_reported"
+      ]
+    },
+    "edge:planner:5": {
+      "condition_observations": [],
+      "condition_status": "missing",
+      "content_sha256": "2ab8132b05df4d90d0424a37b40e3385deb23a6860713599d59555c094acd21e",
+      "precursor_molecule_ids": [
+        "m:planner:5"
+      ],
+      "product_molecule_id": "m:paper:11",
+      "proof_level": 0,
+      "proof_vector": {
+        "complete_procedure_record_count": 0,
+        "condition_completeness": "missing",
+        "condition_missing_required_groups": [],
+        "condition_record_count": 0,
+        "conditions": "missing",
+        "exact_procedure_record_count": 0,
+        "identity": "materialized",
+        "procedure_record_count": 0,
+        "process": "blocked",
+        "reaction": "mapped",
+        "schema_version": "retrosynthesis_proof_vector.v1",
+        "semantics": {
+          "axes_are_independent": true,
+          "display_projection_grants_no_authority": true,
+          "exact_structure_does_not_imply_exact_conditions": true,
+          "source_observed_conditions_do_not_grant_exact_identity": true
+        },
+        "sources": "none",
+        "stock": "not_applicable_to_edge"
+      },
+      "provenance": [
+        {
+          "origin_kind": "chemenzy",
+          "proposal_id": "planner:5"
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:planner:5",
+      "warning_codes": [
+        "current_host_reaction_validation_missing",
+        "planner_hypothesis_not_literature_reported",
+        "stereochemical_representation_bridge_to_compound_11"
+      ]
+    }
+  }
+}

@@ -9,7 +9,8 @@ configured acceptance report.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from contextvars import ContextVar
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -24,6 +25,11 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
 )
+from cascade_planner.application.unified_campaign_spec import (
+    CampaignResourceBudget,
+    StockOracleReference,
+    UnifiedCampaignSpec,
+)
 from cascade_planner.runtime.artifact_store import ArtifactRef, ArtifactStore
 from cascade_planner.runtime.run_index import (
     RUN_MANIFEST_SCHEMA,
@@ -31,15 +37,31 @@ from cascade_planner.runtime.run_index import (
 )
 
 
-RUN_SPEC_SCHEMA = "autoplanner_run_spec.v1"
+LEGACY_RUN_SPEC_SCHEMA = "autoplanner_run_spec.v1"
+RUN_SPEC_SCHEMA = "autoplanner_run_spec.v2"
 RUN_LIMITS_SCHEMA = "autoplanner_run_limits.v1"
 RUN_EVENT_SCHEMA = "autoplanner_run_event.v1"
-RUN_STATE_SCHEMA = "autoplanner_run_state.v1"
+LEGACY_RUN_STATE_SCHEMA = "autoplanner_run_state.v1"
+RUN_STATE_SCHEMA = "autoplanner_run_state.v2"
 RUN_REVISION_SCHEMA = "autoplanner_run_revision.v1"
 DEFICIT_SCHEMA = "autoplanner_deficit.v1"
 STOP_DECISION_SCHEMA = "autoplanner_stop_decision.v1"
-_TASK_KINDS = {"model", "evidence", "stock", "validation", "proposal", "other"}
+CAMPAIGN_ACTION_RESOURCE_USAGE_SCHEMA = "campaign_action_resource_usage.v1"
+_TASK_KINDS = {
+    "model",
+    "evidence",
+    "stock",
+    "validation",
+    "program",
+    "experiment",
+    "proposal",
+    "other",
+}
+_NATIVE_SEARCH_RESOURCE_CLASSES = frozenset(
+    {"native_search_target", "native_search_frontier"}
+)
 _TERMINAL_STATUSES = {"completed", "unresolved", "budget_exhausted", "cancelled", "failed"}
+_REOPENABLE_TERMINAL_STATUSES = {"completed", "unresolved", "budget_exhausted"}
 _STATUS_TRANSITIONS = {
     "created": {"running", "cancelled", "failed"},
     "running": _TERMINAL_STATUSES | {"paused"},
@@ -50,6 +72,10 @@ _STATUS_TRANSITIONS = {
     "cancelled": set(),
     "failed": set(),
 }
+_ACTION_RESOURCE_CONTEXT: ContextVar[Mapping[str, Any] | None] = ContextVar(
+    "autoplanner_action_resource_context",
+    default=None,
+)
 
 
 class RunKernelError(RuntimeError):
@@ -224,6 +250,7 @@ class RunSpec:
         default_factory=RetrosynthesisAcceptanceSpec
     )
     limits: RunLimits = field(default_factory=RunLimits)
+    campaign_spec: UnifiedCampaignSpec | None = None
     producer: str = "autoplanner"
     created_at: str = ""
     schema_version: str = RUN_SPEC_SCHEMA
@@ -231,6 +258,27 @@ class RunSpec:
     def __post_init__(self) -> None:
         if not self.run_id or not self.target_name or not self.target_smiles:
             raise ValueError("run spec identity and target are required")
+        campaign_spec = self.campaign_spec
+        if campaign_spec is None:
+            campaign_spec = UnifiedCampaignSpec(
+                target_smiles=self.target_smiles,
+                stock_oracle=StockOracleReference.compatibility_unbound(
+                    boundary=self.acceptance.stock_boundary
+                ),
+                resource_budget=CampaignResourceBudget.from_dict(
+                    self.limits.to_dict()
+                ),
+            )
+            object.__setattr__(self, "campaign_spec", campaign_spec)
+        if campaign_spec.target_smiles != self.target_smiles:
+            raise ValueError("run spec target conflicts with unified campaign spec")
+        if not _campaign_budget_matches_limits(
+            campaign_spec.resource_budget,
+            self.limits,
+        ):
+            raise ValueError("run limits conflict with unified campaign resource budget")
+        if self.schema_version not in {RUN_SPEC_SCHEMA, LEGACY_RUN_SPEC_SCHEMA}:
+            raise ValueError("run spec schema is invalid")
 
     def to_dict(self) -> dict[str, Any]:
         row = {
@@ -242,19 +290,30 @@ class RunSpec:
             "limits": self.limits.to_dict(),
             "producer": self.producer,
             "created_at": self.created_at,
-            "semantics": {
+        }
+        if self.schema_version == LEGACY_RUN_SPEC_SCHEMA:
+            row["semantics"] = {
                 "one_kernel_per_run": True,
                 "workers_cannot_extend_limits": True,
                 "acceptance_is_scientific_completion_authority": True,
-            },
-        }
+            }
+        else:
+            row["campaign_spec"] = self.campaign_spec.to_dict()
+            row["semantics"] = {
+                "one_kernel_per_run": True,
+                "workers_cannot_extend_limits": True,
+                "campaign_spec_is_algorithm_input": True,
+                "target_name_is_display_metadata": True,
+                "acceptance_is_quality_audit_input": True,
+            }
         row["content_sha256"] = _digest(row)
         return row
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RunSpec":
         row = dict(value)
-        if row.get("schema_version") != RUN_SPEC_SCHEMA:
+        schema_version = str(row.get("schema_version") or "")
+        if schema_version not in {RUN_SPEC_SCHEMA, LEGACY_RUN_SPEC_SCHEMA}:
             raise RunKernelCorruptionError("run_spec_schema_invalid")
         supplied_digest = str(row.pop("content_sha256", ""))
         if supplied_digest != _digest(row):
@@ -262,15 +321,26 @@ class RunSpec:
         acceptance_row = dict(row.get("acceptance") or {})
         acceptance_row.pop("schema_version", None)
         acceptance_row.pop("content_sha256", None)
-        return cls(
-            run_id=str(row.get("run_id") or ""),
-            target_name=str(row.get("target_name") or ""),
-            target_smiles=str(row.get("target_smiles") or ""),
-            acceptance=RetrosynthesisAcceptanceSpec(**acceptance_row),
-            limits=RunLimits.from_dict(dict(row.get("limits") or {})),
-            producer=str(row.get("producer") or "autoplanner"),
-            created_at=str(row.get("created_at") or ""),
-        )
+        try:
+            return cls(
+                run_id=str(row.get("run_id") or ""),
+                target_name=str(row.get("target_name") or ""),
+                target_smiles=str(row.get("target_smiles") or ""),
+                acceptance=RetrosynthesisAcceptanceSpec(**acceptance_row),
+                limits=RunLimits.from_dict(dict(row.get("limits") or {})),
+                campaign_spec=(
+                    UnifiedCampaignSpec.from_dict(
+                        dict(row.get("campaign_spec") or {})
+                    )
+                    if schema_version == RUN_SPEC_SCHEMA
+                    else None
+                ),
+                producer=str(row.get("producer") or "autoplanner"),
+                created_at=str(row.get("created_at") or ""),
+                schema_version=schema_version,
+            )
+        except (TypeError, ValueError) as exc:
+            raise RunKernelCorruptionError("run_spec_contract_invalid") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,10 +397,15 @@ class RunState:
     attempt_count: int = 0
     settled_task_count: int = 0
     task_wall_time_s: float = 0.0
+    task_compute_time_s: float = 0.0
     task_counts: Mapping[str, int] = field(default_factory=dict)
     in_flight_tasks: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    task_checkpoints: Mapping[str, tuple[Mapping[str, Any], ...]] = field(
+        default_factory=dict
+    )
     accepted_expansion_ids: tuple[str, ...] = ()
     model_totals: Mapping[str, int | float] = field(default_factory=dict)
+    native_search_totals: Mapping[str, int] = field(default_factory=dict)
     graph_revision: int = 0
     evidence_revision: int = 0
     deficits: tuple[Mapping[str, Any], ...] = ()
@@ -347,28 +422,124 @@ class RunState:
     def terminal(self) -> bool:
         return self.status in _TERMINAL_STATUSES
 
+    @property
+    def active_task_reservations(self) -> Mapping[str, Mapping[str, Any]]:
+        """Return reservations that may still represent executing work.
+
+        ``in_flight_tasks`` is the durable reservation/settlement projection and
+        intentionally survives an abrupt terminal transition until a worker can
+        report its measured settlement. Terminality nevertheless ends active
+        execution immediately, so presentation and scheduling views must use
+        this projection instead of treating every unsettled reservation as live.
+        """
+
+        return {} if self.terminal else self.in_flight_tasks
+
+    @property
+    def interrupted_task_reservations(self) -> Mapping[str, Mapping[str, Any]]:
+        """Return terminal-run reservations lacking a measured settlement."""
+
+        return self.in_flight_tasks if self.terminal else {}
+
     def to_dict(self) -> dict[str, Any]:
         row = asdict(self)
         row["task_counts"] = dict(self.task_counts)
         row["in_flight_tasks"] = {
             key: dict(value) for key, value in self.in_flight_tasks.items()
         }
+        row["task_checkpoints"] = {
+            key: [dict(value) for value in values]
+            for key, values in self.task_checkpoints.items()
+        }
         row["accepted_expansion_ids"] = list(self.accepted_expansion_ids)
         row["accepted_expansion_count"] = self.accepted_expansion_count
         row["model_totals"] = dict(self.model_totals)
+        row["native_search_totals"] = dict(self.native_search_totals)
         row["deficits"] = [dict(value) for value in self.deficits]
         row["acceptance_report"] = dict(self.acceptance_report)
         row["failure_reasons"] = list(self.failure_reasons)
         row["terminal"] = self.terminal
+        row["active_task_count"] = len(self.active_task_reservations)
+        row["interrupted_task_count"] = len(self.interrupted_task_reservations)
         row["semantics"] = {
             "state_is_rebuilt_from_events": True,
             "accepted_expansions_are_unique_ids": True,
             "attempt_count_is_settled_proposal_tasks": True,
+            "native_search_is_accounted_independently_from_proposal_tasks": True,
             "settled_task_count_includes_all_task_kinds": True,
+            "task_wall_time_is_union_of_settled_task_intervals": True,
+            "task_compute_time_is_sum_of_settled_task_elapsed_time": True,
+            "task_checkpoints_do_not_consume_budget_or_grant_scientific_authority": True,
             "queue_empty_is_not_completion": True,
+            "terminal_status_ends_active_task_visibility": True,
+            "unsettled_terminal_reservations_preserve_measured_settlement_history": True,
         }
         row["content_sha256"] = _digest(row)
         return row
+
+
+def project_observed_model_totals(
+    state: RunState | Mapping[str, Any],
+) -> dict[str, int | float | bool]:
+    """Add latest in-flight measurements without changing budget authority.
+
+    ``model_totals`` contains settled usage only. A resumable task may have
+    already completed many durable child calls, so its latest task checkpoint
+    is included in this read-only projection until the final settlement moves
+    that cumulative usage into ``model_totals``.
+    """
+
+    row = state.to_dict() if isinstance(state, RunState) else dict(state)
+    settled = dict(row.get("model_totals") or {})
+    projected: dict[str, int | float | bool] = {
+        "model_invocations": int(settled.get("model_invocations") or 0),
+        "visual_invocations": int(settled.get("visual_invocations") or 0),
+        "input_tokens": int(settled.get("input_tokens") or 0),
+        "cached_input_tokens": int(settled.get("cached_input_tokens") or 0),
+        "output_tokens": int(settled.get("output_tokens") or 0),
+        "reasoning_output_tokens": int(
+            settled.get("reasoning_output_tokens") or 0
+        ),
+        "wall_time_s": float(settled.get("wall_time_s") or 0.0),
+    }
+    active_task_ids = {
+        str(task_id) for task_id in dict(row.get("in_flight_tasks") or {})
+    }
+    observed_checkpoint_count = 0
+    for task_id, raw_checkpoints in dict(row.get("task_checkpoints") or {}).items():
+        if str(task_id) not in active_task_ids:
+            continue
+        checkpoints = [
+            dict(value)
+            for value in raw_checkpoints or []
+            if isinstance(value, Mapping)
+        ]
+        if not checkpoints:
+            continue
+        usage = dict(
+            dict(checkpoints[-1].get("metadata") or {}).get("model_usage") or {}
+        )
+        if not usage:
+            continue
+        observed_checkpoint_count += 1
+        for key in (
+            "model_invocations",
+            "visual_invocations",
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+        ):
+            projected[key] = int(projected.get(key) or 0) + max(
+                0, int(usage.get(key) or 0)
+            )
+        projected["wall_time_s"] = float(projected.get("wall_time_s") or 0.0) + max(
+            0.0, float(usage.get("wall_time_s") or 0.0)
+        )
+    if observed_checkpoint_count:
+        projected["in_flight_checkpoint_count"] = observed_checkpoint_count
+        projected["includes_unsettled_checkpoint_observations"] = True
+    return projected
 
 
 @dataclass(frozen=True, slots=True)
@@ -469,6 +640,11 @@ class RunKernel:
                 raise RunKernelError("run_spec_required_for_new_kernel")
             self.spec = spec
             _atomic_write_json(self.spec_path, spec.to_dict())
+        if self.events_path.is_file() and self.events_path.stat().st_size:
+            self.spec = _spec_with_replayed_budget_extensions(
+                self.spec,
+                self._read_events(),
+            )
         if not self.events_path.is_file() or self.events_path.stat().st_size == 0:
             self._append(
                 "run_created",
@@ -479,7 +655,8 @@ class RunKernel:
 
     @property
     def state(self) -> RunState:
-        return _state_from_dict(_read_json_object(self.snapshot_path))
+        with self._locked():
+            return _state_from_dict(_read_json_object(self.snapshot_path))
 
     @property
     def revision(self) -> RunRevision:
@@ -498,15 +675,351 @@ class RunKernel:
         campaign-level call allowance.
         """
         expected = dict(metadata or {})
-        return sum(
-            1
-            for event in self._read_events()
-            if event.event_type == "task_reserved"
-            and (not kind or str(event.payload.get("kind") or "") == kind)
-            and all(
-                dict(event.payload.get("metadata") or {}).get(key) == value
-                for key, value in expected.items()
+        with self._locked():
+            return sum(
+                1
+                for event in self._read_events()
+                if event.event_type == "task_reserved"
+                and (not kind or str(event.payload.get("kind") or "") == kind)
+                and all(
+                    dict(event.payload.get("metadata") or {}).get(key) == value
+                    for key, value in expected.items()
+                )
             )
+
+    def task_reservation_history(self) -> list[dict[str, Any]]:
+        """Return durable task admissions in event order for read-only replay."""
+
+        with self._locked():
+            return [
+                event.to_dict()
+                for event in self._read_events()
+                if event.event_type == "task_reserved"
+            ]
+
+    def task_lifecycle(self, task_id: str) -> dict[str, Any]:
+        """Read one task's durable lifecycle without granting new authority."""
+
+        identity = str(task_id or "").strip()
+        if not identity:
+            raise ValueError("task_id is required")
+        reservation: RunEvent | None = None
+        settlement: RunEvent | None = None
+        interruption: RunEvent | None = None
+        checkpoints: list[RunEvent] = []
+        with self._locked():
+            for event in self._read_events():
+                event_task_id = str(event.payload.get("task_id") or "")
+                if event.event_type == "task_reserved" and event_task_id == identity:
+                    reservation = event
+                elif event.event_type == "task_checkpoint" and event_task_id == identity:
+                    checkpoints.append(event)
+                elif event.event_type == "task_settled" and event_task_id == identity:
+                    settlement = event
+                elif (
+                    event.event_type == "state_transition"
+                    and str(event.payload.get("status") or "") in _TERMINAL_STATUSES
+                    and reservation is not None
+                    and settlement is None
+                    and interruption is None
+                ):
+                    interruption = event
+        return {
+            "schema_version": "autoplanner_task_lifecycle.v1",
+            "run_id": self.spec.run_id,
+            "task_id": identity,
+            "status": (
+                "settled" if settlement is not None
+                else "interrupted" if interruption is not None
+                else "in_flight" if reservation is not None
+                else "absent"
+            ),
+            "reservation": reservation.to_dict() if reservation else {},
+            "checkpoints": [event.to_dict() for event in checkpoints],
+            "settlement": settlement.to_dict() if settlement else {},
+            "interruption": interruption.to_dict() if interruption else {},
+            "semantics": {
+                "event_log_is_operational_authority": True,
+                "checkpoints_are_operational_observations_only": True,
+                "terminal_transition_ends_unsettled_task_execution": True,
+                "late_measured_settlement_supersedes_interrupted_projection": True,
+                "projection_grants_no_scientific_authority": True,
+            },
+        }
+
+    def record_task_checkpoint(
+        self,
+        *,
+        task_id: str,
+        checkpoint_kind: str,
+        artifact_ref: ArtifactRef | Mapping[str, Any],
+        predecessor_checkpoint_sha256: str,
+        operational_status: str,
+        idempotency_key: str,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> RunEvent:
+        """Append one CAS-bound observation while a task remains in flight."""
+
+        identity = str(task_id or "").strip()
+        kind = str(checkpoint_kind or "").strip()
+        status = str(operational_status or "").strip()
+        if not identity or not kind or not status:
+            raise ValueError("task checkpoint identity, kind, and status are required")
+        ref = (
+            artifact_ref
+            if isinstance(artifact_ref, ArtifactRef)
+            else ArtifactRef.from_dict(dict(artifact_ref or {}))
+        )
+        self.artifacts.verify(ref)
+        return self._append(
+            "task_checkpoint",
+            idempotency_key,
+            {
+                "task_id": identity,
+                "checkpoint_kind": kind,
+                "artifact_ref": ref.to_dict(),
+                "artifact_sha256": ref.sha256,
+                "predecessor_checkpoint_sha256": str(
+                    predecessor_checkpoint_sha256 or ""
+                ),
+                "operational_status": status,
+                "metadata": _safe_mapping(metadata),
+            },
+        )
+
+    @contextmanager
+    def action_resource_scope(
+        self,
+        *,
+        action_execution_id: str,
+        expected_resources_sha256: str,
+    ) -> Iterator[None]:
+        """Bind child task reservations to one Action execution."""
+
+        execution_id = str(action_execution_id or "").strip()
+        estimate_sha256 = str(expected_resources_sha256 or "").strip()
+        if not execution_id or not estimate_sha256:
+            raise ValueError("action resource scope identity is incomplete")
+        inherited = _ACTION_RESOURCE_CONTEXT.get()
+        if inherited is not None and inherited.get(
+            "campaign_action_execution_id"
+        ) != execution_id:
+            raise RunKernelError("nested_campaign_action_resource_scope_conflict")
+        token = _ACTION_RESOURCE_CONTEXT.set(
+            {
+                "campaign_action_execution_id": execution_id,
+                "campaign_action_expected_resources_sha256": estimate_sha256,
+            }
+        )
+        try:
+            yield
+        finally:
+            _ACTION_RESOURCE_CONTEXT.reset(token)
+
+    def current_action_resource_context(self) -> dict[str, Any]:
+        """Return the active Action binding for child-task recovery."""
+
+        return dict(_ACTION_RESOURCE_CONTEXT.get() or {})
+
+    def action_resource_usage(
+        self,
+        action_execution_id: str,
+        *,
+        pending_task_id: str = "",
+        pending_status: str = "",
+        pending_elapsed_s: float = 0.0,
+    ) -> dict[str, Any]:
+        """Project actual resources from Action-bound task events."""
+
+        execution_id = str(action_execution_id or "").strip()
+        if not execution_id:
+            raise ValueError("action_execution_id is required")
+        with self._locked():
+            events = self._read_events()
+        reservations = {
+            str(event.payload.get("task_id") or ""): dict(event.payload)
+            for event in events
+            if event.event_type == "task_reserved"
+            and dict(event.payload.get("metadata") or {}).get(
+                "campaign_action_execution_id"
+            )
+            == execution_id
+        }
+        settlements = {
+            str(event.payload.get("task_id") or ""): dict(event.payload)
+            for event in events
+            if event.event_type == "task_settled"
+            and str(event.payload.get("task_id") or "") in reservations
+        }
+        pending_id = str(pending_task_id or "").strip()
+        if pending_id:
+            if pending_id not in reservations:
+                raise RunKernelError("pending_action_task_reservation_missing")
+            if pending_id not in settlements:
+                settlements[pending_id] = {
+                    "task_id": pending_id,
+                    "status": str(pending_status or "completed"),
+                    "model_usage": _normalized_model_usage(None),
+                    "elapsed_s": _finite_nonnegative_float(
+                        pending_elapsed_s,
+                        field_name="pending_elapsed_s",
+                    ),
+                    "projected_pending_settlement": True,
+                }
+        task_counts: dict[str, int] = {}
+        model_usage = _normalized_model_usage(None)
+        task_elapsed_s = 0.0
+        for task_id, settlement in settlements.items():
+            reservation = reservations[task_id]
+            kind = str(reservation.get("kind") or "other")
+            task_counts[kind] = int(task_counts.get(kind) or 0) + 1
+            task_elapsed_s += float(settlement.get("elapsed_s") or 0.0)
+            usage = _normalized_model_usage(
+                dict(settlement.get("model_usage") or {})
+            )
+            for key, value in usage.items():
+                model_usage[key] = model_usage[key] + value
+        native_search_units = {
+            "target": sum(
+                int(row.get("resource_units") or 0)
+                for row in reservations.values()
+                if row.get("resource_class") == "native_search_target"
+            ),
+            "frontier": sum(
+                int(row.get("resource_units") or 0)
+                for row in reservations.values()
+                if row.get("resource_class") == "native_search_frontier"
+            ),
+        }
+        native_search_units["total"] = sum(native_search_units.values())
+        in_flight_task_ids = sorted(set(reservations) - set(settlements))
+        result = {
+            "schema_version": CAMPAIGN_ACTION_RESOURCE_USAGE_SCHEMA,
+            "action_execution_id": execution_id,
+            "reserved_task_count": len(reservations),
+            "settled_task_count": len(settlements),
+            "in_flight_task_count": len(in_flight_task_ids),
+            "task_counts": dict(sorted(task_counts.items())),
+            "task_elapsed_s": round(task_elapsed_s, 6),
+            "native_search_units": native_search_units,
+            "model_usage": model_usage,
+            "task_ids": sorted(reservations),
+            "in_flight_task_ids": in_flight_task_ids,
+            "semantics": {
+                "event_log_is_operational_authority": True,
+                "child_tasks_are_bound_by_action_execution_id": True,
+                "pending_wrapper_settlement_is_projected": bool(
+                    pending_id and pending_id not in {
+                        str(event.payload.get("task_id") or "")
+                        for event in events
+                        if event.event_type == "task_settled"
+                    }
+                ),
+                "grants_no_scientific_authority": True,
+            },
+        }
+        result["content_sha256"] = _digest(result)
+        return result
+
+    def native_search_budget(self) -> dict[str, Any]:
+        """Project the replayable target/frontier native-search envelope."""
+
+        return _native_search_budget_projection(
+            self.state,
+            self.spec.limits.model,
+        )
+
+    def task_budget(self) -> dict[str, Any]:
+        """Project replayable per-class task budgets, including reservations."""
+
+        state = self.state
+        limits = _task_kind_limits(self.spec)
+        dimensions = {}
+        for kind, limit in limits.items():
+            spent = int(state.task_counts.get(kind) or 0)
+            reserved = sum(
+                str(value.get("kind") or "") == kind
+                for value in state.in_flight_tasks.values()
+            )
+            dimensions[kind] = {
+                "limit": limit,
+                "settled": spent,
+                "reserved": reserved,
+                "remaining": max(0, limit - spent - reserved),
+                "available": spent + reserved < limit,
+            }
+        total_reserved = len(state.in_flight_tasks)
+        total_limit = self.spec.limits.max_total_tasks
+        dimensions["total"] = {
+            "limit": total_limit,
+            "settled": state.settled_task_count,
+            "reserved": total_reserved,
+            "remaining": max(
+                0,
+                total_limit - state.settled_task_count - total_reserved,
+            ),
+            "available": state.settled_task_count + total_reserved < total_limit,
+        }
+        return {
+            "schema_version": "campaign_task_budget.v1",
+            "dimensions": dimensions,
+            "semantics": {
+                "settled_and_reserved_are_both_capacity_committed": True,
+                "replay_state_is_authority": True,
+                "program_and_experiment_are_independent": True,
+            },
+        }
+
+    def release_native_target_reserve(
+        self,
+        *,
+        units: int,
+        reason: str,
+        idempotency_key: str,
+    ) -> RunEvent:
+        """Explicitly release unused protected target capacity for borrowing."""
+
+        amount = int(units)
+        normalized_reason = str(reason or "").strip()
+        if amount <= 0:
+            raise ValueError("native target reserve release units must be positive")
+        if not normalized_reason:
+            raise ValueError("native target reserve release reason is required")
+        existing = self._event_by_key(idempotency_key)
+        if existing is not None:
+            if (
+                existing.event_type != "native_target_reserve_released"
+                or int(existing.payload.get("units") or 0) != amount
+                or str(existing.payload.get("reason") or "") != normalized_reason
+            ):
+                raise RunKernelIdempotencyConflict(
+                    f"run_event_idempotency_conflict:{idempotency_key}"
+                )
+            return existing
+        projection = self.native_search_budget()
+        protected = int(
+            dict(projection.get("target") or {}).get("protected_remaining") or 0
+        )
+        if amount > protected:
+            raise RunKernelBudgetError(
+                "native_target_reserve_release_exceeds_protected_remaining"
+            )
+        return self._append(
+            "native_target_reserve_released",
+            idempotency_key,
+            {
+                "units": amount,
+                "reason": normalized_reason,
+                "budget_sha256": self.spec.limits.model.to_dict()[
+                    "content_sha256"
+                ],
+                "projection_before_sha256": projection["content_sha256"],
+                "semantics": {
+                    "hard_native_limit_is_unchanged": True,
+                    "release_only_changes_frontier_borrowability": True,
+                    "release_is_operator_or_runtime_audited": True,
+                },
+            },
         )
 
     def start(self) -> RunEvent:
@@ -517,6 +1030,93 @@ class RunKernel:
 
     def resume(self, *, idempotency_key: str = "run:resume") -> RunEvent:
         return self.transition("running", idempotency_key=idempotency_key)
+
+    def reopen_for_new_work(
+        self,
+        *,
+        work_fingerprint: str,
+        idempotency_key: str,
+        reasons: Iterable[str] = (),
+    ) -> RunEvent:
+        """Reopen an immutable terminal snapshot for newly arrived work.
+
+        This is deliberately narrower than ``resume``: only completed,
+        unresolved, or budget-exhausted runs may continue, and callers must
+        bind the event to a stable fingerprint of work that was not present at
+        the terminal checkpoint.  Scientific and resource counters are never
+        reset.
+        """
+
+        fingerprint = str(work_fingerprint or "").strip()
+        if not fingerprint:
+            raise ValueError("run_reopen_work_fingerprint_required")
+        normalized_reasons = sorted(
+            {str(value) for value in reasons if str(value).strip()}
+        )
+        existing = self._event_by_key(idempotency_key)
+        if existing is not None:
+            if (
+                existing.event_type != "run_reopened"
+                or str(existing.payload.get("work_fingerprint") or "")
+                != fingerprint
+                or list(existing.payload.get("reasons") or [])
+                != normalized_reasons
+            ):
+                raise RunKernelIdempotencyConflict(
+                    f"run_event_idempotency_conflict:{idempotency_key}"
+                )
+            return existing
+        current = self.state
+        if current.status not in _REOPENABLE_TERMINAL_STATUSES:
+            raise RunKernelError(
+                f"run_status_reopen_invalid:{current.status}->running"
+            )
+        payload = {
+            "from_status": current.status,
+            "work_fingerprint": fingerprint,
+            "reasons": normalized_reasons,
+            "semantics": {
+                "new_work_is_explicitly_bound": True,
+                "same_run_kernel_and_trajectory_continue": True,
+                "scientific_and_resource_counters_are_not_reset": True,
+                "cancelled_and_failed_runs_cannot_reopen": True,
+            },
+        }
+        return self._append("run_reopened", idempotency_key, payload)
+
+    def extend_model_budget(
+        self,
+        budget: RetrosynthesisRunBudget,
+        *,
+        idempotency_key: str,
+    ) -> RunEvent | None:
+        """Durably apply an explicit, non-decreasing operator budget extension.
+
+        The original run spec remains the immutable creation contract.  Budget
+        extensions are append-only kernel events so a reopened process enforces
+        the same effective limits instead of silently falling back to the
+        creation-time envelope.
+        """
+
+        current = self.spec.limits.model
+        if budget == current:
+            return None
+        _assert_non_decreasing_model_budget(current, budget)
+        event = self._append(
+            "model_budget_extended",
+            idempotency_key,
+            {
+                "previous_budget_sha256": current.to_dict()["content_sha256"],
+                "budget": budget.to_dict(),
+                "semantics": {
+                    "explicit_operator_policy": True,
+                    "counters_are_not_reset": True,
+                    "workers_cannot_extend_limits": True,
+                },
+            },
+        )
+        self.spec = _spec_with_model_budget(self.spec, budget)
+        return event
 
     def cancel(
         self,
@@ -563,11 +1163,30 @@ class RunKernel:
         uses_model: bool = False,
         visual: bool = False,
         prompt_context_bytes: int = 0,
+        resource_class: str = "",
+        resource_units: int = 0,
         metadata: Mapping[str, Any] | None = None,
     ) -> RunEvent:
         normalized_kind = str(kind)
         if normalized_kind not in _TASK_KINDS:
             raise ValueError(f"unsupported run task kind:{normalized_kind}")
+        normalized_resource_class = str(resource_class or "").strip()
+        normalized_resource_units = int(resource_units)
+        if normalized_resource_class in _NATIVE_SEARCH_RESOURCE_CLASSES:
+            if normalized_resource_units <= 0:
+                raise ValueError("native search resource units must be positive")
+        elif normalized_resource_units != 0:
+            raise ValueError("resource units require a native search resource class")
+        resolved_metadata = _safe_mapping(metadata)
+        inherited_metadata = _ACTION_RESOURCE_CONTEXT.get()
+        if inherited_metadata is not None:
+            for key, value in inherited_metadata.items():
+                supplied = resolved_metadata.get(key)
+                if supplied is not None and supplied != value:
+                    raise RunKernelError(
+                        f"campaign_action_resource_metadata_conflict:{key}"
+                    )
+            resolved_metadata = {**resolved_metadata, **inherited_metadata}
         payload = {
             "task_id": str(task_id),
             "kind": normalized_kind,
@@ -575,14 +1194,25 @@ class RunKernel:
             "uses_model": bool(uses_model),
             "visual": bool(visual),
             "prompt_context_bytes": max(0, int(prompt_context_bytes)),
-            "metadata": _safe_mapping(metadata),
+            "metadata": resolved_metadata,
         }
+        if normalized_resource_class in _NATIVE_SEARCH_RESOURCE_CLASSES:
+            payload.update(
+                {
+                    "resource_class": normalized_resource_class,
+                    "resource_units": normalized_resource_units,
+                }
+            )
         if visual and not uses_model:
             raise ValueError("visual task must use a model")
         if int(prompt_context_bytes) < 0:
             raise ValueError("prompt_context_bytes cannot be negative")
         existing = self._event_by_key(idempotency_key)
         if existing is not None:
+            if normalized_resource_class in _NATIVE_SEARCH_RESOURCE_CLASSES:
+                payload["resource_reservation"] = dict(
+                    existing.payload.get("resource_reservation") or {}
+                )
             return self._assert_idempotent_event(
                 existing,
                 event_type="task_reserved",
@@ -591,13 +1221,17 @@ class RunKernel:
         state = self.state
         if state.status != "running":
             raise RunKernelError("non_running_run_cannot_reserve_task")
-        self._assert_task_budget(
+        resource_reservation = self._assert_task_budget(
             state,
             kind=normalized_kind,
             uses_model=uses_model,
             visual=visual,
             prompt_context_bytes=prompt_context_bytes,
+            resource_class=normalized_resource_class,
+            resource_units=normalized_resource_units,
         )
+        if resource_reservation:
+            payload["resource_reservation"] = resource_reservation
         return self._append(
             "task_reserved",
             idempotency_key,
@@ -615,35 +1249,39 @@ class RunKernel:
         failure_reasons: Iterable[str] = (),
         model_usage: Mapping[str, Any] | None = None,
         elapsed_s: float = 0.0,
+        resource_usage: Mapping[str, Any] | None = None,
     ) -> RunEvent:
         state = self.state
         reservation = dict(state.in_flight_tasks.get(str(task_id)) or {})
         if not reservation:
             existing = self._event_by_key(idempotency_key)
             if existing is not None:
+                replay_payload = {
+                    "task_id": str(task_id),
+                    "status": str(status),
+                    "accepted_expansion_ids": sorted(
+                        set(
+                            str(item)
+                            for item in accepted_expansion_ids
+                            if str(item).strip()
+                        )
+                    ),
+                    "output_sha256": str(output_sha256),
+                    "failure_reasons": sorted(
+                        set(str(item) for item in failure_reasons)
+                    ),
+                    "model_usage": _normalized_model_usage(model_usage),
+                    "elapsed_s": _finite_nonnegative_float(
+                        elapsed_s,
+                        field_name="elapsed_s",
+                    ),
+                }
+                if resource_usage is not None:
+                    replay_payload["resource_usage"] = _safe_mapping(resource_usage)
                 return self._assert_idempotent_event(
                     existing,
                     event_type="task_settled",
-                    payload={
-                        "task_id": str(task_id),
-                        "status": str(status),
-                        "accepted_expansion_ids": sorted(
-                            set(
-                                str(item)
-                                for item in accepted_expansion_ids
-                                if str(item).strip()
-                            )
-                        ),
-                        "output_sha256": str(output_sha256),
-                        "failure_reasons": sorted(
-                            set(str(item) for item in failure_reasons)
-                        ),
-                        "model_usage": _normalized_model_usage(model_usage),
-                        "elapsed_s": _finite_nonnegative_float(
-                            elapsed_s,
-                            field_name="elapsed_s",
-                        ),
-                    },
+                    payload=replay_payload,
                 )
             raise RunKernelError(f"task_not_reserved:{task_id}")
         payload = {
@@ -664,6 +1302,8 @@ class RunKernel:
                 field_name="elapsed_s",
             ),
         }
+        if resource_usage is not None:
+            payload["resource_usage"] = _safe_mapping(resource_usage)
         return self._append("task_settled", idempotency_key, payload)
 
     def publish_graph_revision(
@@ -747,7 +1387,7 @@ class RunKernel:
             return StopDecision(
                 decision="paused",
                 terminal=False,
-                reasons=("operator_paused",),
+                reasons=tuple(state.failure_reasons) or ("operator_paused",),
             )
         if state.in_flight_tasks:
             return StopDecision(decision="continue", terminal=False)
@@ -811,11 +1451,15 @@ class RunKernel:
             "prior_snapshot_sha256": prior_digest,
             "replayed_state_sha256": state.to_dict()["content_sha256"],
             "state_ref": ref.to_dict(),
-            "in_flight_task_count": len(state.in_flight_tasks),
+            "active_task_count": len(state.active_task_reservations),
+            "interrupted_task_count": len(state.interrupted_task_reservations),
             "semantics": {
                 "events_are_operational_authority": True,
                 "snapshot_was_rebuilt": True,
-                "in_flight_tasks_are_recoverable": True,
+                "nonterminal_reservations_are_recoverable": not state.terminal,
+                "terminal_reservations_are_historical_until_measured_settlement": (
+                    state.terminal
+                ),
             },
         }
 
@@ -884,13 +1528,17 @@ class RunKernel:
             task_id = str(payload.get("task_id") or "")
             if not task_id or task_id in state.in_flight_tasks:
                 raise RunKernelError(f"task_already_reserved:{task_id}")
-            self._assert_task_budget(
+            resource_reservation = self._assert_task_budget(
                 state,
                 kind=str(payload.get("kind") or "other"),
                 uses_model=payload.get("uses_model") is True,
                 visual=payload.get("visual") is True,
                 prompt_context_bytes=int(payload.get("prompt_context_bytes") or 0),
+                resource_class=str(payload.get("resource_class") or ""),
+                resource_units=int(payload.get("resource_units") or 0),
             )
+            if dict(payload.get("resource_reservation") or {}) != resource_reservation:
+                raise RunKernelError("task_resource_reservation_invalid")
         elif event_type == "task_settled":
             task_id = str(payload.get("task_id") or "")
             if task_id not in state.in_flight_tasks:
@@ -916,6 +1564,25 @@ class RunKernel:
                 raise RunKernelBudgetError(
                     "run_accepted_expansion_budget_exceeded"
                 )
+        elif event_type == "task_checkpoint":
+            task_id = str(payload.get("task_id") or "")
+            if task_id not in state.in_flight_tasks:
+                raise RunKernelError(f"task_not_reserved:{task_id}")
+            ref = ArtifactRef.from_dict(dict(payload.get("artifact_ref") or {}))
+            checkpoints = tuple(state.task_checkpoints.get(task_id) or ())
+            predecessor = (
+                str(checkpoints[-1].get("artifact_sha256") or "")
+                if checkpoints
+                else ""
+            )
+            if (
+                not str(payload.get("checkpoint_kind") or "").strip()
+                or not str(payload.get("operational_status") or "").strip()
+                or str(payload.get("artifact_sha256") or "") != ref.sha256
+                or str(payload.get("predecessor_checkpoint_sha256") or "")
+                != predecessor
+            ):
+                raise RunKernelError("task_checkpoint_binding_invalid")
         elif event_type == "graph_revision_published":
             if int(payload.get("graph_revision") or 0) < state.graph_revision:
                 raise RunKernelError("graph_revision_cannot_decrease")
@@ -932,6 +1599,44 @@ class RunKernel:
                 raise RunKernelError(
                     f"run_status_transition_invalid:{state.status}->{target}"
                 )
+            if target in _REOPENABLE_TERMINAL_STATUSES and state.in_flight_tasks:
+                raise RunKernelError(
+                    "graceful_terminal_transition_requires_settled_tasks"
+                )
+        elif event_type == "run_reopened":
+            if (
+                state.status not in _REOPENABLE_TERMINAL_STATUSES
+                or str(payload.get("from_status") or "") != state.status
+                or not str(payload.get("work_fingerprint") or "").strip()
+            ):
+                raise RunKernelError(
+                    f"run_status_reopen_invalid:{state.status}->running"
+                )
+        elif event_type == "model_budget_extended":
+            _model_budget_from_dict(dict(payload.get("budget") or {}))
+        elif event_type == "native_target_reserve_released":
+            units = int(payload.get("units") or 0)
+            projection = _native_search_budget_projection(
+                state,
+                self.spec.limits.model,
+            )
+            protected = int(
+                dict(projection.get("target") or {}).get(
+                    "protected_remaining"
+                )
+                or 0
+            )
+            if units <= 0 or units > protected:
+                raise RunKernelBudgetError(
+                    "native_target_reserve_release_invalid"
+                )
+            if (
+                str(payload.get("budget_sha256") or "")
+                != self.spec.limits.model.to_dict()["content_sha256"]
+                or str(payload.get("projection_before_sha256") or "")
+                != projection["content_sha256"]
+            ):
+                raise RunKernelError("native_target_reserve_release_binding_invalid")
         elif event_type != "run_created":
             raise RunKernelError(f"run_event_type_unsupported:{event_type}")
 
@@ -949,10 +1654,11 @@ class RunKernel:
         return event
 
     def _event_by_key(self, key: str) -> RunEvent | None:
-        return next(
-            (event for event in self._read_events() if event.idempotency_key == key),
-            None,
-        )
+        with self._locked():
+            return next(
+                (event for event in self._read_events() if event.idempotency_key == key),
+                None,
+            )
 
     def _assert_task_budget(
         self,
@@ -962,7 +1668,9 @@ class RunKernel:
         uses_model: bool,
         visual: bool = False,
         prompt_context_bytes: int = 0,
-    ) -> None:
+        resource_class: str = "",
+        resource_units: int = 0,
+    ) -> dict[str, Any]:
         reasons: list[str] = []
         pending_count = len(state.in_flight_tasks)
         pending_proposal_attempts = sum(
@@ -984,11 +1692,7 @@ class RunKernel:
             for row in state.in_flight_tasks.values()
             if str(row.get("kind") or "") == kind
         )
-        kind_limits = {
-            "evidence": self.spec.limits.max_evidence_tasks,
-            "stock": self.spec.limits.max_stock_tasks,
-            "validation": self.spec.limits.max_validation_tasks,
-        }
+        kind_limits = _task_kind_limits(self.spec)
         if kind in kind_limits and kind_count >= kind_limits[kind]:
             reasons.append(f"run_{kind}_task_budget_exhausted")
         if (
@@ -1039,6 +1743,12 @@ class RunKernel:
                 reasons.append("prompt_context_byte_budget_exceeded")
         if reasons:
             raise RunKernelBudgetError(";".join(sorted(set(reasons))))
+        return _native_search_reservation(
+            state,
+            self.spec.limits.model,
+            resource_class=resource_class,
+            units=resource_units,
+        )
 
     def _budget_reasons(
         self,
@@ -1130,7 +1840,20 @@ class RunKernel:
                 "run_visual_invocation_budget_violated",
             ),
         )
-        return sorted(reason for observed, limit, reason in checks if observed > limit)
+        reasons = [reason for observed, limit, reason in checks if observed > limit]
+        native = _native_search_budget_projection(state, budget)
+        if int(native.get("committed_total") or 0) > int(
+            native.get("hard_total_limit") or 0
+        ):
+            reasons.append("run_native_search_budget_violated")
+        if int(native.get("released_target_reserve") or 0) > int(
+            native.get("target_minimum_service") or 0
+        ):
+            reasons.append("run_native_target_reserve_release_violated")
+        for kind, limit in _task_kind_limits(self.spec).items():
+            if int(state.task_counts.get(kind) or 0) > limit:
+                reasons.append(f"run_{kind}_task_budget_violated")
+        return sorted(reasons)
 
     def _persist_state(self, state: RunState) -> ArtifactRef:
         payload = state.to_dict()
@@ -1176,6 +1899,7 @@ class RunKernel:
                     "attempt_runs": state.attempt_count,
                     "accepted_expansions": state.accepted_expansion_count,
                     "task_wall_time_s": state.task_wall_time_s,
+                    "task_compute_time_s": state.task_compute_time_s,
                 },
                 "graph": {
                     "molecule_count": int(
@@ -1214,42 +1938,57 @@ class RunKernel:
             return []
         events: list[RunEvent] = []
         previous = ""
-        for line_number, line in enumerate(
-            self.events_path.read_text(encoding="utf-8").splitlines(),
-            start=1,
-        ):
-            if not line.strip():
-                continue
-            try:
-                raw = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise RunKernelCorruptionError(
-                    f"run_event_json_invalid:{line_number}"
-                ) from exc
-            event = RunEvent.from_dict(raw)
-            body = event.to_dict()
-            supplied = str(body.pop("event_sha256") or "")
-            if (
-                event.run_id != self.spec.run_id
-                or event.sequence != len(events) + 1
-                or event.previous_event_sha256 != previous
-                or supplied != _digest(body)
-            ):
-                raise RunKernelCorruptionError(
-                    f"run_event_chain_invalid:{line_number}"
-                )
-            previous = supplied
-            events.append(event)
+        with self.events_path.open("r", encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    raw = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise RunKernelCorruptionError(
+                        f"run_event_json_invalid:{line_number}"
+                    ) from exc
+                event = RunEvent.from_dict(raw)
+                body = event.to_dict()
+                supplied = str(body.pop("event_sha256") or "")
+                if (
+                    event.run_id != self.spec.run_id
+                    or event.sequence != len(events) + 1
+                    or event.previous_event_sha256 != previous
+                    or supplied != _digest(body)
+                ):
+                    raise RunKernelCorruptionError(
+                        f"run_event_chain_invalid:{line_number}"
+                    )
+                previous = supplied
+                events.append(event)
         return events
 
     def _repair_event_tail(self) -> int:
         if not self.events_path.is_file():
             return 0
-        payload = self.events_path.read_bytes()
-        if not payload or payload.endswith(b"\n"):
-            return 0
-        last_newline = payload.rfind(b"\n")
-        tail = payload[last_newline + 1 :]
+        with self.events_path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            if size == 0:
+                return 0
+            handle.seek(-1, os.SEEK_END)
+            if handle.read(1) == b"\n":
+                return 0
+            last_newline = -1
+            cursor = size
+            chunk_size = 64 * 1024
+            while cursor > 0 and last_newline < 0:
+                start = max(0, cursor - chunk_size)
+                handle.seek(start)
+                chunk = handle.read(cursor - start)
+                relative = chunk.rfind(b"\n")
+                if relative >= 0:
+                    last_newline = start + relative
+                    break
+                cursor = start
+            handle.seek(last_newline + 1)
+            tail = handle.read()
         try:
             value = json.loads(tail.decode("utf-8"))
             RunEvent.from_dict(value)
@@ -1269,28 +2008,57 @@ class RunKernel:
     @contextmanager
     def _locked(self) -> Iterator[None]:
         deadline = time.monotonic() + self.lock_timeout_s
+        last_permission_error: PermissionError | None = None
+        observed_contention = False
         while True:
             try:
                 self.lock_path.mkdir()
                 break
             except FileExistsError:
+                observed_contention = True
+            except PermissionError as exc:
+                # Windows can report Access denied, instead of FileExistsError,
+                # while another thread is creating or removing the directory.
+                # Retry that bounded race, but preserve a genuine permission
+                # failure when no competing lock was ever observable.
+                last_permission_error = exc
                 try:
-                    age = time.time() - self.lock_path.stat().st_mtime
-                    if age > self.stale_lock_s:
+                    self.kernel_dir.stat()
+                except OSError:
+                    raise
+                if self.lock_path.exists():
+                    observed_contention = True
+            try:
+                age = time.time() - self.lock_path.stat().st_mtime
+                if age > self.stale_lock_s:
+                    try:
                         self.lock_path.rmdir()
+                    except FileNotFoundError:
                         continue
-                except (FileNotFoundError, OSError):
-                    pass
-                if time.monotonic() >= deadline:
-                    raise RunKernelError("run_kernel_writer_lock_timeout")
-                time.sleep(0.01)
+                    except OSError:
+                        pass
+                    else:
+                        continue
+            except (FileNotFoundError, PermissionError, OSError):
+                pass
+            if time.monotonic() >= deadline:
+                if last_permission_error is not None and not observed_contention:
+                    raise last_permission_error
+                raise RunKernelError("run_kernel_writer_lock_timeout")
+            time.sleep(0.01)
         try:
             yield
         finally:
-            try:
-                self.lock_path.rmdir()
-            except FileNotFoundError:
-                pass
+            for attempt in range(8):
+                try:
+                    self.lock_path.rmdir()
+                    break
+                except FileNotFoundError:
+                    break
+                except PermissionError:
+                    if attempt == 7:
+                        raise RunKernelError("run_kernel_writer_lock_release_failed")
+                    time.sleep(min(0.1, 0.005 * (2**attempt)))
 
 
 def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
@@ -1302,8 +2070,12 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
         "attempt_count": 0,
         "settled_task_count": 0,
         "task_wall_time_s": 0.0,
+        "task_compute_time_s": 0.0,
+        "_task_wall_intervals": [],
+        "_task_reserved_at": {},
         "task_counts": {},
         "in_flight_tasks": {},
+        "task_checkpoints": {},
         "accepted_expansion_ids": set(),
         "model_totals": {
             "model_invocations": 0,
@@ -1311,6 +2083,12 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
             "input_tokens": 0,
             "output_tokens": 0,
             "wall_time_s": 0.0,
+        },
+        "native_search_totals": {
+            "target_settled": 0,
+            "frontier_settled": 0,
+            "frontier_borrowed_settled": 0,
+            "target_reserve_released": 0,
         },
         "graph_revision": 0,
         "evidence_revision": 0,
@@ -1326,18 +2104,57 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
             if task_id in state["in_flight_tasks"]:
                 raise RunKernelCorruptionError(f"task_reserved_twice:{task_id}")
             state["in_flight_tasks"][task_id] = payload
+            state["_task_reserved_at"][task_id] = _event_timestamp(event.created_at)
+        elif event.event_type == "task_checkpoint":
+            task_id = str(payload.get("task_id") or "")
+            if task_id not in state["in_flight_tasks"]:
+                raise RunKernelCorruptionError(
+                    f"task_checkpoint_without_reservation:{task_id}"
+                )
+            ref = ArtifactRef.from_dict(dict(payload.get("artifact_ref") or {}))
+            checkpoints = state["task_checkpoints"].setdefault(task_id, [])
+            predecessor = (
+                str(checkpoints[-1].get("artifact_sha256") or "")
+                if checkpoints
+                else ""
+            )
+            if (
+                not str(payload.get("checkpoint_kind") or "").strip()
+                or not str(payload.get("operational_status") or "").strip()
+                or str(payload.get("artifact_sha256") or "") != ref.sha256
+                or str(payload.get("predecessor_checkpoint_sha256") or "")
+                != predecessor
+            ):
+                raise RunKernelCorruptionError("replayed_task_checkpoint_invalid")
+            checkpoints.append(payload)
         elif event.event_type == "task_settled":
             task_id = str(payload.get("task_id") or "")
             reservation = state["in_flight_tasks"].pop(task_id, None)
             if reservation is None:
                 raise RunKernelCorruptionError(f"task_settled_without_reservation:{task_id}")
+            reserved_at = state["_task_reserved_at"].pop(task_id)
             kind = str(reservation.get("kind") or "other")
             if kind == "proposal":
                 state["attempt_count"] += 1
             state["settled_task_count"] += 1
+            elapsed_s = max(0.0, float(payload.get("elapsed_s") or 0.0))
+            state["task_compute_time_s"] = round(
+                float(state["task_compute_time_s"]) + elapsed_s,
+                6,
+            )
+            if elapsed_s > 0.0:
+                settled_at = _event_timestamp(event.created_at)
+                state["_task_wall_intervals"] = _merge_time_intervals(
+                    (
+                        *state["_task_wall_intervals"],
+                        (max(reserved_at, settled_at - elapsed_s), settled_at),
+                    )
+                )
             state["task_wall_time_s"] = round(
-                float(state["task_wall_time_s"])
-                + max(0.0, float(payload.get("elapsed_s") or 0.0)),
+                sum(
+                    max(0.0, end - start)
+                    for start, end in state["_task_wall_intervals"]
+                ),
                 6,
             )
             state["task_counts"][kind] = int(state["task_counts"].get(kind) or 0) + 1
@@ -1357,6 +2174,17 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
                 + float(usage.get("wall_time_s") or 0.0),
                 6,
             )
+            resource = dict(reservation.get("resource_reservation") or {})
+            resource_class = str(resource.get("resource_class") or "")
+            resource_units = max(0, int(resource.get("units") or 0))
+            borrowed_units = max(0, int(resource.get("borrowed_units") or 0))
+            if resource_class == "native_search_target":
+                state["native_search_totals"]["target_settled"] += resource_units
+            elif resource_class == "native_search_frontier":
+                state["native_search_totals"]["frontier_settled"] += resource_units
+                state["native_search_totals"][
+                    "frontier_borrowed_settled"
+                ] += borrowed_units
         elif event.event_type == "graph_revision_published":
             graph_revision = int(payload.get("graph_revision") or 0)
             evidence_revision = int(payload.get("evidence_revision") or 0)
@@ -1392,11 +2220,46 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
                 raise RunKernelCorruptionError(
                     f"replayed_status_transition_invalid:{state['status']}->{target}"
                 )
+            if target in _REOPENABLE_TERMINAL_STATUSES and state["in_flight_tasks"]:
+                raise RunKernelCorruptionError(
+                    "replayed_graceful_terminal_transition_has_unsettled_tasks"
+                )
             state["status"] = target
             state["failure_reasons"] = list(payload.get("reasons") or [])
+        elif event.event_type == "run_reopened":
+            if (
+                state["status"] not in _REOPENABLE_TERMINAL_STATUSES
+                or str(payload.get("from_status") or "") != state["status"]
+                or not str(payload.get("work_fingerprint") or "").strip()
+            ):
+                raise RunKernelCorruptionError(
+                    f"replayed_status_reopen_invalid:{state['status']}->running"
+                )
+            state["status"] = "running"
+            state["failure_reasons"] = []
         elif event.event_type == "run_created":
             if event.sequence != 1:
                 raise RunKernelCorruptionError("run_created_event_not_first")
+        elif event.event_type == "model_budget_extended":
+            # Limits are replayed into the effective RunSpec when the kernel is
+            # opened.  This event deliberately does not mutate scientific or
+            # operational counters.
+            _model_budget_from_dict(dict(payload.get("budget") or {}))
+        elif event.event_type == "native_target_reserve_released":
+            released_units = int(payload.get("units") or 0)
+            if released_units <= 0:
+                raise RunKernelCorruptionError(
+                    "replayed_native_target_reserve_release_invalid"
+                )
+            state["native_search_totals"][
+                "target_reserve_released"
+            ] += released_units
+            if state["native_search_totals"][
+                "target_reserve_released"
+            ] > int(spec.limits.model.min_target_native_search_invocations or 0):
+                raise RunKernelCorruptionError(
+                    "replayed_native_target_reserve_release_exceeded"
+                )
         else:
             raise RunKernelCorruptionError(
                 f"run_event_type_unsupported:{event.event_type}"
@@ -1412,12 +2275,18 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
         attempt_count=state["attempt_count"],
         settled_task_count=state["settled_task_count"],
         task_wall_time_s=state["task_wall_time_s"],
+        task_compute_time_s=state["task_compute_time_s"],
         task_counts=dict(state["task_counts"]),
         in_flight_tasks={
             key: dict(value) for key, value in state["in_flight_tasks"].items()
         },
+        task_checkpoints={
+            key: tuple(dict(value) for value in values)
+            for key, values in state["task_checkpoints"].items()
+        },
         accepted_expansion_ids=tuple(sorted(state["accepted_expansion_ids"])),
         model_totals=dict(state["model_totals"]),
+        native_search_totals=dict(state["native_search_totals"]),
         graph_revision=state["graph_revision"],
         evidence_revision=state["evidence_revision"],
         deficits=tuple(dict(row) for row in state["deficits"]),
@@ -1427,10 +2296,127 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
     )
 
 
+_MODEL_BUDGET_LIMIT_FIELDS = (
+    "max_model_invocations",
+    "max_total_input_tokens",
+    "max_total_output_tokens",
+    "max_total_wall_time_s",
+    "max_visual_invocations",
+    "max_accepted_expansions",
+    "max_attempt_runs",
+    "max_native_search_invocations",
+    "min_target_native_search_invocations",
+    "max_frontier_native_search_invocations",
+    "max_prompt_context_bytes",
+)
+
+
+def _assert_non_decreasing_model_budget(
+    current: RetrosynthesisRunBudget,
+    incoming: RetrosynthesisRunBudget,
+) -> None:
+    decreased = [
+        field_name
+        for field_name in _MODEL_BUDGET_LIMIT_FIELDS
+        if getattr(incoming, field_name) < getattr(current, field_name)
+    ]
+    if incoming.automatic_budget_extension != current.automatic_budget_extension:
+        decreased.append("automatic_budget_extension")
+    if (
+        incoming.allow_frontier_native_search_borrowing
+        != current.allow_frontier_native_search_borrowing
+    ):
+        decreased.append("allow_frontier_native_search_borrowing")
+    if decreased:
+        raise RunKernelBudgetError(
+            "run_model_budget_extension_cannot_decrease_or_change_policy:"
+            + ",".join(sorted(decreased))
+        )
+
+
+def _model_budget_from_dict(value: Mapping[str, Any]) -> RetrosynthesisRunBudget:
+    row = dict(value)
+    supplied = str(row.pop("content_sha256", ""))
+    if not supplied or supplied != _digest(row):
+        raise RunKernelCorruptionError("model_budget_extension_digest_invalid")
+    row.pop("schema_version", None)
+    return RetrosynthesisRunBudget(**row)
+
+
+def _spec_with_model_budget(
+    spec: RunSpec,
+    budget: RetrosynthesisRunBudget,
+) -> RunSpec:
+    limits = replace(spec.limits, model=budget)
+    campaign_spec = replace(
+        spec.campaign_spec,
+        resource_budget=replace(
+            spec.campaign_spec.resource_budget,
+            model=budget,
+        ),
+    )
+    return replace(spec, limits=limits, campaign_spec=campaign_spec)
+
+
+def _task_kind_limits(spec: RunSpec) -> dict[str, int]:
+    campaign_budget = spec.campaign_spec.resource_budget
+    return {
+        "evidence": int(campaign_budget.max_evidence_tasks),
+        "stock": int(campaign_budget.max_stock_tasks),
+        "validation": int(campaign_budget.max_validation_tasks),
+        "program": int(campaign_budget.max_program_tasks),
+        "experiment": int(campaign_budget.max_experiment_tasks),
+    }
+
+
+def _campaign_budget_matches_limits(
+    campaign_budget: CampaignResourceBudget,
+    limits: RunLimits,
+) -> bool:
+    legacy_budget = CampaignResourceBudget.from_dict(limits.to_dict())
+    return all(
+        getattr(campaign_budget, name) == getattr(legacy_budget, name)
+        for name in (
+            "model",
+            "max_total_tasks",
+            "max_evidence_tasks",
+            "max_stock_tasks",
+            "max_validation_tasks",
+            "max_run_wall_time_s",
+        )
+    )
+
+
+def _spec_with_replayed_budget_extensions(
+    spec: RunSpec,
+    events: Iterable[RunEvent],
+) -> RunSpec:
+    effective = spec
+    for event in events:
+        if event.event_type != "model_budget_extended":
+            continue
+        budget = _model_budget_from_dict(dict(event.payload.get("budget") or {}))
+        try:
+            _assert_non_decreasing_model_budget(effective.limits.model, budget)
+        except RunKernelBudgetError as exc:
+            raise RunKernelCorruptionError(
+                "model_budget_extension_decreased"
+            ) from exc
+        expected_previous = effective.limits.model.to_dict()["content_sha256"]
+        if str(event.payload.get("previous_budget_sha256") or "") != expected_previous:
+            raise RunKernelCorruptionError("model_budget_extension_chain_invalid")
+        effective = _spec_with_model_budget(effective, budget)
+    return effective
+
+
 def _state_from_dict(value: Mapping[str, Any]) -> RunState:
     row = dict(value)
     supplied = str(row.pop("content_sha256", ""))
-    if value.get("schema_version") != RUN_STATE_SCHEMA or supplied != _digest(row):
+    schema_version = str(value.get("schema_version") or "")
+    if (
+        schema_version not in {RUN_STATE_SCHEMA, LEGACY_RUN_STATE_SCHEMA}
+        or supplied != _digest(row)
+    ):
         raise RunKernelCorruptionError("run_state_snapshot_digest_invalid")
     return RunState(
         run_id=str(row.get("run_id") or ""),
@@ -1440,15 +2426,30 @@ def _state_from_dict(value: Mapping[str, Any]) -> RunState:
         attempt_count=int(row.get("attempt_count") or 0),
         settled_task_count=int(row.get("settled_task_count") or 0),
         task_wall_time_s=float(row.get("task_wall_time_s") or 0.0),
+        task_compute_time_s=float(
+            row.get("task_compute_time_s")
+            if row.get("task_compute_time_s") is not None
+            else row.get("task_wall_time_s")
+            or 0.0
+        ),
         task_counts=dict(row.get("task_counts") or {}),
         in_flight_tasks={
             str(key): dict(item)
             for key, item in dict(row.get("in_flight_tasks") or {}).items()
         },
+        task_checkpoints={
+            str(key): tuple(
+                dict(item)
+                for item in values or []
+                if isinstance(item, Mapping)
+            )
+            for key, values in dict(row.get("task_checkpoints") or {}).items()
+        },
         accepted_expansion_ids=tuple(
             str(item) for item in row.get("accepted_expansion_ids") or []
         ),
         model_totals=dict(row.get("model_totals") or {}),
+        native_search_totals=dict(row.get("native_search_totals") or {}),
         graph_revision=int(row.get("graph_revision") or 0),
         evidence_revision=int(row.get("evidence_revision") or 0),
         deficits=tuple(
@@ -1461,7 +2462,174 @@ def _state_from_dict(value: Mapping[str, Any]) -> RunState:
             str(item) for item in row.get("failure_reasons") or []
         ),
         updated_at=str(row.get("updated_at") or ""),
+        schema_version=schema_version,
     )
+
+
+def _event_timestamp(value: str) -> float:
+    """Return a replay-stable UTC timestamp for wall-clock interval accounting."""
+
+    normalized = str(value or "").strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise RunKernelCorruptionError("run_event_created_at_invalid") from exc
+    if parsed.tzinfo is None:
+        raise RunKernelCorruptionError("run_event_created_at_timezone_missing")
+    return parsed.timestamp()
+
+
+def _merge_time_intervals(
+    intervals: Iterable[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Merge task intervals so concurrent and nested work is charged once."""
+
+    merged: list[tuple[float, float]] = []
+    for raw_start, raw_end in sorted(intervals):
+        start = float(raw_start)
+        end = float(raw_end)
+        if not math.isfinite(start) or not math.isfinite(end) or end < start:
+            raise RunKernelCorruptionError("task_wall_interval_invalid")
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _native_search_budget_projection(
+    state: RunState,
+    budget: RetrosynthesisRunBudget,
+) -> dict[str, Any]:
+    totals = dict(state.native_search_totals or {})
+    target_settled = max(0, int(totals.get("target_settled") or 0))
+    frontier_settled = max(0, int(totals.get("frontier_settled") or 0))
+    borrowed_settled = max(
+        0,
+        int(totals.get("frontier_borrowed_settled") or 0),
+    )
+    released = max(0, int(totals.get("target_reserve_released") or 0))
+    target_reserved = 0
+    frontier_reserved = 0
+    borrowed_reserved = 0
+    for reservation in state.in_flight_tasks.values():
+        resource = dict(reservation.get("resource_reservation") or {})
+        resource_class = str(resource.get("resource_class") or "")
+        units = max(0, int(resource.get("units") or 0))
+        borrowed = max(0, int(resource.get("borrowed_units") or 0))
+        if resource_class == "native_search_target":
+            target_reserved += units
+        elif resource_class == "native_search_frontier":
+            frontier_reserved += units
+            borrowed_reserved += borrowed
+    hard_total = int(budget.max_native_search_invocations or 0)
+    target_minimum = int(budget.min_target_native_search_invocations or 0)
+    frontier_base_limit = int(
+        budget.max_frontier_native_search_invocations or 0
+    )
+    target_committed = target_settled + target_reserved
+    frontier_committed = frontier_settled + frontier_reserved
+    committed_total = target_committed + frontier_committed
+    hard_remaining = max(0, hard_total - committed_total)
+    effective_target_minimum = max(0, target_minimum - released)
+    protected_remaining = max(0, effective_target_minimum - target_committed)
+    frontier_base_remaining = max(0, frontier_base_limit - frontier_committed)
+    frontier_capacity = max(0, hard_remaining - protected_remaining)
+    borrowing_allowed = budget.allow_frontier_native_search_borrowing is True
+    row = {
+        "schema_version": "native_search_budget_projection.v1",
+        "hard_total_limit": hard_total,
+        "committed_total": committed_total,
+        "hard_remaining": hard_remaining,
+        "target_minimum_service": target_minimum,
+        "released_target_reserve": released,
+        "target": {
+            "settled": target_settled,
+            "reserved": target_reserved,
+            "committed": target_committed,
+            "protected_remaining": protected_remaining,
+            "minimum_service_satisfied": (
+                target_committed + released >= target_minimum
+            ),
+            "available": hard_remaining > 0,
+        },
+        "frontier": {
+            "settled": frontier_settled,
+            "reserved": frontier_reserved,
+            "committed": frontier_committed,
+            "base_limit": frontier_base_limit,
+            "base_remaining": frontier_base_remaining,
+            "borrowed_settled": borrowed_settled,
+            "borrowed_reserved": borrowed_reserved,
+            "borrowed_total": borrowed_settled + borrowed_reserved,
+            "capacity_without_target_reserve": frontier_capacity,
+            "borrowing_allowed": borrowing_allowed,
+            "available": bool(
+                frontier_capacity > 0
+                and (frontier_base_remaining > 0 or borrowing_allowed)
+            ),
+        },
+        "semantics": {
+            "target_reserve_is_protected_before_frontier_borrowing": True,
+            "native_search_is_independent_from_model_and_evidence": True,
+            "settled_and_in_flight_units_count_against_hard_limit": True,
+        },
+    }
+    row["content_sha256"] = _digest(row)
+    return row
+
+
+def _native_search_reservation(
+    state: RunState,
+    budget: RetrosynthesisRunBudget,
+    *,
+    resource_class: str,
+    units: int,
+) -> dict[str, Any]:
+    normalized_class = str(resource_class or "")
+    amount = int(units)
+    if normalized_class not in _NATIVE_SEARCH_RESOURCE_CLASSES:
+        return {}
+    if amount <= 0:
+        raise RunKernelBudgetError("run_native_search_reservation_units_invalid")
+    projection = _native_search_budget_projection(state, budget)
+    hard_remaining = int(projection.get("hard_remaining") or 0)
+    if amount > hard_remaining:
+        raise RunKernelBudgetError("run_native_search_budget_exhausted")
+    borrowed_units = 0
+    if normalized_class == "native_search_frontier":
+        frontier = dict(projection.get("frontier") or {})
+        capacity = int(frontier.get("capacity_without_target_reserve") or 0)
+        if amount > capacity:
+            raise RunKernelBudgetError("run_native_target_reserve_protected")
+        base_remaining = int(frontier.get("base_remaining") or 0)
+        borrowed_units = max(0, amount - min(amount, base_remaining))
+        if borrowed_units and frontier.get("borrowing_allowed") is not True:
+            raise RunKernelBudgetError(
+                "run_native_frontier_search_budget_exhausted"
+            )
+    decision = (
+        "borrow_granted"
+        if borrowed_units
+        else "target_service_reserved"
+        if normalized_class == "native_search_target"
+        else "frontier_base_reserved"
+    )
+    return {
+        "schema_version": "native_search_resource_reservation.v1",
+        "resource_class": normalized_class,
+        "units": amount,
+        "borrowed_units": borrowed_units,
+        "decision": decision,
+        "budget_sha256": budget.to_dict()["content_sha256"],
+        "projection_before_sha256": projection["content_sha256"],
+        "target_protected_before": int(
+            dict(projection.get("target") or {}).get("protected_remaining") or 0
+        ),
+        "hard_remaining_before": hard_remaining,
+    }
 
 
 def _normalized_model_usage(value: Mapping[str, Any] | None) -> dict[str, int | float]:
@@ -1578,4 +2746,5 @@ __all__ = [
     "RunSpec",
     "RunState",
     "StopDecision",
+    "project_observed_model_totals",
 ]

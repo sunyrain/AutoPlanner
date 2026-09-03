@@ -134,7 +134,11 @@ def compile_deterministic_source_route_observation(
         ):
             procedures.append(row)
             continue
-        recovered = _recover_product_from_narrative_heading(
+        recovered = _recover_product_from_explicit_source_heading(
+            row,
+            structure_resolver=structure_resolver,
+            source_aliases=source_aliases,
+        ) or _recover_product_from_narrative_heading(
             row,
             structure_resolver=structure_resolver,
         ) or _recover_product_from_downstream_source_name(
@@ -288,6 +292,12 @@ def compile_deterministic_source_route_observation(
                 (
                     f"image_sha256:{str(page_evidence.get('image_sha256') or '')}"
                     if page_evidence.get("image_sha256")
+                    else ""
+                ),
+                (
+                    "procedure-text-sha256:"
+                    + hashlib.sha256(procedure_text.encode("utf-8")).hexdigest()
+                    if procedure_text
                     else ""
                 ),
             )
@@ -551,6 +561,36 @@ def _resolve_name(
     return ""
 
 
+def _recover_product_from_explicit_source_heading(
+    procedure: Mapping[str, Any],
+    *,
+    structure_resolver: StructureResolver,
+    source_aliases: Mapping[str, str],
+) -> dict[str, Any]:
+    """Resolve an explicitly labelled product heading into an L0 candidate."""
+
+    label = str(procedure.get("label") or "").strip()
+    name = " ".join(str(procedure.get("name") or "").split()).strip(" .:;")
+    if not label or not 3 <= len(name) <= 180 or not re.search(r"[A-Za-z]", name):
+        return {}
+    smiles = _resolve_name(
+        name,
+        structure_resolver=structure_resolver,
+        source_aliases=source_aliases,
+    )
+    if not smiles:
+        return {}
+    return {
+        **dict(procedure),
+        "structure_parse_accepted": True,
+        "canonical_smiles": smiles,
+        "structure_recovery_mode": "explicit_source_heading_advisory",
+        "structure_recovery_name_sha256": hashlib.sha256(
+            name.encode("utf-8")
+        ).hexdigest(),
+    }
+
+
 def _recover_product_from_narrative_heading(
     procedure: Mapping[str, Any],
     *,
@@ -693,6 +733,19 @@ def _significant_name_tokens(value: Any) -> set[str]:
 
 def _clean_ingredient_name(value: Any) -> str:
     name = " ".join(str(value or "").replace("_", " ").split()).strip(" ,;.")
+    # Patent procedures commonly qualify a precursor by pointing back to its
+    # numbered preparation.  The qualifier is provenance, not part of the
+    # chemical name, and sending it to OPSIN/PubChem makes an otherwise exact
+    # source ingredient unresolvable (for example ``the cyclohexylfulvene as
+    # synthesized above (1)``).
+    name = re.sub(
+        r"\s+as\s+(?:synthesi[sz]ed|prepared|obtained|described)\s+"
+        r"(?:above|previously|below)(?:\s*\([A-Za-z0-9.-]{1,20}\))?\s*$",
+        "",
+        name,
+        flags=re.I,
+    )
+    name = re.sub(r"^(?:a|an|the)\s+", "", name, flags=re.I)
     name = re.sub(r"\bpropanoa(?=\s+hydrochloride\b)", "propanoate", name, flags=re.I)
     name = re.sub(
         r"N,N[^A-Za-z0-9\s]*-?disuccinimidyl",
