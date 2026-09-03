@@ -131,6 +131,7 @@ def _concurrent_opportunity_set() -> dict:
                     "metadata": {
                         "frontier_smiles": "CCO",
                         "provider_preferences": ["chemenzy"],
+                        "target_level_native_search": True,
                     },
                 },
                 {
@@ -347,7 +348,7 @@ def test_action_cache_reuses_same_execution_across_scheduler_diagnostic_drift(
     assert calls == 1
 
 
-def test_native_handler_checkpoint_resumes_without_second_provider_call(
+def test_target_native_handler_checkpoint_resumes_without_second_provider_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -355,9 +356,9 @@ def test_native_handler_checkpoint_resumes_without_second_provider_call(
     decision = schedule_next_action(
         _concurrent_opportunity_set(),
         milestones={},
-        resource_availability={"native_search_frontier": True},
+        resource_availability={"native_search_target": True},
         available_action_kinds=(
-            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value,
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND.value,
         ),
     )
     action = bind_scheduled_action(decision, input_revision=0)
@@ -376,7 +377,7 @@ def test_native_handler_checkpoint_resumes_without_second_provider_call(
 
     runtime = CampaignActionRuntime(
         kernel,
-        {CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: handle},
+        {CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle},
     )
     original_finalize = runtime._finalize_reserved
 
@@ -399,7 +400,7 @@ def test_native_handler_checkpoint_resumes_without_second_provider_call(
 
     resumed = CampaignActionRuntime(
         _kernel(tmp_path),
-        {CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: handle},
+        {CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle},
     ).execute(action, decision=decision)
 
     assert resumed["status"] == "completed"
@@ -413,23 +414,23 @@ def test_native_handler_checkpoint_resumes_without_second_provider_call(
     assert calls == 1
 
 
-def test_action_history_exposes_guided_frontier_from_durable_outcome(
+def test_action_history_exposes_target_provider_result_from_durable_outcome(
     tmp_path: Path,
 ) -> None:
     kernel = _kernel(tmp_path)
     decision = schedule_next_action(
         _concurrent_opportunity_set(),
         milestones={},
-        resource_availability={"native_search_frontier": True},
+        resource_availability={"native_search_target": True},
         available_action_kinds=(
-            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value,
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND.value,
         ),
     )
     action = bind_scheduled_action(decision, input_revision=0)
     runtime = CampaignActionRuntime(
         kernel,
         {
-            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: lambda _action: {
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND: lambda _action: {
                 "status": "unresolved",
                 "frontier_smiles": ["CCO"],
                 "proposal_count": 0,
@@ -446,9 +447,8 @@ def test_action_history_exposes_guided_frontier_from_durable_outcome(
     ).action_execution_history()
 
     assert history[-1]["settled"] is True
-    assert history[-1]["handler_result"]["frontier_smiles"] == ["CCO"]
-    assert history[-1]["handler_result"]["provider_invocation_count"] == 1
-    assert history[-1]["handler_result"]["provider_result_replay_count"] == 1
+    assert history[-1]["handler_result"]["proposal_count"] == 0
+    assert history[-1]["handler_result"]["provider_result_replayed"] is False
 
 
 def test_action_class_service_history_replays_across_runtime_reopen(
@@ -1199,11 +1199,11 @@ def test_configured_acceptance_is_a_snapshot_and_does_not_stop_action_loop(
     assert result["semantics"]["B4_and_B5_do_not_stop_the_loop"] is True
 
 
-def test_short_tail_closure_and_later_leaf_stay_in_one_anytime_loop(
+def test_builder_continuation_and_later_leaf_stay_in_one_anytime_loop(
     tmp_path: Path,
 ) -> None:
     kernel = _kernel(tmp_path)
-    state = {"phase": "first_tail", "stock_closed": False}
+    state = {"phase": "first_builder", "stock_closed": False}
 
     def opportunities() -> dict:
         phase = state["phase"]
@@ -1213,8 +1213,8 @@ def test_short_tail_closure_and_later_leaf_stay_in_one_anytime_loop(
             "dependency_ids": [],
             "score": {"expected_portfolio_gain": 1.0},
         }
-        if phase in {"first_tail", "second_tail"}:
-            suffix = "1" if phase == "first_tail" else "2"
+        if phase in {"first_builder", "second_builder"}:
+            suffix = "1" if phase == "first_builder" else "2"
             item = {
                 **common,
                 "deficit_id": f"deficit:tail:{suffix}",
@@ -1222,11 +1222,11 @@ def test_short_tail_closure_and_later_leaf_stay_in_one_anytime_loop(
                 "entity_ids": [f"mol:leaf:{suffix}"],
                 "deterministic": False,
                 "model_allowed": False,
-                "reason": "stock_rejected_target_leaf_requires_short_tail",
+                "reason": "stock_rejected_leaf_requires_builder_continuation",
                 "metadata": {
-                    "provider_preferences": ["native_short_tail"],
+                    "provider_preferences": ["codex_frontier_builder"],
                     "frontier_smiles": "CCO" if suffix == "1" else "CCN",
-                    "paper_short_tail_eligible": True,
+                    "target_rooted_open_leaf": True,
                 },
             }
         elif phase == "materialize":
@@ -1257,10 +1257,10 @@ def test_short_tail_closure_and_later_leaf_stay_in_one_anytime_loop(
             {"content_sha256": f"single-anytime-{phase}", "items": [item]}
         )
 
-    def handle_short_tail(_action) -> dict:
+    def handle_builder(_action) -> dict:
         state["phase"] = (
             "materialize"
-            if state["phase"] == "first_tail"
+            if state["phase"] == "first_builder"
             else "done"
         )
         return {"status": "completed", "changed": True, "proposal_count": 1}
@@ -1271,13 +1271,13 @@ def test_short_tail_closure_and_later_leaf_stay_in_one_anytime_loop(
 
     def handle_stock(_action) -> dict:
         state["stock_closed"] = True
-        state["phase"] = "second_tail"
+        state["phase"] = "second_builder"
         return {"status": "completed", "changed": True}
 
     result = CampaignActionRuntime(
         kernel,
         {
-            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: handle_short_tail,
+            CampaignActionKind.CODEX_FRONTIER_EXPAND: handle_builder,
             CampaignActionKind.MATERIALIZE: handle_materialize,
             CampaignActionKind.STOCK_AUDIT: handle_stock,
         },
@@ -1287,7 +1287,7 @@ def test_short_tail_closure_and_later_leaf_stay_in_one_anytime_loop(
             "B4_stock_boundary": state["stock_closed"]
         },
         resource_availability_provider=lambda: {
-            "native_search_frontier": True,
+            "model": True,
             "deterministic": True,
             "stock": True,
         },
@@ -1296,10 +1296,10 @@ def test_short_tail_closure_and_later_leaf_stay_in_one_anytime_loop(
     )
 
     assert [row["action"]["kind"] for row in result["executions"]] == [
-        CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value,
+        CampaignActionKind.CODEX_FRONTIER_EXPAND.value,
         CampaignActionKind.MATERIALIZE.value,
         CampaignActionKind.STOCK_AUDIT.value,
-        CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value,
+        CampaignActionKind.CODEX_FRONTIER_EXPAND.value,
     ]
     assert result["termination"] == "action_limit"
     assert result["semantics"]["single_scheduler_loop"] is True
@@ -1600,7 +1600,7 @@ def test_anytime_loop_runs_bounded_cross_class_cohorts_and_replays(
         return {"status": "completed", "changed": False}
 
     concurrent_kinds = (
-        CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND,
+        CampaignActionKind.CHEMENZY_TARGET_EXPAND,
         CampaignActionKind.CODEX_REPLAN,
         CampaignActionKind.ACQUIRE_EVIDENCE,
         CampaignActionKind.REACTION_VALIDATE,
@@ -1614,7 +1614,7 @@ def test_anytime_loop_runs_bounded_cross_class_cohorts_and_replays(
         opportunity_provider=lambda: opportunities,
         milestones_provider=lambda: {},
         resource_availability_provider=lambda: {
-            "native_search_frontier": True,
+            "native_search_target": True,
             "model": True,
             "evidence": True,
             "validation": True,
@@ -1655,7 +1655,7 @@ def test_anytime_loop_runs_bounded_cross_class_cohorts_and_replays(
         action_kinds=concurrent_kinds,
         milestones={},
         resource_availability={
-            "native_search_frontier": True,
+            "native_search_target": True,
             "model": True,
             "evidence": True,
             "validation": True,
@@ -1729,7 +1729,7 @@ def test_concurrent_cohort_excludes_same_resource_and_fits_wrapper_budget(
     limited = CampaignActionRuntime(
         limited_kernel,
         {
-            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: handle,
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle,
             CampaignActionKind.CODEX_REPLAN: handle,
             CampaignActionKind.ACQUIRE_EVIDENCE: handle,
             CampaignActionKind.REACTION_VALIDATE: handle,
@@ -1737,14 +1737,14 @@ def test_concurrent_cohort_excludes_same_resource_and_fits_wrapper_budget(
     ).execute_concurrent_cohort(
         opportunities,
         action_kinds=(
-            CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND,
+            CampaignActionKind.CHEMENZY_TARGET_EXPAND,
             CampaignActionKind.CODEX_REPLAN,
             CampaignActionKind.ACQUIRE_EVIDENCE,
             CampaignActionKind.REACTION_VALIDATE,
         ),
         milestones={},
         resource_availability={
-            "native_search_frontier": True,
+            "native_search_target": True,
             "model": True,
             "evidence": True,
             "validation": True,

@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 
 from cascade_planner.application.reactionjson_replay import ReactionJsonReplayError
-from cascade_planner.application.routejson_compiler import RouteJSONCompiler
+from cascade_planner.application.routejson_compiler import (
+    RouteJSONCompiler,
+    _mapped_atom_maps,
+)
 from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 
 
@@ -283,6 +286,87 @@ def test_compile_route_graph_preserves_sibling_frontiers_and_map_namespaces() ->
     assert compiled[2].precursor_smiles == ("C", "O")
 
 
+def test_replay_materialized_route_rebases_sibling_local_fragment_maps() -> None:
+    rows = [
+        {
+            "product_smiles": "CCOC",
+            "mapped_product_smiles": "[CH3:1][CH2:2][O:3][CH3:4]",
+            "mapped_precursor_smiles": ["[CH3:1][CH3:2]", "[OH:3][CH3:4]"],
+            "reaction_operations": [
+                {"op": "break_bond", "map_a": 2, "map_b": 3}
+            ],
+            "reactionjson_audit": {"accepted": True},
+        },
+        {
+            "product_smiles": "CC",
+            "mapped_product_smiles": "[CH3:1][CH3:2]",
+            "mapped_precursor_smiles": ["[CH3:1][CH2:2][Cl:5]"],
+            "reaction_operations": [
+                {
+                    "op": "add_group",
+                    "map_idx": 2,
+                    "fragment_smiles": "*[Cl:5]",
+                }
+            ],
+            "reactionjson_audit": {"accepted": True},
+        },
+        {
+            "product_smiles": "CO",
+            "mapped_product_smiles": "[OH:3][CH3:4]",
+            "mapped_precursor_smiles": ["[OH:3][CH2:4][Br:5]"],
+            "reaction_operations": [
+                {
+                    "op": "add_group",
+                    "map_idx": 4,
+                    "fragment_smiles": "*[Br:5]",
+                }
+            ],
+            "reactionjson_audit": {"accepted": True},
+        },
+        {
+            "product_smiles": "OCBr",
+            "mapped_product_smiles": "[OH:3][CH2:4][Br:5]",
+            "mapped_precursor_smiles": ["[OH:3][CH2:4][I:6]"],
+            "reaction_operations": [
+                {"op": "remove_group", "map_indices": [5]},
+                {
+                    "op": "add_group",
+                    "map_idx": 4,
+                    "fragment_smiles": "*[I:6]",
+                },
+            ],
+            "reactionjson_audit": {"accepted": True},
+        },
+    ]
+
+    with pytest.raises(ReactionJsonReplayError, match="fragment_map_collision"):
+        RouteJSONCompiler().compile_route_graph_state(
+            mapped_target_smiles="[CH3:1][CH2:2][O:3][CH3:4]",
+            steps=rows,
+        )
+
+    state = RouteJSONCompiler().compile_route_graph_state(
+        mapped_target_smiles="[CH3:1][CH2:2][O:3][CH3:4]",
+        steps=rows,
+        rebase_materialized_local_maps=True,
+    )
+
+    assert len(state.reactions) == 4
+    sibling_addition = state.reactions[2]
+    rebound_bromine_map = sibling_addition.audit["fragment_map_translation"][0][1]
+    assert rebound_bromine_map > 6
+    assert state.reactions[3].reaction_operations[0] == {
+        "op": "remove_group",
+        "map_indices": [rebound_bromine_map],
+    }
+    all_frontier_maps = [
+        atom_map
+        for precursor in state.open_precursors
+        for atom_map in _mapped_atom_maps(precursor.mapped_product_smiles)
+    ]
+    assert len(all_frontier_maps) == len(set(all_frontier_maps))
+
+
 def test_compile_route_graph_state_returns_only_real_mapped_open_precursors() -> None:
     state = RouteJSONCompiler().compile_route_graph_state(
         mapped_target_smiles="[CH3:1][CH2:2][O:3][CH3:4]",
@@ -307,6 +391,7 @@ def test_compile_route_graph_state_returns_only_real_mapped_open_precursors() ->
 
     assert state.reactions[1].mapped_product_smiles == "[CH3:1][CH3:2]"
     assert state.parent_step_indices == (None, 0)
+    assert state.open_precursor_producer_step_indices == (0, 1, 1)
     assert {
         (row.product_smiles, row.mapped_product_smiles)
         for row in state.open_precursors

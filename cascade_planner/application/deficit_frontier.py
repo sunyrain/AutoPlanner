@@ -45,7 +45,7 @@ def target_reachable_route_boundaries(
 
     Route-family membership alone is insufficient: a rejected connector can
     leave a perfectly valid local provider island carrying the same family id.
-    Short-tail search is allowed only at a molecule reached by walking
+    Builder continuation is allowed only at a molecule reached by walking
     materialized edges from the campaign target inside that family.  A
     host-audited stock hit is a terminal cut and is never traversed upstream.
     """
@@ -126,7 +126,7 @@ def frontier_builder_budget_state(
     A route may continue a stock-rejected canonical leaf only with calls left
     on its originating per-branch policy axis. Durable frontier-Builder
     attempt signals debit that same axis; they never create a third retry
-    budget. Execution profiles decide whether this lane is registered.
+    budget. Execution profiles decide whether Builder continuation is registered.
     """
 
     family_id = str(route_family_id or "")
@@ -736,63 +736,6 @@ def compile_deficit_frontier(
         target_routes = tuple(reachable_route_ids.get(str(molecule_id)) or ())
         open_routes = tuple(open_leaf_route_ids.get(str(molecule_id)) or ())
         selected = bool(target_routes)
-        open_route_set = set(open_routes)
-        settled_native_routes: set[str] = set()
-        unscoped_native_attempt = False
-        for hypothesis in dict(graph.get("hypotheses") or {}).values():
-            if not isinstance(hypothesis, Mapping):
-                continue
-            if str(hypothesis.get("product_smiles") or "") != str(
-                molecule.get("canonical_smiles") or ""
-            ):
-                continue
-            if not any(
-                str(origin.get("origin_kind") or "") in {"chemenzy", "aizynthfinder"}
-                and ":guided-" in str(origin.get("origin_ref") or "")
-                for origin in hypothesis.get("origin_records") or []
-                if isinstance(origin, Mapping)
-            ):
-                continue
-            hypothesis_routes = {
-                str(value)
-                for value in hypothesis.get("route_family_ids") or []
-                if str(value)
-            }
-            if hypothesis_routes:
-                settled_native_routes.update(hypothesis_routes & open_route_set)
-            else:
-                unscoped_native_attempt = True
-        for signal in dict(graph.get("action_signals") or {}).values():
-            if not isinstance(signal, Mapping):
-                continue
-            if (
-                str(signal.get("kind") or "") != DeficitKind.EXPANSION.value
-                or str(signal.get("status") or "") != "resolved"
-                or str(signal.get("object_id") or "") != str(molecule_id)
-                or dict(signal.get("metadata") or {}).get(
-                    "guided_provider_attempt"
-                )
-                is not True
-            ):
-                continue
-            signal_routes = {
-                str(value)
-                for value in signal.get("route_family_ids") or []
-                if str(value)
-            }
-            if signal_routes:
-                settled_native_routes.update(signal_routes & open_route_set)
-            elif dict(signal.get("metadata") or {}).get(
-                "frontier_occurrence_key"
-            ):
-                # A legacy explicitly occurrence-bound record may lack the
-                # projected family list.  Treat only that explicit historical
-                # record as a wildcard; an unbound signal grants no closure.
-                unscoped_native_attempt = True
-        guided_provider_lane_settled = bool(open_route_set) and (
-            unscoped_native_attempt
-            or open_route_set <= settled_native_routes
-        )
         builder_route_candidates = tuple(sorted(open_routes or target_routes))
         unavailable_builder_routes = {
             str(dict(signal.get("metadata") or {}).get("route_family_id") or "")
@@ -865,11 +808,8 @@ def compile_deficit_frontier(
             "frontier_builder_prior_rejection": dict(
                 latest_builder_metadata.get("diagnostic") or {}
             ),
-            "guided_provider_lane_settled": guided_provider_lane_settled,
             "attempt_history_does_not_resolve_leaf": True,
-            "provider_lanes_exhausted": bool(
-                guided_provider_lane_settled and not builder_route_id
-            ),
+            "builder_continuation_exhausted": not bool(builder_route_id),
             "frontier_builder_budget": dict(
                 builder_budget_states.get(builder_route_id) or {}
             ),
@@ -879,12 +819,7 @@ def compile_deficit_frontier(
         }
 
         def expansion_provider_preferences() -> list[str]:
-            values: list[str] = []
-            if not guided_provider_lane_settled:
-                values.append("native_short_tail")
-            if builder_route_id:
-                values.append("codex_frontier_builder")
-            return values
+            return ["codex_frontier_builder"] if builder_route_id else []
         active_stock_id = str(molecule.get("active_stock_observation_id") or "")
         active_stock = dict(
             dict(graph.get("stock_observations") or {}).get(active_stock_id) or {}
@@ -948,11 +883,7 @@ def compile_deficit_frontier(
                     route_family_ids=open_routes,
                     deterministic=False,
                     model_allowed=True,
-                    reason=(
-                        "stock_rejected_leaf_requires_builder_fallback"
-                        if guided_provider_lane_settled
-                        else "stock_rejected_leaf_requires_upstream_expansion"
-                    ),
+                    reason="stock_rejected_leaf_requires_builder_continuation",
                     score=_score(
                         DeficitKind.EXPANSION,
                         selected=selected,
@@ -967,7 +898,6 @@ def compile_deficit_frontier(
                         "frontier_molecule_id": str(molecule_id),
                         "target_rooted": True,
                         "target_rooted_open_leaf": True,
-                        "paper_short_tail_eligible": True,
                         **builder_lane,
                     },
                 )
@@ -1148,7 +1078,7 @@ def compile_deficit_frontier(
             "frontier_is_not_scientific_authority": True,
             "deterministic_work_precedes_model_work_by_score": True,
             "tie_breaking_is_deterministic": True,
-            "short_tail_requires_target_reachable_open_leaf": True,
+            "builder_continuation_requires_target_reachable_open_leaf": True,
             "settled_negative_stock_is_not_reaudited": True,
         },
     }

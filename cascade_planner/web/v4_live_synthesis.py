@@ -156,7 +156,6 @@ def register_live_synthesis_routes(
             row,
             download=str(request.args.get("download") or "") == "1",
             export_kind="interaction",
-            branch_index=_showcase_branch_query(),
         )
 
     @blueprint.get("/api/v4/live/<path:job_id>/exports/<export_kind>.html")
@@ -171,7 +170,6 @@ def register_live_synthesis_routes(
             row,
             download=str(request.args.get("download") or "") == "1",
             export_kind=export_kind,
-            branch_index=_showcase_branch_query(),
         )
 
     @blueprint.get("/api/v4/runs/<run_id>/showcase.html")
@@ -189,7 +187,6 @@ def register_live_synthesis_routes(
             status,
             download=str(request.args.get("download") or "") == "1",
             export_kind="interaction",
-            branch_index=_showcase_branch_query(),
         )
 
     @blueprint.get("/api/v4/runs/<run_id>/exports/<export_kind>.html")
@@ -205,7 +202,6 @@ def register_live_synthesis_routes(
             status,
             download=str(request.args.get("download") or "") == "1",
             export_kind=export_kind,
-            branch_index=_showcase_branch_query(),
         )
 
     @blueprint.get("/api/v4/molecule.svg")
@@ -260,6 +256,7 @@ def project_live_synthesis(
     critic_output_count = 0
     active_review_branch: int | None = None
     critic_task_branches: dict[str, int] = {}
+    critic_task_route_step_ids: dict[str, tuple[str, ...]] = {}
     step_insights: dict[str, dict[str, Any]] = {}
     remembered_route_steps: dict[int, dict[str, dict[str, Any]]] = {
         index: {} for index in range(1, 4)
@@ -296,6 +293,17 @@ def project_live_synthesis(
         if recover_saved_host_steps
         else {}
     )
+    final_critic_results = (
+        _final_route_critic_results_from_report(model_io_path)
+        if recover_saved_host_steps
+        else []
+    )
+    final_reviewed_branches = {
+        branch_id
+        for result in final_critic_results
+        if result.get("reviewed_edge_ids")
+        and (branch_id := _final_route_critic_branch_id(result))
+    }
     editor_step_ids = set(_saved_editor_steps(model_io_path))
     editor_repair_step_keys = _editor_repair_step_keys(model_io_path)
 
@@ -627,6 +635,15 @@ def project_live_synthesis(
                         _complete_branch_review(branches[active_review_branch])
                     active_review_branch = critic_branch_index
                     critic_task_branches[task_id] = critic_branch_index
+                    if str(context.get("phase") or "") == (
+                        "independent_chemical_critic"
+                    ):
+                        critic_task_route_step_ids[task_id] = tuple(
+                            str(step.get("step_id") or "")
+                            for step in context.get("steps") or []
+                            if isinstance(step, Mapping)
+                            and str(step.get("step_id") or "")
+                        )
                     target_smiles = str(
                         context.get("campaign_target") or target_smiles
                     )
@@ -752,6 +769,10 @@ def project_live_synthesis(
                     or card.get("strategy_query")
                     or payload.get("selection_rationale")
                 ),
+                "critical_assumption": _clean_text(
+                    card.get("critical_assumption")
+                ),
+                "critic_checkpoint": _clean_text(card.get("critic_checkpoint")),
                 "status": "planning",
                 "step_count": 0,
                 "renderable_step_count": 0,
@@ -914,6 +935,25 @@ def project_live_synthesis(
             critic_branch_index = (
                 critic_task_branches.get(task_id) or branch_index
             )
+            overall_assessment = str(
+                payload.get("overall_assessment")
+                or payload.get("status")
+                or "unavailable"
+            ).casefold()
+            route_default = (
+                "pass"
+                if overall_assessment == "viable"
+                else "unavailable"
+                if overall_assessment == "unavailable"
+                else "reviewed"
+            )
+            for step_id in critic_task_route_step_ids.get(task_id, ()):
+                step_insights[step_id] = {
+                    "critic_verdict": route_default,
+                    "critic_reasons": [],
+                    "critic_suggested_revision": "",
+                    "critic_condition_assessment": "",
+                }
             _record_critic_step_insights(step_insights, payload)
             if critic_branch_index in {1, 2, 3}:
                 branches[critic_branch_index]["chemical_critic_status"] = str(
@@ -921,6 +961,15 @@ def project_live_synthesis(
                     or payload.get("status")
                     or "unavailable"
                 )
+                if payload.get("route_overall_evaluation"):
+                    branches[critic_branch_index]["route_overall_evaluation"] = (
+                        _clean_text(payload.get("route_overall_evaluation"))
+                    )
+                    branches[critic_branch_index]["route_level_risks"] = [
+                        _clean_text(value)
+                        for value in payload.get("route_level_risks") or ()
+                        if _clean_text(value)
+                    ]
                 _attach_step_insights(
                     branches[critic_branch_index], step_insights
                 )
@@ -954,16 +1003,28 @@ def project_live_synthesis(
         canonical_step_ids = {
             str(step.get("step_id") or "") for step in canonical_steps
         }
-        for canonical_step in canonical_steps:
-            _merge_canonical_route_step(branch["steps"], canonical_step)
+        if branch_index in final_reviewed_branches:
+            # The final Route Critic is bound to one canonical route digest.
+            # Replace the event-stream projection so rejected or superseded
+            # Builder/Editor history cannot survive beside that final route.
+            branch["steps"] = deepcopy(canonical_steps)
+        else:
+            for canonical_step in canonical_steps:
+                _merge_canonical_route_step(branch["steps"], canonical_step)
         remember_route_steps(branch_index, branch["steps"])
         pending = branch.get("pending_step")
-        if (
+        if branch_index in final_reviewed_branches:
+            branch["pending_step"] = None
+        elif (
             isinstance(pending, Mapping)
             and str(pending.get("step_id") or "") in canonical_step_ids
         ):
             branch["pending_step"] = None
-        _order_route_steps(branch["steps"])
+        if branch_index in final_reviewed_branches:
+            for index, step in enumerate(branch["steps"], start=1):
+                step["index"] = index
+        else:
+            _order_route_steps(branch["steps"])
         materialized_editor_replay = (
             editor_replay_pending[branch_index]
             and bool(canonical_steps)
@@ -991,6 +1052,54 @@ def project_live_synthesis(
             )
             editor_replay_pending[branch_index] = False
             editor_proposed_step_ids[branch_index] = []
+
+    for result in final_critic_results:
+        branch_index = _final_route_critic_branch_id(result)
+        if branch_index not in branches:
+            continue
+        overall_assessment = str(
+            result.get("overall_assessment")
+            or result.get("critic_status")
+            or "unavailable"
+        ).casefold()
+        branches[branch_index]["chemical_critic_status"] = overall_assessment
+        branches[branch_index]["route_overall_evaluation"] = _clean_text(
+            result.get("route_overall_evaluation")
+        )
+        branches[branch_index]["route_level_risks"] = [
+            _clean_text(value)
+            for value in result.get("route_level_risks") or ()
+            if _clean_text(value)
+        ]
+        route_default = (
+            "pass"
+            if overall_assessment == "viable"
+            else "unavailable"
+            if overall_assessment == "unavailable"
+            else "reviewed"
+        )
+        for step_id in result.get("reviewed_step_ids") or ():
+            identity = str(step_id or "")
+            if identity:
+                step_insights[identity] = {
+                    "critic_verdict": route_default,
+                    "critic_reasons": [],
+                    "critic_suggested_revision": "",
+                    "critic_condition_assessment": "",
+                }
+        _record_critic_step_insights(
+            step_insights,
+            {
+                "overall_assessment": overall_assessment,
+                "step_assessments": [
+                    dict(value)
+                    for value in result.get("step_assessments") or ()
+                    if isinstance(value, Mapping)
+                ],
+            },
+        )
+    if final_critic_results:
+        critic_output_count = max(critic_output_count, len(final_critic_results))
 
     for branch in branches.values():
         _attach_step_insights(branch, step_insights)
@@ -1076,7 +1185,10 @@ def project_live_synthesis(
         f"{len(activities)}:{sum(len(v['steps']) for v in branches.values())}:"
         + ":".join(
             f"{index}:{branches[index]['status']}:"
-            f"{(branches[index]['pending_step'] or {}).get('step_id', '')}"
+            f"{(branches[index]['pending_step'] or {}).get('step_id', '')}:"
+            f"{branches[index]['chemical_critic_status']}:"
+            f"{branches[index]['route_overall_evaluation']}:"
+            f"{'|'.join(branches[index]['route_level_risks'])}"
             for index in range(1, 4)
         )
     )
@@ -1193,7 +1305,7 @@ def _showcase_response(
     *,
     download: bool,
     export_kind: str,
-    branch_index: int,
+    branch_indices: tuple[int, ...] | None = None,
 ) -> Response:
     """Build a bounded single-file response from the same live projection."""
 
@@ -1201,6 +1313,17 @@ def _showcase_response(
         build_run_export_html,
         showcase_filename,
     )
+
+    try:
+        selected_branches = branch_indices or _showcase_branch_query()
+    except ValueError as exc:
+        return jsonify(
+            {
+                "error": "showcase_selection_invalid",
+                "reason": str(exc),
+                "run_id": str(job.get("run_id") or ""),
+            }
+        ), 422
 
     model_io_path = _model_io_path(factory, job)
     if model_io_path is None:
@@ -1217,7 +1340,7 @@ def _showcase_response(
             job=job,
             model_io_path=model_io_path,
             export_kind=export_kind,
-            branch_index=branch_index,
+            branch_indices=selected_branches,
         )
     except ValueError as exc:
         return jsonify(
@@ -1236,19 +1359,34 @@ def _showcase_response(
     )
     if download:
         response.headers["Content-Disposition"] = (
-            f'attachment; filename="{showcase_filename(str(job.get("run_id") or ""), export_kind=export_kind, branch_index=branch_index)}"'
+            f'attachment; filename="{showcase_filename(str(job.get("run_id") or ""), export_kind=export_kind, branch_indices=selected_branches)}"'
         )
     return response
 
 
-def _showcase_branch_query() -> int:
-    try:
-        value = int(request.args.get("branch", 1))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("showcase_branch_index_invalid") from exc
-    if value not in {1, 2, 3}:
-        raise ValueError(f"showcase_branch_index_invalid:{value}")
-    return value
+def _showcase_branch_query() -> tuple[int, ...]:
+    """Parse a route subset while retaining the legacy ``branch`` query."""
+
+    raw = (
+        request.args.get("branches")
+        if "branches" in request.args
+        else request.args.get("branch", "1")
+    )
+    text = str(raw or "").strip()
+    if not text:
+        raise ValueError("showcase_branch_indices_empty")
+    selected: set[int] = set()
+    for item in text.split(","):
+        value_text = item.strip()
+        if not re.fullmatch(r"[0-9]+", value_text):
+            raise ValueError(f"showcase_branch_index_invalid:{value_text}")
+        value = int(value_text)
+        if value not in {1, 2, 3}:
+            raise ValueError(f"showcase_branch_index_invalid:{value}")
+        selected.add(value)
+    if not selected:
+        raise ValueError("showcase_branch_indices_empty")
+    return tuple(sorted(selected))
 
 
 def _read_model_io(path: Path | None):
@@ -1461,6 +1599,37 @@ def _solve_report(path: Path | None) -> dict[str, Any]:
     return {}
 
 
+def _final_route_critic_results_from_report(
+    path: Path | None,
+) -> list[dict[str, Any]]:
+    report = _solve_report(path)
+    for raw_stage in reversed(list(report.get("stages") or [])):
+        if not isinstance(raw_stage, Mapping):
+            continue
+        if str(raw_stage.get("stage") or "") != "final_route_critic":
+            continue
+        detail = dict(raw_stage.get("detail") or {})
+        return [
+            dict(value)
+            for value in detail.get("results") or ()
+            if isinstance(value, Mapping)
+        ]
+    return []
+
+
+def _final_route_critic_branch_id(result: Mapping[str, Any]) -> int:
+    """Translate the Critic's zero-based branch index to the UI branch id."""
+
+    raw_branch_id = result.get("branch_id")
+    if isinstance(raw_branch_id, int) and not isinstance(raw_branch_id, bool):
+        return raw_branch_id if raw_branch_id in {1, 2, 3} else 0
+    raw_branch_index = result.get("branch_index")
+    if isinstance(raw_branch_index, int) and not isinstance(raw_branch_index, bool):
+        branch_id = raw_branch_index + 1
+        return branch_id if branch_id in {1, 2, 3} else 0
+    return 0
+
+
 def _status_axes(
     path: Path | None,
     *,
@@ -1530,14 +1699,24 @@ def _status_axes(
         )
 
         critic_counts: dict[str, int] = {}
-        for skeleton in skeletons:
-            critic = dict(skeleton.get("chemical_critic") or {})
-            state = str(
-                critic.get("status")
-                or critic.get("overall_assessment")
-                or "unavailable"
-            ).casefold()
-            critic_counts[state] = critic_counts.get(state, 0) + 1
+        final_critic_results = _final_route_critic_results_from_report(path)
+        if final_critic_results:
+            for result in final_critic_results:
+                state = str(
+                    result.get("critic_status")
+                    or result.get("overall_assessment")
+                    or "unavailable"
+                ).casefold()
+                critic_counts[state] = critic_counts.get(state, 0) + 1
+        else:
+            for skeleton in skeletons:
+                critic = dict(skeleton.get("chemical_critic") or {})
+                state = str(
+                    critic.get("status")
+                    or critic.get("overall_assessment")
+                    or "unavailable"
+                ).casefold()
+                critic_counts[state] = critic_counts.get(state, 0) + 1
         observed_critic_states = {
             key for key, count in critic_counts.items() if count > 0
         }
@@ -1620,13 +1799,13 @@ def _status_axes(
 def _settled_canonical_steps(
     path: Path | None,
 ) -> dict[int, list[dict[str, Any]]]:
-    """Recover final materialized Codex steps omitted from the model stream.
+    """Recover the final Host-materialized route omitted from event replay.
 
-    Editor mutations are applied by the Host after the model output. Older
-    director ledgers do not always contain a following model input that
-    repeats those accepted steps, while the final candidate lifecycle does.
-    Lifecycle decides materialization and canonical structures; the saved
-    Editor output supplies display conditions.
+    New reports bind the final Route Critic to exact canonical edge and step
+    identities.  That binding is the settled display authority; candidate
+    lifecycle supplies canonical structures and the saved Critic input supplies
+    descriptive conditions.  Older reports fall back to the historical
+    Director-only recovery path.
     """
 
     if path is None:
@@ -1634,6 +1813,14 @@ def _settled_canonical_steps(
     report = _solve_report(path)
     if not report:
         return {}
+
+    final_results = _final_route_critic_results_from_report(path)
+    if any(result.get("reviewed_edge_ids") for result in final_results):
+        return _final_reviewed_canonical_steps(
+            path=path,
+            report=report,
+            results=final_results,
+        )
 
     editor_steps = _saved_editor_steps(path)
     by_branch: dict[int, dict[str, dict[str, Any]]] = {
@@ -1684,6 +1871,208 @@ def _settled_canonical_steps(
         for branch_index, steps in by_branch.items()
         if steps
     }
+
+
+def _final_reviewed_canonical_steps(
+    *,
+    path: Path,
+    report: Mapping[str, Any],
+    results: list[dict[str, Any]],
+) -> dict[int, list[dict[str, Any]]]:
+    """Join final reviewed step ids to their canonical lifecycle edges.
+
+    ``reviewed_edge_ids`` are a content-identity set and are not guaranteed to
+    share the target-rooted order of ``reviewed_step_ids``.  Join through the
+    matching lifecycle origin instead of zipping the two arrays.
+    """
+
+    lifecycle = dict(report.get("candidate_lifecycle") or {})
+    records_by_edge = {
+        str(record.get("edge_id") or ""): dict(record)
+        for raw_record in lifecycle.get("records") or []
+        if isinstance(raw_record, Mapping)
+        and (record := dict(raw_record))
+        and str(record.get("edge_id") or "")
+    }
+    saved_routes, saved_steps = _saved_final_critic_routes(path, results)
+    by_branch: dict[int, list[dict[str, Any]]] = {}
+
+    for result in results:
+        branch_index = _final_route_critic_branch_id(result)
+        reviewed_step_ids = tuple(
+            str(value)
+            for value in result.get("reviewed_step_ids") or []
+            if str(value).strip()
+        )
+        reviewed_edge_ids = {
+            str(value)
+            for value in result.get("reviewed_edge_ids") or []
+            if str(value).strip()
+        }
+        if branch_index not in {1, 2, 3} or not reviewed_step_ids:
+            continue
+
+        route_family_id = str(result.get("route_family_id") or "")
+        route_steps = {
+            str(step.get("step_id") or ""): step
+            for step in saved_routes.get(reviewed_step_ids, [])
+            if str(step.get("step_id") or "")
+        }
+        reviewed_records = [
+            records_by_edge[edge_id]
+            for edge_id in reviewed_edge_ids
+            if edge_id in records_by_edge
+            and dict(records_by_edge[edge_id].get("materialization") or {}).get(
+                "materialized"
+            )
+            is True
+        ]
+        final_steps: list[dict[str, Any]] = []
+        for step_id in reviewed_step_ids:
+            match = _lifecycle_record_for_reviewed_step(
+                reviewed_records,
+                step_id=step_id,
+                route_family_id=route_family_id,
+            )
+            if match is None:
+                continue
+            record, origin = match
+            saved = route_steps.get(step_id) or saved_steps.get(step_id) or {}
+            step = deepcopy(dict(saved))
+            step.update(
+                step_id=step_id,
+                product_smiles=str(record.get("product_smiles") or ""),
+                precursor_smiles=[
+                    str(value)
+                    for value in record.get("precursor_smiles") or []
+                    if str(value).strip()
+                ],
+                reaction_family=_clean_text(
+                    origin.get("transformation_hypothesis")
+                    or step.get("reaction_family")
+                ),
+                status="host_materialized",
+                canonical_edge_id=str(record.get("edge_id") or ""),
+            )
+            step.setdefault("conditions", [])
+            step.setdefault("catalyst", "")
+            step.setdefault("transformation_rationale", "")
+            _attach_canonical_step_origin(step, origin)
+            final_steps.append(step)
+
+        if final_steps:
+            for index, step in enumerate(final_steps, start=1):
+                step["index"] = index
+            by_branch[branch_index] = final_steps
+
+    return by_branch
+
+
+def _saved_final_critic_routes(
+    path: Path,
+    results: list[dict[str, Any]],
+) -> tuple[
+    dict[tuple[str, ...], list[dict[str, Any]]],
+    dict[str, dict[str, Any]],
+]:
+    """Recover descriptive route rows from the exact final Critic inputs."""
+
+    expected = {
+        tuple(
+            str(value)
+            for value in result.get("reviewed_step_ids") or []
+            if str(value).strip()
+        )
+        for result in results
+    }
+    expected.discard(())
+    routes: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    latest_steps: dict[str, dict[str, Any]] = {}
+    for event in _read_model_io(path):
+        if (
+            not isinstance(event, Mapping)
+            or event.get("event") != "model_input"
+            or str(event.get("artifact_type") or "")
+            != "ChemicalStrategyCritique"
+        ):
+            continue
+        context = _critic_route_context(str(event.get("prompt") or ""))
+        if str(context.get("phase") or "") != "independent_chemical_critic":
+            continue
+        steps = _route_steps(context.get("steps"))
+        step_ids = tuple(
+            str(step.get("step_id") or "")
+            for step in steps
+            if str(step.get("step_id") or "")
+        )
+        for step in steps:
+            step_id = str(step.get("step_id") or "")
+            if step_id:
+                latest_steps[step_id] = step
+        if step_ids in expected:
+            routes[step_ids] = steps
+    return routes, latest_steps
+
+
+def _lifecycle_record_for_reviewed_step(
+    records: list[dict[str, Any]],
+    *,
+    step_id: str,
+    route_family_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    family_fallback: tuple[dict[str, Any], dict[str, Any]] | None = None
+    for record in records:
+        for raw_origin in record.get("origin_records") or []:
+            if not isinstance(raw_origin, Mapping):
+                continue
+            origin = dict(raw_origin)
+            if str(origin.get("proposal_id") or "") != step_id:
+                continue
+            if _origin_belongs_to_route_family(origin, route_family_id):
+                return record, origin
+            family_fallback = family_fallback or (record, origin)
+    return family_fallback
+
+
+def _origin_belongs_to_route_family(
+    origin: Mapping[str, Any],
+    route_family_id: str,
+) -> bool:
+    if not route_family_id:
+        return True
+    family_ids = {
+        str(value)
+        for value in origin.get("canonical_route_family_ids") or []
+        if str(value).strip()
+    }
+    family_ids.add(str(origin.get("route_family_id") or ""))
+    return route_family_id in family_ids
+
+
+def _attach_canonical_step_origin(
+    step: dict[str, Any],
+    origin: Mapping[str, Any],
+) -> None:
+    origin_kind = str(origin.get("origin_kind") or "").casefold()
+    if origin_kind == "aizynthfinder":
+        kind = "aizynthfinder_short_tail"
+        label = "AiZ short-tail"
+        provenance = "aiz_short_tail"
+    elif origin_kind == "codex":
+        kind = "large_model"
+        label = "大模型 Frontier Builder"
+        provenance = "frontier_builder"
+    else:
+        kind = "large_model"
+        label = "大模型 Builder"
+        provenance = "builder"
+    step["step_origins"] = [{"kind": kind, "label": label}]
+    step["step_origin"] = kind
+    step["step_origin_label"] = label
+    step["step_origin_basis"] = (
+        "final_route_critic.reviewed_step_ids + candidate_lifecycle.origin_records"
+    )
+    step["route_provenance"] = provenance
 
 
 def _saved_editor_steps(path: Path | None) -> dict[str, dict[str, Any]]:
@@ -2184,6 +2573,10 @@ def _strategy_cards(value: Any) -> list[dict[str, Any]]:
                     or f"Strategy {index}"
                 ),
                 "query": _clean_text(raw.get("strategy_query")),
+                "critical_assumption": _clean_text(
+                    raw.get("critical_assumption")
+                ),
+                "critic_checkpoint": _clean_text(raw.get("critic_checkpoint")),
                 "status": "planning",
                 "step_count": 0,
                 "renderable_step_count": 0,
@@ -2200,6 +2593,8 @@ def _empty_strategy(index: int) -> dict[str, Any]:
         "index": index,
         "signature": "",
         "query": "等待独立策略输出",
+        "critical_assumption": "",
+        "critic_checkpoint": "",
         "status": "planning",
         "step_count": 0,
         "renderable_step_count": 0,
@@ -2216,6 +2611,8 @@ def _empty_branch(index: int) -> dict[str, Any]:
         "steps": [],
         "pending_step": None,
         "chemical_critic_status": "",
+        "route_overall_evaluation": "",
+        "route_level_risks": [],
     }
 
 
@@ -2339,6 +2736,9 @@ def _attach_route_provenance(
     for raw_step in steps or []:
         if not isinstance(raw_step, dict):
             continue
+        explicit = str(raw_step.get("route_provenance") or "")
+        if explicit in {"aiz_short_tail", "frontier_builder"}:
+            continue
         step_id = str(raw_step.get("step_id") or "")
         match = _PROPOSAL_RE.search(step_id)
         proposal_key = (
@@ -2384,7 +2784,11 @@ def _route_lane_critic_state(
         return "uncertain"
     if verdicts and all(value == "pass" for value in verdicts):
         return "pass"
-    return "pending"
+    if "unavailable" in verdicts:
+        return "unavailable"
+    if verdicts:
+        return "reviewed"
+    return "unreviewed"
 
 
 def _annotate_route_topology(steps: Any) -> None:

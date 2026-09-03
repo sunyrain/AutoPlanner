@@ -85,6 +85,27 @@ def test_target_cli_visual_evidence_is_explicitly_opt_in_and_bounded() -> None:
     assert opted_in.max_visual_pages == 2
 
 
+def test_target_cli_exposes_explicit_resume_scope() -> None:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command")
+    add_target_commands(commands)
+
+    default = parser.parse_args(["solve-target", "--target-smiles", "CCO"])
+    interactive = parser.parse_args(
+        [
+            "solve-target",
+            "--target-smiles",
+            "CCO",
+            "--resume",
+            "--run-scope",
+            "interactive",
+        ]
+    )
+
+    assert default.run_scope == "blind"
+    assert interactive.run_scope == "interactive"
+
+
 def test_target_cli_objective_mode_is_deprecated_compatibility_only() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command")
@@ -276,12 +297,6 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
             "45",
             "--chemenzy-seed",
             "17",
-            "--aizynthfinder-python-executable",
-            "D:/aiz/.venv/Scripts/python.exe",
-            "--aizynthfinder-config-path",
-            "D:/aiz/config/paper.yml",
-            "--aizynthfinder-runtime-root",
-            "D:/aiz",
         ]
     )
     disabled = parser.parse_args(
@@ -298,8 +313,6 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
     assert disabled.target_chemenzy_baseline is False
     assert default.chemenzy_iterations == 500
     assert default.chemenzy_timeout_s == 1_200.0
-    assert default.guided_chemenzy_iterations == 500
-    assert default.guided_chemenzy_timeout_s == 1_200.0
     assert configured.chemenzy_env_prefix == "D:/isolated/chemenzy"
     assert configured.chemenzy_stock_name == ["RetroStar-stock"]
     assert configured.chemenzy_stock_path == [
@@ -310,11 +323,6 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
     assert configured.chemenzy_expansion_topk == 12
     assert configured.chemenzy_timeout_s == 45.0
     assert configured.chemenzy_seed == 17
-    assert configured.aizynthfinder_python_executable == (
-        "D:/aiz/.venv/Scripts/python.exe"
-    )
-    assert configured.aizynthfinder_config_path == "D:/aiz/config/paper.yml"
-    assert configured.aizynthfinder_runtime_root == "D:/aiz"
 
 
 def test_validation_fork_supports_parallel_patent_and_literature_sources() -> None:

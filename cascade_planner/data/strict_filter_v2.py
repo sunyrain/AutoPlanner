@@ -25,6 +25,8 @@ from pathlib import Path
 from collections import Counter
 from rdkit import Chem, RDLogger
 
+from cascade_planner.runtime.paths import RuntimePaths
+
 RDLogger.DisableLog("rdApp.*")
 
 EC_PAT = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
@@ -80,9 +82,20 @@ def filter_step(s: dict) -> tuple[bool, str]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in", dest="inp", default="cascade_dataset_v2.normalized.json")
-    ap.add_argument("--out", default="cascade_dataset_v2.strict.json")
-    ap.add_argument("--report", default="cascade_dataset_v2.strict.report.json")
+    data_root = RuntimePaths.discover().external_data_root / "cascade"
+    ap.add_argument(
+        "--in",
+        dest="inp",
+        default=str(data_root / "cascade_dataset_v2.normalized.json"),
+    )
+    ap.add_argument(
+        "--out",
+        default=str(data_root / "cascade_dataset_v2.strict.json"),
+    )
+    ap.add_argument(
+        "--report",
+        default=str(data_root / "cascade_dataset_v2.strict.report.json"),
+    )
     args = ap.parse_args()
 
     data = json.loads(Path(args.inp).read_text(encoding="utf-8"))

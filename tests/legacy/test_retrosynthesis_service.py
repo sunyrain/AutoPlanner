@@ -138,6 +138,28 @@ def test_v4_service_reopens_from_kernel_without_private_campaign_state(
     assert reopened.kernel.recover()["event_count"] == reopened.kernel.state.event_count
 
 
+def test_final_route_repair_plan_uses_canonical_ingestion_with_bound_origin(
+    tmp_path: Path,
+) -> None:
+    service = RetrosynthesisCampaignService.create(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=_spec(),
+    )
+
+    admitted = service.apply_final_route_repair_plan(
+        _plan(),
+        idempotency_key="final-route-repair",
+        proposal_origin_ref="final-route-repair:route-sha:attempt:1",
+    )
+
+    assert admitted["changed"] is True
+    hypothesis = next(iter(service.graph_store.load()["hypotheses"].values()))
+    origin = hypothesis["origin_records"][0]
+    assert origin["origin_kind"] == "codex"
+    assert origin["origin_ref"] == "final-route-repair:route-sha:attempt:1"
+
+
 def test_v4_service_publishes_incremental_workbench_without_mutating_science(
     tmp_path: Path,
 ) -> None:

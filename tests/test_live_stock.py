@@ -16,6 +16,7 @@ from cascade_planner.interfaces.live_stock import (
 from cascade_planner.interfaces.target_solver_stages import (
     _assert_stock_oracle_builder_binding,
     _selected_stock_audit_molecules,
+    canonical_route_stock_closed,
 )
 from cascade_planner.application.unified_campaign_spec import (
     StockOracleReference,
@@ -176,6 +177,61 @@ def test_selected_stock_leaves_above_one_batch_are_not_globally_rejected() -> No
     assert selection["audit_batch_limit"] == 24
     assert selection["leaf_molecule_ids"] == leaf_ids
     assert selection["stock_candidate_molecule_ids"] == leaf_ids
+
+
+def test_stock_selection_can_scope_an_unselected_repair_candidate() -> None:
+    graph = {
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:old": {"canonical_smiles": "C"},
+            "molecule:new": {
+                "canonical_smiles": "CC",
+                "active_stock_observation_id": "stock:new",
+            },
+        },
+        "stock_observations": {
+            "stock:new": {
+                "molecule_id": "molecule:new",
+                "accepted": True,
+                "provider_result": {
+                    "payload": {"boundary_type": "benchmark_stock"}
+                },
+            }
+        },
+        "edges": {},
+        "route_families": {
+            "route:old": {
+                "selected": True,
+                "leaf_molecule_ids": ["molecule:old"],
+                "edge_ids": ["edge:old"],
+            },
+            "route:new": {
+                "selected": False,
+                "leaf_molecule_ids": ["molecule:new"],
+                "edge_ids": ["edge:new"],
+                "unmaterialized_hypothesis_ids": [],
+            },
+        },
+    }
+
+    selection = _selected_stock_audit_molecules(
+        graph,
+        max_molecules=24,
+        route_family_ids=("route:new",),
+    )
+
+    assert selection["route_family_ids"] == ["route:new"]
+    assert selection["leaf_molecule_ids"] == ["molecule:new"]
+    assert canonical_route_stock_closed(
+        graph,
+        route_family_id="route:new",
+        required_boundary="benchmark_search",
+    )
+    assert not canonical_route_stock_closed(
+        graph,
+        route_family_id="route:old",
+        required_boundary="benchmark_search",
+    )
 
 
 def test_stock_stage_rejects_a_runtime_resolver_different_from_run_spec() -> None:

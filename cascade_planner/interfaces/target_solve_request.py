@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
-import hashlib
 from pathlib import Path
 from threading import Event
 from typing import Any, Mapping
-
-import yaml
 
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
@@ -20,10 +17,10 @@ from cascade_planner.interfaces.target_solver import (
     _is_paper_reach_profile,
     _resolve_execution_config,
 )
-from cascade_planner.interfaces.aizynthfinder_sidecar import (
-    AiZynthFinderSidecarConfig,
+from cascade_planner.interfaces.live_stock import (
+    FrozenBenchmarkStockIndex,
+    standard_stock_catalog_builder,
 )
-from cascade_planner.interfaces.live_stock import FrozenBenchmarkStockIndex
 from cascade_planner.interfaces.target_runtime_dependencies import (
     SYNTHEX_MATCHED_PROFILE_DEFAULTS,
     TARGET_PROFILE_DEFAULTS,
@@ -57,10 +54,7 @@ def solve_target_request(
         else _web_visual_provider(gateway, payload, enabled=max_visual_invocations > 0)
     )
     inventory_builder = inventory_snapshot_builder(payload)
-    stock_catalog_builder = _request_stock_catalog_builder(
-        payload,
-        execution_profile=execution_profile,
-    )
+    stock_catalog_builder = _request_stock_catalog_builder(payload)
     return gateway.solve_target(
         target_name=str(payload.get("target_name") or "blind target"),
         target_smiles=str(payload.get("target_smiles") or ""),
@@ -184,22 +178,6 @@ def solve_target_request(
                 "enable_target_chemenzy_baseline",
                 bool(matched["target_chemenzy_baseline"]),
             ),
-            enable_guided_chemenzy=_bool(payload, "enable_guided_chemenzy", True),
-            aizynthfinder_python_executable=str(
-                payload.get("aizynthfinder_python_executable") or ""
-            ),
-            aizynthfinder_config_path=str(
-                payload.get("aizynthfinder_config_path") or ""
-            ),
-            aizynthfinder_runtime_root=str(
-                payload.get("aizynthfinder_runtime_root") or ""
-            ),
-            aizynthfinder_short_tail_mode=str(
-                payload.get("aizynthfinder_short_tail_mode") or "short_tail"
-            ),
-            native_short_tail_engine=str(
-                payload.get("native_short_tail_engine") or "auto"
-            ),
             enable_chemenzy_condition_prediction=_bool(
                 payload, "enable_chemenzy_condition_prediction", True
             ),
@@ -210,6 +188,21 @@ def solve_target_request(
                 payload, "enable_enzyme_coverage_sidecar", True
             ),
             chemenzy_env_prefix=str(payload.get("chemenzy_env_prefix") or ""),
+            chemenzy_stock_names=(
+                (str(stock_catalog_builder.catalog_name),)
+                if stock_catalog_builder is not None
+                else ()
+            ),
+            chemenzy_stock_paths=(
+                (
+                    (
+                        str(stock_catalog_builder.catalog_name),
+                        str(stock_catalog_builder.index_path),
+                    ),
+                )
+                if stock_catalog_builder is not None
+                else ()
+            ),
             self_evo_library_path=str(payload.get("self_evo_library_path") or ""),
             max_atom_mapping_reactions=_int(
                 payload,
@@ -249,18 +242,20 @@ def solve_target_request(
                 else None
             ),
             max_chemenzy_steps=_int(
-                payload, "max_chemenzy_steps", matched["short_tail_steps"]
+                payload, "max_chemenzy_steps", matched["native_baseline_steps"]
             ),
             max_chemenzy_iterations=_int(
                 payload,
                 "max_chemenzy_iterations",
-                matched["short_tail_iterations"],
+                matched["native_baseline_iterations"],
             ),
             chemenzy_expansion_topk=_int(
                 payload, "chemenzy_expansion_topk", profile_defaults["topk"]
             ),
             chemenzy_timeout_s=float(
-                payload.get("chemenzy_timeout_s", matched["short_tail_timeout_s"])
+                payload.get(
+                    "chemenzy_timeout_s", matched["native_baseline_timeout_s"]
+                )
             ),
             chemenzy_search_preset=str(
                 payload.get("chemenzy_search_preset")
@@ -271,21 +266,6 @@ def solve_target_request(
                 payload,
                 "chemenzy_pandarallel_workers",
                 profile_defaults["workers"],
-            ),
-            max_guided_chemenzy_frontiers=(
-                _int(payload, "max_guided_chemenzy_frontiers", 0)
-                if payload.get("max_guided_chemenzy_frontiers") not in {None, ""}
-                else None
-            ),
-            max_guided_chemenzy_iterations=_int(
-                payload,
-                "max_guided_chemenzy_iterations",
-                matched["short_tail_iterations"],
-            ),
-            guided_chemenzy_timeout_s=float(
-                payload.get(
-                    "guided_chemenzy_timeout_s", matched["short_tail_timeout_s"]
-                )
             ),
             max_visual_evidence_pages=_int(payload, "max_visual_evidence_pages", 6),
             minimum_planning_route_steps=_int(
@@ -312,24 +292,29 @@ def solve_target_request(
 
 def _request_stock_catalog_builder(
     payload: Mapping[str, Any],
-    *,
-    execution_profile: str,
 ) -> FrozenBenchmarkStockIndex | None:
-    """Materialize the stock authority required by Strategy Builder.
+    """Resolve one frozen benchmark stock without consulting model providers."""
 
-    Explicit benchmark requests remain fail-closed on a caller-supplied
-    content hash. Interactive paper-profile runs bind the stock selected by
-    the already-resolved AiZynthFinder configuration and record its measured
-    content identity in the campaign stock oracle.
-    """
-
-    if str(payload.get("stock_boundary") or "benchmark_search") != "benchmark_search":
-        return None
+    boundary = str(payload.get("stock_boundary") or "benchmark_search")
     explicit_path = str(payload.get("benchmark_stock_index") or "").strip()
     explicit_sha256 = str(
         payload.get("benchmark_stock_index_sha256") or ""
     ).strip()
     catalog_name = str(payload.get("benchmark_stock_name") or "").strip()
+    explicit_fields = bool(explicit_path or explicit_sha256 or catalog_name)
+    enabled = _bool(payload, "enable_live_benchmark_stock", True)
+    if boundary != "benchmark_search":
+        if explicit_fields:
+            raise ValueError(
+                "benchmark_stock_index_requires_benchmark_search_boundary"
+            )
+        return None
+    if not enabled:
+        if explicit_fields:
+            raise ValueError(
+                "benchmark_stock_index_conflicts_with_disabled_benchmark_stock"
+            )
+        return None
     if explicit_path:
         if not explicit_sha256:
             raise ValueError("benchmark_stock_index_sha256_required")
@@ -340,85 +325,7 @@ def _request_stock_catalog_builder(
         )
     if explicit_sha256 or catalog_name:
         raise ValueError("benchmark_stock_index_path_required")
-    if (
-        str(payload.get("run_scope") or "blind") != "interactive"
-        or not _is_paper_reach_profile(execution_profile)
-        or not _bool(payload, "enable_live_benchmark_stock", True)
-    ):
-        return None
-
-    binding = AiZynthFinderSidecarConfig(
-        python_executable=str(
-            payload.get("aizynthfinder_python_executable") or ""
-        ),
-        config_path=str(payload.get("aizynthfinder_config_path") or ""),
-        runtime_root=str(payload.get("aizynthfinder_runtime_root") or ""),
-        mode=str(payload.get("aizynthfinder_short_tail_mode") or "short_tail"),
-    )
-    stock_name, stock_path = _strategy_stock_from_aizynthfinder_config(
-        binding.resolved_config(),
-        runtime_root=binding.resolved_runtime_root(),
-    )
-    stat = stock_path.stat()
-    measured_sha256 = _cached_file_sha256(
-        str(stock_path),
-        int(stat.st_size),
-        int(stat.st_mtime_ns),
-    )
-    return _cached_frozen_stock_index(
-        str(stock_path),
-        measured_sha256,
-        stock_name,
-    )
-
-
-def _strategy_stock_from_aizynthfinder_config(
-    config_path: Path,
-    *,
-    runtime_root: Path,
-) -> tuple[str, Path]:
-    try:
-        value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        raise ValueError("aizynthfinder_strategy_config_unreadable") from exc
-    if not isinstance(value, Mapping):
-        raise ValueError("aizynthfinder_strategy_config_invalid")
-    raw_stock = value.get("stock")
-    if not isinstance(raw_stock, Mapping) or not raw_stock:
-        raise ValueError("aizynthfinder_strategy_stock_not_configured")
-    named = [
-        (str(name), dict(config))
-        for name, config in raw_stock.items()
-        if isinstance(config, Mapping) and str(config.get("path") or "").strip()
-    ]
-    preferred = [row for row in named if row[0] == "paper_zinc_emolecules"]
-    selected = preferred or named
-    if len(selected) != 1:
-        raise ValueError("aizynthfinder_strategy_stock_binding_ambiguous")
-    name, config = selected[0]
-    raw_path = Path(str(config.get("path") or "")).expanduser()
-    stock_path = (
-        raw_path if raw_path.is_absolute() else Path(runtime_root) / raw_path
-    ).resolve()
-    if not stock_path.is_file():
-        raise ValueError(f"aizynthfinder_strategy_stock_index_missing:{stock_path}")
-    return name, stock_path
-
-
-@lru_cache(maxsize=8)
-def _cached_file_sha256(path: str, size: int, mtime_ns: int) -> str:
-    resolved = Path(path)
-    before = resolved.stat()
-    if int(before.st_size) != size or int(before.st_mtime_ns) != mtime_ns:
-        raise ValueError("benchmark_stock_index_changed_before_hash")
-    digest = hashlib.sha256()
-    with resolved.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    after = resolved.stat()
-    if int(after.st_size) != size or int(after.st_mtime_ns) != mtime_ns:
-        raise ValueError("benchmark_stock_index_changed_during_hash")
-    return digest.hexdigest()
+    return standard_stock_catalog_builder()
 
 
 @lru_cache(maxsize=8)

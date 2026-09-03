@@ -85,7 +85,7 @@ def register_target_routes(
             "run_scope": run_scope,
             "target_smiles": canonical,
         }
-        if run_scope == "interactive":
+        if run_scope == "interactive" and payload.get("force_new_run") is not True:
             repository_matches = _interactive_repository_matches(
                 factory(),
                 canonical,

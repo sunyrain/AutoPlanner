@@ -46,6 +46,7 @@ from cascade_planner.agent.codex_worker import (
     _normalize_reversible_utf8_mojibake,
     _run_codex_cli_worker,
     _run_worker_command,
+    _worker_creation_flags,
     _worker_model_output_json_schema,
     _worker_output_json_schema,
     preflight_worker_response_schemas,
@@ -62,6 +63,15 @@ from cascade_planner.agent.evolution_manager import (
 
 
 class CodexWorkerControllerEvolutionTest(unittest.TestCase):
+    def test_worker_creation_flags_hide_windows_console(self):
+        with patch(
+            "cascade_planner.agent.codex_worker.os.name", "nt"
+        ), patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True):
+            self.assertEqual(_worker_creation_flags(), 0x08000000)
+
+        with patch("cascade_planner.agent.codex_worker.os.name", "posix"):
+            self.assertEqual(_worker_creation_flags(), 0)
+
     def test_worker_repairs_only_reversible_gbk_utf8_mojibake(self):
         raw = (
             '{"reaction":"Pauson鈥揔hand","temperature":"80 掳C",'
@@ -173,8 +183,12 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertIn("blocking", assessment["properties"])
         self.assertIn("blocking_type", assessment["properties"])
         self.assertIn("condition_assessment", assessment["properties"])
+        self.assertIn("review_slot", assessment["properties"])
+        self.assertNotIn("reaction_edit_digest", assessment["properties"])
+        self.assertNotIn("step_id", assessment["properties"])
         self.assertNotIn("coupled_step_ids", assessment["properties"])
         self.assertIn("coupled_blocker_groups", critic_payload["properties"])
+        self.assertIn("route_overall_evaluation", critic_payload["properties"])
         self.assertNotIn("mechanistic_analysis", assessment["properties"])
         self.assertNotIn("experimental_variables", critic_payload["properties"])
 
@@ -591,14 +605,28 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                     task_type="paper_matched_route_critic",
                     required_artifact_type="ChemicalStrategyCritique",
                     budget=WorkerBudget(max_tool_calls=0),
-                    host_context={"target_smiles": "CCO"},
+                    host_context={
+                        "target_smiles": "CCO",
+                        "route_review_bindings": [
+                            {
+                                "review_slot": "review-001",
+                                "reaction_edit_digest": "d" * 64,
+                                "step_id": "route:1",
+                            }
+                        ],
+                    },
                 ),
                 {
                     "overall_assessment": "viable",
+                    "route_overall_evaluation": (
+                        "The route is strategically coherent and uses a direct, "
+                        "well-matched disconnection. Its main uncertainty is "
+                        "experimental scope, so it is ready for focused validation."
+                    ),
                     "strategy_adherence": True,
                     "step_assessments": [
                         {
-                            "step_id": "route:1",
+                            "review_slot": "review-001",
                             "verdict": "pass",
                             "blocking": False,
                             "blocking_type": "none",

@@ -43,7 +43,7 @@ class ReactionJsonOrProjection:
 
     steps: tuple[Mapping[str, Any], ...]
     open_leaf_states: tuple[Mapping[str, str], ...]
-    deferred_tail_leaf_states: tuple[Mapping[str, str], ...]
+    deferred_builder_leaf_states: tuple[Mapping[str, str], ...]
     complete: bool
     summary: Mapping[str, Any]
 
@@ -63,7 +63,7 @@ class ChemEnzyReactionJsonOrSearch:
         mapped_target_smiles: str,
         max_depth: int,
         vendor_root: Path | str | None = None,
-        blocked_tail_penalty: float = 100.0,
+        deferred_node_penalty: float = 100.0,
     ) -> None:
         mol_tree_class = _load_mol_tree_class(vendor_root)
         self.tree = mol_tree_class(
@@ -72,7 +72,7 @@ class ChemEnzyReactionJsonOrSearch:
             value_fn=lambda _mol: 0.0,
             max_depth=max(1, int(max_depth)),
         )
-        self.blocked_tail_penalty = max(1.0, float(blocked_tail_penalty))
+        self.deferred_node_penalty = max(1.0, float(deferred_node_penalty))
         self._node_context: dict[int, dict[str, str]] = {
             int(self.tree.root.id): {
                 "smiles": str(target_smiles),
@@ -269,18 +269,18 @@ class ChemEnzyReactionJsonOrSearch:
             inserted += added
         return inserted
 
-    def block_for_short_tail(self, node: Any) -> None:
-        """Close an unmaterializable leaf without falsely marking it solved.
+    def defer_failed_node(self, node: Any) -> None:
+        """Backtrack from one repeatedly invalid edit without marking it solved.
 
         A finite high value makes a cheaper sibling reaction preferable, which
         is the desired backtrack.  The blocked molecule remains visible in the
-        projection as an unresolved short-tail boundary.
+        projection as an unresolved leaf for ordinary Builder continuation.
         """
 
         if not bool(getattr(node, "open", False)):
             return
         old_value = float(getattr(node, "value", 0.0))
-        node.value = max(self.blocked_tail_penalty, old_value)
+        node.value = max(self.deferred_node_penalty, old_value)
         node.open = False
         node.go_back = True
         node.succ = False
@@ -331,13 +331,13 @@ class ChemEnzyReactionJsonOrSearch:
             "duplicate_candidates": int(self.duplicate_candidate_count),
             "backtracks": int(self.backtrack_count),
             "open_nodes": sum(bool(getattr(node, "open", False)) for node in self.tree.mol_nodes),
-            "blocked_tail_nodes": len(self._blocked_node_ids),
+            "deferred_failed_nodes": len(self._blocked_node_ids),
             "root_solved": bool(getattr(self.tree.root, "succ", False)),
         }
         return ReactionJsonOrProjection(
             steps=tuple(steps),
             open_leaf_states=tuple(active),
-            deferred_tail_leaf_states=tuple(deferred),
+            deferred_builder_leaf_states=tuple(deferred),
             complete=bool(getattr(self.tree.root, "succ", False)),
             summary=summary,
         )

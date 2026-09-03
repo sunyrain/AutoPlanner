@@ -1,6 +1,6 @@
 # AutoPlanner 架构总览
 
-更新：2026-09-02
+更新：2026-09-03
 
 状态：本文是当前架构的总入口。它只汇总已经存在的运行路径和明确标注的过渡/目标能力，
 不替代各组件合同，也不从设计文档反推实现完成。
@@ -27,7 +27,8 @@ Program 研究只是同一宿主上的配置或尚未接管主线的研究能力
 ## 2. 一次请求怎样穿过系统
 
 1. Web、CLI 或 API 只接收目标和操作参数；`solve_target_request()` 将其编译成 target、约束、
-   profile、预算、模型/provider 与冻结 stock binding。
+   profile、预算、模型/provider 与冻结 stock binding。`benchmark_search` 默认只绑定标准
+   `ZINC+eMolecules` full-InChIKey 索引；Builder/MCTS 与 Host 使用同一 oracle，PubChem 不再是主流程库存回退。
 2. `solve_target()` 创建唯一 `RunKernel` 和唯一 `CampaignActionRuntime`，恢复、取消、任务、
    execution receipt 与资源消耗都归该 run 管理。
 3. 论文/增强型 profile 进入 `SequentialStrategyDirectorRunner`：一次 Strategy 调用产生三张卡；每张卡
@@ -39,17 +40,26 @@ Program 研究只是同一宿主上的配置或尚未接管主线的研究能力
    每个已完成 worker artifact 同时按稳定 task id 与完整 task-contract digest 写入 durable worker journal；
    分支状态由这些有序记录和 Host compiler 确定性重建，不另存一份可漂移的 branch snapshot。
 6. 完整战略段经过 Critic/Editor 审查。full-route Editor 输出 dependency-closed `replace_span`；
-   transactional Path Repair Editor 只给 rollback directive，Host 保留旧 suffix，Builder 只重建 rollback 到 blocker 的局部依赖路径，
-   suffix 经 exact/唯一同构边界重接后全量回放。合格开放叶可交给绑定的 AiZ short-tail；provider
-   solution 仍需目标根拼接与 Host 复核。`self_correcting_sequential` 中 AiZ 未解只结算该 provider
-   lane，统一 Action loop 可在原分支剩余 Builder 预算内继续当前真实开放叶；冻结论文基线不启用这项增强。
+   transactional Path Repair Editor 只给 rollback directive，Host 从 replay 派生包含 suffix 入口与原 terminal precursor occurrences 的完整 cut frontier，Builder 逐步重建到该边界，
+   suffix 经 exact/stereo-aware 唯一同构边界重接后全量回放。任何经库存审计仍未闭合的真实开放叶，都回到同一套
+   Route Builder 单步 ReactionJSON 合同；不存在独立 short-tail 模式、第二套 prompt 或 provider admission。
 7. 所有可接纳结果通过一个 canonical ingestion 进入同一 AND/OR hypergraph。`DeficitFrontier`
    从当前 revision 派生下一项 materialize、validate、stock、evidence、condition、Program 或 replan
    Action；同一个 `CampaignActionRuntime` 可在后续 durable deficit 出现后恢复调度，但不存在第二个
    scheduler、ledger 或 Blackboard 权威。
-8. proof portfolio、paper-equivalent metric、target report、Workbench 和 live UI 都从同一事实链
-   派生。展示与模型日志可以解释运行，但不能创造结构、proof、库存或 solved。
-9. Web/CLI 主运行和隔离 panel 可拥有不同 `run_index.sqlite3`。需要展示的 registry 由 launcher
+8. 所有 Builder、provider、Editor、replan、条件补全和 Program 写入停止后，`Route Critic Agent`
+   对每条最终 target-rooted canonical route 做一次版本绑定审核。审核输入来自 Host 的最终 mapped
+   boundary；每个输入步骤只暴露 Host 分配的 `review_slot`，Critic 也只返回 `review_slot`；Host 校验
+   slot 集合后回填 canonical `step_id` 与 authoritative digest，因此交换、重复或
+   遗漏步骤评价都会失败。结论同时绑定
+   `reviewed_route_sha256`；相同路线恢复时直接复用。`reject` 可触发同一 transactional repair；候选先保持 unselected，只有 re-Critic 为 viable/uncertain 且库存闭合不低于原路线时才一次性切换。`uncertain` 是
+   已完成的化学审核结论，只有 Critic 不可用才留下可恢复缺口，并且恢复时只补 Critic，不重跑搜索。
+9. proof portfolio、paper-equivalent metric、target report、Workbench 和 live UI 都从同一事实链
+   派生。terminal report refresh 重新编译后通过唯一 portfolio 持久化函数更新 artifact、pointer、index 和
+   `portfolio_ref`，但不重复发布 frontier 或 acceptance。展示与模型日志可以解释运行，但不能创造结构、
+   proof、库存或 solved。路线 reconciliation 分别报告 Builder 草稿/接纳历史与最终 canonical edge、
+   longest linear sequence、库存闭合；历史 reject 不得覆盖已经闭合的最终路线分类。
+10. Web/CLI 主运行和隔离 panel 可拥有不同 `run_index.sqlite3`。需要展示的 registry 由 launcher
    显式注册到 `RunRegistryCatalog`；网站按 `(registry_id, run_id)` 联合身份分页聚合，再回到所属
    `RunIndex`/`RunKernel` 读取真实状态。Catalog 不扫描 `results/**`，也不复制 run status。
 
@@ -111,8 +121,8 @@ canonical admission + one hypergraph revision
 | --- | --- | --- | --- |
 | Strategist | 初始为 target；后续为当前 mapped leaf + Host lineage context | 初始三张、后续一张紧凑 StrategyCard | 前体、完整路线、库存、停止、solved |
 | Strategy review | 与 Strategist 相同的 lineage context + 待审卡 | 同一 StrategyCard 合同的最小修订 | admission、第二套评分/ledger、循环审查 |
-| Builder | Strategy、当前 mapped leaf、已回放反应摘要、split context、最近 typed failure；repair 时只增加短 repair goal/constraints 与 suffix boundary，不重复 Final Critic 全文 | 一个 ReactionJSON expansion + 简洁条件/意图 metadata | precursor SMILES、map 分配、handoff/fail/stop、Strategy 认证 |
-| Chemistry Reviewer / Critic | Strategy + Host-replayed 路径 + 触发原因 | pass/uncertain/reject 与最早 blocker | 改结构、库存、solved、实验可行性证明 |
+| Builder | Strategy、当前 mapped leaf、已回放反应摘要、split context、最近 typed failure；repair 时只增加短 repair goal/constraints 与 Host-derived cut frontier，不重复 Final Critic 全文 | 一个 ReactionJSON expansion + 简洁条件/意图 metadata | precursor SMILES、map 分配、handoff/fail/stop、Strategy 认证 |
+| Route Critic Agent | Strategy + Host-replayed 路径 + 触发原因；closeout 前还会看到最终 canonical route revision | 按 Host `review_slot` 返回逐步 pass/uncertain/reject、最早 blocker 与简洁路线整体评价；Host 回填 step/digest 身份，最终结论绑定路线 digest | 改结构、库存、solved、Host reaction proof、实验可行性证明 |
 | Full-route Editor | 完整 RouteJSON + Critic annotations + 真实 mapped frontier | dependency-closed `replace_span` | 直接发布 precursor、降低 replay/admission 标准 |
 | Path Repair Editor | 完整 RouteJSON + Critic annotations | 两个 step boundary、可选 coupled blocker ids、suffix compatibility、短 repair goal/constraints | ReactionJSON、map、precursor、保留/删除行事实 |
 | Host | 所有结构化候选、运行输入和当前事实 | replay、canonical revision、stock/closure 与 typed diagnostics | 用命名反应或模型信心替代化学验证 |
@@ -153,10 +163,13 @@ panel launcher / CLI --publish-registry
 | paper-equivalent | 是否满足 SynthEx 的目标根库存闭合口径？ | `paper_equivalent_metric` |
 | reaction validation | 每条反应是否有独立机理/映射/来源验证？ | validation workers + canonical proof |
 | evidence/conditions | 来源和操作条件是否闭合？ | evidence/procedure stores |
-| reviewer verdict | 当前模型审查是否发现 blocker？ | Critic diagnostic，独立保存 |
+| reviewer verdict | 最终 canonical route 是否已由管线内化学审核者检查、是否发现 blocker？ | Route Critic Agent；结论绑定最终路线 digest，独立保存 |
 | configured acceptance | 是否达到用户声明的产品质量合同？ | acceptance/quality projection |
 
 `paper_equivalent_solved=true` 不等于 reaction-validated、evidence-closed、process-ready 或实验可行。
+Route Critic Agent 是管线内审核者；外部合成专家只评价路线洞察、价值和实验优先级，是独立科学评价轴，
+不负责替系统补做内部审核。Critic 读取 Host 已绑定的 mapped boundary 也不会提升原 reaction proof、
+放宽 canonical admission 或改变库存闭合。
 
 ## 8. Profile 与架构边界
 

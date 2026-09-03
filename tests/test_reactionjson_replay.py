@@ -222,6 +222,23 @@ def test_add_bond_then_change_bond_order_creates_a_double_bond() -> None:
     assert audit["expected_precursors_match"] is True
 
 
+def test_bond_cuts_do_not_turn_elemental_metal_into_implicit_hydride() -> None:
+    audit = replay_reactionjson(
+        mapped_product_smiles="[CH3:1][Mg:49][Br:50]",
+        operations=[
+            {"op": "break_bond", "map_a": 1, "map_b": 49},
+            {"op": "break_bond", "map_a": 49, "map_b": 50},
+            {"op": "add_bond", "map_a": 1, "map_b": 50},
+        ],
+        expected_precursor_smiles=["CBr", "[Mg]"],
+    )
+
+    assert audit["accepted"] is True
+    assert audit["precursor_smiles"] == ["CBr", "[Mg]"]
+    assert "[MgH2:49]" not in audit["mapped_precursor_smiles"]
+    assert "[Mg:49]" in audit["mapped_precursor_smiles"]
+
+
 @pytest.mark.parametrize(
     ("configuration", "expected"),
     [("R", "C[C@H](F)Cl"), ("S", "C[C@@H](F)Cl")],

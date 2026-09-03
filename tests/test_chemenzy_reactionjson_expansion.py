@@ -113,7 +113,7 @@ def test_chemenzy_or_tree_backtracks_to_preserved_reaction_candidate() -> None:
 
     route_a_leaf = search.select_open_node()
     assert route_a_leaf.mol == "CC"
-    search.block_for_short_tail(route_a_leaf)
+    search.defer_failed_node(route_a_leaf)
 
     after_backtrack = search.project()
     assert after_backtrack.steps[0]["step_id"] == "route-b"

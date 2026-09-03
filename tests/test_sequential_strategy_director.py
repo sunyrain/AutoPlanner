@@ -6,9 +6,11 @@ import re
 import threading
 import time
 from dataclasses import replace
+from typing import Mapping
 
 import cascade_planner.agent.codex_worker as codex_worker_module
 import cascade_planner.orchestration.sequential_strategy_director as sequential_module
+from rdkit import Chem
 
 from cascade_planner.agent.codex_worker import WorkerBudget, WorkerRunRecord, WorkerTask
 from cascade_planner.application.campaign_context import CampaignContext, CampaignContextDelta
@@ -26,6 +28,7 @@ from cascade_planner.orchestration.global_campaign_director import (
 from cascade_planner.orchestration.sequential_strategy_director import (
     SequentialStrategyDirectorRunner,
     compile_frontier_builder_context,
+    compile_revision_bound_route_critic_context,
     _expansion_from_record,
     _editor_route_expansions_from_record,
     _expansions_from_record,
@@ -100,6 +103,7 @@ def test_frontier_builder_context_binds_multi_precursor_identity_not_array_order
         "route_families": {
             "route:one": {
                 "route_family_id": "route:one",
+                "aliases": ["codex:sequential:family:3"],
                 "edge_ids": ["edge:root"],
                 "strategy_card": {},
             }
@@ -139,6 +143,7 @@ def test_frontier_builder_context_binds_multi_precursor_identity_not_array_order
 
     assert diagnostic == {}
     assert context is not None
+    assert context.branch_index == 2
     assert context.selected_product_smiles == "CC"
     assert context.selected_product_mapped == "[CH3:1][CH3:2]"
     assert context.connected_steps[0]["precursor_smiles"] == ["CC", "O"]
@@ -146,6 +151,346 @@ def test_frontier_builder_context_binds_multi_precursor_identity_not_array_order
         "[CH3:1][CH3:2]",
         "[OH2:3]",
     ]
+    prompt = SequentialStrategyDirectorRunner().frontier_prompt_for(
+        context,
+        DirectorConfig(paper_matched_reach_profile=True),
+    )
+    assert "PaperMatchedRouteBuilderContext:" in prompt
+
+
+def test_final_route_critic_context_is_target_rooted_and_chemistry_digest_bound() -> None:
+    graph = {
+        "revision": 7,
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {"canonical_smiles": "CCO"},
+            "molecule:ethyl": {"canonical_smiles": "CC"},
+            "molecule:water": {"canonical_smiles": "O"},
+            "molecule:island": {"canonical_smiles": "N"},
+        },
+        "route_families": {
+            "route:one": {
+                "route_family_id": "route:one",
+                "aliases": ["codex:sequential:family:2"],
+                "edge_ids": ["edge:root", "edge:island"],
+                "selected": True,
+                "strategy_card": {"strategy_query": "disconnect the C-O bond"},
+            }
+        },
+        "edges": {
+            "edge:root": {
+                "edge_id": "edge:root",
+                "product_molecule_id": "molecule:target",
+                "product_smiles": "CCO",
+                "precursor_molecule_ids": ["molecule:ethyl", "molecule:water"],
+                "precursor_smiles": ["O", "CC"],
+                "reaction_operations": [{"op": "break_bond", "map_a": 2, "map_b": 3}],
+                "reactionjson_audit": {
+                    "mapped_product_smiles": "[CH3:1][CH2:2][OH:3]",
+                    "mapped_precursor_smiles": [
+                        "[OH2:3]",
+                        "[CH3:1][CH3:2]",
+                    ],
+                },
+                "origin_records": [
+                    {
+                        "proposal_id": "step:root",
+                        "origin_kind": "codex",
+                        "canonical_route_family_ids": ["route:one"],
+                    }
+                ],
+            },
+            "edge:island": {
+                "edge_id": "edge:island",
+                "product_molecule_id": "molecule:island",
+                "product_smiles": "N",
+                "precursor_molecule_ids": ["molecule:water"],
+                "precursor_smiles": ["O"],
+            },
+        },
+    }
+
+    context, diagnostic = compile_revision_bound_route_critic_context(
+        graph,
+        route_family_id="route:one",
+    )
+    assert diagnostic == {}
+    assert context is not None
+    assert context.branch_index == 1
+    assert context.edge_ids == ("edge:root",)
+    assert context.steps[0]["step_id"] == "step:root"
+    assert context.steps[0]["mapped_precursor_smiles"] == [
+        "[CH3:1][CH3:2]",
+        "[OH2:3]",
+    ]
+
+    unrelated_revision = copy.deepcopy(graph)
+    unrelated_revision["revision"] = 99
+    same_context, _ = compile_revision_bound_route_critic_context(
+        unrelated_revision,
+        route_family_id="route:one",
+    )
+    assert same_context is not None
+    assert same_context.route_sha256 == context.route_sha256
+
+    changed_chemistry = copy.deepcopy(graph)
+    changed_chemistry["edges"]["edge:root"]["condition_predictions"] = [{"reagents": ["base"]}]
+    changed_context, _ = compile_revision_bound_route_critic_context(
+        changed_chemistry,
+        route_family_id="route:one",
+    )
+    assert changed_context is not None
+    assert changed_context.route_sha256 != context.route_sha256
+
+
+def test_final_route_critic_rebases_connected_edge_local_atom_maps() -> None:
+    graph = {
+        "revision": 8,
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {"canonical_smiles": "CCOC"},
+            "molecule:cc": {"canonical_smiles": "CC"},
+            "molecule:co": {"canonical_smiles": "CO"},
+            "molecule:cccl": {"canonical_smiles": "CCCl"},
+            "molecule:ocbr": {"canonical_smiles": "OCBr"},
+            "molecule:oci": {"canonical_smiles": "OCI"},
+        },
+        "route_families": {
+            "route:one": {
+                "route_family_id": "route:one",
+                "aliases": ["codex:sequential:family:1"],
+                "edge_ids": ["edge:root", "edge:cc", "edge:co", "edge:ocbr"],
+                "selected": True,
+                "strategy_card": {"strategy_query": "exercise both branches"},
+            }
+        },
+        "edges": {
+            "edge:root": {
+                "edge_id": "edge:root",
+                "product_molecule_id": "molecule:target",
+                "product_smiles": "CCOC",
+                "precursor_molecule_ids": ["molecule:cc", "molecule:co"],
+                "precursor_smiles": ["CC", "CO"],
+                "reaction_operations": [{"op": "break_bond", "map_a": 2, "map_b": 3}],
+                "reactionjson_audit": {
+                    "mapped_product_smiles": "[CH3:1][CH2:2][O:3][CH3:4]",
+                    "mapped_precursor_smiles": [
+                        "[CH3:1][CH3:2]",
+                        "[OH:3][CH3:4]",
+                    ],
+                },
+                "origin_records": [
+                    {
+                        "proposal_id": "step:root",
+                        "canonical_route_family_ids": ["route:one"],
+                    }
+                ],
+            },
+            "edge:cc": {
+                "edge_id": "edge:cc",
+                "product_molecule_id": "molecule:cc",
+                "product_smiles": "CC",
+                "precursor_molecule_ids": ["molecule:cccl"],
+                "precursor_smiles": ["CCCl"],
+                "reaction_operations": [
+                    {
+                        "op": "add_group",
+                        "map_idx": 2,
+                        "fragment_smiles": "*[Cl:5]",
+                    }
+                ],
+                "reactionjson_audit": {
+                    "mapped_product_smiles": "[CH3:1][CH3:2]",
+                    "mapped_precursor_smiles": ["[CH3:1][CH2:2][Cl:5]"],
+                },
+                "origin_records": [
+                    {
+                        "proposal_id": "step:cc",
+                        "canonical_route_family_ids": ["route:one"],
+                    }
+                ],
+            },
+            "edge:co": {
+                "edge_id": "edge:co",
+                "product_molecule_id": "molecule:co",
+                "product_smiles": "CO",
+                "precursor_molecule_ids": ["molecule:ocbr"],
+                "precursor_smiles": ["OCBr"],
+                "reaction_operations": [
+                    {
+                        "op": "add_group",
+                        "map_idx": 4,
+                        "fragment_smiles": "*[Br:5]",
+                    }
+                ],
+                "reactionjson_audit": {
+                    "mapped_product_smiles": "[OH:3][CH3:4]",
+                    "mapped_precursor_smiles": ["[OH:3][CH2:4][Br:5]"],
+                },
+                "origin_records": [
+                    {
+                        "proposal_id": "step:co",
+                        "canonical_route_family_ids": ["route:one"],
+                    }
+                ],
+            },
+            "edge:ocbr": {
+                "edge_id": "edge:ocbr",
+                "product_molecule_id": "molecule:ocbr",
+                "product_smiles": "OCBr",
+                "precursor_molecule_ids": ["molecule:oci"],
+                "precursor_smiles": ["OCI"],
+                "reaction_operations": [
+                    {"op": "remove_group", "map_indices": [5]},
+                    {
+                        "op": "add_group",
+                        "map_idx": 4,
+                        "fragment_smiles": "*[I:6]",
+                    },
+                ],
+                "reactionjson_audit": {
+                    "mapped_product_smiles": "[OH:3][CH2:4][Br:5]",
+                    "mapped_precursor_smiles": ["[OH:3][CH2:4][I:6]"],
+                },
+                "origin_records": [
+                    {
+                        "proposal_id": "step:ocbr",
+                        "canonical_route_family_ids": ["route:one"],
+                    }
+                ],
+            },
+        },
+    }
+
+    context, diagnostic = compile_revision_bound_route_critic_context(
+        graph,
+        route_family_id="route:one",
+    )
+
+    assert diagnostic == {}
+    assert context is not None
+    by_id = {row["step_id"]: row for row in context.steps}
+    chlorine_map = next(
+        atom.GetAtomMapNum()
+        for atom in Chem.MolFromSmiles(by_id["step:cc"]["mapped_precursor_smiles"][0]).GetAtoms()
+        if atom.GetSymbol() == "Cl"
+    )
+    bromine_map = next(
+        atom.GetAtomMapNum()
+        for atom in Chem.MolFromSmiles(by_id["step:co"]["mapped_precursor_smiles"][0]).GetAtoms()
+        if atom.GetSymbol() == "Br"
+    )
+    assert chlorine_map == 5
+    assert bromine_map > 6
+    assert (
+        by_id["step:ocbr"]["mapped_product_smiles"]
+        == (by_id["step:co"]["mapped_precursor_smiles"][0])
+    )
+    assert by_id["step:ocbr"]["reaction_operations"][0] == {
+        "op": "remove_group",
+        "map_indices": [bromine_map],
+    }
+
+
+def test_final_route_critic_reads_l2_mapping_without_promoting_reaction_proof() -> None:
+    mapped_reaction = (
+        "[CH3:1][C:2](=[O:3])[CH2:4][C@H:5]([CH3:6])[OH:7]."
+        "Cl[Si:8]([CH3:9])([CH3:10])[C:11]([CH3:12])([CH3:13])[CH3:14]"
+        ">>"
+        "[CH3:1][C:2](=[O:3])[CH2:4][C@H:5]([CH3:6])[O:7]"
+        "[Si:8]([CH3:9])([CH3:10])[C:11]([CH3:12])([CH3:13])[CH3:14]"
+    )
+    proof = {
+        "accepted": False,
+        "proof_level": "L2_mapping_consistent",
+        "validator_version": CURRENT_REACTION_VALIDATOR_VERSION,
+        "mapped_reaction": mapped_reaction,
+        "checks": {
+            "structures_materialized": True,
+            "mapped_reaction_present": True,
+            "mapped_product_matches": True,
+            "mapped_reactants_match": True,
+            "product_atom_maps_complete": True,
+            "atom_maps_unique": True,
+            "mapped_elements_preserved": True,
+            "reactant_departing_atoms_plausible": True,
+            "stereochemical_product_matches": True,
+            "product_atoms_have_reactant_provenance": True,
+            # Chloride is a bounded departing atom and need not be mapped.
+            "atom_maps_complete": False,
+            "deterministic_transform_reapplied": False,
+        },
+        "reasons": ["mapping_consistent_without_trusted_transform_or_precedent"],
+    }
+    graph = {
+        "revision": 11,
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {"canonical_smiles": "CC(=O)C[C@H](C)O[Si](C)(C)C(C)(C)C"},
+            "molecule:alcohol": {"canonical_smiles": "CC(=O)C[C@H](C)O"},
+            "molecule:tbscl": {"canonical_smiles": "CC(C)(C)[Si](C)(C)Cl"},
+        },
+        "route_families": {
+            "route:one": {
+                "route_family_id": "route:one",
+                "aliases": ["codex:sequential:family:1"],
+                "edge_ids": ["edge:protect"],
+                "selected": True,
+                "strategy_card": {"strategy_query": "protect the alcohol"},
+            }
+        },
+        "edges": {
+            "edge:protect": {
+                "edge_id": "edge:protect",
+                "product_molecule_id": "molecule:target",
+                "product_smiles": "CC(=O)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+                "precursor_molecule_ids": ["molecule:alcohol", "molecule:tbscl"],
+                "precursor_smiles": [
+                    "CC(=O)C[C@H](C)O",
+                    "CC(C)(C)[Si](C)(C)Cl",
+                ],
+                "reactionjson_audit": {},
+                "reaction_proofs": [proof],
+                "origin_records": [
+                    {
+                        "proposal_id": "aiz:step:1",
+                        "canonical_route_family_ids": ["route:one"],
+                    }
+                ],
+            }
+        },
+    }
+
+    context, diagnostic = compile_revision_bound_route_critic_context(
+        graph,
+        route_family_id="route:one",
+    )
+
+    assert diagnostic == {}
+    assert context is not None
+    assert context.edge_ids == ("edge:protect",)
+    assert len(context.steps[0]["mapped_precursor_smiles"]) == 2
+    assert any(
+        "Cl" in value and ":15" not in value
+        for value in context.steps[0]["mapped_precursor_smiles"]
+    )
+    assert proof["accepted"] is False
+    assert proof["proof_level"] == "L2_mapping_consistent"
+
+    # A chemistry-level rejection must also remain reviewable when the
+    # canonical boundary identity and product provenance are intact.
+    l0_graph = copy.deepcopy(graph)
+    l0_proof = l0_graph["edges"]["edge:protect"]["reaction_proofs"][0]
+    l0_proof["proof_level"] = "L0_materialized"
+    l0_proof["checks"]["reactant_departing_atoms_plausible"] = False
+    l0_context, l0_diagnostic = compile_revision_bound_route_critic_context(
+        l0_graph,
+        route_family_id="route:one",
+    )
+    assert l0_diagnostic == {}
+    assert l0_context is not None
+    assert l0_proof["accepted"] is False
+    assert l0_proof["proof_level"] == "L0_materialized"
 
 
 def test_path_repair_focus_leaf_identity_comes_from_rejected_graph_center() -> None:
@@ -153,9 +498,7 @@ def test_path_repair_focus_leaf_identity_comes_from_rejected_graph_center() -> N
         "repair_reference_span": [
             {
                 "step_id": "old:passed",
-                "reaction_operations": [
-                    {"op": "break_bond", "map_a": 1, "map_b": 2}
-                ],
+                "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
                 "prior_key_critic": {"status": "passed", "verdict": "pass"},
             },
             {
@@ -214,9 +557,7 @@ def test_path_repair_builder_follows_focus_component_not_aiz_array_order(
                     "product_smiles": product,
                     "precursor_smiles": [],
                     "checkpoint_relation": (
-                        "preparatory"
-                        if len(selected_products) == 1
-                        else "executes_checkpoint"
+                        "preparatory" if len(selected_products) == 1 else "executes_checkpoint"
                     ),
                     "reaction_family": "mapped repair focus canary",
                     "conditions": ["test conditions"],
@@ -235,18 +576,12 @@ def test_path_repair_builder_follows_focus_component_not_aiz_array_order(
         first = request_handler(
             {
                 "expandable_smiles": ["CCOCC"],
-                "expandable_mapped_smiles": [
-                    "[CH3:1][CH2:2][O:3][CH2:4][CH3:5]"
-                ],
+                "expandable_mapped_smiles": ["[CH3:1][CH2:2][O:3][CH2:4][CH3:5]"],
                 "route_steps": [],
             }
         )["candidates"][0]
-        precursor_pairs = list(
-            zip(first["precursor_smiles"], first["mapped_precursor_smiles"])
-        )
-        focus_pair = next(
-            pair for pair in precursor_pairs if ":4]" in pair[1] and ":5]" in pair[1]
-        )
+        precursor_pairs = list(zip(first["precursor_smiles"], first["mapped_precursor_smiles"]))
+        focus_pair = next(pair for pair in precursor_pairs if ":4]" in pair[1] and ":5]" in pair[1])
         spectator_pair = next(pair for pair in precursor_pairs if pair != focus_pair)
         second = request_handler(
             {
@@ -304,9 +639,7 @@ def test_path_repair_builder_follows_focus_component_not_aiz_array_order(
         "open_leaves": ["CCOCC"],
         "expanded_products": set(),
         "_path_repair_resume": {
-            "repair_frontier_mapped_product_smiles": (
-                "[CH3:1][CH2:2][O:3][CH2:4][CH3:5]"
-            ),
+            "repair_frontier_mapped_product_smiles": ("[CH3:1][CH2:2][O:3][CH2:4][CH3:5]"),
             "repair_goal": "continue on the component carrying maps 4 and 5",
             "active_constraints": [],
             "durable_steps": [],
@@ -314,9 +647,7 @@ def test_path_repair_builder_follows_focus_component_not_aiz_array_order(
             "repair_reference_span": [
                 {
                     "step_id": "old:rejected",
-                    "reaction_operations": [
-                        {"op": "break_bond", "map_a": 4, "map_b": 5}
-                    ],
+                    "reaction_operations": [{"op": "break_bond", "map_a": 4, "map_b": 5}],
                     "prior_key_critic": {
                         "status": "rejected",
                         "verdict": "reject",
@@ -363,10 +694,7 @@ def test_path_repair_builder_follows_focus_component_not_aiz_array_order(
     )
 
     assert selected_products == ["CCOCC", "CC"]
-    assert all(
-        row["strategy_query"] == strategy["strategy_query"]
-        for row in builder_strategies
-    )
+    assert all(row["strategy_query"] == strategy["strategy_query"] for row in builder_strategies)
     assert branch["key_event_critic_completed"] is False
 
 
@@ -468,9 +796,10 @@ def test_frontier_builder_inherits_selected_horizon_and_unresolved_repair() -> N
     assert context is not None
     assert context.strategy_card["strategy_query"] == milestone["strategy_query"]
     assert context.pending_checkpoint_feedback is not None
-    assert context.pending_checkpoint_feedback["active_constraints"][0][
-        "blocking_type"
-    ] == "stereochemistry"
+    assert (
+        context.pending_checkpoint_feedback["active_constraints"][0]["blocking_type"]
+        == "stereochemistry"
+    )
     assert context.path_repair is not None
     assert context.path_repair["status"] == "retained_uncommitted_prefix"
     prompt = SequentialStrategyDirectorRunner().frontier_prompt_for(
@@ -707,9 +1036,7 @@ def test_strategy_topology_profile_distinguishes_ring_sizes_from_fusion() -> Non
         assert '"ring_systems":[' in prompt
         assert '"pair_count":2,"shared_atom_count":2' in prompt
         assert '"shared_atom_count":0' not in prompt
-    assert "never rewrite the sorted values as an ordered x/y/z scaffold name" in (
-        critic_prompt
-    )
+    assert "never rewrite the sorted values as an ordered x/y/z scaffold name" in (critic_prompt)
     assert "shared unexplained complex core" in critic_prompt
     assert "Do not make an acceptable card more specific" in critic_prompt
     assert "named downstream reaction" in critic_prompt
@@ -1098,9 +1425,7 @@ def test_paper_path_repair_uses_same_builder_contract_with_compact_boundary() ->
                         "step_id": "route:2",
                         "mapped_product_smiles": "[CH3:1][CH3:2]",
                         "mapped_precursor_smiles": ["[CH4:1]", "[CH4:2]"],
-                        "reaction_operations": [
-                            {"op": "break_bond", "map_a": 1, "map_b": 2}
-                        ],
+                        "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
                         "prior_key_critic": {
                             "status": "completed",
                             "checkpoint_match": True,
@@ -1502,9 +1827,11 @@ def test_route_recritic_receives_host_bound_repair_checkpoint_focus() -> None:
     assert "repair_checkpoint_focus binds the one Host-replayed step" in prompt
     context = json.loads(prompt.split("PaperMatchedRouteCriticInput:\n", 1)[1])
     focus = context["repair_checkpoint_focus"]
-    assert focus["step_id"] == "repair:key"
+    assert focus["review_slot"] == "review-001"
+    assert "reaction_edit_digest" not in focus
+    assert "step_id" not in focus
     assert focus["active_constraints"] == ["form the intended six-membered ring"]
-    assert focus["topology"]["step_id"] == "repair:key"
+    assert focus["topology"]["review_slot"] == "review-001"
     assert focus["topology"]["product"]["ring_sizes"] == [6]
     assert set(focus["topology"]["product"]["ring_paths"][0]) == {
         1,
@@ -1783,10 +2110,9 @@ def test_self_correcting_critic_tasks_use_distinct_provider_contracts() -> None:
     final_schema = codex_worker_module._chemical_strategy_critique_payload_json_schema(final_task)
     assert "checkpoint_match" in key_schema["properties"]
     assert "checkpoint_match" not in final_schema["properties"]
-    assert (
-        "repair_scope"
-        in (key_schema["properties"]["step_assessments"]["items"]["properties"])
-    )
+    assert "route_overall_evaluation" not in key_schema["properties"]
+    assert "route_overall_evaluation" in final_schema["properties"]
+    assert "repair_scope" in (key_schema["properties"]["step_assessments"]["items"]["properties"])
     assert (
         "repair_scope"
         not in (final_schema["properties"]["step_assessments"]["items"]["properties"])
@@ -1795,6 +2121,14 @@ def test_self_correcting_critic_tasks_use_distinct_provider_contracts() -> None:
     final_wire_schema = codex_worker_module._worker_model_output_json_schema(final_task)
     assert "checkpoint_match" in key_wire_schema["properties"]
     assert "checkpoint_match" not in final_wire_schema["properties"]
+    assert "route_overall_evaluation" not in key_wire_schema["properties"]
+    assert "route_overall_evaluation" in final_wire_schema["properties"]
+    final_step_properties = final_wire_schema["properties"]["step_assessments"]["items"][
+        "properties"
+    ]
+    assert "step_id" not in final_step_properties
+    assert "review_slot" in final_step_properties
+    assert "reaction_edit_digest" not in final_step_properties
     assert set(key_wire_schema["properties"]) == {
         "checkpoint_match",
         "verdict",
@@ -1811,6 +2145,135 @@ def test_self_correcting_critic_tasks_use_distinct_provider_contracts() -> None:
     ]
     assert "route_level_risks" not in key_wire_schema["properties"]
 
+    final_prompt = sequential_module._critic_prompt(
+        target="CCO",
+        branch_index=0,
+        strategy_card={
+            "strategy_query": "Disconnect the terminal C-O bond.",
+            "critical_assumption": "The substitution is selective.",
+            "critic_checkpoint": "C-O bond construction",
+        },
+        steps=[
+            {
+                "step_id": "route:1",
+                "product_smiles": "CCO",
+                "precursor_smiles": ["CC", "O"],
+                "reaction_family": "C-O coupling",
+            }
+        ],
+        paper_matched=True,
+        audit_kind="final_route",
+    )
+    assert "route_overall_evaluation" in final_prompt
+    assert "2-4 sentence whole-route judgment" in final_prompt
+    final_context = json.loads(final_prompt.split("PaperMatchedRouteCriticInput:\n", 1)[1])
+    assert "reaction_edit_digest" not in final_context["steps"][0]
+
+
+def test_route_critic_review_slots_restore_canonical_step_ids() -> None:
+    steps = [
+        {
+            "step_id": "canonical:one",
+            "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
+        },
+        {
+            "step_id": "canonical:two",
+            "reaction_operations": [{"op": "change_bond", "map_a": 2, "map_b": 3, "order": 2}],
+        },
+    ]
+    task = sequential_module._critic_task(
+        _spec(_context()),
+        prompt="review route",
+        branch_index=0,
+        iteration=1,
+        timeout_s=10.0,
+        paper_matched=True,
+        route_steps=steps,
+    )
+    critique = sequential_module._critique_from_record(
+        _critic_record(task),
+        route_steps=steps,
+    )
+
+    assert critique["status"] == "viable"
+    assert [row["step_id"] for row in critique["step_assessments"]] == [
+        "canonical:one",
+        "canonical:two",
+    ]
+    assert [row["review_slot"] for row in critique["step_assessments"]] == [
+        "review-001",
+        "review-002",
+    ]
+    assert [row["reaction_edit_digest"] for row in critique["step_assessments"]] == [
+        binding["reaction_edit_digest"]
+        for binding in task.host_context["route_review_bindings"]
+    ]
+
+
+def test_route_critic_review_slots_reject_duplicate_and_missing_bindings() -> None:
+    steps = [
+        {
+            "step_id": "canonical:one",
+            "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
+        },
+        {
+            "step_id": "canonical:two",
+            "reaction_operations": [{"op": "change_bond", "map_a": 2, "map_b": 3, "order": 2}],
+        },
+    ]
+    task = sequential_module._critic_task(
+        _spec(_context()),
+        prompt="review route",
+        branch_index=0,
+        iteration=1,
+        timeout_s=10.0,
+        paper_matched=True,
+        route_steps=steps,
+    )
+    good = _critic_record(task)
+
+    def altered_assessments(rows):
+        artifact = copy.deepcopy(good.output_artifact)
+        artifact["payload"]["step_assessments"] = rows
+        return replace(good, output_artifact=artifact)
+
+    original = copy.deepcopy(good.output_artifact["payload"]["step_assessments"])
+    duplicate = [copy.deepcopy(original[0]), copy.deepcopy(original[0])]
+    missing = [copy.deepcopy(original[0])]
+
+    for rows in (duplicate, missing):
+        critique = sequential_module._critique_from_record(
+            altered_assessments(rows),
+            route_steps=steps,
+        )
+        assert critique["status"] == "unavailable"
+        assert critique["reason"] == "critic_step_binding_invalid"
+
+
+def test_final_route_repair_builder_step_ids_use_a_distinct_namespace() -> None:
+    branch = {
+        "generated_step_id_prefix": "codex:repair:route-sha:attempt:2:branch:1",
+    }
+
+    repair_step_id = sequential_module._generated_builder_step_id(
+        branch,
+        branch_index=0,
+        call_index=1,
+        candidate_index=0,
+    )
+    ordinary_step_id = sequential_module._generated_builder_step_id(
+        {},
+        branch_index=0,
+        call_index=1,
+        candidate_index=0,
+    )
+
+    assert repair_step_id == (
+        "codex:repair:route-sha:attempt:2:branch:1:node:1:candidate:1"
+    )
+    assert ordinary_step_id == "codex:branch:1:node:1:candidate:1"
+    assert repair_step_id != ordinary_step_id
+
 
 def test_key_event_repair_scope_contract_rejects_inconsistent_dispatch() -> None:
     valid = {
@@ -1818,24 +2281,16 @@ def test_key_event_repair_scope_contract_rejects_inconsistent_dispatch() -> None
             {"step_id": "focus", "verdict": "reject", "repair_scope": "route_span"}
         ]
     }
-    assert (
-        codex_worker_module._paper_matched_key_event_critic_contract_reasons(valid)
-        == []
-    )
+    assert codex_worker_module._paper_matched_key_event_critic_contract_reasons(valid) == []
     valid["step_assessments"][0]["repair_scope"] = "strategy_horizon"
-    assert (
-        codex_worker_module._paper_matched_key_event_critic_contract_reasons(valid)
-        == []
-    )
+    assert codex_worker_module._paper_matched_key_event_critic_contract_reasons(valid) == []
 
     invalid = {
-        "step_assessments": [
-            {"step_id": "focus", "verdict": "reject", "repair_scope": "none"}
-        ]
+        "step_assessments": [{"step_id": "focus", "verdict": "reject", "repair_scope": "none"}]
     }
-    assert codex_worker_module._paper_matched_key_event_critic_contract_reasons(
-        invalid
-    ) == ["paper_key_critic_repair_scope_inconsistent"]
+    assert codex_worker_module._paper_matched_key_event_critic_contract_reasons(invalid) == [
+        "paper_key_critic_repair_scope_inconsistent"
+    ]
 
 
 def test_key_event_repair_scope_survives_wire_materialization() -> None:
@@ -2066,12 +2521,15 @@ def test_strategy_horizon_rejection_replans_only_the_selected_leaf() -> None:
     )
     assert active["strategy_digest"] == milestone["strategy_digest"]
     assert refresh is True
-    assert sequential_module._rejected_strategy_horizon_for_leaf(
-        branch,
-        strategy_card=active,
-        steps=[],
-        selected_product_mapped=selected_leaf,
-    )["focus_step_id"] == "step:rejected-checkpoint"
+    assert (
+        sequential_module._rejected_strategy_horizon_for_leaf(
+            branch,
+            strategy_card=active,
+            steps=[],
+            selected_product_mapped=selected_leaf,
+        )["focus_step_id"]
+        == "step:rejected-checkpoint"
+    )
 
     sibling, sibling_refresh = sequential_module._strategy_horizon_for_leaf(
         config=config,
@@ -2156,9 +2614,7 @@ def test_key_event_prompt_audits_only_focus_step_not_route_completeness() -> Non
 
     assert "audit only focus_step_id" in prompt
     assert "Do not reject them, demand a complete route" in prompt
-    assert (
-        "Return only checkpoint_match, verdict, blocking_type, repair_scope" in prompt
-    )
+    assert "Return only checkpoint_match, verdict, blocking_type, repair_scope" in prompt
     assert "checkpoint_match=false" in prompt
     assert "benign mislabeled preparatory move" in prompt
     assert "irreversibly cuts required topology" in prompt
@@ -2291,9 +2747,7 @@ def test_key_event_failure_basin_is_derived_and_lineage_scoped() -> None:
                 "step_id": "attempt:3",
                 "mapped_product_smiles": lineage_root,
                 "mapped_precursor_smiles": ["[CH4:1]", "[CH4:2]"],
-                "reaction_operations": [
-                    {"op": "break_bond", "map_a": 1, "map_b": 2}
-                ],
+                "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
             }
         ],
         paper_matched=True,
@@ -2561,9 +3015,7 @@ def test_builder_and_key_critic_do_not_invent_unspecified_product_stereo() -> No
         paper_matched=True,
     )
     assert "immutable Host product does not demand one R/S assignment" in builder_prompt
-    builder_context = json.loads(
-        builder_prompt.split("PaperMatchedRouteBuilderContext:\n", 1)[1]
-    )
+    builder_context = json.loads(builder_prompt.split("PaperMatchedRouteBuilderContext:\n", 1)[1])
     assert builder_context["selected_leaf_stereo"]["unassigned_center_maps"] == [2]
 
     focus_step = {
@@ -2575,9 +3027,7 @@ def test_builder_and_key_critic_do_not_invent_unspecified_product_stereo() -> No
         "checkpoint_relation": "executes_checkpoint",
         "reaction_family": "stereoselective ketone reduction",
         "conditions": ["chiral reduction catalyst"],
-        "reaction_operations": [
-            {"op": "change_bond_order", "map_a": 2, "map_b": 3, "delta": 1}
-        ],
+        "reaction_operations": [{"op": "change_bond_order", "map_a": 2, "map_b": 3, "delta": 1}],
     }
     critic_prompt = sequential_module._bounded_critic_prompt(
         target=product,
@@ -2886,15 +3336,26 @@ def _fake_executor(task):
 
 
 def _critic_record(task, *, assessment: str = "viable") -> WorkerRunRecord:
-    payload = {
-        "schema_version": "chemical_strategy_critique.v1",
-        "case_id": task.case_id,
-        "strategy_id": "strategy:test",
-        "strategy_digest": "d" * 64,
-        "route_family_id": "family:test",
-        "overall_assessment": assessment,
-        "strategy_adherence": True,
-        "step_assessments": [
+    route_review_bindings = [
+        dict(row)
+        for row in task.host_context.get("route_review_bindings") or []
+        if isinstance(row, Mapping)
+    ]
+    if task.task_type == "paper_matched_route_critic" and route_review_bindings:
+        step_assessments = [
+            {
+                "review_slot": binding["review_slot"],
+                "verdict": "pass" if assessment == "viable" else assessment,
+                "blocking": assessment == "reject",
+                "blocking_type": "none" if assessment != "reject" else "structure",
+                "reasons": [],
+                "condition_assessment": "coherent",
+                "suggested_revision": "",
+            }
+            for binding in route_review_bindings
+        ]
+    else:
+        step_assessments = [
             {
                 "step_id": "root",
                 "mechanistic_analysis": "plausible bond construction",
@@ -2908,7 +3369,16 @@ def _critic_record(task, *, assessment: str = "viable") -> WorkerRunRecord:
                 "verdict": "pass" if assessment == "viable" else "uncertain",
                 "reasons": [],
             }
-        ],
+        ]
+    payload = {
+        "schema_version": "chemical_strategy_critique.v1",
+        "case_id": task.case_id,
+        "strategy_id": "strategy:test",
+        "strategy_digest": "d" * 64,
+        "route_family_id": "family:test",
+        "overall_assessment": assessment,
+        "strategy_adherence": True,
+        "step_assessments": step_assessments,
         "route_level_risks": [],
         "repair_actions": [],
         "experimental_variables": ["substrate scope"],
@@ -2944,9 +3414,26 @@ def _blocking_critic_record(task, *, step_id: str) -> WorkerRunRecord:
     artifact = dict(record.output_artifact or {})
     payload = dict(artifact.get("payload") or {})
     assessments = [dict(row) for row in payload.get("step_assessments") or []]
-    assessments[0]["step_id"] = step_id
-    assessments[0]["verdict"] = "reject"
-    assessments[0]["reasons"] = ["blocking functional-group incompatibility"]
+    bindings = [
+        dict(row)
+        for row in task.host_context.get("route_review_bindings") or []
+        if isinstance(row, Mapping)
+    ]
+    if task.task_type == "paper_matched_route_critic" and bindings:
+        binding = next(
+            (row for row in bindings if str(row.get("step_id") or "") == step_id),
+            bindings[0],
+        )
+        assessment = next(
+            row for row in assessments if row.get("review_slot") == binding.get("review_slot")
+        )
+    else:
+        assessment = assessments[0]
+        assessment["step_id"] = step_id
+    assessment["verdict"] = "reject"
+    assessment["blocking"] = True
+    assessment["blocking_type"] = "functional_group_compatibility"
+    assessment["reasons"] = ["blocking functional-group incompatibility"]
     payload["step_assessments"] = assessments
     artifact["payload"] = payload
     return replace(record, output_artifact=artifact)
@@ -3545,6 +4032,17 @@ def test_path_repair_span_can_include_sibling_rows_and_preserve_later_suffix() -
     ]
     assert [row["step_id"] for row in rollback.preserved_suffix_steps] == ["route:5"]
     assert rollback.reconnect_boundaries[0]["step_id"] == "route:5"
+    assert {
+        row["boundary_kind"] for row in rollback.reconnect_boundaries
+    } == {
+        "preserved_suffix_entry",
+        "removed_terminal_open_precursor",
+    }
+    assert [
+        row["product_smiles"]
+        for row in rollback.reconnect_boundaries
+        if row["boundary_kind"] == "removed_terminal_open_precursor"
+    ].count("C") == 2
 
 
 def test_path_repair_span_rejects_missing_start_and_end_ids() -> None:
@@ -3632,6 +4130,8 @@ def test_path_repair_removes_only_declared_span_and_preserves_suffix() -> None:
     assert [row["step_id"] for row in rollback.preserved_suffix_steps] == ["linear:4"]
     assert rollback.reconnect_boundaries == (
         {
+            "boundary_id": "suffix-entry:linear:4",
+            "boundary_kind": "preserved_suffix_entry",
             "step_id": "linear:4",
             "product_smiles": "ClCCBr",
             "mapped_product_smiles": "[CH2:1]([CH2:2][Cl:4])[Br:5]",
@@ -4070,9 +4570,7 @@ def test_path_repair_rejects_sideways_edit_then_accepts_exact_boundary(
         "route_call_count": 4,
         "path_repair_builder_call_count": 0,
         "call_count": 4,
-        "open_leaf_states": [
-            {"smiles": "CBr", "mapped_smiles": "[CH3:1][Br:2]"}
-        ],
+        "open_leaf_states": [{"smiles": "CBr", "mapped_smiles": "[CH3:1][Br:2]"}],
         "open_leaves": ["CBr"],
         "expanded_products": set(),
         "_path_repair_resume": {
@@ -4123,8 +4621,9 @@ def test_path_repair_rejects_sideways_edit_then_accepts_exact_boundary(
     assert branch["path_repair_builder_call_count"] == 2
     feedback = builder_contexts[1]["last_rejection_for_this_leaf"]
     assert feedback["reason"] == "path_repair_candidate_not_toward_reconnect_boundary"
-    assert feedback["replay_diagnostic"]["candidate_boundary_distance"] == (
-        feedback["replay_diagnostic"]["selected_boundary_distance"]
+    assert (
+        feedback["replay_diagnostic"]["candidate_boundary_distance"]
+        == (feedback["replay_diagnostic"]["selected_boundary_distance"])
     )
     assert branch["steps"][0]["precursor_smiles"] == ["CI"]
 
@@ -4139,9 +4638,7 @@ def test_path_repair_replay_failure_survives_into_descendant_leaf_prompt(
         builder_contexts.append(context)
         product = str(task.host_context.get("selected_product") or "")
         if len(builder_contexts) == 1:
-            operations = [
-                {"op": "set_bond_stereo", "map_a": 1, "map_b": 2, "stereo": "E"}
-            ]
+            operations = [{"op": "set_bond_stereo", "map_a": 1, "map_b": 2, "stereo": "E"}]
         elif product == "CBr":
             operations = [
                 {"op": "remove_group", "map_indices": [2]},
@@ -4232,9 +4729,7 @@ def test_path_repair_replay_failure_survives_into_descendant_leaf_prompt(
         "route_call_count": 4,
         "path_repair_builder_call_count": 0,
         "call_count": 4,
-        "open_leaf_states": [
-            {"smiles": "CBr", "mapped_smiles": "[CH3:1][Br:2]"}
-        ],
+        "open_leaf_states": [{"smiles": "CBr", "mapped_smiles": "[CH3:1][Br:2]"}],
         "open_leaves": ["CBr"],
         "expanded_products": set(),
         "_path_repair_resume": {
@@ -4276,8 +4771,8 @@ def test_path_repair_replay_failure_survives_into_descendant_leaf_prompt(
     )
 
     assert len(records) == 3
-    assert builder_contexts[2]["selected_leaf_mapped"] != (
-        builder_contexts[0]["selected_leaf_mapped"]
+    assert (
+        builder_contexts[2]["selected_leaf_mapped"] != (builder_contexts[0]["selected_leaf_mapped"])
     )
     assert "last_rejection_for_this_leaf" not in builder_contexts[2]
     assert builder_contexts[2]["path_repair"]["replay_failures"] == [
@@ -4321,9 +4816,7 @@ def test_path_repair_merges_new_key_critic_rejection_into_next_builder(
                     "blocking_type": "stereochemistry" if reject else "none",
                     "repair_scope": "route_span" if reject else "none",
                     "reasons": (
-                        ["C13 and C18 configurations remain unspecified"]
-                        if reject
-                        else []
+                        ["C13 and C18 configurations remain unspecified"] if reject else []
                     ),
                     "suggested_revision": (
                         "assign both new junction configurations after the graph edits"
@@ -4336,9 +4829,7 @@ def test_path_repair_merges_new_key_critic_rejection_into_next_builder(
             return replace(record, output_artifact=artifact)
 
         builder_calls += 1
-        context = json.loads(
-            task.objective.split("PaperMatchedRouteBuilderContext:\n", 1)[1]
-        )
+        context = json.loads(task.objective.split("PaperMatchedRouteBuilderContext:\n", 1)[1])
         builder_contexts.append(context)
         product = str(task.host_context.get("selected_product") or "")
         operation = (
@@ -4409,9 +4900,7 @@ def test_path_repair_merges_new_key_critic_rejection_into_next_builder(
         "call_count": 1,
         "key_event_critic_completed": False,
         "key_event_critic_history": [],
-        "open_leaf_states": [
-            {"smiles": "CCO", "mapped_smiles": "[CH3:1][CH2:2][OH:3]"}
-        ],
+        "open_leaf_states": [{"smiles": "CCO", "mapped_smiles": "[CH3:1][CH2:2][OH:3]"}],
         "open_leaves": ["CCO"],
         "expanded_products": set(),
         "_path_repair_resume": {
@@ -4461,22 +4950,14 @@ def test_path_repair_merges_new_key_critic_rejection_into_next_builder(
     assert len(records) == 4
     assert builder_calls == 2
     assert key_critic_calls == 2
-    first_constraints = builder_contexts[0]["pending_checkpoint_feedback"][
-        "active_constraints"
-    ]
-    assert [row["blocking_type"] for row in first_constraints] == [
-        "route_span_repair"
-    ]
-    retry_constraints = builder_contexts[1]["pending_checkpoint_feedback"][
-        "active_constraints"
-    ]
+    first_constraints = builder_contexts[0]["pending_checkpoint_feedback"]["active_constraints"]
+    assert [row["blocking_type"] for row in first_constraints] == ["route_span_repair"]
+    retry_constraints = builder_contexts[1]["pending_checkpoint_feedback"]["active_constraints"]
     assert [row["blocking_type"] for row in retry_constraints] == [
         "route_span_repair",
         "stereochemistry",
     ]
-    assert retry_constraints[-1]["reasons"] == [
-        "C13 and C18 configurations remain unspecified"
-    ]
+    assert retry_constraints[-1]["reasons"] == ["C13 and C18 configurations remain unspecified"]
     assert retry_constraints[-1]["suggested_revision"] == (
         "assign both new junction configurations after the graph edits"
     )
@@ -4573,10 +5054,13 @@ def test_path_repair_boundary_progress_requires_strict_structural_improvement() 
         )
         is None
     )
-    assert sequential_module._mapped_boundary_distance(
-        "[CH3:1][I:37]",
-        boundary["mapped_product_smiles"],
-    ) == 0
+    assert (
+        sequential_module._mapped_boundary_distance(
+            "[CH3:1][I:37]",
+            boundary["mapped_product_smiles"],
+        )
+        == 0
+    )
 
 
 def test_path_repair_replay_memory_deduplicates_across_descendant_leaves() -> None:
@@ -4656,9 +5140,9 @@ def test_path_repair_stops_before_another_builder_call_at_suffix_boundary() -> N
     assert (
         sequential_module._path_repair_completion_reached(
             preparatory,
-            completion_mode="replacement_edge",
+            completion_mode="cut_frontier",
         )
-        is True
+        is False
     )
     assert (
         sequential_module._path_repair_completion_reached(
@@ -4721,6 +5205,37 @@ def test_path_repair_stops_before_another_builder_call_at_suffix_boundary() -> N
             },
         )
         == ""
+    )
+
+
+def test_path_repair_boundary_matching_preserves_duplicate_occurrences() -> None:
+    boundaries = [
+        {
+            "boundary_id": "terminal:left",
+            "product_smiles": "C",
+            "mapped_product_smiles": "[CH4:1]",
+        },
+        {
+            "boundary_id": "terminal:right",
+            "product_smiles": "C",
+            "mapped_product_smiles": "[CH4:2]",
+        },
+    ]
+
+    assert sequential_module._path_repair_boundary_leaf_indices(
+        product_smiles=["C", "C"],
+        mapped_product_smiles=["[CH4:7]", "[CH4:8]"],
+        reconnect_boundaries=boundaries,
+    ) == frozenset({0, 1})
+    assert sequential_module._path_repair_frontier_reaches_boundaries(
+        product_smiles=["C", "C"],
+        mapped_product_smiles=["[CH4:7]", "[CH4:8]"],
+        reconnect_boundaries=boundaries,
+    )
+    assert not sequential_module._path_repair_frontier_reaches_boundaries(
+        product_smiles=["C"],
+        mapped_product_smiles=["[CH4:7]"],
+        reconnect_boundaries=boundaries,
     )
 
 
@@ -4818,9 +5333,7 @@ def test_online_route_span_repair_can_rebuild_from_provisional_frontier(
                 "precursor_smiles": ["C", "C"],
                 "mapped_precursor_smiles": ["[CH4:1]", "[CH4:2]"],
                 "checkpoint_relation": "executes_checkpoint",
-                "reaction_operations": [
-                    {"op": "break_bond", "map_a": 1, "map_b": 2}
-                ],
+                "reaction_operations": [{"op": "break_bond", "map_a": 1, "map_b": 2}],
             }
         )
         repair_branch["path_repair_builder_call_count"] = 1
@@ -4934,7 +5447,7 @@ def test_online_route_span_repair_can_rebuild_from_provisional_frontier(
     assert transaction["status"] == "rebuilt_pending_recritic"
     assert transaction["completion_mode"] == "strategy_checkpoint"
     assert transaction["boundary_rebuilt"] is True
-    assert transaction["replacement_step_replayed"] is True
+    assert transaction["completion_boundary_reached"] is True
     assert transaction["active_constraints"][0].startswith(
         "Preserve unresolved Key-event Critic findings across this repair: mechanism:"
     )
@@ -5080,10 +5593,10 @@ def test_online_key_event_repair_does_not_commit_preparatory_prefix(
     assert edited is False
     assert branch["steps"] == authoritative_steps
     transaction = branch["path_repair_transactions"][-1]
-    assert transaction["status"] == "rolled_back_uncommitted"
+    assert transaction["status"] == "retained_uncommitted_prefix"
     assert transaction["completion_mode"] == "strategy_checkpoint"
-    assert transaction["replacement_step_replayed"] is False
-    assert transaction["reason"] == ("path_repair_replacement_step_not_replayed")
+    assert transaction["completion_boundary_reached"] is False
+    assert transaction["reason"] == "path_repair_strategy_checkpoint_not_reached"
 
 
 def test_transactional_path_repair_does_not_commit_deletion_only(
@@ -5795,8 +6308,13 @@ def test_transactional_path_repair_stages_rebuilt_mapped_boundary_until_recritic
         "call_count": 4,
         "editor_attempt_count": 0,
         "editor_call_count": 0,
-        "open_leaf_states": [],
-        "open_leaves": [],
+        "open_leaf_states": [
+            {"smiles": "C", "mapped_smiles": "[CH4:2]"},
+            {"smiles": "CCl", "mapped_smiles": "[CH3:1][Cl:5]"},
+            {"smiles": "O", "mapped_smiles": "[OH2:3]"},
+            {"smiles": "C", "mapped_smiles": "[CH4:4]"},
+        ],
+        "open_leaves": ["C", "CCl", "O"],
         "expanded_products": set(),
         "complete_in_bound_stock": False,
     }
@@ -5854,7 +6372,7 @@ def test_transactional_path_repair_stages_rebuilt_mapped_boundary_until_recritic
     ]
     assert branch["editor_call_count"] == 1
     assert branch["path_repair_transactions"][-1]["status"] == ("rebuilt_pending_recritic")
-    assert branch["path_repair_transactions"][-1]["replacement_step_replayed"] is True
+    assert branch["path_repair_transactions"][-1]["completion_boundary_reached"] is True
     assert branch["complete_in_bound_stock"] is False
     assert branch.get("route_alternatives") in (None, [])
 
@@ -5910,6 +6428,57 @@ def test_transactional_path_repair_stages_rebuilt_mapped_boundary_until_recritic
         "route:3",
         "route:4",
     ]
+
+
+def test_pending_path_repair_cannot_regress_stock_closure() -> None:
+    runner = SequentialStrategyDirectorRunner()
+    original_steps = [{"step_id": "old:1", "product_smiles": "CC"}]
+    branch = {
+        "steps": [{"step_id": "repair:1", "product_smiles": "CC"}],
+        "open_leaf_states": [
+            {"smiles": "C", "mapped_smiles": "[CH4:1]"},
+        ],
+        "open_leaves": ["C"],
+        "complete_in_bound_stock": False,
+        "path_repair_transactions": [
+            {"status": "rebuilt_pending_recritic"},
+        ],
+        "editor_repairs": [
+            {
+                "editor_task_id": "editor:1",
+                "status": "rebuilt_pending_recritic",
+            }
+        ],
+        "_pending_path_repair_transaction": {
+            "route_snapshot": {
+                "steps": original_steps,
+                "open_leaf_states": [],
+                "open_leaves": [],
+                "complete_in_bound_stock": True,
+            },
+            "transaction_indices": [0],
+            "editor_task_ids": ["editor:1"],
+        },
+    }
+
+    committed = runner._finalize_pending_path_repair(
+        branch,
+        {
+            "status": "viable",
+            "overall_assessment": "chemically acceptable but still open",
+            "step_assessments": [],
+        },
+    )
+
+    assert committed is False
+    assert branch["steps"] == original_steps
+    assert branch["complete_in_bound_stock"] is True
+    assert branch["path_repair_transactions"][0]["status"] == (
+        "rolled_back_after_recritic"
+    )
+    assert branch["path_repair_transactions"][0]["reason"] == (
+        "path_repair_stock_closure_regressed"
+    )
 
 
 def test_transactional_path_repair_reuses_preserved_suffix_after_local_rebuild(
@@ -6067,7 +6636,7 @@ def test_transactional_path_repair_reuses_preserved_suffix_after_local_rebuild(
     assert repair_call_ceilings == [5]
 
 
-def test_transactional_path_repair_sends_replayed_preparatory_step_to_recritic(
+def test_transactional_path_repair_does_not_recritic_partial_cut_frontier(
     monkeypatch,
 ) -> None:
     def editor_executor(task: WorkerTask) -> WorkerRunRecord:
@@ -6185,18 +6754,20 @@ def test_transactional_path_repair_sends_replayed_preparatory_step_to_recritic(
         ),
     )
 
-    assert edited is True
+    assert edited is False
     assert [row["step_id"] for row in branch["steps"]] == [
         "route:1",
+        "route:2",
+        "route:3",
         "route:4",
-        "repair:1",
     ]
     transaction = branch["path_repair_transactions"][-1]
-    assert transaction["status"] == "rebuilt_pending_recritic"
-    assert transaction["replacement_step_replayed"] is True
-    assert "reason" not in transaction
-    assert branch.get("_pending_path_repair_transaction")
-    assert branch.get("editor_rejection_diagnostics") in (None, [])
+    assert transaction["status"] == "retained_uncommitted_prefix"
+    assert transaction["completion_mode"] == "cut_frontier"
+    assert transaction["completion_boundary_reached"] is False
+    assert transaction["completion_boundary_reached"] is False
+    assert transaction["reason"] == "path_repair_cut_frontier_not_reached"
+    assert not branch.get("_pending_path_repair_transaction")
 
 
 def test_pending_path_repair_recritic_reject_restores_authoritative_route() -> None:
@@ -7659,18 +8230,14 @@ def test_strategy_horizon_scope_replans_same_leaf_before_next_builder(
             "candidate_id": task.task_id,
             "product_smiles": product,
             "precursor_smiles": [],
-            "checkpoint_relation": (
-                "executes_checkpoint" if first_builder else "preparatory"
-            ),
+            "checkpoint_relation": ("executes_checkpoint" if first_builder else "preparatory"),
             "reaction_family": (
                 "retired checkpoint" if first_builder else "new-horizon preparation"
             ),
             "conditions": ["test conditions"],
             "no_solved_claim": True,
             "not_parent_route_proof": True,
-            "reaction_operations": [
-                {"op": "break_bond", "map_a": 2, "map_b": 3}
-            ],
+            "reaction_operations": [{"op": "break_bond", "map_a": 2, "map_b": 3}],
         }
         return replace(
             _proposal_record(candidate, target=product),
@@ -7723,8 +8290,9 @@ def test_strategy_horizon_scope_replans_same_leaf_before_next_builder(
     assert result.state is AgentState.SUCCEEDED, result.error
     assert key_critic_calls == 1
     assert len(builder_contexts) == 2
-    assert builder_contexts[0]["strategy"]["strategy_query"] != (
-        builder_contexts[1]["strategy"]["strategy_query"]
+    assert (
+        builder_contexts[0]["strategy"]["strategy_query"]
+        != (builder_contexts[1]["strategy"]["strategy_query"])
     )
     assert len(strategy_tasks) == 2
     generator_context = json.loads(strategy_tasks[0].objective.rsplit("\n", 1)[1])
@@ -7909,9 +8477,10 @@ def test_route_span_scope_stops_same_parent_and_dispatches_path_repair(
     assert rejected_focus["step_id"] not in {
         row["step_id"] for row in dispatched["authoritative_steps"]
     }
-    assert dispatched["checkpoint_feedback"]["active_constraints"][0][
-        "blocking_type"
-    ] == "stereochemistry"
+    assert (
+        dispatched["checkpoint_feedback"]["active_constraints"][0]["blocking_type"]
+        == "stereochemistry"
+    )
     assert dispatched["checkpoint_feedback"]["active_constraints"][0]["reasons"] == [
         "the accepted mapped product lacks required alkene geometry"
     ]
@@ -10430,9 +10999,7 @@ def test_worker_journal_resume_reruns_provider_error_record(tmp_path) -> None:
             },
         )
 
-    interrupted = SequentialStrategyDirectorRunner(
-        node_executor=unavailable_executor
-    )
+    interrupted = SequentialStrategyDirectorRunner(node_executor=unavailable_executor)
     interrupted._prepare_worker_record_journal(spec)
     first = interrupted._run_journaled_worker(unavailable_executor, task)
     assert first.status == "provider_error"
@@ -10444,9 +11011,7 @@ def test_worker_journal_resume_reruns_provider_error_record(tmp_path) -> None:
             task_id=value.task_id,
             case_id=value.case_id,
             status="accepted_draft",
-            output_artifact={
-                "artifact_type": "RetrosynthesisProposalReport"
-            },
+            output_artifact={"artifact_type": "RetrosynthesisProposalReport"},
             output_validation={"accepted": True},
         )
 
@@ -10545,9 +11110,9 @@ def test_director_provider_pause_returns_partial_plan_and_replays_only_missing_t
             return _critic_record(task)
         return _fake_executor(task)
 
-    uninterrupted = SequentialStrategyDirectorRunner(
-        node_executor=uninterrupted_executor
-    )(clean_spec, context, "initial_architecture", config)
+    uninterrupted = SequentialStrategyDirectorRunner(node_executor=uninterrupted_executor)(
+        clean_spec, context, "initial_architecture", config
+    )
     assert uninterrupted.state is AgentState.SUCCEEDED
     assert second.output == uninterrupted.output
 
@@ -10645,9 +11210,7 @@ def test_worker_journal_resume_reruns_legacy_capacity_failure_record(tmp_path) -
             },
         )
 
-    interrupted = SequentialStrategyDirectorRunner(
-        node_executor=legacy_capacity_executor
-    )
+    interrupted = SequentialStrategyDirectorRunner(node_executor=legacy_capacity_executor)
     interrupted._prepare_worker_record_journal(spec)
     first = interrupted._run_journaled_worker(legacy_capacity_executor, task)
     assert codex_worker_module.worker_provider_failure_reason(first) == (
@@ -10695,17 +11258,13 @@ def test_provider_error_is_not_schema_rejection_or_semantic_model_usage() -> Non
         usage={"input_tokens": 30, "output_tokens": 10},
     )
 
-    usage = sequential_module._aggregate_usage(
-        (provider_error, completed), elapsed_s=1.0
-    )
+    usage = sequential_module._aggregate_usage((provider_error, completed), elapsed_s=1.0)
     assert usage["attempt_runs"] == 2
     assert usage["provider_failure_count"] == 1
     assert usage["model_invocations"] == 1
     assert usage["input_tokens"] == 30
     assert usage["output_tokens"] == 10
-    assert sequential_module._model_output_validation_status(provider_error) == (
-        "provider_error"
-    )
+    assert sequential_module._model_output_validation_status(provider_error) == ("provider_error")
 
     quota = sequential_module._NodeCallBudget(
         model_invocations=2,
@@ -10915,9 +11474,7 @@ def test_invalidated_alkene_stereo_maps_reach_builder_retry() -> None:
         selected_product_mapped="[CH3:1]/[CH:2]=[CH:3]/[CH3:4]",
         steps=(),
         open_leaves=("C/C=C/C",),
-        prior_rejections=(
-            {"product_smiles": "C/C=C/C", **diagnostic},
-        ),
+        prior_rejections=({"product_smiles": "C/C=C/C", **diagnostic},),
         repair=False,
         strategy_card=_strategy_card(1),
         forbidden_strategy_cards=(),
@@ -10926,9 +11483,7 @@ def test_invalidated_alkene_stereo_maps_reach_builder_retry() -> None:
     )
     context = json.loads(prompt.split("PaperMatchedRouteBuilderContext:\n", 1)[1])
     replay = context["last_rejection_for_this_leaf"]["replay_diagnostic"]
-    assert replay["invalidated_bond_stereo"] == [
-        {"map_a": 2, "map_b": 3, "previous_stereo": "E"}
-    ]
+    assert replay["invalidated_bond_stereo"] == [{"map_a": 2, "map_b": 3, "previous_stereo": "E"}]
     assert replay["required_repair"] == diagnostic["required_repair"]
 
 
@@ -11204,7 +11759,7 @@ def test_later_materialization_failure_preserves_the_valid_route_prefix() -> Non
     assert {row["target_smiles"] for row in plan.frontier_priorities} == {"CO"}
 
 
-def test_exhausted_materialization_leaf_is_deferred_to_short_tail_not_stock_closed() -> None:
+def test_exhausted_materialization_leaf_remains_for_builder_continuation() -> None:
     context = _context()
     config = DirectorConfig(
         minimum_route_families=1,
@@ -11235,7 +11790,7 @@ def test_exhausted_materialization_leaf_is_deferred_to_short_tail_not_stock_clos
                 "candidate_id": task.task_id,
                 "product_smiles": product,
                 "precursor_smiles": [],
-                "reaction_family": "short-tail deferral probe",
+                "reaction_family": "builder continuation deferral probe",
                 "product_retron_type": "bond disconnection",
                 "transformation_rationale": "retain unresolved route leaf",
                 "conditions": [],
@@ -11700,9 +12255,10 @@ def test_final_route_critic_uses_last_strategy_bound_to_selected_steps() -> None
         ],
     }
 
-    assert sequential_module._final_route_strategy_card(branch)[
-        "strategy_digest"
-    ] == milestone["strategy_digest"]
+    assert (
+        sequential_module._final_route_strategy_card(branch)["strategy_digest"]
+        == milestone["strategy_digest"]
+    )
 
 
 def test_new_sibling_strategy_reports_only_selected_path_critic_passes() -> None:

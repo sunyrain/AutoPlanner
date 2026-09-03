@@ -12,6 +12,7 @@ from cascade_planner.application.canonical_hypergraph import (
 from cascade_planner.application.proof_portfolio import (
     PortfolioConfig,
     compile_proof_portfolio,
+    persist_proof_portfolio,
     publish_proof_portfolio,
     validate_module_replacement,
 )
@@ -480,6 +481,30 @@ def test_two_route_portfolio_is_proof_stitched_and_published(tmp_path: Path) -> 
     assert kernel.state.acceptance_report["accepted"] is True
     assert kernel.state.deficits == ()
     assert kernel.decide_stop().decision == "completed"
+
+
+def test_persist_portfolio_updates_projection_without_republishing_decisions(
+    tmp_path: Path,
+) -> None:
+    kernel, graph = _build_closed_graph(tmp_path)
+    portfolio = compile_proof_portfolio(
+        graph,
+        acceptance_spec=kernel.spec.acceptance,
+    )
+    prior_acceptance = dict(kernel.state.acceptance_report)
+    prior_deficits = tuple(kernel.state.deficits)
+
+    ref = persist_proof_portfolio(kernel, portfolio)
+    run_digest = hashlib.sha256(kernel.spec.run_id.encode("utf-8")).hexdigest()
+    latest, metadata = kernel.artifacts.load_pointer(f"p/{run_digest[:24]}/latest")
+
+    assert kernel.artifacts.read_json(ref)["content_sha256"] == (
+        portfolio["content_sha256"]
+    )
+    assert latest.sha256 == ref.sha256
+    assert metadata["metadata"]["graph_revision"] == graph["revision"]
+    assert kernel.state.acceptance_report == prior_acceptance
+    assert kernel.state.deficits == prior_deficits
 
 
 def test_exact_sources_do_not_replace_reaction_proof_and_removal_reopens_one_gap(

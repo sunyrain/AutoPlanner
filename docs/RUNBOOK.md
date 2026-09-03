@@ -518,9 +518,11 @@ python -m cascade_planner serve --server flask --host 127.0.0.1 --port 8878
 `run_index.sqlite3`，该运行不会因位于仓库 `results/**` 下而自动进入网站；这是两个运行注册域，不是 SSE 丢失。
 需要网页实时监控的 smoke 必须通过同一服务的 `POST /api/v4/jobs` 启动，随后使用返回的 `job_id` 连接
 `/api/v4/live/<job_id>/events`。不要增加扫描任意结果目录的隐式导入器来制造第二个任务状态权威。
-已知目标的 blind/benchmark HTTP 重现实验不能依赖 interactive 自动库存解析，必须在 JSON 请求中同时提供
-`benchmark_stock_index`、`benchmark_stock_index_sha256` 和 `benchmark_stock_name`；缺少路径或哈希时会在任何
-付费模型调用之前 fail closed。
+Web、CLI、panel 与直接库调用的 `benchmark_search` 默认统一绑定
+`data_external/synthatlas/zinc_synthelite_20260223_full_inchikey.sqlite3`，并在任何付费模型调用前校验其固定
+SHA-256、完整状态、39,478,827 个唯一成员和 `full_inchikey` 身份。只有运行独立 benchmark 时才同时显式提供
+`benchmark_stock_index`、`benchmark_stock_index_sha256` 和 `benchmark_stock_name` 覆盖该默认值；显式覆盖会形成
+不同的 stock oracle，不能计作 SynthEx 库存可比结果。`procurement` 仍只读取明确提交的 inventory snapshot。
 
 Canonical Web 不发送 `objective_mode`。旧 API 客户端仍可暂时传入该字段，但
 `POST /api/v4/solve-target` 和 `POST /api/v4/jobs` 会返回 `Deprecation: true`、HTTP

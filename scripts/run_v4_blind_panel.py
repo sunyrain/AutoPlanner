@@ -35,7 +35,10 @@ from cascade_planner.application.campaign_trajectory import (  # noqa: E402
 )
 from cascade_planner.interfaces.target_runtime_dependencies import (  # noqa: E402
     SYNTHEX_MATCHED_PROFILE_DEFAULTS,
-    TARGET_PROFILE_DEFAULTS,
+)
+from cascade_planner.interfaces.live_stock import (  # noqa: E402
+    STANDARD_STOCK_CATALOG_NAME,
+    STANDARD_STOCK_INDEX_RELATIVE_PATH,
 )
 from cascade_planner.interfaces.target_solver import _is_paper_reach_profile  # noqa: E402
 from cascade_planner.runtime.paths import RuntimePaths  # noqa: E402
@@ -168,15 +171,6 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--native-short-tail-engine",
-        choices=("auto", "aizynthfinder", "chemenzy"),
-        default=None,
-        help=(
-            "short-tail engine for non-paper ablations; omitted preserves the "
-            "profile default"
-        ),
-    )
-    parser.add_argument(
         "--strategy-tree-engine",
         choices=("auto", "chemenzy_best_first", "aizynthfinder_mcts"),
         default=None,
@@ -189,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         "--no-chemenzy",
         action="store_true",
         default=False,
-        help="disable the optional Chemenzy target/guided providers for an ablation",
+        help="disable optional ChemEnzy services and target-level baselines",
     )
     parser.add_argument(
         "--objective-mode",
@@ -204,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Fixed target wall-time cutoff. For paper_synthex the default is "
             "an operational 24 h emergency ceiling; scientific limits are the "
-            "per-call, invocation, expansion, repair, and short-tail budgets."
+            "per-call, invocation, expansion, and repair budgets."
         ),
     )
     parser.add_argument(
@@ -266,9 +260,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--benchmark-stock-index",
         help=(
-            "Optional frozen SQLite stock-membership index shared read-only by "
-            "benchmark_search cases; required when the Strategy tree uses "
-            "AiZynthFinder MCTS."
+            "explicit frozen SQLite stock override shared read-only by "
+            "benchmark_search cases; omitted uses the standard ZINC+eMolecules "
+            "full-InChIKey index"
         ),
     )
     parser.add_argument(
@@ -347,6 +341,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     if not cases:
         raise SystemExit("No benchmark cases selected")
+    if (
+        not str(args.benchmark_stock_index or "").strip()
+        and any(
+            str(case.acceptance.get("stock_boundary") or "")
+            == "benchmark_search"
+            for case in cases
+        )
+    ):
+        args.benchmark_stock_index = str(
+            (ROOT / STANDARD_STOCK_INDEX_RELATIVE_PATH).resolve()
+        )
+        args.benchmark_stock_name = STANDARD_STOCK_CATALOG_NAME
     try:
         strategy_portfolio_seed = _validated_strategy_portfolio_seed(
             args.strategy_portfolio_seed,
@@ -499,17 +505,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.reactionjson_candidates_per_node is not None
             else SYNTHEX_MATCHED_PROFILE_DEFAULTS["reactionjson_candidates_per_node"]
         ),
-        "requested_native_short_tail_engine": args.native_short_tail_engine,
         "no_chemenzy": bool(args.no_chemenzy),
-        "native_short_tail_engine": (
-            args.native_short_tail_engine
-            if args.native_short_tail_engine is not None
-            else (
-                "aizynthfinder"
-                if _is_paper_reach_profile(args.execution_profile)
-                else "chemenzy"
-            )
-        ),
+        "leaf_continuation_engine": "same_llm_route_builder",
         "strategy_tree_engine": (
             args.strategy_tree_engine
             if args.strategy_tree_engine is not None
@@ -534,34 +531,9 @@ def main(argv: list[str] | None = None) -> int:
                 and chemenzy_stock_paths
             ),
         },
-        "native_stock_alignment": {
-            # The selected short-tail engine, rather than the broad execution
-            # profile, owns the native-search stock boundary.  A standard
-            # ablation can explicitly select AiZynthFinder, and recording it
-            # as ChemEnzy makes an AiZ-only run look contaminated even when
-            # the provider call and route lineage are AiZ-native.
-            "provider_id": (
-                args.native_short_tail_engine
-                if args.native_short_tail_engine is not None
-                else (
-                    "aizynthfinder"
-                    if _is_paper_reach_profile(args.execution_profile)
-                    else "chemenzy"
-                )
-            ),
-            "benchmark_index_bound_to_provider": bool(
-                args.benchmark_stock_index
-            ),
-            "provider_and_host_search_boundary_equal": bool(
-                args.benchmark_stock_index
-                and (
-                    (
-                        args.native_short_tail_engine == "aizynthfinder"
-                        or _is_paper_reach_profile(args.execution_profile)
-                    )
-                    or chemenzy_stock_paths
-                )
-            ),
+        "canonical_stock_binding": {
+            "owner": "host_exact_stock_oracle",
+            "explicit_frozen_index": bool(args.benchmark_stock_index),
         },
         "paper_protocol_preflight": paper_protocol_preflight,
         "matched_baseline": (
@@ -732,7 +704,6 @@ def main(argv: list[str] | None = None) -> int:
             ),
             node_expansions_per_branch=args.node_expansions_per_branch,
             reactionjson_candidates_per_node=args.reactionjson_candidates_per_node,
-            native_short_tail_engine=args.native_short_tail_engine,
             strategy_tree_engine=args.strategy_tree_engine,
             no_chemenzy=args.no_chemenzy,
             fixed_cutoff_wall_time_s=fixed_cutoff_wall_time_s,
@@ -1028,7 +999,7 @@ def _resolve_panel_fixed_cutoff_wall_time_s(
     execution_profile: str,
     requested: float | None,
 ) -> float:
-    """Resolve the panel cutoff without confusing paper and short-tail budgets."""
+    """Resolve the panel cutoff independently of model-call budgets."""
 
     default_cutoff = 7_200.0
     if _is_paper_reach_profile(execution_profile):
@@ -1040,9 +1011,7 @@ def _resolve_panel_fixed_cutoff_wall_time_s(
             raise ValueError("--fixed-cutoff-wall-time-s must be positive")
         if abs(value - expected) > 1e-9:
             raise ValueError(
-                "paper_synthex requires the frozen operational target cutoff; "
-                "1200 s is one short-tail timeout and 1800 s belongs to the "
-                "standalone exhaustive baseline, not the complete LLM workflow"
+                "paper_synthex requires the frozen operational target cutoff"
             )
         return value
     if requested is None:
@@ -1064,7 +1033,6 @@ def _run_case(
     strategic_milestones_per_branch: int = 1,
     node_expansions_per_branch: int | None = None,
     reactionjson_candidates_per_node: int | None = None,
-    native_short_tail_engine: str | None = None,
     strategy_tree_engine: str | None = None,
     no_chemenzy: bool = False,
     resume: bool,
@@ -1102,7 +1070,6 @@ def _run_case(
     )
     budget = dict(case.budget)
     proof_profile = execution_profile == "proof"
-    profile_defaults = TARGET_PROFILE_DEFAULTS[execution_profile]
     matched = SYNTHEX_MATCHED_PROFILE_DEFAULTS
     expansion_budget = (
         int(node_expansions_per_branch)
@@ -1169,11 +1136,6 @@ def _run_case(
     ):
         raise ValueError(
             "paper_synthex panel cannot override the frozen ReactionJSON candidate width"
-        )
-    short_tail_engine = native_short_tail_engine
-    if short_tail_engine is None:
-        short_tail_engine = (
-            "aizynthfinder" if _is_paper_reach_profile(execution_profile) else "chemenzy"
         )
     command = [
         sys.executable,
@@ -1275,48 +1237,19 @@ def _run_case(
         str(matched["max_atom_mapping_reactions"]),
         "--max-stock-molecules",
         str(matched["max_stock_molecules"]),
-        "--chemenzy-max-steps",
-        str(matched["short_tail_steps"]),
-        "--chemenzy-iterations",
-        str(matched["short_tail_iterations"]),
-        "--chemenzy-expansion-topk",
-        str(profile_defaults["topk"]),
-        "--chemenzy-timeout-s",
-        str(matched["short_tail_timeout_s"]),
         "--max-patent-sources",
         "3",
         "--max-literature-sources",
         "4",
-        # A clean ChemEnzy-off arm must disable both the direct provider and
-        # the guided frontier scheduler. Passing only --no-chemenzy leaves
-        # enable_guided_chemenzy at its CLI default, which still enqueues
-        # native_short_tail_expand campaign actions and contaminates an
-        # ostensibly AiZ-only control.
-        *(
-            ["--no-chemenzy", "--no-guided-chemenzy"]
-            if no_chemenzy
-            else []
-        ),
-        *(
-            [
-                "--native-short-tail-engine",
-                str(short_tail_engine),
-                "--aizynthfinder-short-tail-mode",
-                "short_tail",
-            ]
-            if short_tail_engine == "aizynthfinder"
-            else []
-        ),
-        *_guided_chemenzy_cli_args(execution_profile),
+        *(["--no-chemenzy"] if no_chemenzy else []),
         "--max-visual-invocations",
         "1" if visual else "0",
         "--max-visual-pages",
         "10" if visual and proof_profile else "6",
     ]
-    # The paper protocol ends after the bounded Critic–Editor loop and the
-    # fixed AiZ short tail.  The general Campaign scheduler's post-tail
-    # route-local replan is useful operationally, but is an extra scientific
-    # budget and must be opt-in outside this matched panel.
+    # The paper protocol owns the matched Critic/Editor loop.  A second
+    # campaign-level replan remains
+    # outside this control profile.
     if _is_paper_reach_profile(execution_profile):
         command.append("--no-replan")
     if strategy_portfolio_seed:
@@ -1464,27 +1397,14 @@ def _acceptance_cli_args(case: BlindCase) -> list[str]:
     ]
 
 
-def _guided_chemenzy_cli_args(execution_profile: str) -> list[str]:
-    """Materialize profile costs without overriding the unified frontier budget."""
-
-    del execution_profile
-    profile = SYNTHEX_MATCHED_PROFILE_DEFAULTS
-    return [
-        "--guided-chemenzy-iterations",
-        str(int(profile["short_tail_iterations"])),
-        "--guided-chemenzy-timeout-s",
-        str(float(profile["short_tail_timeout_s"])),
-    ]
-
-
 def _ablation_cli_args(ablation: str) -> list[str]:
     return {
         "baseline": [],
-        "no-chemenzy": ["--no-chemenzy", "--no-guided-chemenzy"],
+        "no-chemenzy": ["--no-chemenzy"],
         "no-self-evo": ["--no-patent-self-evo"],
         "no-replan": ["--no-replan"],
         "chemenzy-only": ["--no-codex"],
-        "codex-only": ["--no-chemenzy", "--no-guided-chemenzy"],
+        "codex-only": ["--no-chemenzy"],
         "unified-round-robin": ["--action-scheduler", "round_robin"],
         "unified-adaptive": ["--action-scheduler", "adaptive"],
     }[ablation]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from copy import deepcopy
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -38,14 +40,17 @@ def build_run_export_html(
     model_io_path: Path | None = None,
     export_kind: str = "interaction",
     branch_index: int = 1,
+    branch_indices: Iterable[int] | str | None = None,
 ) -> str:
     """Compile one saved run into one of the three explicit export products."""
 
     export_kind = str(export_kind or "interaction").strip().casefold()
     if export_kind not in SHOWCASE_TEMPLATES:
         raise ValueError(f"showcase_export_kind_invalid:{export_kind}")
-    if branch_index not in {1, 2, 3}:
-        raise ValueError(f"showcase_branch_index_invalid:{branch_index}")
+    selected_branches = normalize_branch_indices(
+        branch_indices,
+        branch_index=branch_index,
+    )
 
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
@@ -94,6 +99,7 @@ def build_run_export_html(
         # deliverables so route/graph exports remain compact.
         include_replay=True,
     )
+    projection = _filter_projection_branches(projection, selected_branches)
     complete_replay = dict(projection.pop("replay", {}) or {})
     origin_counts = _enrich_route_provenance(projection, report)
     if export_kind == "interaction":
@@ -118,7 +124,11 @@ def build_run_export_html(
         "exported_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "metadata": {
             "export_kind": export_kind,
-            "branch_index": branch_index,
+            # ``branch_index`` remains for older standalone templates and
+            # consumers. New exports use the complete ordered selection.
+            "branch_index": selected_branches[0],
+            "branch_indices": list(selected_branches),
+            "branch_selection_count": len(selected_branches),
             "run_id": run_id,
             "job_id": str(source_job.get("job_id") or ""),
             "target_name": target_name,
@@ -177,6 +187,7 @@ def export_run_showcase(
     job: Mapping[str, Any] | None = None,
     export_kind: str = "interaction",
     branch_index: int = 1,
+    branch_indices: Iterable[int] | str | None = None,
 ) -> dict[str, Any]:
     """Write a single-file playback page and return a compact receipt."""
 
@@ -187,6 +198,11 @@ def export_run_showcase(
         job=job,
         export_kind=export_kind,
         branch_index=branch_index,
+        branch_indices=branch_indices,
+    )
+    selected_branches = normalize_branch_indices(
+        branch_indices,
+        branch_index=branch_index,
     )
     output_path.write_text(body, encoding="utf-8")
     return {
@@ -195,7 +211,9 @@ def export_run_showcase(
         "size_bytes": output_path.stat().st_size,
         "self_contained": True,
         "export_kind": export_kind,
-        "branch_index": branch_index,
+        "branch_index": selected_branches[0],
+        "branch_indices": list(selected_branches),
+        "branch_selection_count": len(selected_branches),
     }
 
 
@@ -204,14 +222,163 @@ def showcase_filename(
     *,
     export_kind: str = "interaction",
     branch_index: int = 1,
+    branch_indices: Iterable[int] | str | None = None,
 ) -> str:
+    selected_branches = normalize_branch_indices(
+        branch_indices,
+        branch_index=branch_index,
+    )
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", str(run_id or "")).strip(".-")
+    selection = (
+        f"strategy-{selected_branches[0]}"
+        if len(selected_branches) == 1
+        else "strategies-" + "-".join(str(value) for value in selected_branches)
+    )
     suffix = {
-        "interaction": "model-interaction-playback",
-        "route": f"strategy-{branch_index}-static-route",
-        "graph": "complete-route-graph",
+        "interaction": f"{selection}-model-interaction-playback",
+        "route": f"{selection}-static-route",
+        "graph": f"{selection}-complete-route-graph",
     }.get(export_kind, "retrosynthesis-export")
     return f"{safe or 'retrosynthesis-run'}-{suffix}.html"
+
+
+def normalize_branch_indices(
+    branch_indices: Iterable[int] | str | None = None,
+    *,
+    branch_index: int = 1,
+) -> tuple[int, ...]:
+    """Return a stable, validated export selection.
+
+    ``branch_index`` is the legacy single-route argument. Supplying
+    ``branch_indices`` takes precedence and permits any non-empty subset of
+    the three Strategy Builder branches.
+    """
+
+    if branch_indices is None:
+        raw_values: Iterable[Any] = (branch_index,)
+    elif isinstance(branch_indices, str):
+        if not branch_indices.strip():
+            raise ValueError("showcase_branch_indices_empty")
+        raw_values = branch_indices.split(",")
+    else:
+        raw_values = branch_indices
+
+    selected: set[int] = set()
+    try:
+        values = list(raw_values)
+    except TypeError as exc:
+        raise ValueError("showcase_branch_indices_invalid") from exc
+    if not values:
+        raise ValueError("showcase_branch_indices_empty")
+    for raw_value in values:
+        if isinstance(raw_value, bool):
+            raise ValueError(f"showcase_branch_index_invalid:{raw_value}")
+        text = str(raw_value).strip()
+        if not text or not re.fullmatch(r"[0-9]+", text):
+            raise ValueError(f"showcase_branch_index_invalid:{raw_value}")
+        value = int(text)
+        if value not in {1, 2, 3}:
+            raise ValueError(f"showcase_branch_index_invalid:{value}")
+        selected.add(value)
+    if not selected:
+        raise ValueError("showcase_branch_indices_empty")
+    return tuple(sorted(selected))
+
+
+def _strategy_index(value: Mapping[str, Any], fallback: int) -> int:
+    try:
+        return int(value.get("index") or fallback)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _filter_strategies(
+    values: Any,
+    selected: frozenset[int],
+) -> list[dict[str, Any]]:
+    return [
+        deepcopy(dict(value))
+        for fallback, value in enumerate(values or [], start=1)
+        if isinstance(value, Mapping)
+        and _strategy_index(value, fallback) in selected
+    ]
+
+
+def _mapping_branch_index(value: Mapping[str, Any]) -> int | None:
+    raw = value.get("branch_index")
+    if raw in (None, ""):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _filter_projection_branches(
+    source: Mapping[str, Any],
+    branch_indices: tuple[int, ...],
+) -> dict[str, Any]:
+    """Remove every unselected branch from the offline export authority."""
+
+    projection = deepcopy(dict(source))
+    selected = frozenset(branch_indices)
+    projection["branches"] = [
+        value
+        for value in projection.get("branches") or []
+        if isinstance(value, Mapping)
+        and _mapping_branch_index(value) in selected
+    ]
+    projection["strategies"] = _filter_strategies(
+        projection.get("strategies"),
+        selected,
+    )
+    projection["activities"] = [
+        value
+        for value in projection.get("activities") or []
+        if isinstance(value, Mapping)
+        and (
+            _mapping_branch_index(value) is None
+            or _mapping_branch_index(value) in selected
+        )
+    ]
+    projection["usage"] = {
+        "input_tokens": sum(
+            int(value.get("input_tokens") or 0)
+            for value in projection["activities"]
+        ),
+        "output_tokens": sum(
+            int(value.get("output_tokens") or 0)
+            for value in projection["activities"]
+        ),
+        "model_invocations": len(projection["activities"]),
+    }
+    projection["model_output_count"] = len(projection["activities"])
+
+    replay = deepcopy(dict(projection.get("replay") or {}))
+    filtered_frames: list[dict[str, Any]] = []
+    for raw_frame in replay.get("frames") or []:
+        if not isinstance(raw_frame, Mapping):
+            continue
+        frame_branch = _mapping_branch_index(raw_frame)
+        if frame_branch is not None and frame_branch not in selected:
+            continue
+        frame = deepcopy(dict(raw_frame))
+        frame["strategies"] = _filter_strategies(
+            frame.get("strategies"),
+            selected,
+        )
+        frame["branch_updates"] = [
+            value
+            for value in frame.get("branch_updates") or []
+            if isinstance(value, Mapping)
+            and _mapping_branch_index(value) in selected
+        ]
+        frame["frame_index"] = len(filtered_frames)
+        filtered_frames.append(frame)
+    replay["frames"] = filtered_frames
+    replay["frame_count"] = len(filtered_frames)
+    projection["replay"] = replay
+    return projection
 
 
 def _read_run_report(run_dir: Path) -> dict[str, Any]:
@@ -237,16 +404,16 @@ def _report_summary(
     usage = dict(projection.get("usage") or {})
     return {
         "model_invocations": int(
-            model_cost.get("model_invocations")
-            or usage.get("model_invocations")
+            usage.get("model_invocations")
+            or model_cost.get("model_invocations")
             or projection.get("model_output_count")
             or 0
         ),
         "input_tokens": int(
-            model_cost.get("input_tokens") or usage.get("input_tokens") or 0
+            usage.get("input_tokens") or model_cost.get("input_tokens") or 0
         ),
         "output_tokens": int(
-            model_cost.get("output_tokens") or usage.get("output_tokens") or 0
+            usage.get("output_tokens") or model_cost.get("output_tokens") or 0
         ),
         "wall_time_s": float(model_cost.get("wall_time_s") or 0.0),
         "accepted_expansions": int(report.get("accepted_expansion_count") or 0),
@@ -562,5 +729,6 @@ def _step_origin_counts(steps: list[dict[str, Any]]) -> dict[str, int]:
 __all__ = [
     "build_run_export_html",
     "export_run_showcase",
+    "normalize_branch_indices",
     "showcase_filename",
 ]

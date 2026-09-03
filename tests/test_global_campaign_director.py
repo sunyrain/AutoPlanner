@@ -1254,7 +1254,7 @@ def test_director_downgrades_unbound_provider_target_to_host_priority(
     assert validate_global_campaign_plan(repaired, context)
 
 
-def test_director_accepts_native_short_tail_but_rejects_unknown_provider(
+def test_director_accepts_builder_continuation_but_rejects_retired_short_tail(
     tmp_path: Path,
 ) -> None:
     context = _context(_kernel(tmp_path))
@@ -1262,11 +1262,11 @@ def test_director_accepts_native_short_tail_but_rejects_unknown_provider(
     priority = raw["frontier_priorities"][0]
     priority["proposal_id"] = "proposal:amide:2"
     priority["target_smiles"] = "CCOC(=O)O"
-    priority["provider_preferences"] = ["native_short_tail"]
+    priority["provider_preferences"] = ["codex_frontier_builder"]
 
     assert validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
 
-    priority["provider_preferences"] = ["unknown-provider"]
+    priority["provider_preferences"] = ["native_short_tail"]
     with pytest.raises(
         GlobalCampaignPlanValidationError,
         match="provider_frontier_unknown_provider",

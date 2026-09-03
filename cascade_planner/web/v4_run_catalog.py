@@ -164,7 +164,13 @@ def resolve_catalog_job(
         else historical_job(run)
     )
     projected.setdefault("run_dir", str(run.get("run_dir") or ""))
-    return _decorate_job(projected, binding=binding), gateway
+    decorated = _decorate_job(projected, binding=binding)
+    # ``_decorate_job`` deliberately strips private Kernel state from catalog
+    # list rows.  A resolved detail request is the one place that must retain
+    # it until ``live_job_progress`` has built the public projection.
+    if isinstance(projected.get("_status_result"), Mapping):
+        decorated["_status_result"] = dict(projected["_status_result"])
+    return decorated, gateway
 
 
 def make_job_id(registry_id: str, run_id: str) -> str:

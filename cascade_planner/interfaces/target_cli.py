@@ -22,6 +22,8 @@ from cascade_planner.interfaces.live_evidence import (
 from cascade_planner.interfaces.live_stock import (
     FrozenBenchmarkStockIndex,
     FrozenInventorySnapshotBuilder,
+    STANDARD_STOCK_CATALOG_NAME,
+    standard_stock_catalog_builder,
 )
 from cascade_planner.interfaces.target_solver import (
     DEFAULT_TARGET_DIRECTOR_MODEL,
@@ -71,6 +73,15 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         ),
     )
     solve.add_argument("--resume", action="store_true")
+    solve.add_argument(
+        "--run-scope",
+        choices=("blind", "interactive"),
+        default="blind",
+        help=(
+            "preflight trust scope; pass interactive when resuming a run "
+            "created by the Web/API interactive workflow"
+        ),
+    )
     solve.add_argument(
         "--full-output",
         action="store_true",
@@ -292,13 +303,17 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
             "continues through the lower-priority C2-C6 credibility work"
         ),
     )
-    solve.add_argument("--no-live-benchmark-stock", action="store_true")
+    solve.add_argument(
+        "--no-live-benchmark-stock",
+        action="store_true",
+        help="disable benchmark-stock auditing; this does not select another stock",
+    )
     solve.add_argument(
         "--benchmark-stock-index",
         default="",
         help=(
-            "content-addressed frozen SQLite benchmark-stock index; this "
-            "replaces the default PubChem benchmark-search lookup"
+            "explicit content-addressed frozen SQLite override; omitted uses "
+            "the standard ZINC+eMolecules full-InChIKey index"
         ),
     )
     solve.add_argument(
@@ -378,66 +393,19 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument(
         "--chemenzy-iterations",
         type=int,
-        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_iterations"],
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["native_baseline_iterations"],
     )
     solve.add_argument("--chemenzy-expansion-topk", type=int, default=20)
     solve.add_argument(
         "--chemenzy-timeout-s",
         type=float,
-        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_timeout_s"],
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["native_baseline_timeout_s"],
     )
     solve.add_argument(
         "--chemenzy-seed",
         type=int,
         default=0,
         help="explicit ChemEnzy Python/NumPy/Torch seed used for replay binding",
-    )
-    solve.add_argument("--no-guided-chemenzy", action="store_true")
-    solve.add_argument(
-        "--native-short-tail-engine",
-        choices=("auto", "aizynthfinder", "chemenzy"),
-        default="auto",
-        help=(
-            "native open-leaf completion engine; paper_synthex resolves auto "
-            "to AiZynthFinder while ordinary runs retain ChemEnzy"
-        ),
-    )
-    solve.add_argument(
-        "--aizynthfinder-short-tail-mode",
-        choices=("canary", "short_tail"),
-        default="short_tail",
-        help="use canary only for workflow smoke tests; paper runs require short_tail",
-    )
-    solve.add_argument(
-        "--aizynthfinder-python-executable",
-        default="",
-        help="explicit Python executable for the isolated AiZynthFinder runtime",
-    )
-    solve.add_argument(
-        "--aizynthfinder-config-path",
-        default="",
-        help="explicit portable AiZynthFinder search configuration",
-    )
-    solve.add_argument(
-        "--aizynthfinder-runtime-root",
-        default="",
-        help="root used to resolve AiZynthFinder model and stock asset paths",
-    )
-    solve.add_argument(
-        "--guided-chemenzy-frontiers",
-        type=int,
-        default=None,
-        help="optional compatibility cap; default inherits the unified native-search budget",
-    )
-    solve.add_argument(
-        "--guided-chemenzy-iterations",
-        type=int,
-        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_iterations"],
-    )
-    solve.add_argument(
-        "--guided-chemenzy-timeout-s",
-        type=float,
-        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["short_tail_timeout_s"],
     )
     solve.add_argument(
         "--no-patent-self-evo",
@@ -621,11 +589,18 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     validation_fork.add_argument("--source-run-dir")
     validation_fork.add_argument("--run-id")
     validation_fork.add_argument("--run-dir")
-    validation_fork.add_argument("--no-live-benchmark-stock", action="store_true")
+    validation_fork.add_argument(
+        "--no-live-benchmark-stock",
+        action="store_true",
+        help="disable benchmark-stock auditing; this does not select another stock",
+    )
     validation_fork.add_argument(
         "--benchmark-stock-index",
         default="",
-        help="frozen SQLite stock index reused by the model-free fork",
+        help=(
+            "explicit frozen SQLite stock override; omitted uses the standard "
+            "ZINC+eMolecules full-InChIKey index"
+        ),
     )
     validation_fork.add_argument(
         "--benchmark-stock-index-sha256",
@@ -642,7 +617,8 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         action="store_true",
         help=(
             "after the model-free plan replay, run one bounded ChemEnzy "
-            "short-tail search for each distinct stock-open leaf"
+            "validation search for each distinct stock-open leaf; this is an "
+            "independent fork and never extends the canonical solve pipeline"
         ),
     )
     validation_fork.add_argument("--chemenzy-env-prefix", default="")
@@ -803,6 +779,8 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             )
         elif args.benchmark_stock_index_sha256 or args.benchmark_stock_name:
             raise ValueError("benchmark_stock_index_path_required")
+        elif not args.no_live_benchmark_stock:
+            stock_catalog_builder = standard_stock_catalog_builder()
         chemenzy_stock_names, chemenzy_stock_paths = _resolve_chemenzy_stock_binding(
             stock_names=tuple(
                 str(value)
@@ -810,8 +788,12 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                 if str(value).strip()
             ),
             stock_paths=_parse_chemenzy_stock_paths(args.chemenzy_stock_path),
-            benchmark_stock_index=args.benchmark_stock_index,
-            benchmark_stock_name=args.benchmark_stock_name,
+            benchmark_stock_index=str(
+                getattr(stock_catalog_builder, "index_path", "") or ""
+            ),
+            benchmark_stock_name=str(
+                getattr(stock_catalog_builder, "catalog_name", "") or ""
+            ),
             chemenzy_enabled=args.guided_chemenzy,
         )
         result = gateway.fork_target_validation(
@@ -923,6 +905,8 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         )
     elif args.benchmark_stock_index_sha256 or args.benchmark_stock_name:
         raise ValueError("benchmark_stock_index_path_required")
+    elif not args.no_live_benchmark_stock and args.stock_boundary == "benchmark_search":
+        stock_catalog_builder = standard_stock_catalog_builder()
 
     inventory_snapshot_builder = None
     if args.inventory_snapshot:
@@ -953,8 +937,13 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             str(value) for value in args.chemenzy_stock_name if str(value).strip()
         ),
         stock_paths=_parse_chemenzy_stock_paths(args.chemenzy_stock_path),
-        benchmark_stock_index=args.benchmark_stock_index,
-        benchmark_stock_name=args.benchmark_stock_name,
+        benchmark_stock_index=str(
+            getattr(stock_catalog_builder, "index_path", "") or ""
+        ),
+        benchmark_stock_name=str(
+            getattr(stock_catalog_builder, "catalog_name", "")
+            or STANDARD_STOCK_CATALOG_NAME
+        ),
         chemenzy_enabled=not args.no_chemenzy,
     )
     reviewed_strategy_portfolio, reviewed_strategy_portfolio_sha256 = (
@@ -1006,6 +995,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         config=TargetSolveConfig(
             model=args.model,
             reasoning_effort=args.reasoning_effort,
+            run_scope=args.run_scope,
             execution_profile=args.execution_profile,
             strategy_search_profile=args.strategy_search_profile,
             strategy_tree_engine=args.strategy_tree_engine,
@@ -1074,14 +1064,6 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             enable_live_benchmark_stock=not args.no_live_benchmark_stock,
             enable_chemenzy=not args.no_chemenzy,
             enable_target_chemenzy_baseline=args.target_chemenzy_baseline,
-            enable_guided_chemenzy=not args.no_guided_chemenzy,
-            native_short_tail_engine=args.native_short_tail_engine,
-            aizynthfinder_python_executable=(
-                args.aizynthfinder_python_executable
-            ),
-            aizynthfinder_config_path=args.aizynthfinder_config_path,
-            aizynthfinder_runtime_root=args.aizynthfinder_runtime_root,
-            aizynthfinder_short_tail_mode=args.aizynthfinder_short_tail_mode,
             chemenzy_env_prefix=args.chemenzy_env_prefix,
             chemenzy_stock_names=chemenzy_stock_names,
             chemenzy_stock_paths=chemenzy_stock_paths,
@@ -1110,9 +1092,6 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             chemenzy_expansion_topk=args.chemenzy_expansion_topk,
             chemenzy_timeout_s=args.chemenzy_timeout_s,
             chemenzy_seed=args.chemenzy_seed,
-            max_guided_chemenzy_frontiers=args.guided_chemenzy_frontiers,
-            max_guided_chemenzy_iterations=args.guided_chemenzy_iterations,
-            guided_chemenzy_timeout_s=args.guided_chemenzy_timeout_s,
             max_visual_evidence_pages=args.max_visual_pages,
             minimum_planning_route_steps=args.minimum_planning_route_steps,
             max_director_wall_time_s=args.max_model_wall_time_s,

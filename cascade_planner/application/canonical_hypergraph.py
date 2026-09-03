@@ -271,6 +271,26 @@ class CanonicalHypergraphStore:
             )
             origins = list(hypothesis.get("origin_records") or [{}])
             for origin in origins:
+                origin_route_ids = sorted(
+                    {
+                        str(value)
+                        for value in origin.get("canonical_route_family_ids") or []
+                        if str(value)
+                    }
+                    | (
+                        {str(origin.get("canonical_route_family_id"))}
+                        if origin.get("canonical_route_family_id")
+                        else set()
+                    )
+                )
+                if not origin_route_ids:
+                    hypothesis_route_ids = [
+                        str(value)
+                        for value in hypothesis.get("route_family_ids") or []
+                        if str(value)
+                    ]
+                    if len(hypothesis_route_ids) == 1:
+                        origin_route_ids = hypothesis_route_ids
                 origin_strategy_digest = str(origin.get("strategy_digest") or "")
                 origin_strategy_card = next(
                     (
@@ -324,15 +344,13 @@ class CanonicalHypergraphStore:
                         "reactionjson_audit": dict(
                             hypothesis.get("reactionjson_audit") or {}
                         ),
-                        # Guided expansion is born under an existing canonical
-                        # family.  The provider's temporary alias is retained
-                        # as provenance, but it cannot recover that parent
-                        # association after the worker boundary on its own.
-                        "canonical_route_family_ids": sorted(
-                            str(value)
-                            for value in hypothesis.get("route_family_ids") or []
-                            if str(value)
-                        ),
+                        # Preserve the origin -> canonical-family binding.
+                        # The hypothesis-level list is the OR-union across all
+                        # origins and must not be copied onto each origin when
+                        # a reaction is shared by independent routes.  The
+                        # single-family fallback covers older guided proposals
+                        # whose origin pre-dates the explicit binding field.
+                        "canonical_route_family_ids": origin_route_ids,
                     }
                 )
         return self.materialization_commands(proposals)
@@ -902,6 +920,21 @@ def _ingest_route_family(
             row.get("chemical_critic")
             or existing.get("chemical_critic")
             or {}
+        ),
+        "supersedes_route_family_id": str(
+            row.get("supersedes_route_family_id")
+            or existing.get("supersedes_route_family_id")
+            or ""
+        ),
+        "repair_origin_route_sha256": str(
+            row.get("repair_origin_route_sha256")
+            or existing.get("repair_origin_route_sha256")
+            or ""
+        ),
+        "final_route_repair_attempts": _merge_ordered_runtime_rows(
+            existing.get("final_route_repair_attempts"),
+            row.get("final_route_repair_attempts"),
+            stable_keys=("task_id",),
         ),
         "path_repair_transactions": _merge_ordered_runtime_rows(
             existing.get("path_repair_transactions"),

@@ -99,13 +99,13 @@ def test_synthex_protocol_preflight_rejects_enzyme_bias_in_paper_portfolio(
     )
 
 
-def test_synthex_protocol_preflight_rejects_wrong_candidate_width_or_tail_engine(
+def test_synthex_protocol_preflight_rejects_wrong_candidate_width_or_leaf_contract(
     tmp_path: Path,
 ) -> None:
     protocol, manifest, stock, defaults = _fixture(tmp_path)
     payload = json.loads(protocol.read_text(encoding="utf-8"))
     payload["execution_contract"]["reactionjson_candidates_per_node"] = 3
-    payload["execution_contract"]["short_tail"]["engine"] = "ChemEnzy"
+    payload["execution_contract"]["leaf_continuation"]["engine"] = "ChemEnzy"
     protocol.write_text(json.dumps(payload), encoding="utf-8")
 
     result = validate_synthex_head_to_head_protocol(
@@ -123,7 +123,7 @@ def test_synthex_protocol_preflight_rejects_wrong_candidate_width_or_tail_engine
     fields = {row.get("field") for row in result["issues"]}
     assert result["ready_for_paid_experiment"] is False
     assert "reactionjson_candidates_per_node" in fields
-    assert "short_tail.engine" in fields
+    assert "leaf_continuation.engine" in fields
 
 
 def test_synthex_protocol_preflight_rejects_enzyme_companion_in_isolated_arm(

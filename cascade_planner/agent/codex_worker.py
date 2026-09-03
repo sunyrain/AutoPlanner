@@ -791,6 +791,14 @@ def _codex_executable_command(executable: str) -> list[str]:
     return [str(executable)]
 
 
+def _worker_creation_flags() -> int:
+    """Keep command workers headless on Windows without changing their pipes."""
+
+    if os.name != "nt":
+        return 0
+    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
 def _run_worker_command(
     command: list[str],
     *,
@@ -812,6 +820,7 @@ def _run_worker_command(
         errors="replace",
         env=env,
         start_new_session=True,
+        creationflags=_worker_creation_flags(),
     )
     windows_job = _create_windows_kill_job(proc)
     stdin_writer = _start_worker_stdin_writer(proc, input_text)
@@ -1951,7 +1960,7 @@ def _artifact_payload_instruction(
             "Return exactly three reviewed and, where needed, revised one-sentence steering queries plus their critical assumptions; do not expose the critique, build routes, or add structures, conditions, evidence, or admission claims."
         ),
         ("paper_matched_route_step", "RetrosynthesisProposalReport"): (
-            "Return one schema-defined ReactionJSON expansion for the selected node; the host derives structures and exclusively owns MCTS termination, budget exhaustion, stock, solved status, and short-tail stitching."
+            "Return one schema-defined ReactionJSON expansion for the selected node; the host derives structures and exclusively owns MCTS termination, budget exhaustion, stock, and solved status. Every open leaf continues through this same Builder contract."
         ),
         ("paper_matched_route_editor", "RetrosynthesisProposalReport"): (
             "Return one schema-defined dependency-closed replace_span; the host preserves all unlisted rows, derives every precursor, merges the span into the full RouteJSON, and replays the complete route."
@@ -1960,7 +1969,7 @@ def _artifact_payload_instruction(
             "Return one compact rollback directive naming a current RouteJSON step and the chemical repair goal. The host computes only the rollback-to-blocker dependency path, preserves unrelated rows and the reconnectable suffix, restores the exact mapped frontier, and ordinary one-step Builder calls perform every structural edit."
         ),
         ("paper_matched_route_critic", "ChemicalStrategyCritique"): (
-            "Return the schema-defined concise forward audit, marking only concrete chemical contradictions as blocking; Strategy adherence is non-blocking observation metadata."
+            "Return the schema-defined concise forward audit with each Host-issued review_slot exactly once and mark only concrete chemical contradictions as blocking; the Host binds each slot to its authoritative reaction edit. Strategy adherence is non-blocking observation metadata. Include route_overall_evaluation as a concise 2-4 sentence whole-route judgment covering strategic coherence, the strongest feature, the decisive risk, and experimental maturity without repeating the step audit."
         ),
         ("paper_matched_key_event_critic", "ChemicalStrategyCritique"): (
             "Return the schema-defined concise audit of the first purported key construction, marking only concrete chemical or Strategy contradictions as blocking."
@@ -2527,7 +2536,7 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
     if task.task_type == "paper_matched_route_critic":
         step_assessment = _strict_object_schema(
             {
-                "step_id": _short_text_schema(160),
+                "review_slot": _short_text_schema(32),
                 "verdict": {
                     "type": "string",
                     "enum": ["pass", "uncertain", "reject"],
@@ -2559,6 +2568,7 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                     "type": "string",
                     "enum": ["viable", "uncertain", "reject"],
                 },
+                "route_overall_evaluation": _short_text_schema(960),
                 "strategy_adherence": {"type": "boolean"},
                 "step_assessments": {
                     "type": "array",
@@ -3811,7 +3821,6 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
         "paper_matched_key_event_critic",
     }:
         step_assessment_properties: dict[str, Any] = {
-                "step_id": _short_text_schema(160),
                 "verdict": {
                     "type": "string",
                     "enum": ["pass", "uncertain", "reject"],
@@ -3841,10 +3850,13 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
                 "suggested_revision": _short_text_schema(420),
         }
         if task.task_type == "paper_matched_key_event_critic":
+            step_assessment_properties["step_id"] = _short_text_schema(160)
             step_assessment_properties["repair_scope"] = {
                 "type": "string",
                 "enum": list(KEY_EVENT_REPAIR_SCOPES),
             }
+        else:
+            step_assessment_properties["review_slot"] = _short_text_schema(32)
         step_assessment = _strict_object_schema(step_assessment_properties)
         properties: dict[str, Any] = {
                 "schema_version": {
@@ -3882,6 +3894,7 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
         if task.task_type == "paper_matched_key_event_critic":
             properties["checkpoint_match"] = {"type": "boolean"}
         else:
+            properties["route_overall_evaluation"] = _short_text_schema(960)
             properties["coupled_blocker_groups"] = {
                 "type": "array",
                 "items": {

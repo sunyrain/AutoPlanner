@@ -127,6 +127,111 @@ def review_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     }
 
 
+@pytest.fixture
+def structured_route_fixture(review_fixture: dict) -> dict:
+    repo_root = review_fixture["repo_root"]
+    dataset_dir = review_fixture["dataset_dir"]
+    candidate_path = (
+        dataset_dir
+        / "curation_candidates"
+        / "structured_routes"
+        / "target-example.json"
+    )
+    candidate = {
+        "schema_version": packets.STRUCTURED_ROUTE_SCHEMA,
+        "candidate_id": "structured-route--target-example--v1",
+        "admission_authority": False,
+        "extraction_status": "complete_ordered_route_candidate",
+        "target_slot_id": "target-example",
+        "target_compound_id": "compound-target",
+        "paper_id": "paper-example",
+        "source_doi": "10.1000/example",
+        "reference_scope": "ordered_route",
+        "source_artifacts": [review_fixture["binding"]],
+        "compounds": [
+            {
+                "compound_id": "compound-start",
+                "label": "1",
+                "role": "starting_material",
+                "smiles": "C",
+                "molecular_formula": "CH4",
+            },
+            {
+                "compound_id": "compound-middle",
+                "label": "2",
+                "role": "intermediate",
+                "smiles": "CO",
+                "molecular_formula": "CH4O",
+            },
+            {
+                "compound_id": "compound-target",
+                "label": "3",
+                "role": "target",
+                "smiles": "C=O",
+                "molecular_formula": "CH2O",
+            },
+        ],
+        "steps": [
+            {
+                "order": 1,
+                "step_id": "step-1",
+                "precursor_compound_ids": ["compound-start"],
+                "precursor_labels": ["1"],
+                "product_compound_id": "compound-middle",
+                "product_label": "2",
+                "transformation_class": "oxidation",
+                "strategic_role": "install alcohol",
+                "source_locator": "Scheme 1, step a",
+            },
+            {
+                "order": 2,
+                "step_id": "step-2",
+                "precursor_compound_ids": ["compound-middle"],
+                "precursor_labels": ["2"],
+                "product_compound_id": "compound-target",
+                "product_label": "3",
+                "transformation_class": "oxidation",
+                "strategic_role": "reach target oxidation state",
+                "source_locator": "Scheme 1, step b",
+            },
+        ],
+        "strategic_events": [
+            {
+                "event_id": "event-1",
+                "description": "The oxidation sequence reaches the target.",
+                "transformation_class": "oxidation sequence",
+                "source_locator": "Scheme 1",
+            }
+        ],
+    }
+    return {
+        "repo_root": repo_root,
+        "dataset_dir": dataset_dir,
+        "candidate_path": candidate_path,
+        "candidate": candidate,
+        "targets": {"target-example": review_fixture["target"]},
+        "visual_by_target": {
+            "target-example": {"visual_canonical_isomeric_smiles": "C=O"}
+        },
+    }
+
+
+def write_structured_route_fixture(fixture: dict, candidate: dict) -> None:
+    path = fixture["candidate_path"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(candidate), encoding="utf-8")
+
+
+def validate_structured_route_fixture(fixture: dict, candidate: dict) -> dict:
+    return packets.validate_structured_route_candidate(
+        candidate,
+        candidate_path=fixture["candidate_path"],
+        repo_root=fixture["repo_root"],
+        targets=fixture["targets"],
+        visual_by_target=fixture["visual_by_target"],
+    )
+
+
 def test_source_audit_checks_every_file_and_reports_missing_packages(tmp_path: Path) -> None:
     artifact = tmp_path / "tmp" / "paper.pdf"
     artifact.parent.mkdir(parents=True)
@@ -164,6 +269,89 @@ def test_source_audit_checks_every_file_and_reports_missing_packages(tmp_path: P
     assert audit["source_packages_acquired"] == 1
     assert audit["verified_artifact_files"] == 1
     assert audit["missing_packages"][0]["doi"] == "10.1000/missing"
+
+
+def test_structured_route_candidate_is_loaded_as_nonadmitting(
+    structured_route_fixture: dict,
+) -> None:
+    write_structured_route_fixture(
+        structured_route_fixture,
+        structured_route_fixture["candidate"],
+    )
+    loaded = packets.load_structured_route_candidates(
+        dataset_dir=structured_route_fixture["dataset_dir"],
+        repo_root=structured_route_fixture["repo_root"],
+        targets=structured_route_fixture["targets"],
+        visual_by_target=structured_route_fixture["visual_by_target"],
+    )
+    candidate = loaded["target-example"]
+    assert candidate["admission_authority"] is False
+    assert [step["order"] for step in candidate["steps"]] == [1, 2]
+
+
+def test_structured_route_record_satisfies_route_review_contract(
+    structured_route_fixture: dict,
+) -> None:
+    candidate = validate_structured_route_fixture(
+        structured_route_fixture,
+        structured_route_fixture["candidate"],
+    )
+    record = packets.structured_route_record(candidate)
+    normalized = builder.normalize_human_route_review_record(
+        record,
+        target=structured_route_fixture["targets"]["target-example"],
+        repo_root=structured_route_fixture["repo_root"],
+    )
+    assert normalized["reference_scope"] == "ordered_route"
+    assert [step["step_id"] for step in normalized["steps"]] == ["step-1", "step-2"]
+
+
+def test_structured_route_step_order_is_rejected(structured_route_fixture: dict) -> None:
+    candidate = json.loads(json.dumps(structured_route_fixture["candidate"]))
+    candidate["steps"][1]["order"] = 3
+    with pytest.raises(RuntimeError, match="structured_route_step_order_invalid"):
+        validate_structured_route_fixture(structured_route_fixture, candidate)
+
+
+def test_structured_route_unproduced_precursor_is_rejected(
+    structured_route_fixture: dict,
+) -> None:
+    candidate = json.loads(json.dumps(structured_route_fixture["candidate"]))
+    candidate["steps"][0]["precursor_compound_ids"] = ["compound-middle"]
+    candidate["steps"][0]["precursor_labels"] = ["2"]
+    with pytest.raises(RuntimeError, match="structured_route_precursor_not_yet_produced"):
+        validate_structured_route_fixture(structured_route_fixture, candidate)
+
+
+def test_structured_route_target_structure_mismatch_is_rejected(
+    structured_route_fixture: dict,
+) -> None:
+    candidate = json.loads(json.dumps(structured_route_fixture["candidate"]))
+    target = next(
+        row for row in candidate["compounds"] if row["compound_id"] == "compound-target"
+    )
+    target["smiles"] = "C#N"
+    target["molecular_formula"] = "CHN"
+    with pytest.raises(RuntimeError, match="structured_route_target_structure_mismatch"):
+        validate_structured_route_fixture(structured_route_fixture, candidate)
+
+
+def test_structured_route_source_hash_mismatch_is_rejected(
+    structured_route_fixture: dict,
+) -> None:
+    candidate = json.loads(json.dumps(structured_route_fixture["candidate"]))
+    candidate["source_artifacts"][0]["source_artifact_sha256"] = "0" * 64
+    with pytest.raises(RuntimeError, match="review_packet_source_hash_mismatch"):
+        validate_structured_route_fixture(structured_route_fixture, candidate)
+
+
+def test_structured_route_admission_authority_is_rejected(
+    structured_route_fixture: dict,
+) -> None:
+    candidate = json.loads(json.dumps(structured_route_fixture["candidate"]))
+    candidate["admission_authority"] = True
+    with pytest.raises(RuntimeError, match="structured_route_must_be_nonadmitting"):
+        validate_structured_route_fixture(structured_route_fixture, candidate)
 
 
 def test_valid_target_submission_normalizes_both_reviews(review_fixture: dict) -> None:

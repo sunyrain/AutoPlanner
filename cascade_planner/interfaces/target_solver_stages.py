@@ -47,7 +47,7 @@ from cascade_planner.application.unified_campaign_spec import (
     stock_oracle_reference_from_builder,
 )
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
-from cascade_planner.interfaces.live_stock import build_pubchem_vendor_catalog
+from cascade_planner.interfaces.live_stock import standard_stock_catalog_builder
 from cascade_planner.orchestration.retrosynthesis_service import (
     RetrosynthesisCampaignService,
 )
@@ -1190,11 +1190,13 @@ def audit_live_benchmark_stock(
     *,
     catalog_builder: StockCatalogBuilder | None = None,
     max_molecules: int = 24,
+    route_family_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     graph = service.graph_store.load()
     selection = _selected_stock_audit_molecules(
         graph,
         max_molecules=max_molecules,
+        route_family_ids=route_family_ids,
     )
     leaf_ids = selection["leaf_molecule_ids"]
     candidate_ids = selection["stock_candidate_molecule_ids"]
@@ -1202,6 +1204,7 @@ def audit_live_benchmark_stock(
         return {
             "stage": "benchmark_stock",
             "status": "unresolved",
+            "route_family_ids": list(selection["route_family_ids"]),
             "selected_leaf_count": 0,
             "reason": "selected_route_leaves_missing",
             "execution": {"executed_command_count": 0},
@@ -1220,6 +1223,7 @@ def audit_live_benchmark_stock(
             graph,
             required_boundary="benchmark_search",
             max_molecules=max_molecules,
+            route_family_ids=route_family_ids,
         )
     query_candidate_ids = pending_candidate_ids[:max_molecules]
     remaining_pending_count = max(
@@ -1229,7 +1233,7 @@ def audit_live_benchmark_stock(
         graph["molecules"][molecule_id]["canonical_smiles"]
         for molecule_id in query_candidate_ids
     ]
-    builder = catalog_builder or build_pubchem_vendor_catalog
+    builder = catalog_builder or standard_stock_catalog_builder()
     _assert_stock_oracle_builder_binding(
         service,
         builder=builder,
@@ -1271,7 +1275,10 @@ def audit_live_benchmark_stock(
                 artifact_refs=(ref,),
             ),
         ),
-        idempotency_key=f"solve-target:benchmark-stock:{service.kernel.state.graph_revision}",
+        idempotency_key=(
+            f"solve-target:benchmark-stock:{service.kernel.state.graph_revision}:"
+            f"{_stable_digest(selection['route_family_ids'])[:16]}"
+        ),
     )
     updated = service.graph_store.load()
     closed_leaf_count = sum(
@@ -1303,6 +1310,7 @@ def audit_live_benchmark_stock(
         "newly_queried_candidate_count": len(query_candidate_ids),
         "remaining_pending_candidate_count": remaining_pending_count,
         "audit_batch_limit": max_molecules,
+        "route_family_ids": list(selection["route_family_ids"]),
         "internal_stock_candidate_count": selection[
             "internal_stock_candidate_count"
         ],
@@ -1337,6 +1345,7 @@ def audit_authoritative_inventory_stock(
     required_boundary: str,
     max_molecules: int = 24,
     max_age_days: float = 365.0,
+    route_family_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Freeze and audit leaves plus useful internal procurement cut points."""
 
@@ -1344,6 +1353,7 @@ def audit_authoritative_inventory_stock(
     selection = _selected_stock_audit_molecules(
         graph,
         max_molecules=max_molecules,
+        route_family_ids=route_family_ids,
     )
     leaf_ids = selection["leaf_molecule_ids"]
     candidate_ids = selection["stock_candidate_molecule_ids"]
@@ -1351,6 +1361,7 @@ def audit_authoritative_inventory_stock(
         return {
             "stage": "authoritative_inventory_stock",
             "status": "unresolved",
+            "route_family_ids": list(selection["route_family_ids"]),
             "reason": "selected_route_leaves_missing",
             "selected_leaf_count": 0,
             "execution": {"executed_command_count": 0},
@@ -1371,6 +1382,7 @@ def audit_authoritative_inventory_stock(
             required_boundary=required_boundary,
             max_molecules=max_molecules,
             max_age_days=max_age_days,
+            route_family_ids=route_family_ids,
         )
     query_candidate_ids = pending_candidate_ids[:max_molecules]
     remaining_pending_count = max(
@@ -1452,6 +1464,7 @@ def audit_authoritative_inventory_stock(
         "newly_queried_candidate_count": len(query_candidate_ids),
         "remaining_pending_candidate_count": remaining_pending_count,
         "audit_batch_limit": max_molecules,
+        "route_family_ids": list(selection["route_family_ids"]),
         "stock_closed_leaf_count": closed_leaf_count,
         "stock_closed_candidate_count": closed_candidate_count,
         "inventory_ref": ref,
@@ -1476,6 +1489,7 @@ def _selected_stock_audit_molecules(
     graph: Mapping[str, Any],
     *,
     max_molecules: int,
+    route_family_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Select bounded stock cut points without sacrificing mandatory leaf audits.
 
@@ -1485,11 +1499,25 @@ def _selected_stock_audit_molecules(
     sound.  Other internal products are useful alternative procurement cuts.
     """
 
-    selected_routes = [
-        dict(route)
-        for route in dict(graph.get("route_families") or {}).values()
-        if isinstance(route, Mapping) and route.get("selected") is not False
-    ]
+    requested_route_ids = (
+        tuple(dict.fromkeys(str(value) for value in route_family_ids if str(value)))
+        if route_family_ids is not None
+        else None
+    )
+    route_families = dict(graph.get("route_families") or {})
+    if requested_route_ids is None:
+        selected_route_items = [
+            (str(route_id), dict(route))
+            for route_id, route in route_families.items()
+            if isinstance(route, Mapping) and route.get("selected") is not False
+        ]
+    else:
+        selected_route_items = [
+            (route_id, dict(route_families.get(route_id) or {}))
+            for route_id in requested_route_ids
+            if isinstance(route_families.get(route_id), Mapping)
+        ]
+    selected_routes = [route for _route_id, route in selected_route_items]
     leaf_ids = sorted(
         {
             str(molecule_id)
@@ -1527,6 +1555,7 @@ def _selected_stock_audit_molecules(
         + sorted(other_products - rejected_products)
     )[:capacity]
     return {
+        "route_family_ids": [route_id for route_id, _route in selected_route_items],
         "leaf_molecule_ids": leaf_ids,
         "stock_candidate_molecule_ids": leaf_ids + internal_ids,
         "internal_stock_candidate_count": len(internal_ids),
@@ -1542,6 +1571,7 @@ def project_existing_stock_audit(
     required_boundary: str,
     max_molecules: int = 24,
     max_age_days: float = 30.0,
+    route_family_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Project the authoritative stock state without invoking an adapter.
 
@@ -1559,12 +1589,14 @@ def project_existing_stock_audit(
     selection = _selected_stock_audit_molecules(
         graph,
         max_molecules=max_molecules,
+        route_family_ids=route_family_ids,
     )
     leaf_ids = selection["leaf_molecule_ids"]
     candidate_ids = selection["stock_candidate_molecule_ids"]
     if not leaf_ids:
         return {
             "stage": stage,
+            "route_family_ids": list(selection["route_family_ids"]),
             "status": "unresolved",
             "reason": "selected_route_leaves_missing",
             "selected_leaf_count": 0,
@@ -1598,6 +1630,7 @@ def project_existing_stock_audit(
     )
     return {
         "stage": stage,
+        "route_family_ids": list(selection["route_family_ids"]),
         "status": (
             "reused"
             if not pending_candidate_ids
@@ -1678,6 +1711,34 @@ def _has_boundary_observation(
     )
 
 
+def canonical_route_stock_closed(
+    graph: Mapping[str, Any],
+    *,
+    route_family_id: str,
+    required_boundary: str,
+) -> bool:
+    """Derive one route's stock closure directly from canonical graph state."""
+
+    route = dict(
+        dict(graph.get("route_families") or {}).get(str(route_family_id or ""))
+        or {}
+    )
+    leaf_ids = [str(value) for value in route.get("leaf_molecule_ids") or () if str(value)]
+    return bool(
+        route.get("edge_ids")
+        and leaf_ids
+        and not route.get("unmaterialized_hypothesis_ids")
+        and all(
+            _has_boundary_observation(
+                graph,
+                molecule_id,
+                required=str(required_boundary or ""),
+            )
+            for molecule_id in leaf_ids
+        )
+    )
+
+
 def _has_recent_boundary_audit(
     graph: Mapping[str, Any],
     molecule_id: str,
@@ -1721,6 +1782,7 @@ __all__ = [
     "StockCatalogBuilder",
     "audit_authoritative_inventory_stock",
     "audit_live_benchmark_stock",
+    "canonical_route_stock_closed",
     "discover_director_source_hints",
     "enrich_materialized_edge_conditions",
     "ingest_source_discovery_observation",

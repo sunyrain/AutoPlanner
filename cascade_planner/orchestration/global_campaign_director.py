@@ -756,7 +756,7 @@ class GlobalCampaignDirector:
                 "mode": mode,
                 "model": self.config.model,
                 "reasoning_effort": self.config.reasoning_effort,
-                "remaining_model_budget": _remaining_model_budget(self.kernel),
+                "remaining_model_budget": remaining_model_budget(self.kernel),
                 "no_scientific_authority": True,
                 "allowed_workdir": str(
                     self.kernel.run_dir / ".autoplanner" / "director-workspace"
@@ -1341,7 +1341,7 @@ def validate_global_campaign_plan(
             elif frontier_smiles not in skeleton_molecules:
                 reasons.append("provider_frontier_not_in_skeleton")
             if any(
-                value not in {"chemenzy", "native_short_tail"}
+                value not in {"chemenzy", "codex_frontier_builder"}
                 for value in providers
             ):
                 reasons.append("provider_frontier_unknown_provider")
@@ -2364,7 +2364,7 @@ def _director_worker_error(record: Any) -> str:
     return str(record.stderr or record.status)[:4_000]
 
 
-def _remaining_model_budget(kernel: RunKernel) -> dict[str, int | float]:
+def remaining_model_budget(kernel: RunKernel) -> dict[str, int | float]:
     """Expose the canonical run ledger remainder to aggregate model runners.
 
     The sequential policy runner performs many small Codex calls behind one
@@ -2524,6 +2524,7 @@ __all__ = [
     "director_trigger_reasons",
     "normalize_director_usage",
     "proposal_ids",
+    "remaining_model_budget",
     "run_api_json_director_child",
     "run_codex_cli_director_child",
     "validate_global_campaign_plan",

@@ -200,28 +200,7 @@ def publish_proof_portfolio(
         config=config,
         budget_exhausted=budget_exhausted,
     )
-    ref = kernel.artifacts.put_json(
-        portfolio,
-        logical_name="proof_stitched_route_portfolio.json",
-        producer="autoplanner.proof_portfolio",
-    )
-    run_digest = hashlib.sha256(kernel.spec.run_id.encode("utf-8")).hexdigest()
-    kernel.artifacts.write_pointer(
-        f"p/{run_digest[:24]}/latest",
-        ref,
-        metadata={
-            "run_id": kernel.spec.run_id,
-            "graph_revision": graph.get("revision"),
-            "accepted": portfolio["accepted"],
-        },
-    )
-    kernel.index.index_artifact(
-        run_id=kernel.spec.run_id,
-        artifact_id="proof_stitched_route_portfolio",
-        ref=ref,
-        revision=int(graph.get("revision") or 0),
-        authority_scope="proof_stitched_route_portfolio",
-    )
+    ref = persist_proof_portfolio(kernel, portfolio)
     publish_frontier_items(
         kernel,
         portfolio["deficits"],
@@ -254,6 +233,40 @@ def publish_proof_portfolio(
     }
 
 
+def persist_proof_portfolio(
+    kernel: RunKernel,
+    portfolio: Mapping[str, Any],
+) -> Any:
+    """Persist one compiled projection without publishing runtime decisions."""
+
+    graph_revision = int(portfolio.get("graph_revision") or 0)
+    if graph_revision != kernel.state.graph_revision:
+        raise ValueError("proof_portfolio_graph_revision_stale")
+    ref = kernel.artifacts.put_json(
+        dict(portfolio),
+        logical_name="proof_stitched_route_portfolio.json",
+        producer="autoplanner.proof_portfolio",
+    )
+    run_digest = hashlib.sha256(kernel.spec.run_id.encode("utf-8")).hexdigest()
+    kernel.artifacts.write_pointer(
+        f"p/{run_digest[:24]}/latest",
+        ref,
+        metadata={
+            "run_id": kernel.spec.run_id,
+            "graph_revision": graph_revision,
+            "accepted": portfolio["accepted"],
+        },
+    )
+    kernel.index.index_artifact(
+        run_id=kernel.spec.run_id,
+        artifact_id="proof_stitched_route_portfolio",
+        ref=ref,
+        revision=graph_revision,
+        authority_scope="proof_stitched_route_portfolio",
+    )
+    return ref
+
+
 def _digest(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(
@@ -273,6 +286,7 @@ __all__ = [
     "ROUTE_MODULE_SCHEMA",
     "PortfolioConfig",
     "compile_proof_portfolio",
+    "persist_proof_portfolio",
     "publish_proof_portfolio",
     "validate_module_replacement",
 ]

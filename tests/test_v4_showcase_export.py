@@ -4,9 +4,13 @@ import json
 from pathlib import Path
 import re
 
+import pytest
+
 from cascade_planner.web.v4_showcase_export import (
     build_run_export_html,
     export_run_showcase,
+    normalize_branch_indices,
+    showcase_filename,
 )
 
 
@@ -159,6 +163,76 @@ def _saved_run(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return run_dir
+
+
+def _saved_three_branch_run(tmp_path: Path) -> Path:
+    run_dir = _saved_run(tmp_path)
+    stream = run_dir / ".autoplanner" / "director-workspace" / "model-io.jsonl"
+    target = "CC(=O)Oc1ccccc1C(=O)O"
+    rows = []
+    for branch_index, draft_precursor, host_precursor in (
+        (2, "Cl", "CCO"),
+        (3, "Br", "CCN"),
+    ):
+        rows.extend(
+            (
+                _event(
+                    event="model_output",
+                    artifact_type="RetrosynthesisProposalReport",
+                    task_id=f"director:test:branch:{branch_index}:node:1",
+                    status="accepted_draft",
+                    usage={"input_tokens": 30, "output_tokens": 10},
+                    output_artifact={
+                        "payload": {
+                            "candidates": [
+                                {
+                                    "candidate_id": f"candidate:{branch_index}",
+                                    "product_smiles": target,
+                                    "precursor_smiles": [draft_precursor],
+                                    "reaction_family": f"Branch {branch_index} draft",
+                                }
+                            ]
+                        }
+                    },
+                ),
+                _event(
+                    event="model_input",
+                    artifact_type="RetrosynthesisProposalReport",
+                    task_id=f"director:test:branch:{branch_index}:node:2",
+                    prompt=(
+                        "instructions\nPaperMatchedRouteBuilderContext:\n"
+                        + json.dumps(
+                            {
+                                "campaign_target": target,
+                                "accepted_path": [
+                                    {
+                                        "step_id": f"candidate:{branch_index}",
+                                        "product_smiles": target,
+                                        "precursor_smiles": [host_precursor],
+                                        "reaction_family": (
+                                            f"Branch {branch_index} host route"
+                                        ),
+                                    }
+                                ],
+                            }
+                        )
+                    ),
+                ),
+            )
+        )
+    with stream.open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(json.dumps(value) for value in rows) + "\n")
+    return run_dir
+
+
+def _export_payload(body: str) -> dict:
+    match = re.search(
+        r'<script id="showcaseData" type="application/json">(.*?)</script>',
+        body,
+        flags=re.DOTALL,
+    )
+    assert match is not None
+    return json.loads(match.group(1))
 
 
 def test_showcase_is_a_self_contained_playable_document(tmp_path: Path) -> None:
@@ -350,6 +424,110 @@ def test_static_route_and_complete_graph_are_distinct_exports(tmp_path: Path) ->
         "unknown": 0,
     }
     assert all(step["product_smiles"] != "CCO" for step in branch["steps"])
+
+
+@pytest.mark.parametrize(
+    ("selection", "expected"),
+    [
+        ((2,), [2]),
+        ((1, 3), [1, 3]),
+        ((1, 2, 3), [1, 2, 3]),
+    ],
+)
+def test_exports_keep_only_the_selected_route_subset(
+    tmp_path: Path,
+    selection: tuple[int, ...],
+    expected: list[int],
+) -> None:
+    run_dir = _saved_three_branch_run(tmp_path)
+
+    payload = _export_payload(
+        build_run_export_html(
+            run_dir=run_dir,
+            export_kind="interaction",
+            branch_indices=selection,
+        )
+    )
+
+    assert payload["metadata"]["branch_index"] == expected[0]
+    assert payload["metadata"]["branch_indices"] == expected
+    assert payload["metadata"]["branch_selection_count"] == len(expected)
+    assert [
+        branch["branch_index"] for branch in payload["projection"]["branches"]
+    ] == expected
+    assert [
+        strategy["index"] for strategy in payload["projection"]["strategies"]
+    ] == expected
+    assert {
+        activity["branch_index"]
+        for activity in payload["projection"]["activities"]
+        if activity["branch_index"] is not None
+    }.issubset(set(expected))
+    assert all(
+        frame.get("branch_index") in (None, *expected)
+        for frame in payload["replay"]["frames"]
+    )
+    assert all(
+        update["branch_index"] in expected
+        for frame in payload["replay"]["frames"]
+        for update in frame.get("branch_updates") or []
+    )
+    assert all(
+        strategy["index"] in expected
+        for frame in payload["replay"]["frames"]
+        for strategy in frame.get("strategies") or []
+    )
+
+
+def test_two_route_export_omits_unselected_steps_molecules_and_events(
+    tmp_path: Path,
+) -> None:
+    run_dir = _saved_three_branch_run(tmp_path)
+
+    route_body = build_run_export_html(
+        run_dir=run_dir,
+        export_kind="route",
+        branch_indices=(1, 3),
+    )
+    payload = _export_payload(
+        build_run_export_html(
+            run_dir=run_dir,
+            export_kind="interaction",
+            branch_indices=(1, 3),
+        )
+    )
+
+    assert 'id="strategyList"' in route_body
+    assert "branchIndices.map" in route_body
+    assert set(payload["molecules"]) >= {"CCN", "Br"}
+    assert "CCO" not in payload["molecules"]
+    assert "Cl" not in payload["molecules"]
+    assert all(
+        activity.get("branch_index") != 2
+        for activity in payload["projection"]["activities"]
+    )
+    assert all(
+        frame.get("branch_index") != 2
+        for frame in payload["replay"]["frames"]
+    )
+
+
+def test_branch_selection_validation_and_filenames() -> None:
+    assert normalize_branch_indices("3,1,3") == (1, 3)
+    assert showcase_filename(
+        "run one",
+        export_kind="graph",
+        branch_indices=(1, 3),
+    ) == "run-one-strategies-1-3-complete-route-graph.html"
+    assert showcase_filename(
+        "run one",
+        export_kind="route",
+        branch_indices=(2,),
+    ) == "run-one-strategy-2-static-route.html"
+    with pytest.raises(ValueError, match="showcase_branch_indices_empty"):
+        normalize_branch_indices(())
+    with pytest.raises(ValueError, match="showcase_branch_index_invalid"):
+        normalize_branch_indices("1,4")
 
 
 def test_unrecorded_step_origin_is_not_guessed(tmp_path: Path) -> None:

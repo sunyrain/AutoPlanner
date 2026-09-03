@@ -22,7 +22,6 @@ from scripts.run_v4_blind_panel import (
     PANEL_REASONING_EFFORTS,
     _ablation_cli_args,
     _acceptance_cli_args,
-    _guided_chemenzy_cli_args,
     _prior_target_manifest_files,
     _prepare_panel_snapshot,
     _publish_run_registry,
@@ -95,7 +94,6 @@ def test_self_correcting_high_effort_panel_contract_reaches_target_command(
             reasoning_effort="high",
             execution_profile="self_correcting_sequential",
             node_expansions_per_branch=25,
-            native_short_tail_engine="aizynthfinder",
             strategy_tree_engine="aizynthfinder_mcts",
             no_chemenzy=True,
             resume=False,
@@ -118,7 +116,10 @@ def test_self_correcting_high_effort_panel_contract_reaches_target_command(
     assert command[command.index("--reasoning-effort") + 1] == "high"
     assert command[command.index("--node-expansions-per-branch") + 1] == "25"
     assert command[command.index("--route-local-repair-rounds") + 1] == "6"
-    assert command[command.index("--aizynthfinder-short-tail-mode") + 1] == "short_tail"
+    assert "--native-short-tail-engine" not in command
+    assert "--aizynthfinder-short-tail-mode" not in command
+    assert "--guided-chemenzy-iterations" not in command
+    assert "--no-chemenzy" in command
 
 
 def test_blind_panel_run_id_uses_manifest_identity_without_statin_hardcoding() -> None:
@@ -195,17 +196,11 @@ def test_blind_panel_passes_manifest_acceptance_without_target_hardcoding() -> N
 
 def test_blind_panel_ablation_changes_only_the_declared_subsystem() -> None:
     assert _ablation_cli_args("baseline") == []
-    assert _ablation_cli_args("no-chemenzy") == [
-        "--no-chemenzy",
-        "--no-guided-chemenzy",
-    ]
+    assert _ablation_cli_args("no-chemenzy") == ["--no-chemenzy"]
     assert _ablation_cli_args("no-self-evo") == ["--no-patent-self-evo"]
     assert _ablation_cli_args("no-replan") == ["--no-replan"]
     assert _ablation_cli_args("chemenzy-only") == ["--no-codex"]
-    assert _ablation_cli_args("codex-only") == [
-        "--no-chemenzy",
-        "--no-guided-chemenzy",
-    ]
+    assert _ablation_cli_args("codex-only") == ["--no-chemenzy"]
     assert _ablation_cli_args("unified-round-robin") == [
         "--action-scheduler",
         "round_robin",
@@ -214,26 +209,6 @@ def test_blind_panel_ablation_changes_only_the_declared_subsystem() -> None:
         "--action-scheduler",
         "adaptive",
     ]
-
-
-def test_guided_chemenzy_uses_the_same_matched_short_tail_for_every_profile() -> None:
-    fast = _guided_chemenzy_cli_args("fast")
-    standard = _guided_chemenzy_cli_args("standard")
-
-    assert fast == [
-        "--guided-chemenzy-iterations",
-        "500",
-        "--guided-chemenzy-timeout-s",
-        "1200.0",
-    ]
-    assert standard == [
-        "--guided-chemenzy-iterations",
-        "500",
-        "--guided-chemenzy-timeout-s",
-        "1200.0",
-    ]
-    assert "--guided-chemenzy-frontiers" not in fast
-    assert "--guided-chemenzy-frontiers" not in standard
 
 
 def test_paper_synthex_defaults_to_the_operational_target_cutoff() -> None:
@@ -246,8 +221,8 @@ def test_paper_synthex_defaults_to_the_operational_target_cutoff() -> None:
     )
 
 
-def test_paper_synthex_rejects_short_tail_timeout_as_total_cutoff() -> None:
-    with pytest.raises(ValueError, match="short-tail timeout"):
+def test_paper_synthex_rejects_noncanonical_total_cutoff() -> None:
+    with pytest.raises(ValueError, match="frozen operational target cutoff"):
         _resolve_panel_fixed_cutoff_wall_time_s(
             execution_profile="paper_synthex",
             requested=1_200.0,

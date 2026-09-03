@@ -784,7 +784,7 @@ def test_route_topology_projects_shared_precursor_as_stable_alternative_lanes() 
             "child_step_index": 3,
             "child_step_id": "editor-lane",
             "provenance": "editor_repair",
-            "critic_state": "pending",
+            "critic_state": "unreviewed",
         },
     ]
     assert steps[3]["parent_step_index"] == 0
@@ -972,6 +972,283 @@ def test_settled_projection_keeps_five_outcome_axes_independent(
     }
     assert axes["scientific_acceptance"]["state"] == "unresolved"
     assert axes["semantics"]["axes_are_independent"] is True
+
+
+def test_final_canonical_critic_stage_overrides_stale_director_review(
+    tmp_path: Path,
+) -> None:
+    director = tmp_path / ".autoplanner" / "director-workspace"
+    director.mkdir(parents=True)
+    model_io_path = director / "model-io.jsonl"
+    model_io_path.write_text("", encoding="utf-8")
+    (tmp_path / "target-only-solve-report.json").write_text(
+        json.dumps(
+            {
+                "director_outcomes": [
+                    {
+                        "plan": {
+                            "multi_step_skeletons": [
+                                {"chemical_critic": {"status": "unavailable"}}
+                                for _ in range(3)
+                            ]
+                        }
+                    }
+                ],
+                "stages": [
+                    {
+                        "stage": "final_route_critic",
+                        "status": "completed",
+                        "detail": {
+                            "results": [
+                                {
+                                    "branch_index": 0,
+                                    "status": "completed",
+                                    "critic_status": "reject",
+                                    "overall_assessment": "reject",
+                                    "route_overall_evaluation": (
+                                        "The route has a coherent strategic outline, but a "
+                                        "decisive chemical blocker prevents execution as written."
+                                    ),
+                                    "route_level_risks": ["unresolved selectivity"],
+                                    "reviewed_step_ids": ["step:one"],
+                                    "step_assessments": [],
+                                },
+                                {
+                                    "branch_index": 1,
+                                    "status": "completed",
+                                    "critic_status": "viable",
+                                    "overall_assessment": "viable",
+                                    "reviewed_step_ids": ["step:two"],
+                                    "step_assessments": [],
+                                },
+                                {
+                                    "branch_index": 2,
+                                    "status": "completed",
+                                    "critic_status": "uncertain",
+                                    "overall_assessment": "uncertain",
+                                    "reviewed_step_ids": ["step:three"],
+                                    "step_assessments": [],
+                                },
+                            ]
+                        },
+                    }
+                ],
+                "gates": {"counts": {"canonical_stock_closed_routes": 3}},
+                "paper_equivalent_solved": True,
+                "claim": {"accepted_under_configured_policy": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    projection = project_live_synthesis(
+        model_io_path=model_io_path,
+        job={"job_id": "final-critic", "run_id": "final-critic", "status": "unresolved"},
+    )
+
+    assert [
+        branch["chemical_critic_status"] for branch in projection["branches"]
+    ] == ["reject", "viable", "uncertain"]
+    assert projection["branches"][0]["route_overall_evaluation"].startswith(
+        "The route has a coherent strategic outline"
+    )
+    assert projection["branches"][0]["route_level_risks"] == [
+        "unresolved selectivity"
+    ]
+    assert projection["branches"][1]["route_overall_evaluation"] == ""
+    assert projection["status_axes"]["chemical_critic"] == {
+        "state": "mixed",
+        "counts": {"reject": 1, "viable": 1, "uncertain": 1},
+    }
+
+
+def test_settled_projection_uses_complete_final_reviewed_route(
+    tmp_path: Path,
+) -> None:
+    director = tmp_path / ".autoplanner" / "director-workspace"
+    director.mkdir(parents=True)
+    model_io_path = director / "model-io.jsonl"
+    route_family_id = "route-family:final"
+    builder_id = "codex:branch:1:node:1:candidate:1"
+    frontier_id = "codex:frontier:bridge"
+    aiz_id = "aizynthfinder:guided:test:route:1:step:1"
+    final_rows = [
+        {
+            "step_id": builder_id,
+            "mapped_product_smiles": "[CH3:1][CH2:2][CH2:3][OH:4]",
+            "mapped_precursor_smiles": ["[CH3:1][CH2:2][OH:4]"],
+            "reaction_family": "Builder root edit",
+            "conditions": ["builder conditions"],
+        },
+        {
+            "step_id": frontier_id,
+            "mapped_product_smiles": "[CH3:1][CH2:2][OH:4]",
+            "mapped_precursor_smiles": ["[CH3:1][OH:4]"],
+            "reaction_family": "Frontier extension",
+            "conditions": ["frontier conditions"],
+        },
+        {
+            "step_id": aiz_id,
+            "mapped_product_smiles": "[CH3:1][OH:4]",
+            "mapped_precursor_smiles": ["[CH4:1]"],
+            "reaction_family": "AiZ template disconnection",
+            "conditions": [],
+        },
+    ]
+    final_critic_input = _event(
+        event="model_input",
+        artifact_type="ChemicalStrategyCritique",
+        task_id="critic:final-route-one",
+        prompt="instructions\nPaperMatchedRouteCriticInput:\n"
+        + json.dumps(
+            {
+                "branch_id": 1,
+                "campaign_target": "CCCO",
+                "phase": "independent_chemical_critic",
+                "steps": final_rows,
+            }
+        ),
+    )
+    stale_builder_input = _event(
+        event="model_output",
+        artifact_type="RetrosynthesisProposalReport",
+        task_id="director:test:branch:1:node:99",
+        status="accepted_draft",
+        output_artifact={
+            "payload": {
+                "candidates": [
+                    {
+                        "candidate_id": "codex:branch:1:node:99:candidate:1",
+                        "product_smiles": "CCCO",
+                        "precursor_smiles": [],
+                        "reaction_family": "superseded draft",
+                    }
+                ]
+            }
+        },
+    )
+    model_io_path.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in (final_critic_input, stale_builder_input)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def lifecycle_record(
+        edge_id: str,
+        step_id: str,
+        origin_kind: str,
+        product: str,
+        precursors: list[str],
+    ) -> dict:
+        return {
+            "edge_id": edge_id,
+            "materialization": {"materialized": True},
+            "portfolio": {"selected_route_ids": ["route:final"]},
+            "product_smiles": product,
+            "precursor_smiles": precursors,
+            "origin_records": [
+                {
+                    "origin_kind": origin_kind,
+                    "proposal_id": step_id,
+                    "canonical_route_family_ids": [route_family_id],
+                    "transformation_hypothesis": f"canonical {step_id}",
+                }
+            ],
+        }
+
+    (tmp_path / "target-only-solve-report.json").write_text(
+        json.dumps(
+            {
+                "candidate_lifecycle": {
+                    "records": [
+                        lifecycle_record(
+                            "edge:builder", builder_id, "codex_global_director",
+                            "CCCO", ["CCO"],
+                        ),
+                        lifecycle_record(
+                            "edge:frontier", frontier_id, "codex",
+                            "CCO", ["CO"],
+                        ),
+                        lifecycle_record(
+                            "edge:aiz", aiz_id, "aizynthfinder",
+                            "CO", ["C"],
+                        ),
+                        lifecycle_record(
+                            "edge:rejected",
+                            "codex:branch:1:node:99:candidate:1",
+                            "codex_global_director",
+                            "CCCO", ["N"],
+                        ),
+                    ]
+                },
+                "stages": [
+                    {
+                        "stage": "final_route_critic",
+                        "status": "completed",
+                        "detail": {
+                            "results": [
+                                {
+                                    "branch_index": 0,
+                                    "route_family_id": route_family_id,
+                                    # Edge ids are content identities, not route order.
+                                    "reviewed_edge_ids": [
+                                        "edge:aiz", "edge:builder", "edge:frontier",
+                                    ],
+                                    "reviewed_step_ids": [
+                                        builder_id, frontier_id, aiz_id,
+                                    ],
+                                    "critic_status": "uncertain",
+                                    "overall_assessment": "uncertain",
+                                    "step_assessments": [
+                                        {
+                                            "step_id": aiz_id,
+                                            "verdict": "uncertain",
+                                            "blocking": False,
+                                            "reasons": ["conditions not provided"],
+                                        }
+                                    ],
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    projection = project_live_synthesis(
+        model_io_path=model_io_path,
+        job={"job_id": "final-route", "run_id": "final-route", "status": "paused"},
+    )
+    steps = projection["branches"][0]["steps"]
+
+    assert [step["step_id"] for step in steps] == [
+        builder_id,
+        frontier_id,
+        aiz_id,
+    ]
+    assert [step["canonical_edge_id"] for step in steps] == [
+        "edge:builder",
+        "edge:frontier",
+        "edge:aiz",
+    ]
+    assert [step["route_provenance"] for step in steps] == [
+        "builder",
+        "frontier_builder",
+        "aiz_short_tail",
+    ]
+    assert steps[1]["conditions"] == ["frontier conditions"]
+    assert steps[2]["conditions"] == []
+    assert steps[2]["step_origin"] == "aizynthfinder_short_tail"
+    assert steps[2]["critic_verdict"] == "uncertain"
+    assert projection["branches"][0]["pending_step"] is None
+    assert "codex:branch:1:node:99:candidate:1" not in {
+        step["step_id"] for step in steps
+    }
 
 
 def test_historical_terminal_decision_overrides_stale_running_status() -> None:
@@ -1707,10 +1984,17 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
     assert 'id="exportRoute"' in page_html
     assert 'id="exportInteraction"' in page_html
     assert 'id="exportGraph"' in page_html
+    assert 'id="exportSelectionSummary"' in page_html
+    assert 'id="exportCurrent"' in page_html
+    assert 'id="exportAll"' in page_html
+    assert page_html.count("data-export-branch") >= 3
+    assert "setExportBranches" in page_html
+    assert "至少保留一条导出路线" in page_html
     assert "'/exports/'" in page_html
-    assert "'route.html?download=1" in page_html
-    assert "'interaction.html?download=1" in page_html
-    assert "'graph.html?download=1" in page_html
+    assert "'route.html'+query" in page_html
+    assert "'interaction.html'+query" in page_html
+    assert "'graph.html'+query" in page_html
+    assert "'?download=1&branches='" in page_html
     assert 'id="replayButton"' in page_html
     assert 'id="replayTimeline"' in page_html
     assert 'id="replayPath"' in page_html
@@ -1732,6 +2016,13 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
     assert 'id="reactionDetailBody"' in page_html
     assert 'id="reactionReplayJump"' in page_html
     assert "showReactionDetail" in page_html
+    assert 'id="strategyDetail"' in page_html
+    assert 'id="strategyDetailBody"' in page_html
+    assert "data-strategy-detail" in page_html
+    assert "查看战略与总评" in page_html
+    assert "showStrategyDetail" in page_html
+    assert "route_overall_evaluation" in page_html
+    assert "旧结果未提供路线整体评价" in page_html
     assert 'id="activityToggle"' in page_html
     assert 'aria-controls="activityRail"' in page_html
     assert "activityCollapsed" in page_html
@@ -1936,6 +2227,38 @@ def test_live_sse_route_emits_the_durable_projection(tmp_path: Path) -> None:
     assert graph.status_code == 200
     assert "complete-route-graph.html" in graph.headers["Content-Disposition"]
     assert 'id="routeTree"' in graph.get_data(as_text=True)
+
+    selected_graph = client.get(
+        "/api/v4/live/solve:@main:historical-live/exports/graph.html"
+        "?download=1&branches=3,1"
+    )
+    assert selected_graph.status_code == 200
+    assert (
+        "strategies-1-3-complete-route-graph.html"
+        in selected_graph.headers["Content-Disposition"]
+    )
+    selected_body = selected_graph.get_data(as_text=True)
+    assert '"branch_index":1' in selected_body
+    assert '"branch_indices":[1,3]' in selected_body
+    assert '"branch_selection_count":2' in selected_body
+
+    legacy_branch = client.get(
+        "/api/v4/live/solve:@main:historical-live/exports/route.html"
+        "?download=1&branch=2"
+    )
+    assert legacy_branch.status_code == 200
+    assert "strategy-2-static-route.html" in legacy_branch.headers[
+        "Content-Disposition"
+    ]
+    assert '"branch_indices":[2]' in legacy_branch.get_data(as_text=True)
+
+    for query in ("branches=", "branches=0", "branches=1,4", "branches=one"):
+        invalid = client.get(
+            "/api/v4/live/solve:@main:historical-live/exports/graph.html?"
+            + query
+        )
+        assert invalid.status_code == 422
+        assert invalid.get_json()["error"] == "showcase_selection_invalid"
 
 
 def test_paused_live_sse_emits_one_snapshot_and_closes(tmp_path: Path) -> None:

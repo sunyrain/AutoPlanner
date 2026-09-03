@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
@@ -25,6 +26,14 @@ from cascade_planner.application.retrosynthesis_workers import (
 
 
 PUBCHEM_VENDOR_ADAPTER_VERSION = "autoplanner.pubchem_vendor_catalog.v1"
+STANDARD_STOCK_CATALOG_NAME = "ZINC+eMolecules"
+STANDARD_STOCK_INDEX_RELATIVE_PATH = Path(
+    "data_external/synthatlas/zinc_synthelite_20260223_full_inchikey.sqlite3"
+)
+STANDARD_STOCK_INDEX_SHA256 = (
+    "4d2f601ddd5af10b1c179ec583062d3ba3136553e285944d125e7b5ce19b5a65"
+)
+STANDARD_STOCK_MEMBER_COUNT = 39_478_827
 _PUG_PROPERTY_URL = (
     "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/property/"
     "CanonicalSMILES,IsomericSMILES/JSON"
@@ -305,6 +314,25 @@ class FrozenBenchmarkStockIndex:
         return diagnostics
 
 
+@lru_cache(maxsize=1)
+def standard_stock_catalog_builder() -> FrozenBenchmarkStockIndex:
+    """Return the one frozen benchmark-stock authority used by the main pipeline."""
+
+    index_path = (
+        Path(__file__).resolve().parents[2] / STANDARD_STOCK_INDEX_RELATIVE_PATH
+    )
+    builder = FrozenBenchmarkStockIndex(
+        index_path,
+        expected_sha256=STANDARD_STOCK_INDEX_SHA256,
+        catalog_name=STANDARD_STOCK_CATALOG_NAME,
+    )
+    if builder.identity_key != "full_inchikey":
+        raise LiveStockAdapterError("standard_stock_identity_key_mismatch")
+    if builder.member_count != STANDARD_STOCK_MEMBER_COUNT:
+        raise LiveStockAdapterError("standard_stock_member_count_mismatch")
+    return builder
+
+
 def load_versioned_inventory_snapshot(
     path: str | Path,
     *,
@@ -554,6 +582,11 @@ __all__ = [
     "FrozenInventorySnapshotBuilder",
     "LiveStockAdapterError",
     "PUBCHEM_VENDOR_ADAPTER_VERSION",
+    "STANDARD_STOCK_CATALOG_NAME",
+    "STANDARD_STOCK_INDEX_RELATIVE_PATH",
+    "STANDARD_STOCK_INDEX_SHA256",
+    "STANDARD_STOCK_MEMBER_COUNT",
     "build_pubchem_vendor_catalog",
     "load_versioned_inventory_snapshot",
+    "standard_stock_catalog_builder",
 ]

@@ -22,6 +22,19 @@ SCHEMA = "aizynthfinder_reactionjson_branch_sidecar.v2"
 ExpansionRequestHandler = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 
 
+def resolve_aizynthfinder_strategy_python_executable(
+    python_executable: str = "",
+) -> Path:
+    """Resolve the one AiZ strategy runtime used by preflight and execution."""
+
+    root = Path(__file__).resolve().parents[2]
+    return Path(
+        python_executable
+        or os.environ.get("AUTOPLANNER_AIZYNTH_PYTHON", "")
+        or root / ".venv_aizynth" / "Scripts" / "python.exe"
+    ).expanduser().resolve()
+
+
 def run_aizynthfinder_strategy_branch_sidecar(
     *,
     target_smiles: str,
@@ -43,11 +56,9 @@ def run_aizynthfinder_strategy_branch_sidecar(
     """Run one AiZ MCTS branch while model/replay calls stay in the host."""
 
     root = Path(__file__).resolve().parents[2]
-    python_path = Path(
+    python_path = resolve_aizynthfinder_strategy_python_executable(
         python_executable
-        or os.environ.get("AUTOPLANNER_AIZYNTH_PYTHON", "")
-        or root / ".venv_aizynth" / "Scripts" / "python.exe"
-    ).expanduser().resolve()
+    )
     script = root / "scripts" / "run_aizynthfinder_reactionjson_branch.py"
     if not python_path.is_file():
         raise RuntimeError(f"aizynthfinder strategy python missing: {python_path}")
@@ -222,4 +233,7 @@ def _send(process: subprocess.Popen[str], payload: Mapping[str, Any]) -> None:
     process.stdin.flush()
 
 
-__all__ = ["run_aizynthfinder_strategy_branch_sidecar"]
+__all__ = [
+    "resolve_aizynthfinder_strategy_python_executable",
+    "run_aizynthfinder_strategy_branch_sidecar",
+]

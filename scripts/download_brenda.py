@@ -51,9 +51,10 @@ def main():
         sys.exit(1)
 
     # Collect EC numbers from AutoPlanner data
-    norm_path = ROOT / "cascade_dataset_v2.normalized.json"
-    if not norm_path.exists():
-        norm_path = ROOT / "workspace" / "cascade_dataset_v2.normalized.json"
+    external_data_root = Path(
+        os.environ.get("AUTOPLANNER_EXTERNAL_DATA_ROOT", ROOT / "data_external")
+    ).expanduser().resolve()
+    norm_path = external_data_root / "cascade" / "cascade_dataset_v2.normalized.json"
     if norm_path.exists():
         data = json.loads(norm_path.read_text())
         ec_set = set()

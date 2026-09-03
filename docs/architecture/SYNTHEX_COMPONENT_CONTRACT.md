@@ -15,12 +15,12 @@ Target
   -> 对可回放战略路线运行 Critic -> Editor -> Critic 循环
   -> Host 将可用路线投影到 canonical graph
   -> Host 对目标可达开放叶做精确库存审计
-  -> 合格的库存未闭叶进入 AiZ short-tail
-  -> Host 校验、拼接、物化并计算最终库存闭合/solved
+  -> 库存未闭叶继续进入同一个 Route Builder
+  -> Host 逐步校验、物化并计算最终库存闭合/solved
   -> Analyst（论文有；当前尚未实现）
 ```
 
-当前 Critic/Editor 位于战略 Route Builder 之后、全局 canonical ingestion 和 short-tail 之前。Critic/Editor 的判断是模型内部一致性审查，不是实验验证，也不拥有 solved 权限。
+Critic/Editor 位于战略路线的关键检查点和最终路线边界。Critic/Editor 的判断是模型内部一致性审查，不是实验验证，也不拥有 solved 权限。
 
 ## 2. 全局不可违反的不变量
 
@@ -29,7 +29,7 @@ Target
 3. 库存由绑定的精确 full-InChIKey oracle 判定。任何模型或 provider 的库存文字都只是 advisory。
 4. solved 仅由 Host 在目标根连通、全部步骤可物化、全部终端叶库存闭合后计算。
 5. Builder 不拥有 handoff、失败、停止或终止 Strategy 的权限；战略层仅由 Host/MCTS 的库存状态、可扩展状态和预算结束。
-6. short-tail 只能接收目标根可达、真实回放产生、已做负库存观察的开放叶。
+6. 目标根可达、真实回放产生且库存未闭合的叶，只能继续进入同一个正常 Builder 合同。
 7. Builder 不自报具有判定权的 `strategy_relation`。Builder 的 `checkpoint_relation=preparatory|executes_checkpoint` 仅作为稀疏 Critic 的调度 metadata，不参与 admission，也不证明 Strategy 已执行；Host 必须先回放，Critic 再根据真实图编辑确认 `checkpoint_match`。
 8. Critic 可以标记 blocking，Editor 可以提交 RouteJSON 的依赖闭合替换范围，但两者都不能降低 Host 的结构 admission 标准。
 9. 工具预算只统计实际开始执行的调用。被 sandbox 在执行前拦截的尝试保留在 worker 审计记录中，但不得吞掉已经完整生成且通过 schema 的结构化 artifact；实际执行的越权或超预算调用仍然拒绝整轮 worker 输出。
@@ -44,17 +44,17 @@ Target
 
 ### 3.1 Sequential Strategy Director（Host 编排器）
 
-职责：建立三个独立 Strategy 分支，分配调用/时间/token 预算，驱动 Strategy、Builder、AiZ、Critic、Editor，并输出 `GlobalCampaignPlan`。
+职责：建立三个独立 Strategy 分支，分配调用/时间/token 预算，驱动 Strategy、MCTS 节点选择、Builder、Critic、Editor，并输出 `GlobalCampaignPlan`。
 
-输入：canonical target、执行 profile、分支数、每分支 Builder 调用上限、最终 Critic/Editor 修复轮数、模型配置、AiZ runtime 和 stock binding。在线 key-event Critic 没有独立的“每个 Strategy 固定 N 次”配额。
+输入：canonical target、执行 profile、分支数、每分支 Builder 调用上限、最终 Critic/Editor 修复轮数、模型配置和 Host stock binding。在线 key-event Critic 没有独立的“每个 Strategy 固定 N 次”配额。
 
 输出：每个分支的 Strategy、Host 回放步骤、开放叶、搜索诊断、Critic/Editor 记录，以及最终 plan。
 
-拥有的权限：选择阶段顺序和预算；接纳或拒绝模型 artifact；调用 Host compiler；按 MCTS/库存/预算结束战略层；记录并处理 Host/runtime 的客观失败；把剩余真实开放叶统一交给 short-tail。
+拥有的权限：选择阶段顺序和预算；接纳或拒绝模型 artifact；调用 Host compiler；按 MCTS/库存/预算结束战略层；记录并处理 Host/runtime 的客观失败；把剩余真实开放叶继续交给同一 Builder。
 
 禁止拥有的权限：不能把模型文字当库存或 solved；不能绕过 ReactionJSON replay；不能把不连通 partial route 伪装成完整路线。
 
-失败去向：Strategy 未生成、sidecar/runtime 异常、预算耗尽、连续输出或回放被拒绝、AiZ 没有可扩展节点，或最终没有可用 Host-replayed 路线时，Director 保留客观诊断，不输出伪路线。这些状态由 Host/runtime 产生，不能由 Builder 自报。
+失败去向：Strategy 未生成、搜索 runtime 异常、预算耗尽、连续输出或回放被拒绝、MCTS 没有可扩展节点，或最终没有可用 Host-replayed 路线时，Director 保留客观诊断，不输出伪路线。这些状态由 Host/runtime 产生，不能由 Builder 自报。
 
 ### 3.2 Strategy Generator（LLM）
 
@@ -78,7 +78,7 @@ Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdic
 
 ### 3.3 Route Builder（LLM，单节点策略）
 
-职责：对 AiZ 当前选中的一个节点，先在内部推演从当前叶经过 Strategy 命名关键构建并通向可得前体的完整化学路径，再在该路线语境中比较断键，只返回当前一个最好的真实反应动作。“只输出一个 ReactionJSON”是输出边界，不是思考边界。复杂 concerted 或真正不可分的 cascade 可以在同一个反应中包含多个相互关联的 graph edit，但不能用虚构中间步拆开；独立的保护/脱保护、活化、氧化还原、workup 共价变化或第二套试剂阶段必须是相邻的独立 route edge，即使实验上可以不分离中间体，也不能为了通过 Critic 而合并计步。
+职责：对 MCTS 当前选中的一个节点，先在内部推演从当前叶经过 Strategy 命名关键构建并通向可得前体的完整化学路径，再在该路线语境中比较断键，只返回当前一个最好的真实反应动作。“只输出一个 ReactionJSON”是输出边界，不是思考边界。复杂 concerted 或真正不可分的 cascade 可以在同一个反应中包含多个相互关联的 graph edit，但不能用虚构中间步拆开；独立的保护/脱保护、活化、氧化还原、workup 共价变化或第二套试剂阶段必须是相邻的独立 route edge，即使实验上可以不分离中间体，也不能为了通过 Critic 而合并计步。
 
 输入：
 
@@ -86,10 +86,10 @@ Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdic
 - `strategy.strategy_query`、`strategy.critical_assumption`、`strategy.critic_checkpoint`：方向假设、关键化学风险和唯一审查 checkpoint；Builder 用它们约束完整路线推演，但本次只物化当前一个反应；
 - `selected_leaf_mapped`：本次唯一可编辑的 Host mapped product；
 - `connected_path_reactions`：目标到当前叶已经 Host 回放的 `step_id`、`checkpoint_relation`、`reaction_family`、`edit_summary`；`checkpoint_relation` 只是早先 Builder 的调度 metadata，不能从中推断关键事件成立；
-- `current_split_context`：仅包含产生当前叶的父反应，以及同一次 split 的 Host-mapped sibling co-precursors；它用于判断偶联手柄和官能团兼容性，不扩展成整棵搜索树；Host 优先按 mapped boundary 追踪 lineage，不能因 AiZ 的未映射立体投影不同而丢失父步骤或 sibling；
+- `current_split_context`：仅包含产生当前叶的父反应，以及同一次 split 的 Host-mapped sibling co-precursors；它用于判断偶联手柄和官能团兼容性，不扩展成整棵搜索树；Host 优先按 mapped boundary 追踪 lineage，不能因搜索树的未映射投影不同而丢失父步骤或 sibling；
 - `ancestor_smiles`：防止回到路径祖先的结构负记忆；
 - `last_rejection_for_this_leaf`：该叶最近一次 Host replay/cycle 失败，只携带原始 typed compiler error、`operation_index`、`failed_operation` 和必要的局部端点事实；不回灌整组 operations，也不得压成笼统的 replay failed。
-- `pending_checkpoint_feedback.active_constraints`：从 append-only `key_event_critic_history` 派生、只属于当前 Strategy 与当前 mapped leaf lineage、且能够由同一父 leaf 的新 candidate 或一个以该 leaf 为 product 的新准备步骤修正的 blocking obligation；不同 reject 不得互相覆盖，preparatory move 不得擦除，sibling leaf 与新 Strategy 不得串用。若 Key Critic 判定修复必须修改或重排 focus 之前任何已接纳行，Host 不把该 finding 再交给普通 Builder，而是立即停止当前 selected branch expansion 并调度既有 transactional Path Repair。`uncertain` 是 Critic 自己的 evidence debt，不进入后续 Builder prompt，也不能要求后续叶修改已经物化的旧边；AiZ 选中该关键事件直接 mapped precursor 的新上游步骤后，Critic 最多做一次局部证据复审。只有复审 `pass` 且 focus/evidence steps 都已进入当前路径，或同一 horizon 的新 checkpoint `pass` 被选中后才退休。它不复制完整 Critic 输出，也不建立第二个可写状态权威。
+- `pending_checkpoint_feedback.active_constraints`：从 append-only `key_event_critic_history` 派生、只属于当前 Strategy 与当前 mapped leaf lineage、且能够由同一父 leaf 的新 candidate 或一个以该 leaf 为 product 的新准备步骤修正的 blocking obligation；不同 reject 不得互相覆盖，preparatory move 不得擦除，sibling leaf 与新 Strategy 不得串用。若 Key Critic 判定修复必须修改或重排 focus 之前任何已接纳行，Host 不把该 finding 再交给普通 Builder，而是立即停止当前 selected branch expansion 并调度既有 transactional Path Repair。`uncertain` 是 Critic 自己的 evidence debt，不进入后续 Builder prompt，也不能要求后续叶修改已经物化的旧边；MCTS 选中该关键事件直接 mapped precursor 的新上游步骤后，Critic 最多做一次局部证据复审。只有复审 `pass` 且 focus/evidence steps 都已进入当前路径，或同一 horizon 的新 checkpoint `pass` 被选中后才退休。它不复制完整 Critic 输出，也不建立第二个可写状态权威。
 
 输出只有一个 expansion object：
 
@@ -109,7 +109,7 @@ Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdic
 
 继续规则：Builder 始终返回当前最佳可用 expansion。缺少关键手柄时，可以逐次执行必要的 enabling reaction，不要求一个调用完成整条路线；当前叶已经具备命名关键构建所需拓扑时，应优先执行该关键构建，而不是继续累积无关 enabling/supporting 转换。反应复杂、不确定、constraint conflict 或没有找到理想断键都不能授权停止；是否继续调用由 Host/MCTS/预算决定。
 
-失败去向：ReactionJSON 不可回放时，Host 拒绝该 candidate，并只把底层 typed compiler error、失败 operation 及其索引和必要端点事实交给下一次 Builder 调用；完整失败候选留在 worker record，不复制进 prompt。Host 在剩余预算内重试。预算耗尽、连续回放失败、AiZ 无可扩展节点或 sidecar 异常由 Host/runtime 记录，Builder 本身不能主动终止 Strategy。
+失败去向：ReactionJSON 不可回放时，Host 拒绝该 candidate，并只把底层 typed compiler error、失败 operation 及其索引和必要端点事实交给下一次 Builder 调用；完整失败候选留在 worker record，不复制进 prompt。Host 在剩余预算内重试。预算耗尽、连续回放失败、MCTS 无可扩展节点或搜索 runtime 异常由 Host/runtime 记录，Builder 本身不能主动终止 Strategy。
 
 ### 3.4 Worker structured-output wrapper（Host）
 
@@ -125,7 +125,7 @@ Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdic
 
 运行时工具合同：Strategy、Builder、Critic、Editor 不设置 tool-call 次数上限，也不因模型调用过工具而拒绝已经生成的结构化 artifact。原始 tool-call 记录仍保留在 `WorkerRunRecord.tool_calls`，仅用于观测；Prompt 不讨论工具是否允许。隔离 worker 暴露的只读 `inspect_mapped_smiles` 直接返回局部原子邻接、键级、环路径和立体事实，避免模型为结构检查另写 RDKit shell。工具调用不绕过后续 schema、RouteJSON compiler、Critic 或库存审查。
 
-失败去向：非法结构化输出以及实际执行的越权工具调用停留在 worker record，不进入 compiler/AiZ。工具失败和执行前被 sandbox 拦截的尝试都保留在 worker record 作为观测信息，但不覆盖合法结构化 artifact 的正常 schema、compiler、Critic 和库存判定。
+失败去向：非法结构化输出以及实际执行的越权工具调用停留在 worker record，不进入 compiler/MCTS。工具失败和执行前被 sandbox 拦截的尝试都保留在 worker record 作为观测信息，但不覆盖合法结构化 artifact 的正常 schema、compiler、Critic 和库存判定。
 
 ### 3.5 ReactionJSON Compiler / Replay（Host 结构权威）
 
@@ -153,9 +153,9 @@ Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdic
 
 禁止拥有的权限：不能重新绘制 Host precursor，不能把 Host 拒绝的 Builder 输出变成 deferred leaf，不能把 target 本身的库存命中当零步解。
 
-失败去向：非法 Builder 输出或不可回放 candidate 被 Host 拒绝并在预算内重试；预算耗尽、无可扩展节点和 runtime 异常由 AiZ/Host 记录。战略搜索结束后，Host 保留真实开放叶，统一做库存审计和 short-tail。
+失败去向：非法 Builder 输出或不可回放 candidate 被 Host 拒绝并在预算内重试；预算耗尽、无可扩展节点和 runtime 异常由 MCTS/Host 记录。Host 保留真实开放叶，做库存审计；未闭合叶仍由同一 Builder 继续。
 
-### 3.7 Exact stock oracle（Host / AiZ 绑定库存）
+### 3.7 Exact stock oracle（Host 绑定库存）
 
 职责：使用冻结的 ZINC + eMolecules full-InChIKey 集合做精确 membership 判断。paper-matched 目标根使用 leave-target-out 规则，避免“目标本身可购买”产生零步解。
 
@@ -177,7 +177,7 @@ Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdic
 
 输入：campaign target；Strategy query/signature；每一步的 Host-derived mapped product/precursors、ReactionJSON operations、reaction family、conditions 和完整路线依赖。Builder 的 key/anchor 自我声明不作为证据。
 
-输出：逐步化学 assessment（pass/uncertain/reject、blocking、blocking type、简短原因、条件评价、最小修复建议）。在线 Key Critic 还输出一个紧凑的 `repair_scope`：`focus_edge` 表示保持既定 mapped product 不变，用一个替换反应修正当前未接纳 edge；`route_span` 表示单个 edge 不足，必须插入、重排或重建一个局部多步 span，或修改当前 mapped product／更早步骤，由 Editor 与 Host 事务性重建；`strategy_horizon` 表示现有 checkpoint 或 critical assumption 已无法由 edge 或局部 span 修复，Host 在同一 mapped leaf occurrence 上生成不同的下一阶段 Strategy；`none` 只用于 pass/uncertain。修复作用域与化学 `blocking_type` 相互独立，Host 不再把多步或产物侧缺陷误派给同父 Builder，也不让已被证伪的 Strategy 靠反复换名或换实现无限续命。最终 Route Critic 不输出该字段。另用一个短的 route-level `coupled_blocker_groups` 声明必须联合修复的 reject groups，不要求每个 pass/uncertain 行重复填空，也不靠关键词推断化学耦合。另输出非阻断观察 metadata `strategy_adherence` 和只汇总化学有效性的 overall assessment。库存闭合短路线即使未执行初始 Strategy 也保留为 opportunistic stock route；不得仅为迎合 Strategy 触发 Editor 或继续拆库存叶。
+输出：逐步化学 assessment（pass/uncertain/reject、blocking、blocking type、简短原因、条件评价、最小修复建议）。最终 Route Critic 的输入步骤由 Host 顺序分配 `review_slot`；机器摘要只保留在 Host 内部，不再发送给模型。模型逐行返回唯一 `review_slot`，不能复制或发明 opaque `step_id`。Host 检查数量、唯一性和 slot 集合后，从当前 route revision 回填 canonical `step_id` 与 authoritative digest；重复、遗漏或未知 slot 均使本次审核不可用，模型抄写摘要的字符误差不会再废弃整份审核。在线 Key Critic 仍使用 Host 已锁定的单个 focus step，不改变该合同。在线 Key Critic 还输出一个紧凑的 `repair_scope`：`focus_edge` 表示保持既定 mapped product 不变，用一个替换反应修正当前未接纳 edge；`route_span` 表示单个 edge 不足，必须插入、重排或重建一个局部多步 span，或修改当前 mapped product／更早步骤，由 Editor 与 Host 事务性重建；`strategy_horizon` 表示现有 checkpoint 或 critical assumption 已无法由 edge 或局部 span 修复，Host 在同一 mapped leaf occurrence 上生成不同的下一阶段 Strategy；`none` 只用于 pass/uncertain。修复作用域与化学 `blocking_type` 相互独立，Host 不再把多步或产物侧缺陷误派给同父 Builder，也不让已被证伪的 Strategy 靠反复换名或换实现无限续命。最终 Route Critic 不输出该字段。另用一个短的 route-level `coupled_blocker_groups` 声明必须联合修复的 reject groups，不要求每个 pass/uncertain 行重复填空，也不靠关键词推断化学耦合；Host 将其中的 review slots 同步恢复为 canonical step IDs。最终 Critic 还输出 2–4 句 `route_overall_evaluation`，综合战略连贯性、最强特征、决定性风险和实验成熟度。另输出非阻断观察 metadata `strategy_adherence` 和只汇总化学有效性的 overall assessment。库存闭合短路线即使未执行初始 Strategy 也保留为 opportunistic stock route；不得仅为迎合 Strategy 触发 Editor 或继续拆库存叶。
 
 拥有的权限：把具体机理、原子来源、官能团、化学选择性、立体或步骤间顺序矛盾标记为 blocking；要求 Editor 修复。Strategy 本身没有 admission 权限，`strategy_adherence=false` 不能单独产生 blocker。
 
@@ -241,9 +241,9 @@ Host 合并与失败去向：Host 按 step ID 保留所有未列入 `remove_step
 
 两个边界都必须是当前 repair context 中的真实 step ID。RouteJSON 按 target-rooted 顺序排列：`rollback_start_step_id` 是最靠 target-side、必须改变的第一行，`rebuild_through_step_id` 是最上游、仍须重建的最后一行。在线 accepted-prefix repair 中，`rollback_start_step_id` 必须属于已接纳前缀；provisional rejected focus 只能帮助界定上游重建终点和 blocker，不能被单独替换后冒充前缀修复。Host 用真实祖先关系与 Critic `coupled_blocker_groups` 合并 blocker component；Editor 仍看到完整路线，并可用 `additional_coupled_blocker_step_ids` 补充 Critic 漏掉、但确实共享不可分割官能团状态或步骤时序的 deferred blocker。Host 只接受当前 deferred blocker id，不接受任意扩权。Editor 同时给出 `preserved_suffix_compatible`；若它声明 repair goal 与待保留 exact suffix 不兼容，Host 在零 Builder 调用时拒绝该边界，要求扩大 `rebuild_through_step_id`。Editor 不输出保留行、mapped boundary、precursor、ReactionJSON 或库存字段。
 
-Host 事务：旧路线先保持权威；Host 编译 durable DAG 得到真实 mapped rollback frontier，并给 Builder 唯一的紧凑 `path_repair` contract：repair goal、active constraints、完整已回放反应摘要和 suffix reconnect boundary。普通 `pending_checkpoint_feedback` 不再同时送入 repair Builder，避免同一 Critic finding 以两套合同重复出现。Final Critic 全文只供 Editor 使用，不再在每轮 Builder 中重复。命名空间只保留 target、durable rows、live siblings，以及 suffix 中不属于 reconnect boundary 的内部 maps；被替换路径独有的 maps 不再作为 tombstone 阻止合法复用。Host 为 unmapped `add_group` 分配的新 maps 必须写回 compiled `fragment_smiles`，使下一步和整路 replay 使用同一 provenance identity。`reserved_atom_maps` 只约束新 Builder edit 的 admission；已经 Host-materialized 的 rebuild prefix 重放时不得再次套用同一 reservation，否则会把其合法的显式 maps 误判为自碰撞。
+Host 事务：旧路线先保持权威；Host 编译 durable DAG 得到真实 mapped rollback frontier，并给 Builder 唯一的紧凑 `path_repair` contract：repair goal、active constraints、完整已回放反应摘要和 cut frontier。cut frontier 同时包含被删除 span 通向 preserved suffix 的入口，以及该 span 原本产生的所有 terminal open precursor occurrences；重复分子按 occurrence 保留，不能用集合去重。普通 `pending_checkpoint_feedback` 不再同时送入 repair Builder，避免同一 Critic finding 以两套合同重复出现。Final Critic 全文只供 Editor 使用，不再在每轮 Builder 中重复。命名空间只保留 target、durable rows、live siblings，以及 suffix 中不属于 reconnect boundary 的内部 maps；被替换路径独有的 maps 不再作为 tombstone 阻止合法复用。Host 为 unmapped `add_group` 分配的新 maps 必须写回 compiled `fragment_smiles`，使下一步和整路 replay 使用同一 provenance identity。`reserved_atom_maps` 只约束新 Builder edit 的 admission；已经 Host-materialized 的 rebuild prefix 重放时不得再次套用同一 reservation，否则会把其合法的显式 maps 误判为自碰撞。
 
-AiZ 以零模型调用重放 durable steps，普通 Builder 从 frontier 每次只写一个 ReactionJSON；Builder 没有 handoff/fail/stop/solved。到达旧 suffix 的分子边界时 Host 在下一次付费调用前停止局部搜索。suffix 只在 exact mapped boundary，或 stereo-aware whole-molecule isomorphism 下重接；新旧边界共有的 atom maps 是 durable provenance，匹配时必须保持原号，只有单侧独有 maps 才可翻译。单个分子 occurrence 内由芳环、叔丁基、硅基等化学等价原子产生的多个 automorphism 采用稳定的确定性 translation，随后仍须通过完整 RouteJSON replay；多个分子 occurrence、真实 map 冲突或立体不一致不得拼接。Builder 新动作若产生与 suffix 同连接关系但错误立体的前体，Host 在该动作入树前返回 mismatch maps，让 AiZ 在同一父 leaf 请求修正，不沿该错误前体继续上游扩展。map 冲突、分子 occurrence 非唯一、孤立后缀或完整 replay 失败均恢复旧路线。有 suffix 时要求局部重建与 suffix 重接完成；无 suffix 时，至少一个替换步骤经 Host 回放且完整 provisional route replay 成功后立即做路线级 re-Critic。`path_repair.repair_goal` 只指导替换化学；Builder 的 `checkpoint_relation` 保持原有 Strategy Critic 调度语义，不能表示修复完成，也不是 proof、admission、handoff、stop 或 stock claim。仅当完整 replay 成功但分子边界确实尚未出现时，事务保存为非权威诊断 `retained_uncommitted_prefix`；`boundary_mapping_ambiguous`、`boundary_stereo_mismatch`、prefix/suffix replay error 与 map conflict 必须保留各自因果原因并记为 `rolled_back_uncommitted`，不能统一改写为“未到边界”。旧路线始终是唯一权威路线。进入 `rebuilt_pending_recritic` 的候选若只剩预先 deferred 的 sibling blockers，则提交当前 component 并继续下一轮；重建 component 仍被拒绝或出现新 blocker 时恢复旧路线。
+搜索树以零模型调用重放 durable steps，普通 Builder 从 frontier 每次只写一个 ReactionJSON；Builder 没有 handoff/fail/stop/solved。Host 只把非库存 cut-boundary occurrences 用于局部搜索的提前停止；事务完成时再从完整 RouteJSON replay 的全部开放前体核对整个边界，库存叶也不能被省略。suffix 只在 exact mapped boundary，或 stereo-aware whole-molecule isomorphism 下重接；新旧边界共有的 atom maps 是 durable provenance，匹配时必须保持原号，只有单侧独有 maps 才可翻译。单个分子 occurrence 内由化学等价原子产生的多个 automorphism 采用稳定的确定性 translation，随后仍须通过完整 RouteJSON replay；重复分子 occurrences 必须逐一匹配，真实 map 冲突、立体不一致或多余/缺失 precursor 不得拼接。Builder 新动作若产生与 suffix 同连接关系但错误立体的前体，Host 在该动作入树前返回 mismatch maps，让 MCTS 在同一父 leaf 请求修正，不沿该错误前体继续上游扩展。map 冲突、孤立后缀或完整 replay 失败均恢复旧路线。无论有无 suffix，只有完整 cut frontier 已恢复、suffix（若有）已重接、最终开放前体 multiset 与原路线一致时，候选才能进入路线级 re-Critic；产生任意一条 replacement edge 不是完成条件。`path_repair.repair_goal` 只指导替换化学；Builder 的 `checkpoint_relation` 保持原有 Strategy Critic 调度语义，不能表示修复完成，也不是 proof、admission、handoff、stop 或 stock claim。仅当完整 replay 成功但 cut frontier 尚未全部出现时，事务保存为非权威诊断 `retained_uncommitted_prefix`；边界歧义、立体不符、prefix/suffix replay error 与 map conflict 必须保留各自因果原因并记为 `rolled_back_uncommitted`，不能统一改写为“未到边界”。旧路线始终是唯一权威路线。进入 `rebuilt_pending_recritic` 的候选若只剩预先 deferred 的 sibling blockers，则提交当前 component 并继续下一轮；重建 component 仍被拒绝、出现新 blocker，或原路线已库存闭合而候选仍有未闭叶时恢复旧路线。
 
 Builder 只有一个配置化分支扩展上限 `max_node_expansions_per_branch`：初始构建阶段和 transactional repair 阶段都读取这一权威值；repair 调用在所有 Editor 事务间累计，计数仅用于成本归因，不再拥有独立的 6-call admission 权限。所有调用继续由同一全局模型调用/token/wall-time ledger 结算，到达 suffix 时 Host 提前停止。`max_route_local_repair_rounds` 只限制 Critic/Editor 事务轮数。
 
@@ -251,7 +251,7 @@ Builder 只有一个配置化分支扩展上限 `max_node_expansions_per_branch`
 
 职责：`Critic -> 若 blocking 则 Editor replace_span -> Host 合并并全量重放 -> Critic`，直到没有 blocker 或达到迭代上限。
 
-现行事务路径为：`Critic -> 若 blocking 且需跨步协调，则 Path Repair Editor directive -> Host dependency/chemical-coupling rollback -> boundary preflight -> Builder 增量重建 -> suffix stitch -> 原子提交/恢复 -> Critic`。冻结 paper control profile 仍执行上一段 `replace_span` 流程；两者由显式配置分开，不能根据 loose paper flag 推断。
+现行事务路径为：`Critic -> 若 blocking 且需跨步协调，则 Path Repair Editor directive -> Host dependency/chemical-coupling rollback -> cut-frontier preflight -> Builder 增量重建 -> suffix stitch -> re-Critic -> stock audit -> 原子提交/恢复`。canonical final repair 先把候选物化为 unselected family，按指定 family 独立执行 Final Critic 与库存审计；只有 Critic 为 viable/uncertain 且库存闭合不低于原路线时，Host 才一次性切换 selection。不存在“先选中候选、失败后切回”的瞬时双权威路径。冻结 paper control profile 仍执行上一段 `replace_span` 流程；两者由显式配置分开，不能根据 loose paper flag 推断。
 
 输入：一份目标根连通、Host-replayable RouteJSON，以及配置的最大修复轮数。
 
@@ -263,9 +263,9 @@ Builder 只有一个配置化分支扩展上限 `max_node_expansions_per_branch`
 
 ### 3.11 Canonical graph ingestion / final materialization（Host）
 
-职责：把 Director 输出的目标根 RouteJSON 转成 canonical hypergraph，保存路线 family/step/分子 lineage；把战略段与合格 short-tail 段拼成同一目标根路线；最终计算开放叶、库存闭合和 solved。
+职责：把 Director 输出的目标根 RouteJSON 转成 canonical hypergraph，保存路线 family/step/分子 lineage；接纳同一 Builder 后续产生的目标根步骤；最终计算开放叶、库存闭合和 solved。
 
-输入：Host-replayed strategic skeleton、route family、开放叶、Critic/Editor diagnostics、short-tail hypotheses 和 stock observations。
+输入：Host-replayed strategic skeleton、route family、开放叶、Critic/Editor diagnostics、Builder hypotheses 和 stock observations。
 
 输出：canonical molecules/hypotheses/routes、proof portfolio、route admission 和最终科学状态。
 
@@ -275,29 +275,21 @@ Builder 只有一个配置化分支扩展上限 `max_node_expansions_per_branch`
 
 ### 3.12 Deficit frontier / action scheduler（Host）
 
-职责：从 canonical graph 的当前事实派生下一项缺口。对目标根可达开放叶，先做精确库存审计；库存明确为负且仍为开放叶时，才生成一次 short-tail expansion action。该 native lane 结算后，增强型 profile 可为同一 route-family 生成 `CODEX_FRONTIER_EXPAND`；它复用原分支 policy-call 余额，不创建第三套重试预算。冻结论文基线不注册这项增强。
+职责：从 canonical graph 的当前事实派生下一项缺口。对目标根可达开放叶先做精确库存审计；库存明确为负且仍为开放叶时，只生成 route-bound `CODEX_FRONTIER_EXPAND`。它复用原分支 policy-call 余额、同一 Builder prompt 和同一 Host admission，不创建尾端模式或第二套预算。
 
-输入：canonical graph、目标根可达 route boundaries、stock observations、已尝试 provider actions。
+输入：canonical graph、目标根可达 route boundaries、stock observations、该叶的 Builder 尝试与 Host 拒绝历史。
 
-输出：`STOCK` 或 `EXPANSION` deficit，以及带 route-family binding 的 native short-tail 或 route-bound Builder action。
+输出：`STOCK` 或 `EXPANSION` deficit，以及带 route-family binding 的正常 Builder action。
 
-拥有的权限：抑制 target root、disconnected leaf、已库存闭合叶、重复 provider 尝试和未显式 eligible 的 short-tail 调用；在原分支 Builder 预算耗尽时停止生成 Builder action，但继续保留未闭 leaf 事实。
+拥有的权限：抑制 target root、disconnected leaf 和已库存闭合叶；选择仍有原分支 Builder 预算的 route-family；预算耗尽时停止生成动作，但继续保留未闭 leaf 事实。
 
-禁止拥有的权限：不发明结构、不重复消费同一 frontier 的 provider 预算、不把 action 完成等同于路线完成。
+禁止拥有的权限：不发明结构、不创建私有 Builder 重试预算、不把 action 完成等同于路线完成。
 
-### 3.13 AiZ short-tail runtime
+### 3.13 独立 native-search baseline
 
-职责：对一个已绑定的目标根开放叶运行短模板搜索；paper-matched 配置为最多 6 transforms、500 iterations、1200 s，并只选一条完整、全叶 provider-stock-closed 的 coherent tail。
+AiZynthFinder、ChemEnzy 等 native-search 工具只作为独立评价基线或历史结果读取器。它们不接收 canonical 主流程的开放叶，不生成主流程 action，也不参与 Route Builder 的分支预算。
 
-输入：`frontier_smiles`、父 route-family ids、显式 AiZ runtime/config binding、paper short-tail eligibility、负库存观察。
-
-输出：一条选中的 provider route（若存在）、route lineage、runtime binding 和 provider diagnostics；随后进入 Host canonical ingestion。
-
-拥有的权限：在模板空间内搜索该 leaf 的上游路线并报告 provider stock 状态。
-
-禁止拥有的权限：不能搜索完整 campaign target 来替代战略层；paper profile 不接纳 partial tail；`provider_solved=true` 不能绕过目标根拼接和 Host stock/admission。
-
-失败去向：无完整 tail 时保持该父路线未闭合，并记录一次已结算的 provider attempt；不递归制造新的 paper short-tail 叶。冻结论文基线到此结束；增强型 profile 将未闭 leaf 交回同一 Action loop，由 route-bound Builder 在原分支剩余预算内继续。
+baseline 输出只描述其自身搜索结果；它对主流程没有 route admission、leaf closure 或 solved 权限。主流程中所有目标可达开放叶始终由同一个 LLM Route Builder 合同继续展开，并由 Host 编译、验证和库存审计。
 
 ### 3.14 Durable worker journal / Model I/O projection
 
@@ -323,7 +315,7 @@ Provider 暂停合同：任一 transient Provider failure 只标记缺失的最�
 
 禁止拥有的权限：不扫描任意 `results/**` 来猜测外部运行，不导入另一个隔离 `run_index.sqlite3` 作为第二权威，不从浏览器状态推导结构、库存或 solved。
 
-同步合同：需要在网站实时查看的 smoke 必须通过 `/api/v4/jobs` 启动，或显式使用同一 gateway 注册。直接 CLI 启动并把运行索引写入独立输出目录的实验不会自动出现在网站队列；其报告仍有效，但属于另一个运行注册域。`run_scope=blind` 的 benchmark smoke 还必须显式提交 `benchmark_stock_index`、`benchmark_stock_index_sha256` 和 `benchmark_stock_name`；只有 interactive paper-profile 请求才允许从已经绑定的 AiZ config 自动解析冻结库存。
+同步合同：需要在网站实时查看的 smoke 必须通过 `/api/v4/jobs` 启动，或显式使用同一 gateway 注册。直接 CLI 启动并把运行索引写入独立输出目录的实验不会自动出现在网站队列；其报告仍有效，但属于另一个运行注册域。所有 `benchmark_search` 主流程默认绑定同一份冻结 `ZINC+eMolecules` full-InChIKey 索引；Web、CLI、Builder/MCTS 和 Host 读取同一 oracle identity，且不从 native-search provider 配置或 PubChem 隐式推导库存。独立 benchmark 可以用路径、SHA-256 与名称显式覆盖，但其结果不自动获得 SynthEx 库存可比性。
 
 生命周期合同：Web gateway 的 mutable job row 与后台 worker thread 属于当前进程；gateway 重启后，任务列表只恢复为 `historical_snapshot`，不能伪装成后台线程仍在运行。真正跨进程续跑必须显式调用同一 run 的 resume 入口，由 RunKernel 原 reservation/context checkpoint 与 Sequential Director worker journal 恢复；`model-io.jsonl` 只负责回放展示。不得靠扫描 `results/**`、复制 running 状态或重建一个 Web job row 推断执行已恢复。
 
@@ -335,21 +327,21 @@ Provider 暂停合同：任一 transient Provider failure 只标记缺失的最�
 
 ## 4. 状态与去向
 
-Builder 没有动作/reason 词表和终止通道。worker schema 只接纳一个 ReactionJSON expansion；Host 将其回放为 candidate 后交给 AiZ。任何遗留的 `builder_action`、`builder_reason`、`stop_signal` 或 `stop_reason` 都由合同校验拒绝。
+Builder 没有动作/reason 词表和终止通道。worker schema 只接纳一个 ReactionJSON expansion；Host 将其回放为 candidate 后交给当前分支的 MCTS/canonical graph。任何遗留的 `builder_action`、`builder_reason`、`stop_signal` 或 `stop_reason` 都由合同校验拒绝。
 
 | 状态 | 谁产生 | 含义 | 下一步 | 绝不代表 |
 |---|---|---|---|---|
-| Builder expansion | Builder | 提议当前节点的一个 ReactionJSON | Host compile/replay；成功后交 AiZ | 前体真实、库存、solved |
-| `stock_closed` | Host/AiZ exact stock | 某个真实叶或整条树满足精确库存条件 | 关闭叶或结束战略搜索 | 化学可行、Critic 通过 |
-| `budget_exhausted` | Host/AiZ runtime | 达到调用/时间/迭代上限 | 保留真实 partial diagnostics | Builder 动作或 solved |
-| `calls_exhausted` | AiZ policy runtime | 达到该 Strategy 的 Builder 调用上限 | 停止继续调用并保留已回放路径 | Builder 动作或 solved |
+| Builder expansion | Builder | 提议当前节点的一个 ReactionJSON | Host compile/replay；成功后进入当前分支的 MCTS/canonical graph | 前体真实、库存、solved |
+| `stock_closed` | Host exact stock oracle | 某个真实叶或整条目标根连通路线满足精确库存条件 | 关闭叶或结束战略搜索 | 化学可行、Critic 通过 |
+| `budget_exhausted` | Host branch/global budget runtime | 达到共享调用、时间或分支展开上限 | 保留真实 partial diagnostics | Builder 动作或 solved |
+| `calls_exhausted` | Branch policy runtime | 达到该 Strategy 的 Builder 调用上限 | 停止继续调用并保留已回放路径 | Builder 动作或 solved |
 | `runtime_unavailable` | Provider/Director runtime | 某个最小 worker task 遇到瞬时 Provider 故障 | checkpoint 当前 Host prefix，保留原 reservation，恢复时只调用缺失 task | 整个 Director 科学失败、0 calls、0 routes |
 | `paper_strategy_sidecar_failed` / `aizynthfinder_strategy_sidecar_failed` | Director | sidecar 客观执行异常 | 保留分支诊断，不伪造路线 | Builder 可主动选择的动作或 solved |
 | replay/contract rejection reason | Worker/compiler/Director | Builder 输出非法或 ReactionJSON 无法回放 | 在剩余预算内重试；耗尽后保留诊断 | Strategy 失败、库存或 solved |
 | `critic_blocked` | Critic | 存在具体化学/Strategy 合同矛盾 | Editor 修复 | 结构无效或库存失败 |
 | `editor_repaired` | Host（合并并重放成功后） | Editor span 已合并并完整编译为新的真实 RouteJSON | 再 Critic | 实验可行或 solved |
 | `editor_failed` | Host | Editor draft 无法完整回放或未解除 blocker | 重试或保留旧路线/诊断 | 可以降低 admission 标准 |
-| `provider_solved` | AiZ provider | provider 对其局部搜索树报告全叶库存 | Host 拼接、重放和库存复核 | campaign target 已 solved |
+| `provider_solved`（历史/独立 baseline） | Native-search provider | provider 对其独立搜索树报告全叶库存 | 仅作 baseline 或旧结果展示 | canonical campaign target 已 solved |
 | `solved` | Host final materialization | 目标根连通完整路线的全部终端叶精确库存闭合 | 输出最终路线 | LLM/Provider 可自行声明 |
 
 ## 5. 权限速查
@@ -364,7 +356,6 @@ Builder 没有动作/reason 词表和终止通道。worker schema 只接纳一�
 | Editor（冻结 paper） | 必须保留核心 Strategy | 是，依赖闭合替换范围 | 否 | 否 | 修复 blocker | 是 | 否 |
 | Path Repair Editor | 必须保留核心 Strategy | 否，只给 rollback intent | 否 | 否 | 定位 blocker 修复范围 | 否 | 否 |
 | Exact stock oracle | 否 | 否 | 否 | 是 | 否 | 否 | 否 |
-| AiZ short-tail | 否 | 模板动作 | provider 内部 | advisory + Host 复核 | 否 | 否 | 否 |
 | Final Host | 否 | 否 | 接纳已回放结构 | 是 | 记录 Critic | 接纳/拒绝 | 是 |
 | Analyst（未实现） | 否 | 否 | 否 | 否 | 总结风险 | 否 | 否 |
 

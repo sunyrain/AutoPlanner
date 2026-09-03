@@ -7,7 +7,7 @@
     "target_names_are_hidden_from_live_planner": true
   },
   "comparison": {
-    "autoplanner_arm": "three_independent_codex_branches_then_leaf_local_short_tail",
+    "autoplanner_arm": "three_independent_llm_builder_branches_with_uniform_leaf_continuation",
     "external_arm": "frozen SynthAtlas public route snapshot",
     "generation_compute_is_not_claimed_matched": true,
     "paper_equivalent_endpoint": "one target-rooted route whose every leaf is an exact full-InChIKey member of the frozen ZINC+eMolecules stock",
@@ -54,13 +54,11 @@
       "paper_equivalent_solved"
     ],
     "critic_editor_repair_rounds": 6,
-    "short_tail": {
-      "engine": "AiZynthFinder 4.4.1",
+    "leaf_continuation": {
+      "engine": "same_llm_route_builder",
+      "reuses_original_branch_budget": true,
       "applied_only_to_distinct_target_reachable_open_leaves": true,
-      "depth": 6,
-      "iterations": 500,
-      "timeout_s": 1200,
-      "materialize_validate_stock_before_more_frontier_search": true
+      "materialize_validate_stock_before_next_builder_call": true
     }
   },
   "enhanced_search_ablation": {

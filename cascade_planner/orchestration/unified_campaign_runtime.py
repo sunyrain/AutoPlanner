@@ -1256,7 +1256,7 @@ class CampaignActionRuntime:
         native_resource_units = (
             1
             if action.resource_class
-            in {"native_search_target", "native_search_frontier"}
+            == "native_search_target"
             else 0
         )
         action_class_service = dict(
@@ -1438,7 +1438,7 @@ class CampaignActionRuntime:
             if (
                 not task_id
                 or str(metadata.get("delegated_resource_class") or "")
-                not in {"native_search_target", "native_search_frontier"}
+                != "native_search_target"
             ):
                 continue
             lifecycle = self.kernel.task_lifecycle(task_id)
@@ -2377,22 +2377,7 @@ def _action_history_handler_result(
         "runtime_pause": row.get("runtime_pause") is True,
         "reason": str(row.get("reason") or ""),
     }
-    if action_kind == CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND.value:
-        result.update(
-            {
-                "frontier_smiles": list(row.get("frontier_smiles") or []),
-                "provider_invocation_count": int(
-                    row.get("provider_invocation_count") or 0
-                ),
-                "provider_result_replay_count": int(
-                    row.get("provider_result_replay_count") or 0
-                ),
-                "guided_progress_checkpoint": dict(
-                    row.get("guided_progress_checkpoint") or {}
-                ),
-            }
-        )
-    elif action_kind == CampaignActionKind.CHEMENZY_TARGET_EXPAND.value:
+    if action_kind == CampaignActionKind.CHEMENZY_TARGET_EXPAND.value:
         result["provider_result_replayed"] = (
             row.get("provider_result_replayed") is True
         )
@@ -2419,7 +2404,6 @@ def _cached_execution(
 def _checkpoint_native_handler(action: CampaignAction) -> bool:
     return action.resource_class in {
         "native_search_target",
-        "native_search_frontier",
     }
 
 

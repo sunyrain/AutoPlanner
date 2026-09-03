@@ -181,7 +181,7 @@ def _chemical_strategy_critique_reasons(payload: Any) -> list[str]:
     elif any(
         not isinstance(row, dict)
         or row.get("verdict") not in {"pass", "uncertain", "reject"}
-        or not str(row.get("step_id") or "")
+        or not (str(row.get("step_id") or "") or str(row.get("review_slot") or ""))
         for row in assessments
     ):
         reasons.append("chemical_strategy_critique_step_invalid")

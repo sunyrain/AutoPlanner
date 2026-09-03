@@ -146,9 +146,9 @@ SYNTHEX_MATCHED_PROFILE_DEFAULTS = {
     # Per-call timeout remains the scientific limit; this aggregate is merely
     # an operational ceiling and must not be presented as paper-reported.
     "max_model_wall_time_s": 70_200.0,
-    # Allow native short-tail searches and host materialization to finish after
-    # model work.  The paper does not publish an aggregate target wall clock,
-    # so this is an explicit emergency cutoff rather than a matched metric.
+    # Allow Host materialization and final validation to finish after model
+    # work.  The paper does not publish an aggregate target wall clock, so
+    # this is an explicit emergency cutoff rather than a matched metric.
     "max_run_wall_time_s": 86_400.0,
     "max_prompt_context_bytes": 96_000,
     "max_accepted_expansions": 96,
@@ -156,10 +156,12 @@ SYNTHEX_MATCHED_PROFILE_DEFAULTS = {
     "max_total_tasks": 1_024,
     "max_atom_mapping_reactions": 81,
     "max_stock_molecules": 256,
-    "short_tail_steps": 6,
-    "short_tail_iterations": 500,
-    "short_tail_timeout_s": 1_200.0,
-    "short_tail_engine": "AiZynthFinder 4.4.1",
+    # Independent target-level native-search baseline defaults.  These do not
+    # participate in canonical open-leaf continuation.
+    "native_baseline_steps": 6,
+    "native_baseline_iterations": 500,
+    "native_baseline_timeout_s": 1_200.0,
+    "leaf_continuation_engine": "same_llm_route_builder",
     "route_builder_max_steps": 25,
     # SynthEx is sequential at the Route Builder boundary: one open leaf, one
     # ReactionJSON edit, then deterministic host replay.  The Critic/Improvement

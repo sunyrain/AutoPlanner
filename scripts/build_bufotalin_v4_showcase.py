@@ -921,7 +921,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--pdf",
-        default="1-s2.0-S0040402025001668-main.pdf",
+        default=(
+            "data_external/literature-evidence/manual-reference-pdfs/"
+            "1-s2.0-S0040402025001668-main.pdf"
+        ),
     )
     parser.add_argument(
         "--visual-chain",

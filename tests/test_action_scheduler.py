@@ -69,9 +69,10 @@ def _frontier(*, metadata: dict | None = None) -> dict:
                 "metadata": {
                     **dict(metadata or {}),
                     "provider_preferences": [
-                        "chemenzy",
+                        "codex_frontier_builder",
                         "codex_global_director",
                     ],
+                    "target_rooted_open_leaf": True,
                 },
             },
         ],
@@ -474,14 +475,14 @@ def test_action_scheduler_expands_one_deficit_into_provider_choices() -> None:
 
     assert {row["kind"] for row in opportunities["actions"]} == {
         "reaction_validate",
-        "native_short_tail_expand",
+        "codex_frontier_expand",
         "codex_global_replan",
     }
     resources = {
         row["kind"]: row["resource_class"]
         for row in opportunities["actions"]
     }
-    assert resources["native_short_tail_expand"] == "native_search_frontier"
+    assert resources["codex_frontier_expand"] == "model"
 
 
 def test_scheduler_does_not_dispatch_unscoped_codex_replan() -> None:
@@ -491,7 +492,6 @@ def test_scheduler_does_not_dispatch_unscoped_codex_replan() -> None:
         opportunities,
         resource_availability={
             "validation": True,
-            "native_search_frontier": True,
             "model": True,
         },
     )
@@ -506,7 +506,7 @@ def test_scheduler_does_not_dispatch_unscoped_codex_replan() -> None:
     assert decision["selected_action"]["kind"] != "codex_global_replan"
 
 
-def test_paper_short_tail_precedes_scoped_global_replan() -> None:
+def test_open_leaf_builder_continuation_precedes_scoped_global_replan() -> None:
     frontier = {
         "content_sha256": "paper-short-tail-before-replan",
         "items": [
@@ -523,8 +523,7 @@ def test_paper_short_tail_precedes_scoped_global_replan() -> None:
                 "priority": 100.0,
                 "score": {},
                 "metadata": {
-                    "provider_preferences": ["chemenzy"],
-                    "paper_short_tail_eligible": True,
+                    "provider_preferences": ["codex_frontier_builder"],
                     "target_rooted_open_leaf": True,
                 },
             },
@@ -549,22 +548,19 @@ def test_paper_short_tail_precedes_scoped_global_replan() -> None:
     decision = schedule_next_action(
         opportunities,
         resource_availability={
-            "native_search_frontier": True,
             "model": True,
         },
     )
 
-    assert decision["selected_action"]["kind"] == "native_short_tail_expand"
+    assert decision["selected_action"]["kind"] == "codex_frontier_expand"
     replan = next(
         row
         for row in decision["candidates"]
         if row["kind"] == "codex_global_replan"
     )
     assert replan["eligible"] is False
-    assert "paper_short_tail_pending" in replan["blocked_reasons"]
-    assert decision["semantics"][
-        "paper_short_tails_precede_global_replan"
-    ] is True
+    assert "builder_continuation_pending" in replan["blocked_reasons"]
+    assert decision["semantics"]["open_leaves_use_one_builder_contract"] is True
 
 
 def test_round_robin_scheduler_uses_frozen_kind_cursor_not_adaptive_score() -> None:
@@ -576,14 +572,13 @@ def test_round_robin_scheduler_uses_frozen_kind_cursor_not_adaptive_score() -> N
         round_robin_cursor=9,
         resource_availability={
             "validation": True,
-            "native_search_frontier": True,
             "model": True,
         },
         prior_action_kinds=("codex_global_architecture",) * 7,
     )
 
     assert decision["scheduler_policy"] == "round_robin"
-    assert decision["selected_action"]["kind"] == "native_short_tail_expand"
+    assert decision["selected_action"]["kind"] == "codex_frontier_expand"
     assert decision["semantics"][
         "round_robin_ignores_adaptive_value_score_for_ordering"
     ] is True
@@ -638,7 +633,7 @@ def test_exhausted_expansion_lanes_remain_visible_without_executable_action() ->
     frontier["items"] = [frontier["items"][1]]
     frontier["items"][0]["metadata"] = {
         "provider_preferences": [],
-        "provider_lanes_exhausted": True,
+        "builder_continuation_exhausted": True,
     }
 
     opportunities = compile_action_opportunities(frontier)

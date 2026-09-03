@@ -176,18 +176,35 @@ def validate_synthex_head_to_head_protocol(
         execution.get("critic_editor_repair_rounds"),
         defaults.get("route_local_repair_rounds"),
     )
-    short_tail = dict(execution.get("short_tail") or {})
+    leaf_continuation = dict(execution.get("leaf_continuation") or {})
     _expect(
         issues,
-        "short_tail.engine",
-        short_tail.get("engine"),
-        defaults.get("short_tail_engine"),
+        "leaf_continuation.engine",
+        leaf_continuation.get("engine"),
+        defaults.get("leaf_continuation_engine"),
     )
-    _expect(issues, "short_tail.depth", short_tail.get("depth"), defaults.get("short_tail_steps"))
-    _expect(issues, "short_tail.iterations", short_tail.get("iterations"), defaults.get("short_tail_iterations"))
-    _expect(issues, "short_tail.timeout_s", short_tail.get("timeout_s"), defaults.get("short_tail_timeout_s"))
-    _expect(issues, "short_tail.target_reachable", short_tail.get("applied_only_to_distinct_target_reachable_open_leaves"), True)
-    _expect(issues, "short_tail.materialize_first", short_tail.get("materialize_validate_stock_before_more_frontier_search"), True)
+    _expect(
+        issues,
+        "leaf_continuation.reuses_original_branch_budget",
+        leaf_continuation.get("reuses_original_branch_budget"),
+        True,
+    )
+    _expect(
+        issues,
+        "leaf_continuation.target_reachable",
+        leaf_continuation.get(
+            "applied_only_to_distinct_target_reachable_open_leaves"
+        ),
+        True,
+    )
+    _expect(
+        issues,
+        "leaf_continuation.materialize_first",
+        leaf_continuation.get(
+            "materialize_validate_stock_before_next_builder_call"
+        ),
+        True,
+    )
 
     budget_expectations = {
         "max_accepted_expansions": "max_accepted_expansions",

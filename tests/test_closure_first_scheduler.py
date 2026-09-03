@@ -17,7 +17,7 @@ def test_existing_route_closes_before_new_frontier_even_when_expansion_scores_hi
     decision = schedule_next_action(
         {
             "actions": [
-                _action("expand", "native_short_tail_expand", "native_search_frontier"),
+                _action("expand", "chemenzy_target_expand", "native_search_target"),
                 _action("builder", "codex_frontier_expand", "model"),
                 _action("stock", "stock_audit", "stock"),
                 _action("validate", "reaction_validate", "validation"),
@@ -31,7 +31,7 @@ def test_existing_route_closes_before_new_frontier_even_when_expansion_scores_hi
         },
         resource_availability={},
         available_action_kinds=(
-            "native_short_tail_expand",
+            "chemenzy_target_expand",
             "codex_frontier_expand",
             "stock_audit",
             "reaction_validate",

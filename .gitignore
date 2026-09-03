@@ -109,13 +109,7 @@ archive/migration_*/autoplanner_full_*.zip.sha256
 archive/cleanup_*/
 archive/harness_prep_*/
 
-# Large datasets at repo root (use archive/ for the v1 snapshots)
-cascade_dataset_v2.json
-cascade_dataset_v2.normalized.json
-cascade_dataset_v2.strict.json
-cascade_dataset_v2.quality.json
-cascade_dataset_v2.strict.report.json
-cascade_dataset_v3.json
+# External datasets live under data_external/; root-level copies are not supported.
 dataset_v4_release/
 
 # Run logs at repo root

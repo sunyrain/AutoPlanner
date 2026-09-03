@@ -91,14 +91,9 @@ def schedule_next_action(
             action_preflight.get("check_contract_block_reasons") or {}
         ).items()
     }
-    # A paper-matched short tail is a one-shot continuation of an already
-    # target-rooted route, not generic frontier discovery.  Exhausting one
-    # leaf can emit a global-replan signal while sibling stock-rejected leaves
-    # are still waiting for their own bounded tail.  Finish those bound leaf
-    # attempts first so an expensive model replan cannot jump the queue.
-    paper_short_tail_pending = any(
-        str(row.get("kind") or "") == "native_short_tail_expand"
-        and dict(row.get("metadata") or {}).get("paper_short_tail_eligible")
+    builder_continuation_pending = any(
+        str(row.get("kind") or "") == "codex_frontier_expand"
+        and dict(row.get("metadata") or {}).get("target_rooted_open_leaf")
         is True
         and str(row.get("action_id") or "") not in in_flight
         and not preflight_block_reasons.get(str(row.get("action_id") or ""))
@@ -107,7 +102,7 @@ def schedule_next_action(
         )
         and (
             not handler_filter_applied
-            or "native_short_tail_expand" in available_kinds
+            or "codex_frontier_expand" in available_kinds
         )
         and resources.get(str(row.get("resource_class") or ""), True)
         is not False
@@ -164,8 +159,8 @@ def schedule_next_action(
                 and metadata.get("global_replan") is not True
             ):
                 blocked_reasons.append("global_replan_scope_missing")
-            if paper_short_tail_pending:
-                blocked_reasons.append("paper_short_tail_pending")
+            if builder_continuation_pending:
+                blocked_reasons.append("builder_continuation_pending")
         if (
             scheduler_policy == "adaptive"
             and "B4_stock_boundary" in gates
@@ -412,7 +407,7 @@ def schedule_next_action(
             ),
             "strategy_native_program_discovery_may_compete_before_B4": True,
             "new_frontiers_wait_for_materialize_validate_stock": True,
-            "paper_short_tails_precede_global_replan": True,
+            "open_leaves_use_one_builder_contract": True,
             "structural_preflight_uses_the_same_action_set": True,
             "structural_preflight_cannot_expand_budget_or_authority": True,
             "round_robin_ignores_adaptive_value_score_for_ordering": (

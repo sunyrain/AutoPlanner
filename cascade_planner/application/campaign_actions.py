@@ -28,7 +28,6 @@ class CampaignActionKind(str, Enum):
     STOCK_AUDIT = "stock_audit"
     RESOLVE_CONFLICT = "resolve_conflict"
     CHEMENZY_TARGET_EXPAND = "chemenzy_target_expand"
-    NATIVE_SHORT_TAIL_EXPAND = "native_short_tail_expand"
     CODEX_FRONTIER_EXPAND = "codex_frontier_expand"
     CODEX_GLOBAL_ARCHITECTURE = "codex_global_architecture"
     CODEX_REPLAN = "codex_global_replan"
@@ -92,38 +91,35 @@ CAMPAIGN_ACTION_KIND_POLICIES: Mapping[
         CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: CampaignActionKindPolicy(
             "route_discovery", 8, route_action=True, new_frontier=True
         ),
-        CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND: CampaignActionKindPolicy(
+        CampaignActionKind.CODEX_FRONTIER_EXPAND: CampaignActionKindPolicy(
             "route_discovery", 9, route_action=True, new_frontier=True
         ),
-        CampaignActionKind.CODEX_FRONTIER_EXPAND: CampaignActionKindPolicy(
+        CampaignActionKind.CODEX_REPLAN: CampaignActionKindPolicy(
             "route_discovery", 10, route_action=True, new_frontier=True
         ),
-        CampaignActionKind.CODEX_REPLAN: CampaignActionKindPolicy(
-            "route_discovery", 11, route_action=True, new_frontier=True
-        ),
         CampaignActionKind.PROGRAM_DISCOVER: CampaignActionKindPolicy(
-            "program_experiment", 12, result_first_deferred=True
+            "program_experiment", 11, result_first_deferred=True
         ),
         CampaignActionKind.PROGRAM_REVIEW: CampaignActionKindPolicy(
-            "program_experiment", 13, result_first_deferred=True
+            "program_experiment", 12, result_first_deferred=True
         ),
         CampaignActionKind.PROGRAM_ADMIT: CampaignActionKindPolicy(
-            "program_experiment", 14, result_first_deferred=True
+            "program_experiment", 13, result_first_deferred=True
         ),
         CampaignActionKind.PROGRAM_VALIDATE: CampaignActionKindPolicy(
             "program_experiment",
-            15,
+            14,
             result_first_deferred=True,
             program_proof=True,
         ),
         CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST: CampaignActionKindPolicy(
             "program_experiment",
-            16,
+            15,
             result_first_deferred=True,
             program_proof=True,
         ),
         CampaignActionKind.RECOMPUTE_ROUTE: CampaignActionKindPolicy(
-            "deterministic_closure", 17, route_action=True, closure_stage=3
+            "deterministic_closure", 16, route_action=True, closure_stage=3
         ),
     }
 )
@@ -815,7 +811,7 @@ def _action_mappings(
             return ((CampaignActionKind.BIND_EVIDENCE, "host_evidence_gate", "evidence"),)
         return ((CampaignActionKind.ACQUIRE_EVIDENCE, "evidence_connector", "evidence"),)
     if kind == "expansion":
-        if metadata.get("provider_lanes_exhausted") is True:
+        if metadata.get("builder_continuation_exhausted") is True:
             return ()
         providers = {
             str(value).strip().casefold()
@@ -826,7 +822,7 @@ def _action_mappings(
             providers = (
                 {"chemenzy"}
                 if metadata.get("target_level_native_search") is True
-                else {"native_short_tail"}
+                else {"codex_frontier_builder"}
             )
         values: list[tuple[CampaignActionKind, str, str]] = []
         if (
@@ -840,19 +836,10 @@ def _action_mappings(
                     "native_search_target",
                 )
             )
-        if metadata.get("target_level_native_search") is not True and providers & {
-            "native_short_tail",
-            "aizynthfinder",
-            "chemenzy",
-        }:
-            values.append(
-                (
-                    CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND,
-                    "native_short_tail",
-                    "native_search_frontier",
-                )
-            )
-        if "codex_frontier_builder" in providers:
+        if (
+            metadata.get("target_level_native_search") is not True
+            and "codex_frontier_builder" in providers
+        ):
             values.append(
                 (
                     CampaignActionKind.CODEX_FRONTIER_EXPAND,
@@ -866,16 +853,7 @@ def _action_mappings(
             )
         return tuple(values)
     if kind == "diversity":
-        values: list[tuple[CampaignActionKind, str, str]] = []
-        if str(metadata.get("frontier_smiles") or ""):
-            values.append(
-                (
-                    CampaignActionKind.NATIVE_SHORT_TAIL_EXPAND,
-                    "native_short_tail",
-                    "native_search_frontier",
-                )
-            )
-        return tuple(values)
+        return ()
     if kind == "route_closure":
         return ((CampaignActionKind.RECOMPUTE_ROUTE, "host_projection", "deterministic"),)
     return ()

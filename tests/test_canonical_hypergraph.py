@@ -299,7 +299,9 @@ def test_rejected_stock_leaf_becomes_provider_expansion_deficit() -> None:
     assert expansion["model_allowed"] is True
     assert expansion["deterministic"] is False
     assert expansion["metadata"]["frontier_smiles"] == "CC(=O)Cl"
-    assert expansion["metadata"]["provider_preferences"][0] == "native_short_tail"
+    assert expansion["metadata"]["provider_preferences"] == [
+        "codex_frontier_builder"
+    ]
     assert frontier["summary"]["by_kind"]["stock"] == 0
 
 
@@ -639,6 +641,21 @@ def test_shared_reaction_keeps_every_route_strategy_through_materialization(
     assert {
         card["strategy_digest"] for card in commands[0].payload["strategy_cards"]
     } == {first_card["strategy_digest"], second_card["strategy_digest"]}
+    proposal_route_bindings = {
+        str(proposal["route_family_id"]): tuple(
+            proposal["canonical_route_family_ids"]
+        )
+        for proposal in commands[0].payload["proposal_refs"]
+    }
+    canonical_by_alias = {
+        str(alias): str(route_id)
+        for route_id, route in admitted["route_families"].items()
+        for alias in route.get("aliases") or []
+    }
+    assert proposal_route_bindings == {
+        "family:convergent": (canonical_by_alias["family:convergent"],),
+        "family:linear": (canonical_by_alias["family:linear"],),
+    }
     result = runtime.execute(commands[0])
     materialized_result = store.apply(
         CanonicalIngestionBatch(worker_results=(result,)),
@@ -654,6 +671,12 @@ def test_shared_reaction_keeps_every_route_strategy_through_materialization(
         first_card["strategy_digest"],
         second_card["strategy_digest"],
     }
+    assert {
+        str(origin["route_family_id"]): tuple(
+            origin["canonical_route_family_ids"]
+        )
+        for origin in edge["origin_records"]
+    } == proposal_route_bindings
 
 
 def test_frozen_strategy_card_survives_distinct_multistep_reaction_edits(
@@ -826,6 +849,15 @@ def test_declared_route_internal_strategy_milestone_is_not_a_replacement(
             "repair_frontier_mapped_product_smiles": "[CH3:1][CH2:2][OH:3]",
         }
     ]
+    family["supersedes_route_family_id"] = "route-family:prior"
+    family["repair_origin_route_sha256"] = "a" * 64
+    family["final_route_repair_attempts"] = [
+        {
+            "task_id": "route-repair:one",
+            "origin_route_sha256": "a" * 64,
+            "status": "committed",
+        }
+    ]
     step = plan["multi_step_skeletons"][0]["steps"][0]
     step["strategy_card"] = milestone
     step["strategy_id"] = milestone["strategy_id"]
@@ -864,6 +896,9 @@ def test_declared_route_internal_strategy_milestone_is_not_a_replacement(
     assert route["path_repair_transactions"][0]["repair_goal"] == (
         "rebuild the unresolved route span"
     )
+    assert route["supersedes_route_family_id"] == "route-family:prior"
+    assert route["repair_origin_route_sha256"] == "a" * 64
+    assert route["final_route_repair_attempts"][0]["status"] == "committed"
     assert len(store.frontier_materialization_commands()) == 1
 
 
@@ -1486,7 +1521,7 @@ def test_disconnected_provider_island_never_becomes_short_tail_work(
     )
 
 
-def test_settled_short_tail_attempt_opens_builder_lane_without_reauditing_stock() -> None:
+def test_stock_rejected_leaf_opens_builder_lane_without_reauditing_stock() -> None:
     graph = {
         "scientific_sha256": "fixture",
         "target_molecule_id": "molecule:target",
@@ -1764,7 +1799,7 @@ def test_exhausted_initial_policy_axis_keeps_leaf_deficit_without_provider_lane(
         and item["object_id"] == "molecule:leaf"
     )
     assert expansion["metadata"]["provider_preferences"] == []
-    assert expansion["metadata"]["provider_lanes_exhausted"] is True
+    assert expansion["metadata"]["builder_continuation_exhausted"] is True
     assert expansion["metadata"][
         "frontier_builder_exhausted_route_family_ids"
     ] == ["route:selected"]
@@ -1835,7 +1870,6 @@ def test_unavailable_builder_route_moves_shared_leaf_to_next_route_family() -> N
     )
 
     assert expansion["metadata"]["provider_preferences"] == [
-        "native_short_tail",
         "codex_frontier_builder"
     ]
     assert expansion["metadata"]["frontier_builder_route_family_id"] == "route:b"

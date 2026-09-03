@@ -38,6 +38,22 @@ class _RetrosynthesisServicePlanningMixin:
             idempotency_key=idempotency_key,
         )
 
+    def apply_final_route_repair_plan(
+        self,
+        plan: Mapping[str, Any],
+        *,
+        idempotency_key: str,
+        proposal_origin_ref: str,
+    ) -> dict[str, Any]:
+        """Admit a final-route repair through the canonical plan boundary."""
+
+        return self.apply_global_plan(
+            plan,
+            idempotency_key=idempotency_key,
+            proposal_origin_kind="codex",
+            proposal_origin_ref=proposal_origin_ref,
+        )
+
     def run_global_director(
         self,
         *,

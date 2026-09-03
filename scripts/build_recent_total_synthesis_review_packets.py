@@ -21,6 +21,7 @@ from urllib.parse import quote
 
 SUBMISSION_SCHEMA = "recent_total_synthesis_review_submission.v1"
 PACKET_SCHEMA = "recent_total_synthesis_review_packets.v1"
+STRUCTURED_ROUTE_SCHEMA = "recent_total_synthesis_structured_route_candidate.v1"
 READY_VISUAL_STATUSES = {
     "exact_source_structure_candidate",
     "partial_stereo_candidate",
@@ -44,6 +45,10 @@ table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; vertical-align: top; border-bottom: 1px solid #e3e7eb; padding: 7px; }
 details { margin: 8px 0; }
 .tag { display: inline-block; background: #e8eef4; border-radius: 12px; padding: 2px 8px; margin-right: 4px; }
+.route-step { border-left: 4px solid #557799; margin: 10px 0; padding: 8px 12px; background: #f8fafc; }
+.compound-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; }
+.compound-card { border: 1px solid #dce3ea; border-radius: 6px; padding: 8px; }
+.compound-card object { height: 190px; width: 100%; }
 """
 
 
@@ -134,17 +139,181 @@ def artifact_label(kind: str) -> str:
     return labels.get(kind, kind)
 
 
-def render_candidate_svg(smiles: str, output_path: Path, legend: str) -> None:
+def render_candidate_svg(
+    smiles: str,
+    output_path: Path,
+    legend: str,
+    *,
+    width: int = 620,
+    height: int = 390,
+) -> None:
     from rdkit import Chem
     from rdkit.Chem.Draw import rdMolDraw2D
 
     molecule = Chem.MolFromSmiles(smiles)
     if molecule is None:
         raise RuntimeError("review_packet_candidate_smiles_invalid")
-    drawer = rdMolDraw2D.MolDraw2DSVG(620, 390)
+    drawer = rdMolDraw2D.MolDraw2DSVG(width, height)
     rdMolDraw2D.PrepareAndDrawMolecule(drawer, molecule, legend=legend)
     drawer.FinishDrawing()
     output_path.write_text(drawer.GetDrawingText(), encoding="utf-8")
+
+
+def validate_structured_route_candidate(
+    value: dict[str, Any],
+    *,
+    candidate_path: Path,
+    repo_root: Path,
+    targets: dict[str, dict[str, Any]],
+    visual_by_target: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Validate one model/visual route transcription without granting admission."""
+
+    from rdkit import Chem
+    from rdkit.Chem import rdMolDescriptors
+
+    if value.get("schema_version") != STRUCTURED_ROUTE_SCHEMA:
+        raise RuntimeError(f"structured_route_schema_invalid:{candidate_path.name}")
+    if value.get("admission_authority") is not False:
+        raise RuntimeError(f"structured_route_must_be_nonadmitting:{candidate_path.name}")
+    target_id = str(value.get("target_slot_id") or "")
+    target = targets.get(target_id)
+    if target is None:
+        raise RuntimeError(f"structured_route_target_unknown:{target_id}")
+    if str(value.get("paper_id") or "") != str(target.get("paper_id") or ""):
+        raise RuntimeError(f"structured_route_paper_mismatch:{target_id}")
+    if str(value.get("source_doi") or "").lower() != str(target.get("doi") or "").lower():
+        raise RuntimeError(f"structured_route_doi_mismatch:{target_id}")
+    if value.get("reference_scope") != "ordered_route":
+        raise RuntimeError(f"structured_route_scope_invalid:{target_id}")
+
+    sources = list(value.get("source_artifacts") or [])
+    if not sources:
+        raise RuntimeError(f"structured_route_sources_missing:{target_id}")
+    for source in sources:
+        verified_artifact(dict(source), repo_root=repo_root)
+
+    compounds = [dict(row) for row in value.get("compounds") or []]
+    if not compounds:
+        raise RuntimeError(f"structured_route_compounds_missing:{target_id}")
+    compound_by_id: dict[str, dict[str, Any]] = {}
+    for compound in compounds:
+        compound_id = str(compound.get("compound_id") or "")
+        label = str(compound.get("label") or "")
+        if not compound_id or not label or compound_id in compound_by_id:
+            raise RuntimeError(f"structured_route_compound_identity_invalid:{target_id}")
+        structures = []
+        if compound.get("smiles"):
+            structures.append((label, str(compound["smiles"]), compound.get("molecular_formula")))
+        for variant in compound.get("structure_variants") or []:
+            structures.append(
+                (
+                    str(variant.get("label") or ""),
+                    str(variant.get("smiles") or ""),
+                    variant.get("molecular_formula") or compound.get("molecular_formula"),
+                )
+            )
+        if not structures:
+            raise RuntimeError(f"structured_route_compound_structure_missing:{compound_id}")
+        for structure_label, smiles, expected_formula in structures:
+            molecule = Chem.MolFromSmiles(smiles)
+            if molecule is None or not structure_label:
+                raise RuntimeError(f"structured_route_smiles_invalid:{compound_id}")
+            formula = rdMolDescriptors.CalcMolFormula(molecule)
+            if expected_formula and formula != str(expected_formula):
+                raise RuntimeError(
+                    f"structured_route_formula_mismatch:{compound_id}:{formula}"
+                )
+        compound_by_id[compound_id] = compound
+
+    steps = [dict(row) for row in value.get("steps") or []]
+    if not steps or [row.get("order") for row in steps] != list(range(1, len(steps) + 1)):
+        raise RuntimeError(f"structured_route_step_order_invalid:{target_id}")
+    step_ids: set[str] = set()
+    produced: set[str] = set()
+    initially_available = {
+        compound_id
+        for compound_id, compound in compound_by_id.items()
+        if compound.get("role") in {"starting_material", "reagent"}
+    }
+    for step in steps:
+        step_id = str(step.get("step_id") or "")
+        precursor_ids = [str(item) for item in step.get("precursor_compound_ids") or []]
+        product_id = str(step.get("product_compound_id") or "")
+        if (
+            not step_id
+            or step_id in step_ids
+            or not precursor_ids
+            or product_id not in compound_by_id
+            or not str(step.get("transformation_class") or "")
+            or not str(step.get("strategic_role") or "")
+            or not step.get("source_locator")
+        ):
+            raise RuntimeError(f"structured_route_step_invalid:{step_id or target_id}")
+        for precursor_id in precursor_ids:
+            if precursor_id not in compound_by_id:
+                raise RuntimeError(f"structured_route_precursor_unknown:{precursor_id}")
+            if precursor_id not in initially_available and precursor_id not in produced:
+                raise RuntimeError(f"structured_route_precursor_not_yet_produced:{precursor_id}")
+        if product_id in produced:
+            raise RuntimeError(f"structured_route_product_repeated:{product_id}")
+        expected_labels = [compound_by_id[item]["label"] for item in precursor_ids]
+        if list(step.get("precursor_labels") or []) != expected_labels:
+            raise RuntimeError(f"structured_route_precursor_labels_mismatch:{step_id}")
+        if str(step.get("product_label") or "") != str(compound_by_id[product_id]["label"]):
+            raise RuntimeError(f"structured_route_product_label_mismatch:{step_id}")
+        step_ids.add(step_id)
+        produced.add(product_id)
+
+    target_compound_id = str(value.get("target_compound_id") or "")
+    if target_compound_id != str(steps[-1].get("product_compound_id") or ""):
+        raise RuntimeError(f"structured_route_final_product_mismatch:{target_id}")
+    target_compound = compound_by_id.get(target_compound_id, {})
+    target_smiles = str(target_compound.get("smiles") or "")
+    visual_smiles = str(
+        visual_by_target.get(target_id, {}).get("visual_canonical_isomeric_smiles") or ""
+    )
+    target_molecule = Chem.MolFromSmiles(target_smiles)
+    visual_molecule = Chem.MolFromSmiles(visual_smiles)
+    if (
+        target_molecule is None
+        or visual_molecule is None
+        or Chem.MolToSmiles(target_molecule, isomericSmiles=True)
+        != Chem.MolToSmiles(visual_molecule, isomericSmiles=True)
+    ):
+        raise RuntimeError(f"structured_route_target_structure_mismatch:{target_id}")
+    if not list(value.get("strategic_events") or []):
+        raise RuntimeError(f"structured_route_strategic_events_missing:{target_id}")
+
+    normalized = dict(value)
+    normalized["candidate_path"] = candidate_path.relative_to(repo_root).as_posix()
+    return normalized
+
+
+def load_structured_route_candidates(
+    *,
+    dataset_dir: Path,
+    repo_root: Path,
+    targets: dict[str, dict[str, Any]],
+    visual_by_target: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    root = dataset_dir / "curation_candidates" / "structured_routes"
+    result: dict[str, dict[str, Any]] = {}
+    if not root.exists():
+        return result
+    for candidate_path in sorted(root.glob("*.json")):
+        candidate = validate_structured_route_candidate(
+            json.loads(candidate_path.read_text(encoding="utf-8")),
+            candidate_path=candidate_path,
+            repo_root=repo_root,
+            targets=targets,
+            visual_by_target=visual_by_target,
+        )
+        target_id = str(candidate["target_slot_id"])
+        if target_id in result:
+            raise RuntimeError(f"structured_route_candidate_duplicate:{target_id}")
+        result[target_id] = candidate
+    return result
 
 
 def source_audit(
@@ -254,6 +423,93 @@ def unique_bindings(passages: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+def structured_route_record(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_doi": candidate["source_doi"],
+        "reference_scope": "ordered_route",
+        "source_artifacts": list(candidate["source_artifacts"]),
+        "steps": list(candidate["steps"]),
+        "strategic_events": list(candidate["strategic_events"]),
+    }
+
+
+def structured_route_html(
+    candidate: dict[str, Any] | None,
+    *,
+    packet_dir: Path,
+    repo_root: Path,
+) -> str:
+    if not candidate:
+        return (
+            '<div class="notice">尚未形成结构化有序路线；下方段落仍只是定位线索。</div>'
+        )
+    compound_dir = packet_dir / "route-compounds"
+    compound_dir.mkdir(parents=True, exist_ok=True)
+    compound_cards = []
+    for compound in candidate.get("compounds") or []:
+        compound_id = str(compound["compound_id"])
+        variants = list(compound.get("structure_variants") or [])
+        structures = variants or [compound]
+        drawings = []
+        for index, structure in enumerate(structures, start=1):
+            suffix = f"-{index}" if len(structures) > 1 else ""
+            svg_path = compound_dir / f"{compound_id}{suffix}.svg"
+            legend = str(structure.get("label") or compound.get("label") or compound_id)
+            render_candidate_svg(
+                str(structure["smiles"]),
+                svg_path,
+                legend,
+                width=360,
+                height=220,
+            )
+            drawings.append(
+                f'<object data="{href(svg_path, page_dir=packet_dir)}" '
+                'type="image/svg+xml"></object>'
+                f'<code>{html.escape(str(structure["smiles"]))}</code>'
+            )
+        compound_cards.append(
+            '<section class="compound-card">'
+            f'<strong>{html.escape(str(compound["label"]))}</strong>'
+            f'<span class="tag">{html.escape(str(compound.get("role") or ""))}</span>'
+            f'{"".join(drawings)}</section>'
+        )
+
+    step_cards = []
+    for step in candidate.get("steps") or []:
+        precursors = " + ".join(str(item) for item in step.get("precursor_labels") or [])
+        conditions = "; ".join(
+            f"{key}: {value}"
+            for key, value in (step.get("conditions") or {}).items()
+            if value not in (None, "", [], {})
+        )
+        yield_text = (
+            f"{step['yield_percent']}%"
+            if step.get("yield_percent") is not None
+            else "未报告"
+        )
+        step_cards.append(
+            '<section class="route-step">'
+            f'<strong>Step {int(step["order"])} · {html.escape(precursors)} → '
+            f'{html.escape(str(step["product_label"]))}</strong><br>'
+            f'{html.escape(str(step["transformation_class"]))} · 收率 {html.escape(yield_text)}<br>'
+            f'<span>{html.escape(conditions)}</span><br>'
+            f'<em>{html.escape(str(step["strategic_role"]))}</em><br>'
+            f'<small>{html.escape(locator_text(step["source_locator"]))}</small>'
+            '</section>'
+        )
+    candidate_path = repo_root / str(candidate["candidate_path"])
+    summary = dict(candidate.get("route_summary") or {})
+    return f"""
+<div class="notice warning"><strong>结构化路线候选，仍不具 admission 权限。</strong>
+已通过来源哈希、RDKit、目标一致性、步骤顺序和前体连续性检查；专家仍须逐图逐步确认。</div>
+<p><span class="tag">{len(candidate.get('steps') or [])} steps</span>
+<span class="tag">{html.escape(str(summary.get('route_variant') or 'ordered route'))}</span>
+<a href="{href(candidate_path, page_dir=packet_dir)}">打开结构化候选 JSON</a></p>
+{''.join(step_cards)}
+<h3>化合物结构候选</h3><div class="compound-grid">{''.join(compound_cards)}</div>
+"""
+
+
 def paper_submission_template(
     *,
     paper: dict[str, Any],
@@ -294,6 +550,7 @@ def target_submission_template(
     target: dict[str, Any],
     visual: dict[str, Any],
     route: dict[str, Any],
+    structured_route: dict[str, Any] | None,
 ) -> dict[str, Any]:
     passages = list(route.get("evidence_passages") or [])
     source_image = dict(visual.get("source_image") or {})
@@ -326,20 +583,22 @@ def target_submission_template(
         },
         "route_review": {
             "decision": "not_reviewed",
-            "record": {
-                "source_doi": target["doi"],
-                "reference_scope": "strategic_key_step",
-                "source_artifacts": unique_bindings(passages),
-                "steps": [],
-                "strategic_events": [
-                    {
-                        "event_id": "event-1",
-                        "description": "",
-                        "transformation_class": "",
-                        "source_locator": event_locator,
-                    }
-                ],
-            },
+            "record": structured_route_record(structured_route)
+            if structured_route
+            else {
+                    "source_doi": target["doi"],
+                    "reference_scope": "strategic_key_step",
+                    "source_artifacts": unique_bindings(passages),
+                    "steps": [],
+                    "strategic_events": [
+                        {
+                            "event_id": "event-1",
+                            "description": "",
+                            "transformation_class": "",
+                            "source_locator": event_locator,
+                        }
+                    ],
+                },
             "reviewer_notes": "",
         },
     }
@@ -352,6 +611,9 @@ def build_paper_packet(
     paper: dict[str, Any],
     targets: list[dict[str, Any]],
     receipt: dict[str, Any],
+    visual_by_target: dict[str, dict[str, Any]],
+    route_by_target: dict[str, dict[str, Any]],
+    structured_route_by_target: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     packet_id = f"paper-scope--{paper['paper_id']}--v1"
     packet_dir = output_root / "paper_scope" / str(paper["paper_id"])
@@ -366,10 +628,43 @@ def build_paper_packet(
             receipt=receipt,
         ),
     )
-    target_list = "".join(
-        f"<li>{html.escape(str(row['target_name']))} <code>{html.escape(str(row['target_slot_id']))}</code></li>"
-        for row in sorted(targets, key=lambda item: str(item["target_name"]))
-    )
+    target_rows = []
+    for row in sorted(targets, key=lambda item: str(item["target_name"])):
+        target_id = str(row["target_slot_id"])
+        visual = visual_by_target.get(target_id, {})
+        route = route_by_target.get(target_id, {})
+        visual_status = str(visual.get("visual_status") or "unresolved")
+        smiles = str(visual.get("visual_canonical_isomeric_smiles") or "")
+        route_passages = len(route.get("evidence_passages") or [])
+        structured_status = "已形成有序候选" if target_id in structured_route_by_target else "—"
+        is_ready = (
+            visual_status in READY_VISUAL_STATUSES
+            and (visual.get("rdkit_validation") or {}).get("status") == "roundtrip_valid"
+            and route_passages > 0
+        )
+        if is_ready:
+            batch = (
+                "A_exact_source"
+                if visual_status == "exact_source_structure_candidate"
+                else "B_stereo_resolution"
+            )
+            target_page = output_root / "target_truth" / batch / target_id / "index.html"
+            review_link = f'<a href="{href(target_page, page_dir=packet_dir)}">打开目标复核页</a>'
+        else:
+            review_link = "尚未形成可提交目标包"
+        status_label = {
+            "exact_source_structure_candidate": "候选较完整",
+            "partial_stereo_candidate": "需裁决立体化学",
+            "unresolved": "结构未解析",
+        }.get(visual_status, visual_status)
+        target_rows.append(
+            "<tr>"
+            f"<td><strong>{html.escape(str(row['target_name']))}</strong><br><code>{html.escape(target_id)}</code></td>"
+            f"<td>{html.escape(status_label)}</td>"
+            f"<td><code>{html.escape(smiles) if smiles else '—'}</code></td>"
+            f"<td>{route_passages}</td><td>{structured_status}</td><td>{review_link}</td>"
+            "</tr>"
+        )
     body = f"""
 <p><a href="../../index.html">← 返回总目录</a></p>
 <h1>论文范围复核</h1>
@@ -382,7 +677,10 @@ def build_paper_packet(
 <h2>需要确认</h2>
 <ol><li>是否报告了本数据集范围内的完成合成；</li><li>应归为 primary、conditional、control 或 exclude；</li>
 <li>下列最终目标是否完整、是否误含中间体或类似物；</li><li>在 submission.json 中给出精确页码/图式/段落。</li></ol>
-<ul>{target_list}</ul>
+<h2>目标、SMILES 与后续复核入口</h2>
+<p>本表仅帮助浏览。SMILES 和状态均是自动候选，不参与本页的论文范围结论。</p>
+<table><thead><tr><th>目标</th><th>结构状态</th><th>候选 isomeric SMILES</th><th>路线段落</th><th>结构化路线</th><th>目标级页面</th></tr></thead>
+<tbody>{''.join(target_rows)}</tbody></table>
 <h2>来源附件</h2><table><thead><tr><th>类型</th><th>文件</th><th>SHA-256</th></tr></thead><tbody>
 {source_rows(receipt, repo_root=repo_root, page_dir=packet_dir)}</tbody></table>
 <h2>提交</h2><p>只编辑 <a href="submission.json"><code>submission.json</code></a>。完成后在仓库根目录运行：</p>
@@ -410,6 +708,7 @@ def build_target_packet(
     target: dict[str, Any],
     visual: dict[str, Any],
     route: dict[str, Any],
+    structured_route: dict[str, Any] | None,
     receipt: dict[str, Any],
 ) -> dict[str, Any]:
     status = str(visual["visual_status"])
@@ -422,7 +721,12 @@ def build_target_packet(
     submission_path = packet_dir / "submission.json"
     write_json(
         submission_path,
-        target_submission_template(target=target, visual=visual, route=route),
+        target_submission_template(
+            target=target,
+            visual=visual,
+            route=route,
+            structured_route=structured_route,
+        ),
     )
     source_image = dict(visual.get("source_image") or {})
     image_path = verified_artifact(
@@ -454,6 +758,8 @@ def build_target_packet(
 <h2>论文信息</h2><div class="meta"><strong>{html.escape(str(paper['title']))}</strong><br>
 {html.escape(str(paper.get('journal') or ''))} · {html.escape(str(paper.get('publication_date') or ''))} ·
 <a href="{html.escape(str(paper.get('source_url') or ''))}">{html.escape(str(paper['doi']))}</a></div>
+<h2>结构化有序路线</h2>
+{structured_route_html(structured_route, packet_dir=packet_dir, repo_root=repo_root)}
 <h2>自动抽取的路线线索</h2><p>这些段落只帮助定位。路线步骤、化合物身份和战略事件必须回到图式/SI 核验。</p>
 {''.join(passage_html)}
 <h2>全部来源附件</h2><table><thead><tr><th>类型</th><th>文件</th><th>SHA-256</th></tr></thead><tbody>
@@ -474,6 +780,7 @@ def build_target_packet(
         "target_slot_id": target["target_slot_id"],
         "target_name": target["target_name"],
         "visual_status": status,
+        "structured_route_candidate": bool(structured_route),
         "index_path": (packet_dir / "index.html").relative_to(repo_root).as_posix(),
         "submission_path": submission_path.relative_to(repo_root).as_posix(),
         "admission_authority": False,
@@ -483,6 +790,7 @@ def build_target_packet(
 def build_packets(*, repo_root: Path, dataset_dir: Path, output_root: Path) -> dict[str, Any]:
     papers = {str(row["paper_id"]): row for row in read_jsonl(dataset_dir / "papers.jsonl")}
     targets = read_jsonl(dataset_dir / "target_slots.jsonl")
+    target_by_id = {str(row["target_slot_id"]): row for row in targets}
     p1_targets = read_jsonl(
         dataset_dir / "curation_candidates" / "p1_scope" / "candidate-target-slots.jsonl"
     )
@@ -494,6 +802,12 @@ def build_packets(*, repo_root: Path, dataset_dir: Path, output_root: Path) -> d
         str(row["target_slot_id"]): row
         for row in read_jsonl(dataset_dir / "route_evidence_candidates.jsonl")
     }
+    structured_route_by_target = load_structured_route_candidates(
+        dataset_dir=dataset_dir,
+        repo_root=repo_root,
+        targets=target_by_id,
+        visual_by_target=visual_by_target,
+    )
     receipt_rows = read_jsonl(dataset_dir / "source_package_receipts.jsonl") + read_jsonl(
         dataset_dir / "p1_source_package_receipts.jsonl"
     )
@@ -539,6 +853,9 @@ def build_packets(*, repo_root: Path, dataset_dir: Path, output_root: Path) -> d
                 paper=papers[paper_id],
                 targets=targets_by_paper[paper_id],
                 receipt=receipts[paper_id],
+                visual_by_target=visual_by_target,
+                route_by_target=route_by_target,
+                structured_route_by_target=structured_route_by_target,
             )
         )
     for target in ready_targets:
@@ -552,6 +869,7 @@ def build_packets(*, repo_root: Path, dataset_dir: Path, output_root: Path) -> d
                 target=target,
                 visual=visual_by_target[target_id],
                 route=route_by_target[target_id],
+                structured_route=structured_route_by_target.get(target_id),
                 receipt=receipts[paper_id],
             )
         )
@@ -566,6 +884,7 @@ def build_packets(*, repo_root: Path, dataset_dir: Path, output_root: Path) -> d
         ),
         "source_audit": audit,
         "packet_counts": dict(sorted(counts.items())),
+        "structured_route_candidates": len(structured_route_by_target),
         "packets": packets,
     }
     write_json(output_root / "packet-manifest.json", manifest)
@@ -588,6 +907,7 @@ def build_packets(*, repo_root: Path, dataset_dir: Path, output_root: Path) -> d
 <p>详细标准见 <a href="{href(dataset_dir / 'REVIEW_PROTOCOL.md', page_dir=output_root)}">REVIEW_PROTOCOL.md</a>。</p>
 <h2>来源状态</h2><p>{audit['source_packages_acquired']}/{audit['candidate_papers']} 篇有本地来源包；
 {audit['verified_artifact_files']} 个 receipt 附件已逐文件通过 SHA-256。缺失 {audit['source_packages_missing']} 篇。</p>
+<p>结构化有序路线候选：{len(structured_route_by_target)}。这些候选仍需两位专家独立确认。</p>
 <h2>论文范围复核（{counts['paper_scope']}）</h2><ul>{paper_links}</ul>
 <h2>目标真值复核（{counts['A_exact_source'] + counts['B_stereo_resolution']}）</h2><ul>{target_links}</ul>
 """

@@ -57,6 +57,51 @@ _STEREO = {
 }
 
 
+def _is_metal(atomic_num: int) -> bool:
+    """Return whether implicit hydrogen must not represent the free element.
+
+    RDKit assigns ordinary valence hydrogens after ``SetNoImplicit(False)``.
+    That is useful for organic atoms exposed by a retrosynthetic bond cut, but
+    it turns a disconnected neutral metal such as ``[Mg]`` into ``[MgH2]``.
+    Metal hydrides must be requested explicitly with ``set_explicit_h``; they
+    are never a generic valence-completion side effect.
+    """
+
+    return (
+        atomic_num
+        in {
+            3,
+            4,
+            11,
+            12,
+            13,
+            19,
+            20,
+            31,
+            37,
+            38,
+            49,
+            50,
+            55,
+            56,
+            81,
+            82,
+            83,
+            84,
+            87,
+            88,
+            113,
+            114,
+            115,
+            116,
+        }
+        or 21 <= atomic_num <= 30
+        or 39 <= atomic_num <= 48
+        or 57 <= atomic_num <= 80
+        or 89 <= atomic_num <= 112
+    )
+
+
 class ReactionJsonReplayError(ValueError):
     """The edit program is outside the profile or cannot be replayed safely."""
 
@@ -209,7 +254,7 @@ def complete_edited_atom_valences(
             continue
         atom = molecule.GetAtomWithIdx(atom_index)
         atom.SetNumExplicitHs(0)
-        atom.SetNoImplicit(False)
+        atom.SetNoImplicit(_is_metal(int(atom.GetAtomicNum())))
         atom.SetNumRadicalElectrons(0)
         atom.UpdatePropertyCache(strict=False)
         completed.append(map_idx)

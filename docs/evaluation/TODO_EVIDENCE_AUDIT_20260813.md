@@ -6,7 +6,7 @@
 
 ## 1. 审计原则
 
-`todolist.md` 同时包含当前施工项、普遍不变量和未来 publication-scale 门。每个未完成项按以下类别处理：
+历史文件 `docs/history/AUTOPLANNER_V4_TODO_20260815.md` 同时包含当时的施工项、普遍不变量和未来 publication-scale 门。每个未完成项按以下类别处理：
 
 - `current-gap`：当前实现或直接覆盖仍缺失，应继续施工；
 - `running-evaluation`：实现已冻结，等待不可变评测结果；

@@ -1,7 +1,7 @@
 """Dataset-backed enzymatic reaction retrieval for active route-tree planning.
 
 Instead of template-based EnzExpand (150 templates, low coverage),
-use the checked-in v3 enzymatic reactions as a nearest-neighbor database.
+use the external v3 enzymatic reactions as a nearest-neighbor database.
 
 Input: product SMILES + EC class (from skeleton)
 Method: Tanimoto similarity on Morgan FP, filtered by EC class
@@ -172,8 +172,17 @@ def _build_evidence(record: dict, cascade: dict, step: dict, catalyst: dict | No
     return {k: v for k, v in evidence.items() if v not in (None, "", [], {})}
 
 
-def _load_db(data_path: str = "cascade_dataset_v3.json") -> list[EnzReaction]:
-    p = Path(data_path)
+def _load_db(data_path: str | Path | None = None) -> list[EnzReaction]:
+    if data_path is None:
+        from cascade_planner.runtime.paths import RuntimePaths
+
+        p = (
+            RuntimePaths.discover().external_data_root
+            / "cascade"
+            / "cascade_dataset_v3.json"
+        )
+    else:
+        p = Path(data_path)
     cache_key = str(p.resolve())
     if cache_key in _DB_CACHE:
         return _DB_CACHE[cache_key]

@@ -1,4 +1,5 @@
 """Target-solve dependency assembly and background-job progress projections."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -55,10 +56,9 @@ def run_target_job(
     runtime_pause = False
     gateway: CampaignGateway | None = None
     with lock:
-        if (
-            cancel_event is not None
-            and cancel_event.is_set()
-        ) or str(jobs[job_id].get("status") or "") == "cancelling":
+        if (cancel_event is not None and cancel_event.is_set()) or str(
+            jobs[job_id].get("status") or ""
+        ) == "cancelling":
             jobs[job_id].update(updated_at=utc_now())
         else:
             jobs[job_id].update(
@@ -87,9 +87,7 @@ def run_target_job(
             if cancel_event is not None and cancel_event.is_set():
                 raise TargetSolveCancelled("target_solve_cancelled_by_user")
             accepted = compact.get("accepted") is True
-            objective_achieved = bool(
-                compact.get("objective_achieved") is True or accepted
-            )
+            objective_achieved = bool(compact.get("objective_achieved") is True or accepted)
             stop = dict(result.get("stop_decision") or {})
             should_continue = bool(
                 not objective_achieved
@@ -112,12 +110,9 @@ def run_target_job(
                 )
             request_payload = {**payload, "resume": True}
         status, error = (
-            "paused"
-            if runtime_pause
-            else "complete"
-            if objective_achieved
-            else "unresolved"
-        ), ""
+            ("paused" if runtime_pause else "complete" if objective_achieved else "unresolved"),
+            "",
+        )
         phase = (
             "runtime_unavailable"
             if runtime_pause
@@ -127,9 +122,7 @@ def run_target_job(
         )
     except TargetSolveCancelled:
         with lock:
-            cancellation_reason = str(
-                jobs[job_id].get("cancellation_reason") or "user_requested"
-            )
+            cancellation_reason = str(jobs[job_id].get("cancellation_reason") or "user_requested")
         try:
             (gateway or factory()).cancel(
                 str(payload.get("run_id") or ""),
@@ -155,12 +148,16 @@ def run_target_job(
             error = f"{type(exc).__name__}: {exc}"[:4_000]
     elapsed = round(time.monotonic() - started, 3)
     with lock:
-        terminal_fields = {
-            "cancelled_at": utc_now(),
-            "cancellation_reason": str(
-                jobs[job_id].get("cancellation_reason") or "user_requested"
-            ),
-        } if status == "cancelled" else {}
+        terminal_fields = (
+            {
+                "cancelled_at": utc_now(),
+                "cancellation_reason": str(
+                    jobs[job_id].get("cancellation_reason") or "user_requested"
+                ),
+            }
+            if status == "cancelled"
+            else {}
+        )
         jobs[job_id].update(
             status=status,
             phase=phase,
@@ -204,7 +201,14 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         "action_timeline": compile_campaign_action_timeline(()),
         "delivery": _delivery_projection([], job_status=str(job.get("status") or "")),
     }
-    if job_status == "historical" or (
+    # A catalog row is labelled ``historical`` because no Web worker owns it,
+    # not because its canonical Kernel state is unavailable.  A resolved
+    # registry lookup carries that state in ``_status_result``; consume it so
+    # the detail page can show the saved routes, stock closure, and stages.
+    # List-only manifest rows intentionally omit this private value and keep
+    # the cheap historical summary below.
+    resolved_kernel_status = isinstance(job.get("_status_result"), Mapping)
+    if (job_status == "historical" and not resolved_kernel_status) or (
         job_status == "paused" and job.get("runtime_pause") is not True
     ):
         persisted_progress = job.get("progress")
@@ -222,9 +226,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
     if job.get("status") in {"running", "cancelling"} and job.get("started_at"):
         try:
             started = datetime.fromisoformat(str(job["started_at"]).replace("Z", "+00:00"))
-            result["elapsed_s"] = round(
-                (datetime.now(timezone.utc) - started).total_seconds(), 3
-            )
+            result["elapsed_s"] = round((datetime.now(timezone.utc) - started).total_seconds(), 3)
         except ValueError:
             pass
     status_result = job.get("_status_result")
@@ -238,8 +240,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
     stop_decision = dict(status.get("stop_decision") or {})
     campaign_status = str(status.get("status") or "").casefold()
     campaign_terminal = bool(
-        stop_decision.get("terminal") is True
-        or campaign_status in _TERMINAL_CAMPAIGN_STATES
+        stop_decision.get("terminal") is True or campaign_status in _TERMINAL_CAMPAIGN_STATES
     )
     campaign_decision = str(stop_decision.get("decision") or campaign_status)
     execution_active = bool(execution_active and not campaign_terminal)
@@ -249,9 +250,18 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         and job_status != "paused"
     )
     portfolio = dict(status.get("portfolio") or {})
-    frontier = [
-        dict(value) for value in status.get("frontier") or [] if isinstance(value, dict)
+    selected_routes = [
+        dict(value)
+        for value in portfolio.get("selected_routes") or []
+        if isinstance(value, Mapping)
     ]
+    strict_complete_route_count = int(
+        dict(portfolio.get("closeout") or {}).get("complete_route_count") or 0
+    )
+    stock_closed_route_count = sum(
+        route.get("all_leaves_stock_closed") is True for route in selected_routes
+    )
+    frontier = [dict(value) for value in status.get("frontier") or [] if isinstance(value, dict)]
     frontier_counts: dict[str, int] = {}
     for value in frontier:
         kind = str(value.get("kind") or "other")
@@ -268,16 +278,20 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         accepted_expansion_count=int(status.get("accepted_expansion_count") or 0),
         model_cost=_model_cost_with_in_flight_checkpoints(status),
         frontier_counts=frontier_counts,
-        next_deficit_id=str(
-            dict(status.get("stop_decision") or {}).get("next_deficit_id") or ""
-        ),
+        next_deficit_id=str(dict(status.get("stop_decision") or {}).get("next_deficit_id") or ""),
         portfolio={
             "accepted": portfolio.get("accepted") is True,
-            "route_count": len(portfolio.get("selected_routes") or []),
-            "complete_route_count": int(
-                dict(portfolio.get("closeout") or {}).get("complete_route_count") or 0
-            ),
+            "route_count": len(selected_routes),
+            "selected_route_count": len(selected_routes),
+            "stock_closed_route_count": stock_closed_route_count,
+            "strict_proof_complete_route_count": strict_complete_route_count,
+            "complete_route_count": strict_complete_route_count,
             "deficit_count": len(portfolio.get("deficits") or []),
+            "semantics": {
+                "route_count_means_selected_candidates": True,
+                "stock_closed_is_separate_from_strict_proof_completion": True,
+                "complete_route_count_is_strict_proof_completion": True,
+            },
         },
     )
     run_dir = Path(str(status_result.get("run_dir") or ""))
@@ -287,9 +301,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         try:
             value = json.loads(checkpoint.read_text(encoding="utf-8"))
             timeline_stages = [
-                dict(row)
-                for row in value.get("stages") or []
-                if isinstance(row, dict)
+                dict(row) for row in value.get("stages") or [] if isinstance(row, dict)
             ]
             stages = [
                 {
@@ -313,12 +325,8 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
             if recoverable_outcomes:
                 recoverable = recoverable_outcomes[-1]
                 partial_plan = dict(recoverable.get("plan") or {})
-                partial_skeleton_count = len(
-                    partial_plan.get("multi_step_skeletons") or []
-                )
-                partial_family_count = len(
-                    partial_plan.get("route_families") or []
-                )
+                partial_skeleton_count = len(partial_plan.get("multi_step_skeletons") or [])
+                partial_family_count = len(partial_plan.get("route_families") or [])
                 projected_portfolio = dict(result.get("portfolio") or {})
                 projected_portfolio["route_count"] = max(
                     int(projected_portfolio.get("route_count") or 0),
@@ -332,9 +340,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
                     "resume_required_task_ids": list(
                         recoverable.get("resume_required_task_ids") or []
                     ),
-                    "artifact_sha256": str(
-                        recoverable.get("artifact_sha256") or ""
-                    ),
+                    "artifact_sha256": str(recoverable.get("artifact_sha256") or ""),
                     "semantics": {
                         "route_count_is_not_canonical_admission": True,
                         "resume_replays_completed_worker_records": True,
@@ -375,6 +381,14 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
             if isinstance(row, Mapping)
         ),
     )
+    if not timeline_stages and not campaign_terminal:
+        active_records = [
+            dict(row)
+            for row in result["action_timeline"].get("records") or []
+            if isinstance(row, Mapping) and row.get("state") == "running"
+        ]
+        if active_records:
+            result["phase"] = str(active_records[0].get("kind") or result["phase"])
     if campaign_terminal:
         result["phase"] = campaign_decision or campaign_status
     final_projection = campaign_terminal or job_status not in {
@@ -397,17 +411,12 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
             }
             result.update(
                 proof_profile_known=True,
-                achieved_profile=str(
-                    workbench_portfolio.get("achieved_profile") or "unresolved"
-                ),
+                achieved_profile=str(workbench_portfolio.get("achieved_profile") or "unresolved"),
                 acceptance_profile_counts=profile_counts,
-                condition_complete_route_count=int(
-                    profile_counts.get("condition_complete") or 0
-                ),
+                condition_complete_route_count=int(profile_counts.get("condition_complete") or 0),
                 process_ready_route_count=int(profile_counts.get("process_ready") or 0),
                 closeout_reasons=list(
-                    dict(workbench_portfolio.get("closeout") or {}).get("reasons")
-                    or []
+                    dict(workbench_portfolio.get("closeout") or {}).get("reasons") or []
                 ),
             )
         except Exception:
@@ -418,9 +427,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
     )
     if job_status == "historical":
         accepted = result.get("scientific_status") == "accepted"
-        route_candidates = int(
-            dict(result.get("portfolio") or {}).get("route_count") or 0
-        ) > 0
+        route_candidates = int(dict(result.get("portfolio") or {}).get("route_count") or 0) > 0
         delivery.update(
             state="historical_accepted" if accepted else "historical_unresolved",
             route_candidates_available=route_candidates,
@@ -433,9 +440,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         cancellation_available=cancellation_available,
         scientific_status=str(result.get("scientific_status") or ""),
         achieved_profile=str(result.get("achieved_profile") or ""),
-        condition_complete_route_count=int(
-            result.get("condition_complete_route_count") or 0
-        ),
+        condition_complete_route_count=int(result.get("condition_complete_route_count") or 0),
         proof_profile_known=result.get("proof_profile_known") is True,
     )
     result["delivery"] = delivery
@@ -488,13 +493,9 @@ def _stage_progress_metrics(row: Mapping[str, Any]) -> dict[str, int | float]:
             "exact_rows": int(detail.get("exact_record_count") or 0),
             "visual_calls": int(detail.get("visual_invocations") or 0),
             "source_route_proposals": int(source_route.get("proposal_count") or 0),
-            "source_route_validated": int(
-                source_validation.get("accepted_validation_count") or 0
-            ),
+            "source_route_validated": int(source_validation.get("accepted_validation_count") or 0),
             "prefetch_s": round(float(prefetch.get("elapsed_s") or 0.0), 3),
-            "hidden_s": round(
-                float(detail.get("latency_hidden_by_global_s") or 0.0), 3
-            ),
+            "hidden_s": round(float(detail.get("latency_hidden_by_global_s") or 0.0), 3),
         }
     return {}
 
@@ -530,8 +531,15 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
         "portfolio": {
             "accepted": run.get("accepted") is True,
             "route_count": int(graph.get("complete_route_count") or 0),
+            "selected_route_count": int(graph.get("complete_route_count") or 0),
+            "stock_closed_route_count": 0,
+            "strict_proof_complete_route_count": int(graph.get("complete_route_count") or 0),
             "complete_route_count": int(graph.get("complete_route_count") or 0),
             "deficit_count": sum(int(value or 0) for value in deficits.values()),
+            "semantics": {
+                "historical_manifest_does_not_encode_stock_closure": True,
+                "complete_route_count_is_strict_proof_completion": True,
+            },
         },
         "frontier_counts": deficits,
         "stages": [],
@@ -631,16 +639,10 @@ def registry_job(
     except Exception:
         return fallback
     campaign = dict(status_result.get("status") or {})
-    campaign_spec = dict(
-        status_result.get("campaign_spec")
-        or campaign.get("campaign_spec")
-        or {}
-    )
+    campaign_spec = dict(status_result.get("campaign_spec") or campaign.get("campaign_spec") or {})
     target = dict(campaign_spec.get("target") or {})
     stop_decision = dict(campaign.get("stop_decision") or {})
-    campaign_status = str(
-        campaign.get("status") or run.get("status") or "unknown"
-    ).casefold()
+    campaign_status = str(campaign.get("status") or run.get("status") or "unknown").casefold()
     campaign_terminal = stop_decision.get("terminal") is True
     campaign_decision = str(stop_decision.get("decision") or "")
     activity_observed_at, activity_stale = _run_activity_observation(
@@ -649,8 +651,7 @@ def registry_job(
     )
     reported_activity_stale = (
         activity_stale
-        if not campaign_terminal
-        and campaign_status in _NONTERMINAL_CAMPAIGN_STATES
+        if not campaign_terminal and campaign_status in _NONTERMINAL_CAMPAIGN_STATES
         else False
     )
     common = {
@@ -665,9 +666,7 @@ def registry_job(
         "cancellation_available": False,
         "_status_result": status_result,
     }
-    active_state_is_stale = (
-        campaign_status in {"created", "running"} and activity_stale
-    )
+    active_state_is_stale = campaign_status in {"created", "running"} and activity_stale
     if (
         campaign_terminal
         or campaign_status not in _NONTERMINAL_CAMPAIGN_STATES
@@ -749,8 +748,7 @@ def _cached_panel_experiment_outcome(
         (
             dict(value)
             for value in targets.values()
-            if isinstance(value, Mapping)
-            and str(value.get("run_id") or "") == run_id
+            if isinstance(value, Mapping) and str(value.get("run_id") or "") == run_id
         ),
         None,
     )
@@ -772,9 +770,7 @@ def _cached_panel_experiment_outcome(
             if paper_equivalent.get("paper_reach") is True
             else "unresolved"
         ),
-        "campaign_resumable": (
-            campaign_paused and stop_decision.get("terminal") is not True
-        ),
+        "campaign_resumable": (campaign_paused and stop_decision.get("terminal") is not True),
         "scientific_status": str(target.get("scientific_status") or "unresolved"),
     }
 
@@ -789,9 +785,7 @@ def _run_activity_observation(
     updated_at = str(run.get("updated_at") or "")
     if updated_at:
         try:
-            timestamps.append(
-                datetime.fromisoformat(updated_at.replace("Z", "+00:00")).timestamp()
-            )
+            timestamps.append(datetime.fromisoformat(updated_at.replace("Z", "+00:00")).timestamp())
         except ValueError:
             pass
     raw_run_dir = str(status_result.get("run_dir") or run.get("run_dir") or "")
@@ -809,9 +803,7 @@ def _run_activity_observation(
     if not timestamps:
         return "", True
     observed = max(timestamps)
-    observed_at = datetime.fromtimestamp(observed, timezone.utc).isoformat().replace(
-        "+00:00", "Z"
-    )
+    observed_at = datetime.fromtimestamp(observed, timezone.utc).isoformat().replace("+00:00", "Z")
     return observed_at, (time.time() - observed) > _RUN_ACTIVITY_STALE_AFTER_S
 
 

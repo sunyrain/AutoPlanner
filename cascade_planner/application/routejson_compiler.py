@@ -49,6 +49,7 @@ class RouteGraphReplayState:
     reactions: tuple[MaterializedReaction, ...]
     open_precursors: tuple[MappedOpenPrecursor, ...]
     parent_step_indices: tuple[int | None, ...]
+    open_precursor_producer_step_indices: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +274,7 @@ class RouteJSONCompiler:
         steps: Iterable[Mapping[str, Any]],
         minimum_depth: int = 1,
         reserved_atom_maps: Iterable[int] = (),
+        rebase_materialized_local_maps: bool = False,
     ) -> tuple[MaterializedReaction, ...]:
         """Replay a target-rooted RouteJSON DAG and return its reactions."""
 
@@ -281,6 +283,7 @@ class RouteJSONCompiler:
             steps=steps,
             minimum_depth=minimum_depth,
             reserved_atom_maps=reserved_atom_maps,
+            rebase_materialized_local_maps=rebase_materialized_local_maps,
         ).reactions
 
     def compile_route_graph_state(
@@ -290,6 +293,7 @@ class RouteJSONCompiler:
         steps: Iterable[Mapping[str, Any]],
         minimum_depth: int = 1,
         reserved_atom_maps: Iterable[int] = (),
+        rebase_materialized_local_maps: bool = False,
     ) -> RouteGraphReplayState:
         """Replay a topologically ordered RouteJSON DAG.
 
@@ -318,6 +322,9 @@ class RouteJSONCompiler:
             for value in reserved_atom_maps
             if int(value) > 0
         } | _mapped_atom_maps(target_mapped)
+        next_rebased_atom_map = (
+            _route_atom_map_ceiling(rows, reserved_atom_maps) + 1
+        )
         for index, row in enumerate(rows):
             declared_product = _canonical_smiles(row.get("product_smiles"))
             if not declared_product:
@@ -361,12 +368,68 @@ class RouteJSONCompiler:
                 available.remove(match)
                 declaration_mismatch = declared_product != current_product
 
+            operations = [
+                dict(value)
+                for value in row.get("reaction_operations") or ()
+                if isinstance(value, Mapping)
+            ]
+            declared_product_translation: dict[int, int] = {}
+            fragment_rebase_translation: dict[int, int] = {}
+            if rebase_materialized_local_maps:
+                declared_product_translation = (
+                    _deterministic_atom_map_translation(
+                        str(row.get("mapped_product_smiles") or ""),
+                        current_mapped,
+                    )
+                    or {}
+                )
+                if not declared_product_translation:
+                    raise ReactionJsonReplayError(
+                        "routejson_compiler_local_map_rebase_product_mismatch"
+                    )
+                operations = _remap_reaction_operations(
+                    operations,
+                    declared_product_translation,
+                )
+                (
+                    operations,
+                    fragment_rebase_translation,
+                    next_rebased_atom_map,
+                ) = _rebase_colliding_add_group_maps(
+                    operations,
+                    current_atom_maps=_mapped_atom_maps(current_mapped),
+                    reserved_atom_maps=reserved_atom_maps,
+                    next_atom_map=next_rebased_atom_map,
+                )
             materialized = self.compile_step(
                 mapped_product_smiles=current_mapped,
-                operations=row.get("reaction_operations") or (),
+                operations=operations,
                 expected_product_smiles=current_product,
                 reserved_atom_maps=reserved_atom_maps,
             )
+            changed_product_maps = {
+                old: new
+                for old, new in declared_product_translation.items()
+                if old != new
+            }
+            if changed_product_maps or fragment_rebase_translation:
+                materialized = replace(
+                    materialized,
+                    audit={
+                        **dict(materialized.audit),
+                        "materialized_local_map_namespace_rebased": True,
+                        "declared_product_map_translation": [
+                            [old, new]
+                            for old, new in sorted(changed_product_maps.items())
+                        ],
+                        "fragment_map_translation": [
+                            [old, new]
+                            for old, new in sorted(
+                                fragment_rebase_translation.items()
+                            )
+                        ],
+                    },
+                )
             if declaration_mismatch:
                 materialized = replace(
                     materialized,
@@ -413,6 +476,9 @@ class RouteJSONCompiler:
                 for occurrence in available
             ),
             parent_step_indices=tuple(parent_step_indices),
+            open_precursor_producer_step_indices=tuple(
+                occurrence.producer_step_index for occurrence in available
+            ),
         )
 
     @staticmethod
@@ -636,6 +702,214 @@ def _align_mapped_precursors(
     if len(used) != len(mapped_rows):
         return ()
     return tuple(aligned)
+
+
+def _route_atom_map_ceiling(
+    rows: Iterable[Mapping[str, Any]],
+    reserved_atom_maps: Iterable[int],
+) -> int:
+    """Find a stable map ceiling before rebasing a materialized route DAG."""
+
+    observed = {int(value) for value in reserved_atom_maps if int(value) > 0}
+    for row in rows:
+        observed.update(_mapped_atom_maps(row.get("mapped_product_smiles")))
+        for value in row.get("mapped_precursor_smiles") or ():
+            observed.update(_mapped_atom_maps(value))
+        for operation in row.get("reaction_operations") or ():
+            if not isinstance(operation, Mapping):
+                continue
+            observed.update(_mapped_atom_maps(operation.get("fragment_smiles")))
+    return max(observed, default=0)
+
+
+def _deterministic_atom_map_translation(
+    declared_mapped_smiles: str,
+    host_mapped_smiles: str,
+) -> dict[int, int] | None:
+    """Map a materialized row's local atom namespace onto the Host boundary.
+
+    Historical Builder calls materialized sibling reactions independently, so
+    two siblings can legitimately have reused the same newly allocated map
+    number.  During complete-route replay, the Host has already rebased one of
+    those occurrences.  Match the declared and Host graphs without treating
+    the stale local numbers as graph labels, while preferring the isomorphism
+    that preserves the most unchanged Host identities.
+    """
+
+    from rdkit import Chem
+
+    declared = Chem.MolFromSmiles(str(declared_mapped_smiles or "").strip())
+    host = Chem.MolFromSmiles(str(host_mapped_smiles or "").strip())
+    if (
+        declared is None
+        or host is None
+        or declared.GetNumAtoms() != host.GetNumAtoms()
+    ):
+        return None
+    declared_maps = [int(atom.GetAtomMapNum()) for atom in declared.GetAtoms()]
+    host_maps = [int(atom.GetAtomMapNum()) for atom in host.GetAtoms()]
+    if (
+        any(value <= 0 for value in declared_maps)
+        or any(value <= 0 for value in host_maps)
+        or len(declared_maps) != len(set(declared_maps))
+        or len(host_maps) != len(set(host_maps))
+    ):
+        return None
+    declared_query = Chem.Mol(declared)
+    host_query = Chem.Mol(host)
+    for molecule in (declared_query, host_query):
+        for atom in molecule.GetAtoms():
+            atom.SetAtomMapNum(0)
+    matches = declared_query.GetSubstructMatches(
+        host_query,
+        uniquify=False,
+        useChirality=True,
+        maxMatches=100_000,
+    )
+    translations = {
+        tuple(
+            sorted(
+                (declared_maps[declared_index], host_maps[host_index])
+                for host_index, declared_index in enumerate(match)
+            )
+        )
+        for match in matches
+        if len(match) == declared.GetNumAtoms()
+    }
+    if not translations:
+        return None
+    selected = min(
+        translations,
+        key=lambda pairs: (
+            -sum(old == new for old, new in pairs),
+            pairs,
+        ),
+    )
+    return dict(selected)
+
+
+def _remap_mapped_smiles(value: Any, translation: Mapping[int, int]) -> str:
+    from rdkit import Chem
+
+    molecule = Chem.MolFromSmiles(str(value or "").strip())
+    if molecule is None:
+        raise ReactionJsonReplayError(
+            "routejson_compiler_local_map_rebase_fragment_invalid"
+        )
+    for atom in molecule.GetAtoms():
+        old_map = int(atom.GetAtomMapNum())
+        if old_map in translation:
+            atom.SetAtomMapNum(int(translation[old_map]))
+    mapped = [
+        int(atom.GetAtomMapNum())
+        for atom in molecule.GetAtoms()
+        if int(atom.GetAtomMapNum()) > 0
+    ]
+    if len(mapped) != len(set(mapped)):
+        raise ReactionJsonReplayError("reactionjson_fragment_map_collision")
+    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+
+
+def _remap_reaction_operations(
+    operations: Iterable[Mapping[str, Any]],
+    translation: Mapping[int, int],
+) -> list[dict[str, Any]]:
+    remapped: list[dict[str, Any]] = []
+    for operation in operations:
+        row = dict(operation)
+        for key in ("map_a", "map_b", "map_idx"):
+            if key in row:
+                old_map = int(row[key])
+                row[key] = int(translation.get(old_map, old_map))
+        for key in ("map_indices", "stereo_atom_maps"):
+            if isinstance(row.get(key), list):
+                row[key] = [
+                    int(translation.get(int(value), int(value)))
+                    for value in row[key]
+                ]
+        if row.get("op") == "add_group" and row.get("fragment_smiles"):
+            row["fragment_smiles"] = _remap_mapped_smiles(
+                row["fragment_smiles"],
+                translation,
+            )
+        remapped.append(row)
+    return remapped
+
+
+def _rebase_colliding_add_group_maps(
+    operations: Iterable[Mapping[str, Any]],
+    *,
+    current_atom_maps: set[int],
+    reserved_atom_maps: set[int],
+    next_atom_map: int,
+) -> tuple[list[dict[str, Any]], dict[int, int], int]:
+    """Give distinct sibling additions one global route-level namespace."""
+
+    from rdkit import Chem
+
+    rows = [dict(value) for value in operations]
+    explicit_maps: list[int] = []
+    for row in rows:
+        if row.get("op") != "add_group":
+            continue
+        fragment = Chem.MolFromSmiles(str(row.get("fragment_smiles") or "").strip())
+        if fragment is None:
+            raise ReactionJsonReplayError(
+                "routejson_compiler_local_map_rebase_fragment_invalid"
+            )
+        explicit_maps.extend(
+            int(atom.GetAtomMapNum())
+            for atom in fragment.GetAtoms()
+            if atom.GetAtomicNum() != 0 and int(atom.GetAtomMapNum()) > 0
+        )
+    if len(explicit_maps) != len(set(explicit_maps)):
+        raise ReactionJsonReplayError("reactionjson_fragment_map_collision")
+    if current_atom_maps & set(explicit_maps):
+        # A collision inside one reaction was never a valid local namespace;
+        # only collisions inherited from already materialized sibling routes
+        # are eligible for deterministic rebasing.
+        raise ReactionJsonReplayError("reactionjson_fragment_map_collision")
+
+    translation: dict[int, int] = {}
+    used = set(reserved_atom_maps) | set(current_atom_maps) | set(explicit_maps)
+    cursor = max(1, int(next_atom_map))
+    for old_map in sorted(set(explicit_maps) & set(reserved_atom_maps)):
+        while cursor in used:
+            cursor += 1
+        translation[old_map] = cursor
+        used.add(cursor)
+        cursor += 1
+    if translation:
+        rows = _remap_reaction_operations(rows, translation)
+
+    # Materialized rows normally already contain Host-assigned fragment maps.
+    # Assign any legacy omissions above the frozen route ceiling so a later
+    # sibling cannot accidentally reuse them.
+    for row in rows:
+        if row.get("op") != "add_group":
+            continue
+        fragment = Chem.MolFromSmiles(str(row.get("fragment_smiles") or "").strip())
+        if fragment is None:
+            raise ReactionJsonReplayError(
+                "routejson_compiler_local_map_rebase_fragment_invalid"
+            )
+        changed = False
+        for atom in fragment.GetAtoms():
+            if atom.GetAtomicNum() == 0 or int(atom.GetAtomMapNum()) > 0:
+                continue
+            while cursor in used:
+                cursor += 1
+            atom.SetAtomMapNum(cursor)
+            used.add(cursor)
+            cursor += 1
+            changed = True
+        if changed:
+            row["fragment_smiles"] = Chem.MolToSmiles(
+                fragment,
+                canonical=True,
+                isomericSmiles=True,
+            )
+    return rows, translation, cursor
 
 
 __all__ = [
