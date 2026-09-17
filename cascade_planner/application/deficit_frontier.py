@@ -154,6 +154,7 @@ def frontier_builder_budget_state(
         and str(dict(signal.get("metadata") or {}).get("route_family_id") or "")
         == family_id
         and dict(signal.get("metadata") or {}).get("lane_unavailable") is not True
+        and dict(signal.get("metadata") or {}).get("attempt_voided") is not True
     )
     total_calls = initial_calls + continuation_calls
     remaining_calls = (
@@ -737,6 +738,13 @@ def compile_deficit_frontier(
         open_routes = tuple(open_leaf_route_ids.get(str(molecule_id)) or ())
         selected = bool(target_routes)
         builder_route_candidates = tuple(sorted(open_routes or target_routes))
+        material_review_routes = set()
+        for route_id in builder_route_candidates:
+            family = dict(dict(graph.get("route_families") or {}).get(route_id) or {})
+            boundary = dict(family.get("material_boundary_review") or {})
+            if (boundary.get("status") == "pending_verification"
+                    and boundary.get("selected_smiles") == molecule.get("canonical_smiles")):
+                material_review_routes.add(route_id)
         unavailable_builder_routes = {
             str(dict(signal.get("metadata") or {}).get("route_family_id") or "")
             for signal in dict(graph.get("action_signals") or {}).values()
@@ -746,6 +754,7 @@ def compile_deficit_frontier(
             and str(dict(signal.get("metadata") or {}).get("attempt_lane") or "")
             == "codex_frontier_builder"
             and dict(signal.get("metadata") or {}).get("lane_unavailable") is True
+            and dict(signal.get("metadata") or {}).get("attempt_voided") is not True
         }
         builder_budget_states = {
             route_id: frontier_builder_budget_state(
@@ -765,6 +774,7 @@ def compile_deficit_frontier(
                 for route_id in builder_route_candidates
                 if route_id not in unavailable_builder_routes
                 and route_id not in exhausted_builder_routes
+                and route_id not in material_review_routes
             ),
             "",
         )
@@ -794,9 +804,14 @@ def compile_deficit_frontier(
             ),
             default=0,
         )
+        effective_frontier_builder_attempts = [
+            signal
+            for signal in frontier_builder_attempts
+            if dict(signal.get("metadata") or {}).get("attempt_voided") is not True
+        ]
         latest_frontier_builder_attempt = (
-            dict(frontier_builder_attempts[-1])
-            if frontier_builder_attempts
+            dict(effective_frontier_builder_attempts[-1])
+            if effective_frontier_builder_attempts
             else {}
         )
         latest_builder_metadata = dict(
@@ -816,6 +831,7 @@ def compile_deficit_frontier(
             "frontier_builder_exhausted_route_family_ids": sorted(
                 exhausted_builder_routes
             ),
+            "material_boundary_pending_route_family_ids": sorted(material_review_routes),
         }
 
         def expansion_provider_preferences() -> list[str]:
@@ -883,7 +899,9 @@ def compile_deficit_frontier(
                     route_family_ids=open_routes,
                     deterministic=False,
                     model_allowed=True,
-                    reason="stock_rejected_leaf_requires_builder_continuation",
+                    reason=("material_boundary_review_pending"
+                            if material_review_routes and not builder_route_id
+                            else "stock_rejected_leaf_requires_builder_continuation"),
                     score=_score(
                         DeficitKind.EXPANSION,
                         selected=selected,

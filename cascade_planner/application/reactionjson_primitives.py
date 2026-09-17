@@ -7,6 +7,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from rdkit import Chem
+from .stereochemistry import atom_cip_label, bond_stereo_label, stereo_molecule
 
 
 PRIMITIVES = (
@@ -370,6 +371,28 @@ def _set_bond_stereo(molecule: Chem.RWMol, row: Mapping[str, Any]) -> None:
                 "reactionjson_stereo_bond_endpoint_mismatch"
             )
     bond.SetStereo(_STEREO[stereo_name])
+    if stereo_name in {"NONE", "ANY"}:
+        # SMILES slash directions otherwise recreate a cleared E/Z annotation
+        # during final stereochemistry assignment. Retained neighbouring
+        # double bonds keep their Stereo state; replay regenerates their
+        # directions from that state after all edits.
+        for atom_index in (a, b):
+            for adjacent in molecule.GetAtomWithIdx(atom_index).GetBonds():
+                if adjacent.GetBondDir() in {
+                    Chem.BondDir.ENDUPRIGHT, Chem.BondDir.ENDDOWNRIGHT,
+                }:
+                    adjacent.SetBondDir(Chem.BondDir.NONE)
+    if stereo_name in {"E", "Z", "CIS", "TRANS"}:
+        requested = {"CIS": "Z", "TRANS": "E"}.get(stereo_name, stereo_name)
+        # Reference selection and absolute E/Z are different concepts. Verify
+        # with the sequence-rule labeler, including stereogenic substituents.
+        for stereo in (_STEREO[stereo_name], Chem.BondStereo.STEREOCIS,
+                       Chem.BondStereo.STEREOTRANS):
+            bond.SetStereo(stereo)
+            if bond_stereo_label(molecule, bond.GetIdx()) == requested:
+                break
+        else:
+            raise ReactionJsonReplayError("reactionjson_bond_stereo_not_assignable")
 
 
 def _set_tetrahedral_stereo(
@@ -394,11 +417,10 @@ def _set_tetrahedral_stereo(
         try:
             probe.UpdatePropertyCache(strict=False)
             Chem.SanitizeMol(probe)
-            Chem.AssignStereochemistry(probe, cleanIt=True, force=True)
+            label = atom_cip_label(probe, atom_index)
         except Exception:
             continue
-        atom = probe.GetAtomWithIdx(atom_index)
-        if atom.HasProp("_CIPCode") and atom.GetProp("_CIPCode") == requested:
+        if label == requested:
             matching_tag = tag
             break
     if matching_tag is None:
@@ -419,7 +441,7 @@ def _host_stereo_reference_atoms(
     try:
         probe.UpdatePropertyCache(strict=False)
         Chem.SanitizeMol(probe)
-        Chem.AssignStereochemistry(probe, cleanIt=True, force=True)
+        probe = stereo_molecule(probe)
     except Exception as exc:
         raise ReactionJsonReplayError(
             "reactionjson_stereo_reference_derivation_failed"

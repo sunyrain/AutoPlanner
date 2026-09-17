@@ -1,0 +1,40 @@
+{
+  "method": "24 simple random routes from sorted public index, independent of scores and detail contents; separate purposive examples",
+  "seed": 20260905,
+  "random_ids": [
+    "npa026426_s2",
+    "npa009287_s2",
+    "npa001713_s1",
+    "npa033243_s2",
+    "npa026043_s1",
+    "npa023307_s2",
+    "npa011972_s1",
+    "npa021421_s2",
+    "npa002317_s3",
+    "npa036280_s1",
+    "npa034378_s3",
+    "npa030006_s2",
+    "npa007037_s3",
+    "npa000582_s2",
+    "npa010805_s1",
+    "npa006300_s2",
+    "npa003110_s2",
+    "npa000936_s2",
+    "npa025108_s2",
+    "npa006906_s3",
+    "npa000567_s2",
+    "npa031284_s2",
+    "npa000088_s2",
+    "npa006686_s1"
+  ],
+  "example_ids": [
+    "npa000019_s1",
+    "npa000019_s2",
+    "npa000656_s1",
+    "npa000656_s2",
+    "npa000656_s3",
+    "npa000776_s3",
+    "npa006547_s3",
+    "npa023645_s2"
+  ]
+}

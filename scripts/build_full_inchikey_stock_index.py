@@ -34,6 +34,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", action="append")
     parser.add_argument(
+        "--base-index",
+        help="Copy an existing full-InChIKey index and union --input supplements",
+    )
+    parser.add_argument(
         "--inchikey-hdf",
         help="Pandas HDF file containing an existing full-InChIKey column",
     )
@@ -56,11 +60,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--column", default="", help="CSV column name; blank scans fields")
     parser.add_argument("--catalog-name", default="ZINC+eMolecules")
     parser.add_argument(
-        "--expected-count", type=int, default=SYNTHEX_UNIQUE_MEMBER_COUNT
+        "--expected-count", type=int,
+        help="Expected union size; defaults to the historical combined count outside supplement mode",
     )
     parser.add_argument("--batch-size", type=int, default=100_000)
     args = parser.parse_args(argv)
-    if args.inchikey_hdf or args.smiles_sqlite or args.inchikey_csv:
+    if args.base_index:
+        if not args.input or args.inchikey_hdf or args.smiles_sqlite or args.inchikey_csv or args.resume:
+            parser.error("--base-index requires --input and cannot be combined with composite/resume options")
+        result = supplement_index(
+            Path(args.base_index).expanduser().resolve(),
+            [Path(value).expanduser().resolve() for value in args.input],
+            Path(args.output).expanduser().resolve(),
+            column=str(args.column or ""),
+            catalog_name=str(args.catalog_name or ""),
+            expected_count=args.expected_count,
+        )
+    elif args.inchikey_hdf or args.smiles_sqlite or args.inchikey_csv:
         second_sources = int(bool(args.smiles_sqlite)) + int(bool(args.inchikey_csv))
         if not args.inchikey_hdf or second_sources != 1 or args.input:
             parser.error(
@@ -74,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             "hdf_key": str(args.hdf_key or "table"),
             "hdf_column": str(args.hdf_column or "inchi_key"),
             "catalog_name": str(args.catalog_name or ""),
-            "expected_count": int(args.expected_count),
+            "expected_count": int(args.expected_count if args.expected_count is not None else SYNTHEX_UNIQUE_MEMBER_COUNT),
             "batch_size": int(args.batch_size),
             "resume": bool(args.resume),
         }
@@ -100,11 +116,89 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.output).expanduser().resolve(),
             column=str(args.column or ""),
             catalog_name=str(args.catalog_name or ""),
-            expected_count=int(args.expected_count),
+            expected_count=int(args.expected_count if args.expected_count is not None else SYNTHEX_UNIQUE_MEMBER_COUNT),
             batch_size=int(args.batch_size),
         )
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+def supplement_index(
+    base_index: Path,
+    inputs: list[Path],
+    output: Path,
+    *,
+    column: str,
+    catalog_name: str,
+    expected_count: int | None = None,
+) -> dict:
+    """Union an explicit small catalog into a new index, preserving the original."""
+    if not base_index.is_file() or not inputs or any(not path.is_file() for path in inputs):
+        raise ValueError("base index and all supplement files must exist")
+    if output.exists():
+        raise FileExistsError(f"refusing to overwrite existing index: {output}")
+    keys = set(_iter_keys(inputs, column=column))
+    if not keys or any(not FULL_INCHIKEY.fullmatch(key) for key in keys):
+        raise ValueError("supplement must contain valid full InChIKeys")
+    source_files = [
+        {"path": str(path), "sha256": _file_sha256(path)}
+        for path in [base_index, *inputs]
+    ]
+    source_sha256 = _digest(source_files)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    building = output.with_name(output.name + ".building")
+    if building.exists():
+        raise FileExistsError(f"partial index requires explicit cleanup: {building}")
+    source = sqlite3.connect(f"file:{base_index.as_posix()}?mode=ro", uri=True)
+    destination = None
+    try:
+        metadata = _metadata(source)
+        if (metadata.get("schema_version") != INDEX_SCHEMA
+                or metadata.get("identity_key") != "full_inchikey"
+                or metadata.get("complete") != "true"):
+            raise ValueError("base must be a complete full-InChIKey stock index")
+        destination = sqlite3.connect(building)
+        source.backup(destination)
+        before = destination.total_changes
+        destination.executemany(
+            "INSERT INTO stock(full_inchikey) VALUES (?) ON CONFLICT(full_inchikey) DO NOTHING",
+            ((key,) for key in sorted(keys)),
+        )
+        added_count = destination.total_changes - before
+        member_count = int(destination.execute("SELECT COUNT(*) FROM stock").fetchone()[0])
+        if expected_count is not None and member_count != expected_count:
+            raise ValueError(f"stock_member_count_mismatch:expected={expected_count}:actual={member_count}")
+        _set_metadata(destination, {
+            "catalog_name": catalog_name,
+            "source_sha256": source_sha256,
+            "source_file_count": str(len(source_files)),
+            "member_count": str(member_count),
+            "base_index_sha256": source_files[0]["sha256"],
+            "supplement_added_count": str(added_count),
+        })
+        destination.commit()
+    except BaseException:
+        if destination is not None:
+            destination.close()
+        if building.exists():
+            building.unlink()
+        raise
+    else:
+        destination.close()
+    finally:
+        source.close()
+    building.replace(output)
+    return {
+        "index_path": str(output),
+        "index_sha256": _file_sha256(output),
+        "source_sha256": source_sha256,
+        "source_files": source_files,
+        "member_count": member_count,
+        "supplement_member_count": len(keys),
+        "supplement_added_count": added_count,
+        "identity_key": "full_inchikey",
+        "catalog_name": catalog_name,
+    }
 
 
 def build_index(

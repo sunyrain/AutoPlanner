@@ -1,0 +1,1066 @@
+{
+  "aromatic_candidates": [
+    {
+      "target_name": "fluvastatin",
+      "output_line": 43,
+      "mapped_product_smiles": "[nH:4]1[c:5]([C:6](=[O:33])[O:34][CH2:35][CH3:36])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+      "operations": [
+        {
+          "op": "break_bond",
+          "map_a": 4,
+          "map_b": 5
+        },
+        {
+          "op": "break_bond",
+          "map_a": 17,
+          "map_b": 25
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 4,
+          "map_b": 30,
+          "delta": -0.5
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 5,
+          "map_b": 17,
+          "delta": -0.5
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 17,
+          "count": 2,
+          "no_implicit": true
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 25,
+          "count": 1,
+          "no_implicit": true
+        },
+        {
+          "op": "add_group",
+          "map_idx": 5,
+          "fragment_smiles": "[*]=[N:100001]"
+        },
+        {
+          "op": "add_bond",
+          "map_a": 100001,
+          "map_b": 4
+        }
+      ],
+      "expected_precursor_smiles": [
+        "CCOC(=O)C(Cc1ccc(F)cc1)=NNc1ccccc1"
+      ]
+    },
+    {
+      "target_name": "atorvastatin",
+      "output_line": 11,
+      "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[c:4]1[c:5]([C:6](=[O:7])[NH:8][c:9]2[cH:10][cH:11][cH:12][cH:13][cH:14]2)[c:15](-[c:16]2[cH:17][cH:18][cH:19][cH:20][cH:21]2)[c:22](-[c:23]2[cH:24][cH:25][c:26]([F:27])[cH:28][cH:29]2)[n:30]1[CH2:31][CH2:32][C@H:33]1[O:34][C:1001]([CH3:1002])([CH3:1003])[O:37][C@@H:36]([CH2:38][C:39](=[O:40])[O:41][C:1004]([CH3:1005])([CH3:1006])[CH3:1007])[CH2:35]1",
+      "operations": [
+        {
+          "op": "break_bond",
+          "map_a": 4,
+          "map_b": 30
+        },
+        {
+          "op": "break_bond",
+          "map_a": 22,
+          "map_b": 30
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 4,
+          "map_b": 5,
+          "delta": -0.5
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 5,
+          "map_b": 15,
+          "delta": -0.5
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 15,
+          "map_b": 22,
+          "delta": -0.5
+        },
+        {
+          "op": "add_group",
+          "map_idx": 4,
+          "fragment_smiles": "[*]=O"
+        },
+        {
+          "op": "add_group",
+          "map_idx": 22,
+          "fragment_smiles": "[*]=O"
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 5,
+          "count": 1,
+          "no_implicit": true
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 15,
+          "count": 1,
+          "no_implicit": true
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 30,
+          "count": 2,
+          "no_implicit": true
+        }
+      ],
+      "expected_precursor_smiles": [
+        "CC(C)(C)OC(=O)C[C@H]1C[C@@H](CCN)OC(C)(C)O1",
+        "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(C(=O)c1ccc(F)cc1)c1ccccc1"
+      ]
+    },
+    {
+      "target_name": "rosuvastatin",
+      "output_line": 93,
+      "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[c:4]1[nH:5][c:6](=[O:67])[n:13][c:14](-[c:15]2[cH:16][cH:17][c:18]([F:19])[cH:20][cH:21]2)[c:22]1[C:23](=[O:35])[O:55][CH3:56]",
+      "operations": [
+        {
+          "op": "break_bond",
+          "map_a": 4,
+          "map_b": 5
+        },
+        {
+          "op": "break_bond",
+          "map_a": 13,
+          "map_b": 14
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 5,
+          "map_b": 6,
+          "delta": -0.5
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 6,
+          "map_b": 13,
+          "delta": -0.5
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 4,
+          "map_b": 22,
+          "delta": -0.5
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 22,
+          "map_b": 14,
+          "delta": -0.5
+        },
+        {
+          "op": "add_group",
+          "map_idx": 4,
+          "fragment_smiles": "[*]=O"
+        },
+        {
+          "op": "add_group",
+          "map_idx": 14,
+          "fragment_smiles": "[*]=O"
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 5,
+          "count": 2,
+          "no_implicit": true
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 13,
+          "count": 2,
+          "no_implicit": true
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 22,
+          "count": 1,
+          "no_implicit": true
+        }
+      ],
+      "expected_precursor_smiles": [
+        "COC(=O)C(C(=O)c1ccc(F)cc1)C(=O)C(C)C",
+        "NC(N)=O"
+      ]
+    },
+    {
+      "target_name": "pitavastatin",
+      "output_line": 37,
+      "mapped_product_smiles": "[C:11]([c:12]1[c:13]([CH:14]2[CH2:15][CH2:16]2)[n:17][c:18]2[cH:19][cH:20][cH:21][cH:22][c:23]2[c:24]1-[c:25]1[cH:26][cH:27][c:28]([F:29])[cH:30][cH:31]1)(=[O:1018])[O:1019][CH2:1020][CH3:1021]",
+      "operations": [
+        {
+          "op": "break_bond",
+          "map_a": 13,
+          "map_b": 17
+        },
+        {
+          "op": "break_bond",
+          "map_a": 12,
+          "map_b": 24
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 12,
+          "map_b": 13,
+          "delta": -0.5
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 17,
+          "map_b": 18,
+          "delta": -0.5
+        },
+        {
+          "op": "change_bond_order",
+          "map_a": 23,
+          "map_b": 24,
+          "delta": -0.5
+        },
+        {
+          "op": "add_group",
+          "map_idx": 13,
+          "fragment_smiles": "[*]=O"
+        },
+        {
+          "op": "add_group",
+          "map_idx": 24,
+          "fragment_smiles": "[*]=O"
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 12,
+          "count": 2,
+          "no_implicit": true
+        },
+        {
+          "op": "set_explicit_h",
+          "map_idx": 17,
+          "count": 2,
+          "no_implicit": true
+        }
+      ],
+      "expected_precursor_smiles": [
+        "CCOC(=O)CC(=O)C1CC1",
+        "Nc1ccccc1C(=O)c1ccc(F)cc1"
+      ]
+    }
+  ],
+  "fluvastatin": {
+    "target": "CC(C)n1c(/C=C/[C@H](O)C[C@H](O)CC(=O)O)c(-c2ccc(F)cc2)c2ccccc21",
+    "original_steps": [
+      {
+        "catalyst": "",
+        "conditions": [
+          "Forward hypothesis: hydrolyze the ethyl ester with aqueous LiOH in THF/water at low to ambient temperature, then mildly acidify cold to isolate the free acid; avoid prolonged acidic conditions that could promote lactonization."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:2:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C@H:11]([OH:12])[CH2:13][C:14](=[O:15])[O:16][CH2:31][CH3:32])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C@H:11]([OH:12])[CH2:13][C:14](=[O:15])[OH:16])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [],
+        "precursor_smiles": [
+          "CCOC(=O)C[C@@H](O)C[C@@H](O)/C=C/c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C"
+        ],
+        "product_smiles": "CC(C)n1c(/C=C/[C@H](O)C[C@H](O)CC(=O)O)c(-c2ccc(F)cc2)c2ccccc21",
+        "reaction_family": "Retrosynthetically replace the free acid with its ethyl ester for final ester hydrolysis after stereocontrolled side-chain assembly.",
+        "reaction_operations": [
+          {
+            "count": 0,
+            "map_idx": 16,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "fragment_smiles": "*[CH2:31][CH3:32]",
+            "map_idx": 16,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:1:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Hypothesis: precomplex the C8 R hydroxy ketone with diethylmethoxyborane in dry THF, then add NaBH4 in THF/methanol at low temperature; quench residual hydride before oxidative boron removal and aqueous workup. Required outcome is C11 S with C8 R, the E alkene and ethyl ester retained; substrate-specific selectivity remains unverified."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:4:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH2:31][CH3:32])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C@H:11]([OH:12])[CH2:13][C:14](=[O:15])[O:16][CH2:31][CH3:32])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:1:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CCOC(=O)CC(=O)C[C@@H](O)/C=C/c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C"
+        ],
+        "product_smiles": "CCOC(=O)C[C@@H](O)C[C@@H](O)/C=C/c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C",
+        "reaction_family": "Disconnect the C11 S alcohol to a ketone for C8 R alcohol-directed syn-selective reduction to the required (3S,5R) diol.",
+        "reaction_operations": [
+          {
+            "map_idx": 11,
+            "op": "clear_stereocenter"
+          },
+          {
+            "count": 0,
+            "map_idx": 11,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "count": 0,
+            "map_idx": 12,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "delta": 1,
+            "map_a": 11,
+            "map_b": 12,
+            "op": "change_bond_order"
+          }
+        ],
+        "step_id": "codex:branch:1:node:2:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Untested asymmetric hypothesis: separately deprotonate ethyl acetoacetate with NaH (1.0 equivalent) in dry THF at 0 °C until hydrogen evolution ceases; cool to −78 °C and add n-BuLi (1.0 equivalent), followed by natural (−)-sparteine (1.2 equivalents per acetoacetate). Slowly add the exact N-isopropyl-3-(para-fluorophenyl)indol-2-yl E-enal at −78 °C, then quench with buffered aqueous ammonium chloride before warming. This ligand choice does not establish C8 R induction: determine absolute configuration and enantiomeric ratio, C10 versus C13 attachment, carbonyl versus C6 conjugate addition, and E retention on the exact substrate."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:5:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH:8]=[O:9])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+          "[CH3:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH2:31][CH3:32]"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH2:31][CH3:32])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:2:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CC(C)n1c(/C=C/C=O)c(-c2ccc(F)cc2)c2ccccc21",
+          "CCOC(=O)CC(C)=O"
+        ],
+        "product_smiles": "CCOC(=O)CC(=O)C[C@@H](O)/C=C/c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C",
+        "reaction_family": "Disconnect C8–C10 for a chiral-diamine-mediated acetoacetate gamma-aldol addition to the exact E-enal, targeting C8 R with carbonyl-selective attachment and E retention.",
+        "reaction_operations": [
+          {
+            "map_a": 8,
+            "map_b": 10,
+            "op": "break_bond"
+          },
+          {
+            "map_idx": 8,
+            "op": "clear_stereocenter"
+          },
+          {
+            "count": 0,
+            "map_idx": 9,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "delta": 1,
+            "map_a": 8,
+            "map_b": 9,
+            "op": "change_bond_order"
+          },
+          {
+            "count": 3,
+            "map_idx": 10,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          }
+        ],
+        "step_id": "codex:branch:1:node:4:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Forward: hydrolyze the aldehyde-protecting group with dilute aqueous acid in a compatible cosolvent, then neutralize promptly; verify E retention and absence of enal degradation."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:6:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH2:8][O:9][O:33][CH2:34][CH3:35])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH:8]=[O:9])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:4:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CCOOC/C=C/c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C"
+        ],
+        "product_smiles": "CC(C)n1c(/C=C/C=O)c(-c2ccc(F)cc2)c2ccccc21",
+        "reaction_family": "Disconnect aldehyde unmasking to the corresponding E-enal diethyl acetal, preserving the alkene geometry for a separate masked-aldehyde olefination.",
+        "reaction_operations": [
+          {
+            "delta": -1,
+            "map_a": 8,
+            "map_b": 9,
+            "op": "change_bond_order"
+          },
+          {
+            "fragment_smiles": "*[O:33][CH2:34][CH3:35]",
+            "map_idx": 9,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:5:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Hypothesis: use mild carbonate base to promote ethyl hydroperoxide O-alkylation with the primary E-allylic bromide under dilute, temperature-controlled conditions, followed by aqueous workup without concentrating peroxide residues; verify direct substitution, E retention, and peroxide stability."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:7:candidate:1",
+          "codex:branch:1:node:8:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH2:8][Br:36])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+          "[OH:9][O:33][CH2:34][CH3:35]"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH2:8][O:9][O:33][CH2:34][CH3:35])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:5:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CC(C)n1c(/C=C/CBr)c(-c2ccc(F)cc2)c2ccccc21",
+          "CCOO"
+        ],
+        "product_smiles": "CCOOC/C=C/c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C",
+        "reaction_family": "Disconnect peroxide O-alkylation to an E-allylic bromide and ethyl hydroperoxide, respecting the actual O9–O33 peroxide linkage rather than the previously intended acetal.",
+        "reaction_operations": [
+          {
+            "map_a": 8,
+            "map_b": 9,
+            "op": "break_bond"
+          },
+          {
+            "fragment_smiles": "*[Br:36]",
+            "map_idx": 8,
+            "op": "add_group"
+          },
+          {
+            "count": 1,
+            "map_idx": 9,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          }
+        ],
+        "step_id": "codex:branch:1:node:6:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Hypothesis: treat the allylic alcohol with PPh3/CBr4 in dry dichloromethane at 0 °C, then warm as needed; quench and isolate the bromide, removing residual brominating reagents and phosphine before downstream peroxide chemistry. Verify direct substitution at C8 without allylic rearrangement or E/Z isomerization."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:9:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH2:8][OH:37])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH2:8][Br:36])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:6:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CC(C)n1c(/C=C/CO)c(-c2ccc(F)cc2)c2ccccc21"
+        ],
+        "product_smiles": "CC(C)n1c(/C=C/CBr)c(-c2ccc(F)cc2)c2ccccc21",
+        "reaction_family": "Disconnect allylic alcohol bromination to expose the corresponding E-allylic alcohol while retaining the indole substitution pattern.",
+        "reaction_operations": [
+          {
+            "map_indices": [
+              36
+            ],
+            "op": "remove_group"
+          },
+          {
+            "fragment_smiles": "*[OH:37]",
+            "map_idx": 8,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:7:candidate:1"
+      },
+      {
+        "auxiliary_reagent_smiles": [
+          "CCBr"
+        ],
+        "catalyst": "",
+        "conditions": [
+          "Hypothesis: generate hydroperoxide anion from excess aqueous hydrogen peroxide under controlled basic conditions, then add bromoethane for SN2 monoalkylation; neutralize residual base and retain the product in dilute solution without concentrating the organic peroxide."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:10:candidate:1"
+        ],
+        "mapped_auxiliary_reagent_smiles": [
+          "[CH2:34]([CH3:35])[Br:38]"
+        ],
+        "mapped_precursor_smiles": [
+          "[OH:9][OH:33]"
+        ],
+        "mapped_product_smiles": "[OH:9][O:33][CH2:34][CH3:35]",
+        "mapped_reaction_input_smiles": [
+          "[CH2:34]([CH3:35])[Br:38]",
+          "[OH:9][OH:33]"
+        ],
+        "parent_step_ids": [
+          "codex:branch:1:node:6:candidate:1"
+        ],
+        "precursor_smiles": [
+          "OO"
+        ],
+        "product_smiles": "CCOO",
+        "reaction_family": "Disconnect ethyl hydroperoxide into hydrogen peroxide and bromoethane for controlled peroxide O-alkylation.",
+        "reaction_input_smiles": [
+          "CCBr",
+          "OO"
+        ],
+        "reaction_operations": [
+          {
+            "map_a": 33,
+            "map_b": 34,
+            "op": "break_bond"
+          },
+          {
+            "count": 1,
+            "map_idx": 33,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "fragment_smiles": "*[Br:38]",
+            "map_idx": 34,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:8:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Forward hypothesis: add excess DIBAL-H to the ethyl E-enoate in dry toluene at low temperature, then warm cautiously to complete ester-to-alcohol reduction; quench residual hydride before aqueous tartrate workup. Require retention of C6=C7 E geometry without conjugate reduction."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:12:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C:8](=[O:37])[O:39][CH2:40][CH3:41])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH2:8][OH:37])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:7:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CCOC(=O)/C=C/c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C"
+        ],
+        "product_smiles": "CC(C)n1c(/C=C/CO)c(-c2ccc(F)cc2)c2ccccc21",
+        "reaction_family": "Disconnect chemoselective enoate reduction to the ethyl E-enoate precursor of the mapped allylic alcohol.",
+        "reaction_operations": [
+          {
+            "count": 0,
+            "map_idx": 8,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "count": 0,
+            "map_idx": 37,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "delta": 1,
+            "map_a": 8,
+            "map_b": 37,
+            "op": "change_bond_order"
+          },
+          {
+            "fragment_smiles": "*[O:39][CH2:40][CH3:41]",
+            "map_idx": 8,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:9:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Prepare anthraquinol separately by catalytic hydrogenation of an anthraquinone carrier; remove hydrogen and hydrogenation catalyst before introducing oxygen, then extract the generated hydrogen peroxide into water."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:13:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[O:9]=[O:33]"
+        ],
+        "mapped_product_smiles": "[OH:9][OH:33]",
+        "parent_step_ids": [
+          "codex:branch:1:node:8:candidate:1"
+        ],
+        "precursor_smiles": [
+          "O=O"
+        ],
+        "product_smiles": "OO",
+        "reaction_family": "Disconnect hydrogen peroxide to molecular oxygen for anthraquinol-mediated two-electron reduction and aqueous peroxide recovery.",
+        "reaction_operations": [
+          {
+            "count": 0,
+            "map_idx": 9,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "count": 0,
+            "map_idx": 33,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "delta": 1,
+            "map_a": 9,
+            "map_b": 33,
+            "op": "change_bond_order"
+          }
+        ],
+        "step_id": "codex:branch:1:node:10:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Hypothesis: preform the triethyl phosphonoacetate anion with NaH in dry THF, then add the indole aldehyde and warm to room temperature; aqueous ammonium chloride workup and isolate the required E-enoate. Substrate-specific E selectivity requires verification."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:14:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([CH:6]=[O:42])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+          "[CH2:7]([C:8](=[O:37])[O:39][CH2:40][CH3:41])[P:43](=[O:44])([O:45][CH2:46][CH3:47])[O:48][CH2:49][CH3:50]"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C:8](=[O:37])[O:39][CH2:40][CH3:41])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:9:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CC(C)n1c(C=O)c(-c2ccc(F)cc2)c2ccccc21",
+          "CCOC(=O)CP(=O)(OCC)OCC"
+        ],
+        "product_smiles": "CCOC(=O)/C=C/c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C",
+        "reaction_family": "Disconnect the E-enoate by Horner–Wadsworth–Emmons olefination into the arylated indole-2-carbaldehyde and triethyl phosphonoacetate.",
+        "reaction_operations": [
+          {
+            "map_a": 6,
+            "map_b": 7,
+            "op": "break_bond"
+          },
+          {
+            "fragment_smiles": "*=[O:42]",
+            "map_idx": 6,
+            "op": "add_group"
+          },
+          {
+            "count": 2,
+            "map_idx": 7,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "fragment_smiles": "*[P:43](=[O:44])([O:45][CH2:46][CH3:47])[O:48][CH2:49][CH3:50]",
+            "map_idx": 7,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:12:candidate:1"
+      },
+      {
+        "auxiliary_reagent_smiles": [
+          "O"
+        ],
+        "catalyst": "",
+        "conditions": [
+          "Electrolyze water with an oxygen-evolution anode and a separated cathode; collect anodic oxygen separately from cathodic hydrogen and remove entrained water."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:15:candidate:1"
+        ],
+        "mapped_auxiliary_reagent_smiles": [
+          "[OH2:33]"
+        ],
+        "mapped_precursor_smiles": [
+          "[OH2:9]"
+        ],
+        "mapped_product_smiles": "[O:9]=[O:33]",
+        "mapped_reaction_input_smiles": [
+          "[OH2:33]",
+          "[OH2:9]"
+        ],
+        "parent_step_ids": [
+          "codex:branch:1:node:10:candidate:1"
+        ],
+        "precursor_smiles": [
+          "O"
+        ],
+        "product_smiles": "O=O",
+        "reaction_family": "Disconnect molecular oxygen to water for anodic oxygen evolution by water electrolysis.",
+        "reaction_input_smiles": [
+          "O",
+          "O"
+        ],
+        "reaction_operations": [
+          {
+            "map_a": 9,
+            "map_b": 33,
+            "op": "break_bond"
+          },
+          {
+            "count": 2,
+            "map_idx": 9,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "count": 2,
+            "map_idx": 33,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          }
+        ],
+        "step_id": "codex:branch:1:node:13:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Hypothesis: add controlled near-stoichiometric DIBAL-H to the ester in dry toluene at −78 °C, then quench residual hydride cold with methanol before aqueous tartrate workup; substrate-specific aldehyde selectivity versus overreduction requires verification."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:16:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6](=[O:42])[O:51][CH2:52][CH3:53])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([CH:6]=[O:42])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:12:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CCOC(=O)c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C"
+        ],
+        "product_smiles": "CC(C)n1c(C=O)c(-c2ccc(F)cc2)c2ccccc21",
+        "reaction_family": "Disconnect selective ester-to-aldehyde reduction to expose the ethyl indole-2-carboxylate required for the C3 Suzuki coupling strategy.",
+        "reaction_operations": [
+          {
+            "count": 0,
+            "map_idx": 6,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "fragment_smiles": "*[O:51][CH2:52][CH3:53]",
+            "map_idx": 6,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:14:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Pass ethanol vapor over heated alumina under ethene-forming dehydration conditions, then cool the effluent to recover water while separating ethene; water isolation and purity remain unverified."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:17:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[OH:9][CH2:54][CH3:55]"
+        ],
+        "mapped_product_smiles": "[OH2:9]",
+        "parent_step_ids": [
+          "codex:branch:1:node:13:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CCO"
+        ],
+        "product_smiles": "O",
+        "reaction_family": "Retrosynthetically derive water as the coproduct of ethanol dehydration to ethene.",
+        "reaction_operations": [
+          {
+            "count": 1,
+            "map_idx": 9,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "fragment_smiles": "*[CH2:54][CH3:55]",
+            "map_idx": 9,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:15:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Hypothesis: combine the C3 bromide and para-fluorophenylboronic acid with Pd(dppf)Cl2 and K2CO3 in degassed aqueous dioxane under inert atmosphere; warm for coupling, then cool and perform neutral aqueous extraction. Limit basic exposure to preserve the C2 ethyl ester; productive coupling versus debromination and ester hydrolysis requires substrate-specific verification."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:18:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6](=[O:42])[O:51][CH2:52][CH3:53])[c:17]([Br:56])[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+          "[c:18]1([B:57]([OH:58])[OH:59])[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]1"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6](=[O:42])[O:51][CH2:52][CH3:53])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:14:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CCOC(=O)c1c(Br)c2ccccc2n1C(C)C",
+          "OB(O)c1ccc(F)cc1"
+        ],
+        "product_smiles": "CCOC(=O)c1c(-c2ccc(F)cc2)c2ccccc2n1C(C)C",
+        "reaction_family": "Disconnect C17–C18 by Suzuki–Miyaura coupling into the C3-bromoindole-2-carboxylate and para-fluorophenylboronic acid while retaining the C2 ethyl ester.",
+        "reaction_operations": [
+          {
+            "map_a": 17,
+            "map_b": 18,
+            "op": "break_bond"
+          },
+          {
+            "fragment_smiles": "*[Br:56]",
+            "map_idx": 17,
+            "op": "add_group"
+          },
+          {
+            "fragment_smiles": "*[B:57]([OH:58])[OH:59]",
+            "map_idx": 18,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:16:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Forward hypothesis: add sodium borohydride to acetaldehyde in cooled methanol, allow carbonyl reduction, then cautiously quench excess hydride with aqueous ammonium chloride and recover the volatile ethanol."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:22:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[O:9]=[CH:54][CH3:55]"
+        ],
+        "mapped_product_smiles": "[OH:9][CH2:54][CH3:55]",
+        "parent_step_ids": [
+          "codex:branch:1:node:15:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CC=O"
+        ],
+        "product_smiles": "CCO",
+        "reaction_family": "Disconnect ethanol to acetaldehyde for aldehyde carbonyl reduction while retaining both carbons and terminating at the primary alcohol.",
+        "reaction_operations": [
+          {
+            "count": 0,
+            "map_idx": 9,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "count": 1,
+            "map_idx": 54,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "delta": 1,
+            "map_a": 9,
+            "map_b": 54,
+            "op": "change_bond_order"
+          }
+        ],
+        "step_id": "codex:branch:1:node:17:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Forward hypothesis: add approximately one equivalent of NBS gradually to the unbrominated N-isopropyl ester in dichloromethane at low temperature without radical initiation; monitor C3 monobromination, then quench residual brominating reagent with aqueous thiosulfate and isolate. C3 selectivity and suppression of overbromination require verification."
+        ],
+        "expanded_precursor_step_ids": [
+          "codex:branch:1:node:23:candidate:1"
+        ],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6](=[O:42])[O:51][CH2:52][CH3:53])[cH:17][c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6](=[O:42])[O:51][CH2:52][CH3:53])[c:17]([Br:56])[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:16:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CCOC(=O)c1cc2ccccc2n1C(C)C"
+        ],
+        "product_smiles": "CCOC(=O)c1c(Br)c2ccccc2n1C(C)C",
+        "reaction_family": "Disconnect C3-selective electrophilic bromination to expose ethyl N-isopropylindole-2-carboxylate for separate N4–C2 construction.",
+        "reaction_operations": [
+          {
+            "map_indices": [
+              56
+            ],
+            "op": "remove_group"
+          },
+          {
+            "count": 1,
+            "map_idx": 17,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          }
+        ],
+        "step_id": "codex:branch:1:node:18:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Hypothesis: hydrogenate acetyl chloride with H2 over poisoned Pd/BaSO4 in dry inert solvent; limit exposure to suppress overreduction, capture volatile acetaldehyde in a cooled receiver, and separate acidic carryover before subsequent reduction."
+        ],
+        "expanded_precursor_step_ids": [],
+        "mapped_precursor_smiles": [
+          "[O:9]=[C:54]([CH3:55])[Cl:60]"
+        ],
+        "mapped_product_smiles": "[O:9]=[CH:54][CH3:55]",
+        "parent_step_ids": [
+          "codex:branch:1:node:17:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CC(=O)Cl"
+        ],
+        "product_smiles": "CC=O",
+        "reaction_family": "Disconnect acetaldehyde to acetyl chloride for selective Rosenmund hydrogenation, retaining the C2 skeleton and aldehyde oxygen.",
+        "reaction_operations": [
+          {
+            "count": 0,
+            "map_idx": 54,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "fragment_smiles": "*[Cl:60]",
+            "map_idx": 54,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:22:candidate:1"
+      },
+      {
+        "catalyst": "",
+        "conditions": [
+          "Hypothesis: deprotonate ethyl indole-2-carboxylate with NaH in dry THF under inert atmosphere; after hydrogen evolution ceases, add 2-iodopropane with controlled warming, then cool and cautiously quench residual hydride before aqueous workup. N- versus C3-alkylation, competing elimination, and ester retention require verification."
+        ],
+        "expanded_precursor_step_ids": [],
+        "mapped_precursor_smiles": [
+          "[CH3:1][CH:2]([CH3:3])[I:61]",
+          "[nH:4]1[c:5]([C:6](=[O:42])[O:51][CH2:52][CH3:53])[cH:17][c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12"
+        ],
+        "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6](=[O:42])[O:51][CH2:52][CH3:53])[cH:17][c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+        "parent_step_ids": [
+          "codex:branch:1:node:18:candidate:1"
+        ],
+        "precursor_smiles": [
+          "CC(C)I",
+          "CCOC(=O)c1cc2ccccc2[nH]1"
+        ],
+        "product_smiles": "CCOC(=O)c1cc2ccccc2n1C(C)C",
+        "reaction_family": "Disconnect N4–C2 alkylation into ethyl indole-2-carboxylate and 2-iodopropane, retaining the ester and fused scaffold.",
+        "reaction_operations": [
+          {
+            "map_a": 4,
+            "map_b": 2,
+            "op": "break_bond"
+          },
+          {
+            "count": 1,
+            "map_idx": 4,
+            "no_implicit": true,
+            "op": "set_explicit_h"
+          },
+          {
+            "fragment_smiles": "*[I:61]",
+            "map_idx": 2,
+            "op": "add_group"
+          }
+        ],
+        "step_id": "codex:branch:1:node:23:candidate:1"
+      }
+    ],
+    "original_directive": {
+      "change_step_ids": [
+        "codex:branch:1:node:5:candidate:1",
+        "codex:branch:1:node:6:candidate:1",
+        "codex:branch:1:node:7:candidate:1"
+      ],
+      "additional_coupled_blocker_step_ids": [],
+      "preserved_suffix_compatible": true,
+      "repair_goal": "Replace the bromide/peroxide detour with selective oxidation of the retained E-allylic alcohol to the exact E-enal required by the retained aldol consumer.",
+      "active_constraints": [
+        "Remove oxidant and incompatible workup carryover before the enal contacts the separately prepared acetoacetate dianion.",
+        "The retained aldol must independently establish the required absolute configuration; downstream directed reduction cannot supply missing enantiocontrol."
+      ]
+    }
+  },
+  "stereo_clear_wittig": {
+    "source": "statin-fixes-canary-20260915 IO25, original failed clear-then-break",
+    "mapped_product_smiles": "[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH:8]=[O:9])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12",
+    "operations": [
+      {
+        "op": "set_bond_stereo",
+        "map_a": 6,
+        "map_b": 7,
+        "stereo": "NONE"
+      },
+      {
+        "op": "break_bond",
+        "map_a": 6,
+        "map_b": 7
+      },
+      {
+        "op": "add_group",
+        "map_idx": 6,
+        "fragment_smiles": "[*]=O"
+      },
+      {
+        "op": "add_group",
+        "map_idx": 7,
+        "fragment_smiles": "[*]=P(c1ccccc1)(c1ccccc1)c1ccccc1"
+      }
+    ],
+    "expected_precursor_smiles": [
+      "CC(C)n1c(C=O)c(-c2ccc(F)cc2)c2ccccc21",
+      "O=CC=P(c1ccccc1)(c1ccccc1)c1ccccc1"
+    ]
+  },
+  "renumbered_review": {
+    "source": "statin-fixes-canary-20260915 IO83 / IO87",
+    "old_prompt": "Bounded planning evidence capability v1:\nUse query_planning_evidence only when its answer may change a material boundary, strategic choice, or a specific chemical risk. Available operations: stock(smiles), list(). External lookup is disabled; query only the local stock and local observation list. Run-wide fresh-query limits: {\"compound\": 0, \"read\": 0, \"search\": 0, \"stock\": 24}; at most 6 queries per worker including cached/invalid calls. Failures consume the fresh-query allowance. Reuse list() and existing sources; stop querying on exhaustion/unavailable and finish with explicit uncertainty. No unrestricted browser or image-to-SMILES tool is available. Stock misses mean only absence from the bound catalog, not chemical unavailability. Only Host closes leaves. Before committing to long protection/assembly sequences, consider whether a known feedstock, chiral pool, symmetry, convergent assembly or supported biotransformation changes the sensible starting-material boundary. Keep the exact substrate/product and selectivity requirements explicit; do not hide synthesis of an unsupported precursor. Critic: check whether the proposed route's difficult preparation is avoidable given observed source/material facts. Put a concrete simpler alternative and its unresolved requirements in the existing rationale/risk fields. Inefficiency, missing evidence or an alternative's existence alone never makes a chemically coherent step reject. Use reject only for the existing concrete chemical contradictions.\nAct as an independent Route Critic. Forward-simulate every supplied reaction from the current frontier toward the target while leaving the target-rooted RouteJSON storage order unchanged.\nEvaluate chemistry only. Stock membership, stock closure and search termination are computed separately by the Host from the bound catalog and actual route leaves. Do not infer availability from molecular complexity, missing metadata or earlier Critic prose, and do not state stock-closed, not stock-closed, commercially available or unavailable in the chemical evaluation. You may identify the synthetic burden of a supplied advanced starting material without asserting its inventory status. Stock uncertainty alone must not change a step verdict, create a chemical blocker or trigger Editor repair.\nUse the exact host-derived mapped products, mapped precursors, ReactionJSON operations, and proposed conditions. Check mechanism, net structural/H/charge/redox plausibility, reactive handles, functional-group and stereochemical compatibility, selectivity, and sequence dependencies.\nFor every uncertain step set uncertainty_source to its primary cause: proposal_underspecified when a material implementation detail is absent (suggested_revision names the precise missing detail); evidence_missing when a specified plausible proposal lacks substrate or selectivity support; assessment_unresolved when supplied facts or interpretation remain unresolved. Use null for pass/reject. Reasons may mention secondary causes. Missing evidence alone is not a contradiction. Use available bounded evidence or structure inspection for a question it can actually resolve; do not claim tool evidence you did not obtain.\nIndependently compare root_strategy_card with the actual reaction families, structures, and bond edits. selected_strategy_lineage records the successive leaf-local steering hypotheses actually bound to this route and is context for coherence and risk, not an admission contract. No Builder checkpoint_relation, role label, or host anchor claim is evidence. strategy_adherence evaluates only root_strategy_card and is observation metadata: set it true only when at least one supplied step itself executes the root critic_checkpoint; a step that merely exposes or prepares a later event does not satisfy it.\nAtom maps are host graph-replay identities and preserve mapped element identity. Routine reagents and coproducts may be omitted, but atom installation/removal must be explicit through add_group/remove_group; change_atom may change formal charge or isotope only. Reject an element transmutation or unexplained mapped-atom provenance break, not the mere omission of non-route reagents.\nFor each step use the same boundary as the Key-event Critic: pass means the structure, mechanism, and stated control factors coherently support the intended product; uncertain means plausible but unresolved scope, selectivity, or condition sufficiency without a concrete contradiction; reject requires a specific structural, mechanistic, compatibility, selectivity, condition, or sequence contradiction. The Host derives blocking and the route-level verdict from these step verdicts. Missing literature and stock metadata are not blockers; merely underspecified conditions are uncertain; Strategy non-adherence alone is not a blocker.\nSerialized product stereochemistry states the intended outcome; it is not evidence that the substrate, catalyst, or conditions select that outcome. Judge stereochemical control from the serialized precursor state and reaction environment.\nThink in chemical prerequisites as well as reactions. For the route-defining or problematic events, trace which earlier forward steps establish or preserve the required reactive handle, polarity, protection state, stereochemical relationship, or cyclization geometry. A locally correct preparation can supply the wrong state for its consumer. Compare the intended event with its strongest substrate-specific competitor. Report at most six consequential links in chemical_dependencies, each with consumer_review_slot, prerequisite_review_slots, and a concise requirement. Prerequisite slots may pass locally; do not relabel them reject merely to include them in a coordinated repair. Include only supplied steps and distinguish physical support from an intended product annotation. The links do not establish evidence or add a second verdict.\nUse one chemically meaningful synthetic transformation per reaction edge: one principal synthetic objective with its enabling activation and finishing workup. Do not create route nodes solely for transient reactive states, proton transfers, a reagent change, or a change of vessel. Enolate generation/addition/protonation, in situ organometallic preparation/addition/workup, acyl activation/capture, and deprotection/neutralization may belong to one transformation when their sequence is coherent. Keep independently useful preparative transformations separate: protection before a coupling, oxidation before olefination, or a radical-precursor preparation before deoxygenation remain separate transformations even if telescoped experimentally. A one-pot label, a short route, or a named cascade does not justify hiding independent synthetic objectives. A coherent cascade can have several bond changes; encode its complete net transformation. An isolated or externally supplied intermediate may be an explicit boundary; never imply that its upstream preparation has been solved. ReactionJSON operations are ordered retro graph edits, not mechanistic intermediates or forward reagent-addition order. They must derive the actual input and delivered product structures, including covalent handles, atom sources and required stereochemistry. Within each condition hypothesis, state the forward order of any necessary activation, main event and quench/workup, including removal of incompatible carryover or separate reagent preparation when required. A transient intermediate need not be a route node, but its reactivity, geometry, selectivity and compatibility must still be supported. Do not mix mutually incompatible reagents simultaneously or use a condition note to hide an unencoded independent protection, redox or skeletal transformation. Different condition hypotheses are alternatives, not successive stages. Assess every necessary internal stage even when it has no separate route node. Reject a concrete structural, selectivity, reagent-compatibility or sequence contradiction; missing stage detail alone is uncertain. Do not reject merely because activation, protonation, hydrolysis or neutralization accompanies a coherent transformation. If a chemically plausible row bundles independent synthetic objectives, identify the needed split and actual synthetic burden in the condition assessment or revision advice; a counting convention alone is not chemical failure. Do not claim stock closure or experimental validation from grouping.\nrepair_requirements_to_reassess, when present, contains prior concerns and the intended repair, not established chemistry or inherited verdicts. Independently assess whether the current structures and conditions resolve each concern, including effects on retained consumer steps. Changed step identities or exact boundary reconnection alone cannot resolve a chemical concern. Express unresolved issues through the ordinary current-step assessments; do not add a separate repair score.\nDo not invent a hidden required stereoisomer at a center or bond that the immutable Host product and campaign target leave unspecified. Still judge claimed selectivity from the chemistry, but product omission alone is not a chemical blocker or an Editor repair obligation.\nEach input row has a Host-issued review_slot. Return every review_slot exactly once; do not invent step IDs or machine digests. The Host restores the canonical step identity and authoritative reaction-edit digest after schema validation. Keep each assessment concise: at most two concrete reasons, a short condition assessment, and the smallest structure-local suggested revision. Do not output a long mechanistic analysis or repeat the route description.\nWrite route_overall_evaluation as one concise 2-4 sentence chemical judgment: state the route's strategic coherence, strongest feature, decisive unresolved chemical risk or blocker, and experimental maturity. Leave all stock and search-completion statements to the Host. Synthesize rather than enumerate the step assessments, and do not use a table.\ncoupled_blocker_groups is a compact route-level list of review-slot groups. Include a group only when two or more rejected steps require one coordinated replacement because they share an inseparable reactive-state, protecting-group, stereochemical, or sequence dependency; otherwise return an empty list. It groups repair scope only and does not admit chemistry.\nIf the complete supplied route never performs root_strategy_card's named key construction, set strategy_adherence=false as observation metadata only. Assess every serialized step on its own chemistry; do not reject a chemically coherent route or invoke Editor merely to force a steering Strategy into an opportunistic route such as a stock-closed short path. A falsely named reaction may still be rejected when its actual graph edit or chemistry is contradictory.\nFor any fragment union without complementary handles, require explicit handle installation/use or a chemically explicit replacement topology. A changed label, catalyst, or condition cannot repair a missing structural handle.\nRepair actions must preserve unrelated viable chemistry and the supplied target-to-current-frontier boundary. A replacement may retire a reagent-supply branch that it no longer consumes; explicitly include that obsolete branch in the repair scope. Do not truncate a still-required preparation or claim an advanced frontier intermediate is stock.\nReturn only the compact critique defined by the schema.\nPaperMatchedRouteCriticInput:\n{\"branch_id\":1,\"campaign_target\":\"CC(C)n1c(/C=C/[C@H](O)C[C@H](O)CC(=O)O)c(-c2ccc(F)cc2)c2ccccc21\",\"phase\":\"independent_chemical_critic\",\"root_strategy_card\":{\"critic_checkpoint\":\"Test the Fischer ring-forming rearrangement for the required C2-ester/C3-(4-fluorophenyl) indole connectivity and ester survival before investing in side-chain construction.\",\"critical_assumption\":\"The arylpyruvate hydrazone must cyclize with the required C2-ester/C3-aryl connectivity; locally observed ethyl indole-2-carboxylate offers a simpler alternative, but its selective C3 arylation and subsequent stereochemical elaboration remain unverified.\",\"strategy_query\":\"Construct the indole by Fischer cyclization of a phenylhydrazone derived from an arylpyruvate, placing 4-fluorophenyl at C3 and an ester handle at C2, then introduce N-isopropyl substitution and elaborate the ester through an E-enal, asymmetric acetate aldol, two-carbon ester homologation and directed reduction to the specified (3S,5R) hydroxyacid.\"},\"schema_version\":\"blind_route_critic_input.v1\",\"selected_strategy_lineage\":[{\"critic_checkpoint\":\"Test C5–C17 bond formation by crossed Claisen acylation: require the mono-C-oxalylated arylacetate connectivity. Subsequent selective decarboxylation and survival of the retained alpha-ketoacid functionality remain separate unresolved requirements; the executed Fischer milestone is not repeated.\",\"critical_assumption\":\"The arylacetate enolate must undergo productive mono-C-oxalylation rather than self-condensation or persistent O-acylation. Ethyl 4-fluorophenylacetate is locally observed (query_key e1ffecb90b217631559f96b1e9a0cfa0d2e1df707068fd73489bf0eab727be4d), avoiding unsupported precursor assembly. Direct benzyl-nucleophile acylation of oxalate is shorter but requires unverified control of overaddition.\",\"strategy_query\":\"For CCOC(=O)C(=O)Cc1ccc(F)cc1, construct C5–C17 by crossed Claisen C-acylation of ethyl 4-fluorophenylacetate with diethyl oxalate. The sole enolizable methylene fixes regiochemistry; oxalate symmetry removes electrophile-end ambiguity, and product enolate formation supports termination. Follow separately with hydrolysis, decarboxylation of the arylacetate-derived carboxyl group, and re-esterification; no stereocontrol is required.\"}],\"steps\":[{\"conditions\":[\"Forward hypothesis: hydrolyze the methyl ester with aqueous NaOH in methanol/water at low to ambient temperature; then acidify briefly under cooling and isolate the hydroxyacid without prolonged acidic heating to limit lactonization.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C@H:11]([OH:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C@H:11]([OH:12])[CH2:13][C:14](=[O:15])[OH:16])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Reverse terminal methyl-ester saponification to expose an ester precursor compatible with stereoselective side-chain construction.\",\"reaction_operations\":[{\"count\":0,\"map_idx\":16,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[CH3:31]\",\"map_idx\":16,\"op\":\"add_group\"}],\"review_slot\":\"review-001\"},{\"conditions\":[\"Hypothesis: precomplex the C8-hydroxy/C11-ketone substrate with diethylmethoxyborane in dry THF, then add NaBH4 in methanol at low temperature; quench residual hydride before aqueous borate cleavage. Verify C8 R/C11 S selectivity and retention of the methyl ester and E alkene.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C@H:11]([OH:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the C11 alcohol to a beta-hydroxy ketone for boron-directed syn reduction targeting C11 S while retaining C8 R and the E alkene.\",\"reaction_operations\":[{\"map_idx\":11,\"op\":\"clear_stereocenter\"},{\"count\":0,\"map_idx\":11,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"count\":0,\"map_idx\":12,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"delta\":1,\"map_a\":11,\"map_b\":12,\"op\":\"change_bond_order\"}],\"review_slot\":\"review-002\"},{\"conditions\":[\"Forward hypothesis: buffered TBAF/AcOH in THF at 0 °C, followed by prompt aqueous workup, removes O-TBS while retaining C8 configuration, the E alkene and methyl beta-ketoester; monitor for dehydration or retro-aldol cleavage.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([O:9][Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Reverse selective O-TBS deprotection to expose a protected beta-ketoester suitable for two-carbon ester homologation.\",\"reaction_operations\":[{\"count\":0,\"map_idx\":9,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38]\",\"map_idx\":9,\"op\":\"add_group\"}],\"review_slot\":\"review-003\"},{\"conditions\":[\"Hypothesis: separately preform methyl acetate lithium enolate with LDA in dry THF at −78 °C; slowly add the protected beta-hydroxy ester to excess enolate, allow controlled warming, then quench with cold aqueous ammonium chloride.\",\"Competing ester-substrate enolization, acetate self-condensation and beta-siloxy elimination require evaluation; retain C8-R, the E alkene and the O-TBS group.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([O:9][Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38])[CH2:10][C:11](=[O:12])[O:39][CH3:40])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"[CH3:13][C:14](=[O:15])[O:16][CH3:31]\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([O:9][Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the beta-ketoester by reverse Claisen acylation into the C8-R O-TBS-protected beta-hydroxy methyl ester and methyl acetate.\",\"reaction_operations\":[{\"map_a\":11,\"map_b\":13,\"op\":\"break_bond\"},{\"fragment_smiles\":\"*[O:39][CH3:40]\",\"map_idx\":11,\"op\":\"add_group\"},{\"count\":3,\"map_idx\":13,\"no_implicit\":true,\"op\":\"set_explicit_h\"}],\"review_slot\":\"review-004\"},{\"conditions\":[\"Forward hypothesis: treat the isolated C8-R beta-hydroxy methyl ester with TBSCl and imidazole in dry DMF at 0 °C to room temperature, then aqueous workup; retain C8 configuration, the E alkene, and the methyl ester.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[O:39][CH3:40])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([O:9][Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38])[CH2:10][C:11](=[O:12])[O:39][CH3:40])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Reverse alcohol O-TBS protection to expose the C8-R beta-hydroxy methyl ester for asymmetric acetate aldol disconnection.\",\"reaction_operations\":[{\"map_indices\":[32,33,34,35,36,37,38],\"op\":\"remove_group\"},{\"count\":1,\"map_idx\":9,\"no_implicit\":true,\"op\":\"set_explicit_h\"}],\"review_slot\":\"review-005\"},{\"conditions\":[\"Hypothesis: preform a chiral Ti(IV)–BINOL Lewis-acid catalyst under anhydrous conditions, coordinate the E-enal, then add the separately prepared methyl acetate-derived trimethylsilyl ketene acetal at low temperature; aqueous workup releases the alcohol. Catalyst enantiomer and conditions require screening for C8-R selectivity, 1,2-addition and E-alkene retention.\"],\"mapped_precursor_smiles\":[\"[CH2:10]=[C:11]([O:12][Si:41]([CH3:42])([CH3:43])[CH3:44])[O:39][CH3:40]\",\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH:8]=[O:9])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[O:39][CH3:40])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the C8–C10 aldol bond for an asymmetric Mukaiyama acetate aldol addition to the E-enal, targeting the C8-R alcohol.\",\"reaction_operations\":[{\"map_a\":8,\"map_b\":10,\"op\":\"break_bond\"},{\"map_idx\":8,\"op\":\"clear_stereocenter\"},{\"count\":0,\"map_idx\":9,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"delta\":1,\"map_a\":8,\"map_b\":9,\"op\":\"change_bond_order\"},{\"delta\":-1,\"map_a\":11,\"map_b\":12,\"op\":\"change_bond_order\"},{\"delta\":1,\"map_a\":10,\"map_b\":11,\"op\":\"change_bond_order\"},{\"fragment_smiles\":\"*[Si:41]([CH3:42])([CH3:43])[CH3:44]\",\"map_idx\":12,\"op\":\"add_group\"}],\"review_slot\":\"review-006\"},{\"conditions\":[\"Forward hypothesis: add methyl acetate to preformed LDA in dry THF at −78 °C, then trap the ester enolate with TMSCl; use an anhydrous isolation to remove salts and residual base before the separate Lewis-acid-mediated aldol reaction.\"],\"mapped_precursor_smiles\":[\"[CH3:10][C:11](=[O:12])[O:39][CH3:40]\"],\"mapped_product_smiles\":\"[CH2:10]=[C:11]([O:12][Si:41]([CH3:42])([CH3:43])[CH3:44])[O:39][CH3:40]\",\"reaction_family\":\"Disconnect the acetate silyl ketene acetal to methyl acetate by reversing ester enolization and O-silylation.\",\"reaction_operations\":[{\"map_indices\":[41,42,43,44],\"op\":\"remove_group\"},{\"delta\":-1,\"map_a\":10,\"map_b\":11,\"op\":\"change_bond_order\"},{\"delta\":1,\"map_a\":11,\"map_b\":12,\"op\":\"change_bond_order\"},{\"count\":3,\"map_idx\":10,\"no_implicit\":true,\"op\":\"set_explicit_h\"}],\"review_slot\":\"review-007\"},{\"conditions\":[\"React the indole-2-carbaldehyde with separately prepared formylmethylenetriphenylphosphorane in dry toluene under controlled heating; then cool and remove triphenylphosphine oxide chromatographically. E selectivity requires verification, with isolation of the specified E-enal from any Z isomer.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([CH:6]=[O:45])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"[CH:7]([CH:8]=[O:9])=[P:46]([c:47]1[cH:48][cH:49][cH:50][cH:51][cH:52]1)([c:53]1[cH:54][cH:55][cH:56][cH:57][cH:58]1)[c:59]1[cH:60][cH:61][cH:62][cH:63][cH:64]1\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH:8]=[O:9])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the E-enal by formyl-stabilized Wittig homologation of the indole-2-carbaldehyde.\",\"reaction_operations\":[{\"map_a\":6,\"map_b\":7,\"op\":\"break_bond\"},{\"fragment_smiles\":\"*=[O:45]\",\"map_idx\":6,\"op\":\"add_group\"},{\"fragment_smiles\":\"*=[P:46]([c:47]1[cH:48][cH:49][cH:50][cH:51][cH:52]1)([c:53]1[cH:54][cH:55][cH:56][cH:57][cH:58]1)[c:59]1[cH:60][cH:61][cH:62][cH:63][cH:64]1\",\"map_idx\":7,\"op\":\"add_group\"}],\"review_slot\":\"review-008\"},{\"conditions\":[\"Forward hypothesis: add controlled DIBAL-H to the ethyl ester in dry toluene at −78 °C, monitoring to limit overreduction; quench residual hydride cold with methanol, then perform aqueous tartrate workup to release the aldehyde.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6](=[O:45])[O:65][CH2:66][CH3:67])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([CH:6]=[O:45])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Reverse chemoselective ester partial reduction to recover the indole C2 ethyl ester required for the Fischer-based assembly pathway.\",\"reaction_operations\":[{\"count\":0,\"map_idx\":6,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[O:65][CH2:66][CH3:67]\",\"map_idx\":6,\"op\":\"add_group\"}],\"review_slot\":\"review-009\"},{\"conditions\":[\"Hypothesis: add freshly supplied bromoacetaldehyde to triphenylphosphine in dry acetonitrile at low temperature, then allow phosphonium formation before introducing base.\",\"After alkylation, treat briefly with aqueous potassium carbonate under biphasic conditions; extract and isolate the stabilized ylide, limiting aldehyde exposure to base.\",\"c1ccc(P(c2ccccc2)c2ccccc2)cc1\"],\"mapped_auxiliary_reagent_smiles\":[\"[P:46]([c:47]1[cH:48][cH:49][cH:50][cH:51][cH:52]1)([c:53]1[cH:54][cH:55][cH:56][cH:57][cH:58]1)[c:59]1[cH:60][cH:61][cH:62][cH:63][cH:64]1\"],\"mapped_precursor_smiles\":[\"[CH2:7]([CH:8]=[O:9])[Br:68]\"],\"mapped_product_smiles\":\"[CH:7]([CH:8]=[O:9])=[P:46]([c:47]1[cH:48][cH:49][cH:50][cH:51][cH:52]1)([c:53]1[cH:54][cH:55][cH:56][cH:57][cH:58]1)[c:59]1[cH:60][cH:61][cH:62][cH:63][cH:64]1\",\"mapped_reaction_input_smiles\":[\"[CH2:7]([CH:8]=[O:9])[Br:68]\",\"[P:46]([c:47]1[cH:48][cH:49][cH:50][cH:51][cH:52]1)([c:53]1[cH:54][cH:55][cH:56][cH:57][cH:58]1)[c:59]1[cH:60][cH:61][cH:62][cH:63][cH:64]1\"],\"reaction_family\":\"Prepare the formyl-stabilized Wittig ylide by triphenylphosphine alkylation with bromoacetaldehyde followed by deprotonation.\",\"reaction_operations\":[{\"map_a\":7,\"map_b\":46,\"op\":\"break_bond\"},{\"count\":2,\"map_idx\":7,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[Br:68]\",\"map_idx\":7,\"op\":\"add_group\"}],\"review_slot\":\"review-010\"},{\"conditions\":[\"Forward hypothesis: deprotonate the NH indole ester with NaH in dry THF at 0 °C; after hydrogen evolution subsides, add isopropyl iodide and warm cautiously, then quench with aqueous ammonium chloride. Secondary-halide elimination may compete with N-alkylation.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[I:69]\",\"[nH:4]1[c:5]([C:6](=[O:45])[O:65][CH2:66][CH3:67])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6](=[O:45])[O:65][CH2:66][CH3:67])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect indole N-isopropylation to expose the NH indole ester for Fischer ring-construction analysis.\",\"reaction_operations\":[{\"map_a\":2,\"map_b\":4,\"op\":\"break_bond\"},{\"count\":1,\"map_idx\":4,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[I:69]\",\"map_idx\":2,\"op\":\"add_group\"}],\"review_slot\":\"review-011\"},{\"conditions\":[\"Hypothesis: condense the arylpyruvate with phenylhydrazine in ethanol under catalytic acetic acid, remove solvent and water, then heat the resulting hydrazone with anhydrous ZnCl2 in acetic acid for Fischer cyclization; cool and neutralize promptly before extraction. Hydrazone equilibration, cyclization efficiency and ethyl-ester retention require verification.\"],\"mapped_precursor_smiles\":[\"[C:5]([C:6](=[O:45])[O:65][CH2:66][CH3:67])([CH2:17][c:18]1[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]1)=[O:70]\",\"[NH:4]([c:30]1[cH:25][cH:26][cH:27][cH:28][cH:29]1)[NH2:71]\"],\"mapped_product_smiles\":\"[nH:4]1[c:5]([C:6](=[O:45])[O:65][CH2:66][CH3:67])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the Fischer indole construction into phenylhydrazine and ethyl 3-(4-fluorophenyl)-2-oxopropanoate, retaining the required C2 ester and C3 aryl mappin\",\"reaction_operations\":[{\"map_a\":4,\"map_b\":5,\"op\":\"break_bond\"},{\"map_a\":17,\"map_b\":25,\"op\":\"break_bond\"},{\"delta\":-0.5,\"map_a\":4,\"map_b\":30,\"op\":\"change_bond_order\"},{\"delta\":-0.5,\"map_a\":5,\"map_b\":17,\"op\":\"change_bond_order\"},{\"count\":2,\"map_idx\":17,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"count\":1,\"map_idx\":25,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*=[O:70]\",\"map_idx\":5,\"op\":\"add_group\"},{\"fragment_smiles\":\"*[NH2:71]\",\"map_idx\":4,\"op\":\"add_group\"}],\"review_slot\":\"review-012\"},{\"conditions\":[\"Forward hypothesis: esterify the arylpyruvic acid with excess dry ethanol and catalytic sulfuric acid under mild temperature control, then neutralize and extract promptly; conversion without alpha-ketoacid decomposition requires verification.\"],\"mapped_precursor_smiles\":[\"[C:5]([C:6](=[O:45])[OH:65])([CH2:17][c:18]1[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]1)=[O:70]\"],\"mapped_product_smiles\":\"[C:5]([C:6](=[O:45])[O:65][CH2:66][CH3:67])([CH2:17][c:18]1[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]1)=[O:70]\",\"reaction_family\":\"Reverse ethyl esterification to expose the arylpyruvic acid required after hydrolysis and selective decarboxylation of the crossed-Claisen adduct.\",\"reaction_operations\":[{\"map_indices\":[66,67],\"op\":\"remove_group\"},{\"count\":1,\"map_idx\":65,\"no_implicit\":true,\"op\":\"set_explicit_h\"}],\"review_slot\":\"review-013\"}]}",
+    "new_prompt": "Bounded planning evidence capability v1:\nUse query_planning_evidence only when its answer may change a material boundary, strategic choice, or a specific chemical risk. Available operations: stock(smiles), list(). External lookup is disabled; query only the local stock and local observation list. Run-wide fresh-query limits: {\"compound\": 0, \"read\": 0, \"search\": 0, \"stock\": 24}; at most 6 queries per worker including cached/invalid calls. Failures consume the fresh-query allowance. Reuse list() and existing sources; stop querying on exhaustion/unavailable and finish with explicit uncertainty. No unrestricted browser or image-to-SMILES tool is available. Stock misses mean only absence from the bound catalog, not chemical unavailability. Only Host closes leaves. Before committing to long protection/assembly sequences, consider whether a known feedstock, chiral pool, symmetry, convergent assembly or supported biotransformation changes the sensible starting-material boundary. Keep the exact substrate/product and selectivity requirements explicit; do not hide synthesis of an unsupported precursor. Critic: check whether the proposed route's difficult preparation is avoidable given observed source/material facts. Put a concrete simpler alternative and its unresolved requirements in the existing rationale/risk fields. Inefficiency, missing evidence or an alternative's existence alone never makes a chemically coherent step reject. Use reject only for the existing concrete chemical contradictions.\nAct as an independent Route Critic. Forward-simulate every supplied reaction from the current frontier toward the target while leaving the target-rooted RouteJSON storage order unchanged.\nEvaluate chemistry only. Stock membership, stock closure and search termination are computed separately by the Host from the bound catalog and actual route leaves. Do not infer availability from molecular complexity, missing metadata or earlier Critic prose, and do not state stock-closed, not stock-closed, commercially available or unavailable in the chemical evaluation. You may identify the synthetic burden of a supplied advanced starting material without asserting its inventory status. Stock uncertainty alone must not change a step verdict, create a chemical blocker or trigger Editor repair.\nUse the exact host-derived mapped products, mapped precursors, ReactionJSON operations, and proposed conditions. Check mechanism, net structural/H/charge/redox plausibility, reactive handles, functional-group and stereochemical compatibility, selectivity, and sequence dependencies.\nFor every uncertain step set uncertainty_source to its primary cause: proposal_underspecified when a material implementation detail is absent (suggested_revision names the precise missing detail); evidence_missing when a specified plausible proposal lacks substrate or selectivity support; assessment_unresolved when supplied facts or interpretation remain unresolved. Use null for pass/reject. Reasons may mention secondary causes. Missing evidence alone is not a contradiction. Use available bounded evidence or structure inspection for a question it can actually resolve; do not claim tool evidence you did not obtain.\nIndependently compare root_strategy_card with the actual reaction families, structures, and bond edits. selected_strategy_lineage records the successive leaf-local steering hypotheses actually bound to this route and is context for coherence and risk, not an admission contract. No Builder checkpoint_relation, role label, or host anchor claim is evidence. strategy_adherence evaluates only root_strategy_card and is observation metadata: set it true only when at least one supplied step itself executes the root critic_checkpoint; a step that merely exposes or prepares a later event does not satisfy it.\nAtom maps are host graph-replay identities and preserve mapped element identity. Routine reagents and coproducts may be omitted, but atom installation/removal must be explicit through add_group/remove_group; change_atom may change formal charge or isotope only. Reject an element transmutation or unexplained mapped-atom provenance break, not the mere omission of non-route reagents.\nFor each step use the same boundary as the Key-event Critic: pass means the structure, mechanism, and stated control factors coherently support the intended product; uncertain means plausible but unresolved scope, selectivity, or condition sufficiency without a concrete contradiction; reject requires a specific structural, mechanistic, compatibility, selectivity, condition, or sequence contradiction. The Host derives blocking and the route-level verdict from these step verdicts. Missing literature and stock metadata are not blockers; merely underspecified conditions are uncertain; Strategy non-adherence alone is not a blocker.\nSerialized product stereochemistry states the intended outcome; it is not evidence that the substrate, catalyst, or conditions select that outcome. Judge stereochemical control from the serialized precursor state and reaction environment.\nThink in chemical prerequisites as well as reactions. For the route-defining or problematic events, trace which earlier forward steps establish or preserve the required reactive handle, polarity, protection state, stereochemical relationship, or cyclization geometry. A locally correct preparation can supply the wrong state for its consumer. Compare the intended event with its strongest substrate-specific competitor. Report at most six consequential links in chemical_dependencies, each with consumer_review_slot, prerequisite_review_slots, and a concise requirement. Prerequisite slots may pass locally; do not relabel them reject merely to include them in a coordinated repair. Include only supplied steps and distinguish physical support from an intended product annotation. The links do not establish evidence or add a second verdict.\nUse one chemically meaningful synthetic transformation per reaction edge: one principal synthetic objective with its enabling activation and finishing workup. Do not create route nodes solely for transient reactive states, proton transfers, a reagent change, or a change of vessel. Enolate generation/addition/protonation, in situ organometallic preparation/addition/workup, acyl activation/capture, and deprotection/neutralization may belong to one transformation when their sequence is coherent. Keep independently useful preparative transformations separate: protection before a coupling, oxidation before olefination, or a radical-precursor preparation before deoxygenation remain separate transformations even if telescoped experimentally. A one-pot label, a short route, or a named cascade does not justify hiding independent synthetic objectives. A coherent cascade can have several bond changes; encode its complete net transformation. An isolated or externally supplied intermediate may be an explicit boundary; never imply that its upstream preparation has been solved. ReactionJSON operations are ordered retro graph edits, not mechanistic intermediates or forward reagent-addition order. They must derive the actual input and delivered product structures, including covalent handles, atom sources and required stereochemistry. Within each condition hypothesis, state the forward order of any necessary activation, main event and quench/workup, including removal of incompatible carryover or separate reagent preparation when required. A transient intermediate need not be a route node, but its reactivity, geometry, selectivity and compatibility must still be supported. Do not mix mutually incompatible reagents simultaneously or use a condition note to hide an unencoded independent protection, redox or skeletal transformation. Different condition hypotheses are alternatives, not successive stages. Assess every necessary internal stage even when it has no separate route node. Reject a concrete structural, selectivity, reagent-compatibility or sequence contradiction; missing stage detail alone is uncertain. Do not reject merely because activation, protonation, hydrolysis or neutralization accompanies a coherent transformation. If a chemically plausible row bundles independent synthetic objectives, identify the needed split and actual synthetic burden in the condition assessment or revision advice; a counting convention alone is not chemical failure. Do not claim stock closure or experimental validation from grouping.\nrepair_requirements_to_reassess, when present, contains prior concerns and the intended repair, not established chemistry or inherited verdicts. Independently assess whether the current structures and conditions resolve each concern, including effects on retained consumer steps. Changed step identities or exact boundary reconnection alone cannot resolve a chemical concern. Express unresolved issues through the ordinary current-step assessments; do not add a separate repair score.\nDo not invent a hidden required stereoisomer at a center or bond that the immutable Host product and campaign target leave unspecified. Still judge claimed selectivity from the chemistry, but product omission alone is not a chemical blocker or an Editor repair obligation.\nEach input row has a Host-issued review_slot. Return every review_slot exactly once; do not invent step IDs or machine digests. The Host restores the canonical step identity and authoritative reaction-edit digest after schema validation. Keep each assessment concise: at most two concrete reasons, a short condition assessment, and the smallest structure-local suggested revision. Do not output a long mechanistic analysis or repeat the route description.\nWrite route_overall_evaluation as one concise 2-4 sentence chemical judgment: state the route's strategic coherence, strongest feature, decisive unresolved chemical risk or blocker, and experimental maturity. Leave all stock and search-completion statements to the Host. Synthesize rather than enumerate the step assessments, and do not use a table.\ncoupled_blocker_groups is a compact route-level list of review-slot groups. Include a group only when two or more rejected steps require one coordinated replacement because they share an inseparable reactive-state, protecting-group, stereochemical, or sequence dependency; otherwise return an empty list. It groups repair scope only and does not admit chemistry.\nIf the complete supplied route never performs root_strategy_card's named key construction, set strategy_adherence=false as observation metadata only. Assess every serialized step on its own chemistry; do not reject a chemically coherent route or invoke Editor merely to force a steering Strategy into an opportunistic route such as a stock-closed short path. A falsely named reaction may still be rejected when its actual graph edit or chemistry is contradictory.\nFor any fragment union without complementary handles, require explicit handle installation/use or a chemically explicit replacement topology. A changed label, catalyst, or condition cannot repair a missing structural handle.\nRepair actions must preserve unrelated viable chemistry and the supplied target-to-current-frontier boundary. A replacement may retire a reagent-supply branch that it no longer consumes; explicitly include that obsolete branch in the repair scope. Do not truncate a still-required preparation or claim an advanced frontier intermediate is stock.\nReturn only the compact critique defined by the schema.\nPaperMatchedRouteCriticInput:\n{\"branch_id\":1,\"campaign_target\":\"CC(C)n1c(/C=C/[C@H](O)C[C@H](O)CC(=O)O)c(-c2ccc(F)cc2)c2ccccc21\",\"phase\":\"independent_chemical_critic\",\"root_strategy_card\":{\"critic_checkpoint\":\"Test the Fischer ring-forming rearrangement for the required C2-ester/C3-(4-fluorophenyl) indole connectivity and ester survival before investing in side-chain construction.\",\"critical_assumption\":\"The arylpyruvate hydrazone must cyclize with the required C2-ester/C3-aryl connectivity; locally observed ethyl indole-2-carboxylate offers a simpler alternative, but its selective C3 arylation and subsequent stereochemical elaboration remain unverified.\",\"strategy_query\":\"Construct the indole by Fischer cyclization of a phenylhydrazone derived from an arylpyruvate, placing 4-fluorophenyl at C3 and an ester handle at C2, then introduce N-isopropyl substitution and elaborate the ester through an E-enal, asymmetric acetate aldol, two-carbon ester homologation and directed reduction to the specified (3S,5R) hydroxyacid.\"},\"schema_version\":\"blind_route_critic_input.v1\",\"selected_strategy_lineage\":[{\"critic_checkpoint\":\"Test C5–C17 bond formation by crossed Claisen acylation: require the mono-C-oxalylated arylacetate connectivity. Subsequent selective decarboxylation and survival of the retained alpha-ketoacid functionality remain separate unresolved requirements; the executed Fischer milestone is not repeated.\",\"critical_assumption\":\"The arylacetate enolate must undergo productive mono-C-oxalylation rather than self-condensation or persistent O-acylation. Ethyl 4-fluorophenylacetate is locally observed (query_key e1ffecb90b217631559f96b1e9a0cfa0d2e1df707068fd73489bf0eab727be4d), avoiding unsupported precursor assembly. Direct benzyl-nucleophile acylation of oxalate is shorter but requires unverified control of overaddition.\",\"strategy_query\":\"For CCOC(=O)C(=O)Cc1ccc(F)cc1, construct C5–C17 by crossed Claisen C-acylation of ethyl 4-fluorophenylacetate with diethyl oxalate. The sole enolizable methylene fixes regiochemistry; oxalate symmetry removes electrophile-end ambiguity, and product enolate formation supports termination. Follow separately with hydrolysis, decarboxylation of the arylacetate-derived carboxyl group, and re-esterification; no stereocontrol is required.\"}],\"steps\":[{\"conditions\":[\"Forward hypothesis: hydrolyze the methyl ester with aqueous NaOH in methanol/water at low to ambient temperature; then acidify briefly under cooling and isolate the hydroxyacid without prolonged acidic heating to limit lactonization.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C@H:11]([OH:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C@H:11]([OH:12])[CH2:13][C:14](=[O:15])[OH:16])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Reverse terminal methyl-ester saponification to expose an ester precursor compatible with stereoselective side-chain construction.\",\"reaction_operations\":[{\"count\":0,\"map_idx\":16,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[CH3:31]\",\"map_idx\":16,\"op\":\"add_group\"}],\"review_slot\":\"review-001\"},{\"conditions\":[\"Hypothesis: precomplex the C8-hydroxy/C11-ketone substrate with diethylmethoxyborane in dry THF, then add NaBH4 in methanol at low temperature; quench residual hydride before aqueous borate cleavage. Verify C8 R/C11 S selectivity and retention of the methyl ester and E alkene.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C@H:11]([OH:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the C11 alcohol to a beta-hydroxy ketone for boron-directed syn reduction targeting C11 S while retaining C8 R and the E alkene.\",\"reaction_operations\":[{\"map_idx\":11,\"op\":\"clear_stereocenter\"},{\"count\":0,\"map_idx\":11,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"count\":0,\"map_idx\":12,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"delta\":1,\"map_a\":11,\"map_b\":12,\"op\":\"change_bond_order\"}],\"review_slot\":\"review-002\"},{\"conditions\":[\"Forward hypothesis: buffered TBAF/AcOH in THF at 0 °C, followed by prompt aqueous workup, removes O-TBS while retaining C8 configuration, the E alkene and methyl beta-ketoester; monitor for dehydration or retro-aldol cleavage.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([O:9][Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Reverse selective O-TBS deprotection to expose a protected beta-ketoester suitable for two-carbon ester homologation.\",\"reaction_operations\":[{\"count\":0,\"map_idx\":9,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38]\",\"map_idx\":9,\"op\":\"add_group\"}],\"review_slot\":\"review-003\"},{\"conditions\":[\"Hypothesis: separately preform methyl acetate lithium enolate with LDA in dry THF at −78 °C; slowly add the protected beta-hydroxy ester to excess enolate, allow controlled warming, then quench with cold aqueous ammonium chloride.\",\"Competing ester-substrate enolization, acetate self-condensation and beta-siloxy elimination require evaluation; retain C8-R, the E alkene and the O-TBS group.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([O:9][Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38])[CH2:10][C:11](=[O:12])[O:39][CH3:40])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"[CH3:13][C:14](=[O:15])[O:16][CH3:31]\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([O:9][Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38])[CH2:10][C:11](=[O:12])[CH2:13][C:14](=[O:15])[O:16][CH3:31])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the beta-ketoester by reverse Claisen acylation into the C8-R O-TBS-protected beta-hydroxy methyl ester and methyl acetate.\",\"reaction_operations\":[{\"map_a\":11,\"map_b\":13,\"op\":\"break_bond\"},{\"fragment_smiles\":\"*[O:39][CH3:40]\",\"map_idx\":11,\"op\":\"add_group\"},{\"count\":3,\"map_idx\":13,\"no_implicit\":true,\"op\":\"set_explicit_h\"}],\"review_slot\":\"review-004\"},{\"conditions\":[\"Forward hypothesis: treat the isolated C8-R beta-hydroxy methyl ester with TBSCl and imidazole in dry DMF at 0 °C to room temperature, then aqueous workup; retain C8 configuration, the E alkene, and the methyl ester.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[O:39][CH3:40])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([O:9][Si:32]([CH3:33])([CH3:34])[C:35]([CH3:36])([CH3:37])[CH3:38])[CH2:10][C:11](=[O:12])[O:39][CH3:40])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Reverse alcohol O-TBS protection to expose the C8-R beta-hydroxy methyl ester for asymmetric acetate aldol disconnection.\",\"reaction_operations\":[{\"map_indices\":[32,33,34,35,36,37,38],\"op\":\"remove_group\"},{\"count\":1,\"map_idx\":9,\"no_implicit\":true,\"op\":\"set_explicit_h\"}],\"review_slot\":\"review-005\"},{\"conditions\":[\"Hypothesis: preform a chiral Ti(IV)–BINOL Lewis-acid catalyst under anhydrous conditions, coordinate the E-enal, then add the separately prepared methyl acetate-derived trimethylsilyl ketene acetal at low temperature; aqueous workup releases the alcohol. Catalyst enantiomer and conditions require screening for C8-R selectivity, 1,2-addition and E-alkene retention.\"],\"mapped_precursor_smiles\":[\"[CH2:10]=[C:11]([O:12][Si:41]([CH3:42])([CH3:43])[CH3:44])[O:39][CH3:40]\",\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH:8]=[O:9])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[C@H:8]([OH:9])[CH2:10][C:11](=[O:12])[O:39][CH3:40])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the C8–C10 aldol bond for an asymmetric Mukaiyama acetate aldol addition to the E-enal, targeting the C8-R alcohol.\",\"reaction_operations\":[{\"map_a\":8,\"map_b\":10,\"op\":\"break_bond\"},{\"map_idx\":8,\"op\":\"clear_stereocenter\"},{\"count\":0,\"map_idx\":9,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"delta\":1,\"map_a\":8,\"map_b\":9,\"op\":\"change_bond_order\"},{\"delta\":-1,\"map_a\":11,\"map_b\":12,\"op\":\"change_bond_order\"},{\"delta\":1,\"map_a\":10,\"map_b\":11,\"op\":\"change_bond_order\"},{\"fragment_smiles\":\"*[Si:41]([CH3:42])([CH3:43])[CH3:44]\",\"map_idx\":12,\"op\":\"add_group\"}],\"review_slot\":\"review-006\"},{\"conditions\":[\"Forward hypothesis: add methyl acetate to preformed LDA in dry THF at −78 °C, then trap the ester enolate with TMSCl; use an anhydrous isolation to remove salts and residual base before the separate Lewis-acid-mediated aldol reaction.\"],\"mapped_precursor_smiles\":[\"[CH3:10][C:11](=[O:12])[O:39][CH3:40]\"],\"mapped_product_smiles\":\"[CH2:10]=[C:11]([O:12][Si:41]([CH3:42])([CH3:43])[CH3:44])[O:39][CH3:40]\",\"reaction_family\":\"Disconnect the acetate silyl ketene acetal to methyl acetate by reversing ester enolization and O-silylation.\",\"reaction_operations\":[{\"map_indices\":[41,42,43,44],\"op\":\"remove_group\"},{\"delta\":-1,\"map_a\":10,\"map_b\":11,\"op\":\"change_bond_order\"},{\"delta\":1,\"map_a\":11,\"map_b\":12,\"op\":\"change_bond_order\"},{\"count\":3,\"map_idx\":10,\"no_implicit\":true,\"op\":\"set_explicit_h\"}],\"review_slot\":\"review-007\"},{\"conditions\":[\"React the indole-2-carbaldehyde with separately prepared formylmethylenetriphenylphosphorane in dry toluene under controlled heating; then cool and remove triphenylphosphine oxide chromatographically. E selectivity requires verification, with isolation of the specified E-enal from any Z isomer.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([CH:6]=[O:72])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"[CH:7]([CH:8]=[O:9])=[P:73]([c:47]1[cH:48][cH:49][cH:50][cH:51][cH:52]1)([c:74]1[cH:75][cH:76][cH:77][cH:78][cH:79]1)[c:80]1[cH:46][cH:45][cH:83][cH:82][cH:81]1\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5](/[CH:6]=[CH:7]/[CH:8]=[O:9])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the E-enal by formyl-stabilized Wittig homologation of the indole-2-carbaldehyde.\",\"reaction_operations\":[{\"map_a\":6,\"map_b\":7,\"op\":\"break_bond\"},{\"fragment_smiles\":\"*=[O:72]\",\"map_idx\":6,\"op\":\"add_group\"},{\"fragment_smiles\":\"*=[P:73]([c:47]1[cH:48][cH:49][cH:50][cH:51][cH:52]1)([c:74]1[cH:75][cH:76][cH:77][cH:78][cH:79]1)[c:80]1[cH:46][cH:45][cH:83][cH:82][cH:81]1\",\"map_idx\":7,\"op\":\"add_group\"}],\"review_slot\":\"review-008\"},{\"conditions\":[\"Forward hypothesis: add controlled DIBAL-H to the ethyl ester in dry toluene at −78 °C, monitoring to limit overreduction; quench residual hydride cold with methanol, then perform aqueous tartrate workup to release the aldehyde.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6]([O:65][CH2:66][CH3:67])=[O:72])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([CH:6]=[O:72])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Reverse chemoselective ester partial reduction to recover the indole C2 ethyl ester required for the Fischer-based assembly pathway.\",\"reaction_operations\":[{\"count\":0,\"map_idx\":6,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[O:65][CH2:66][CH3:67]\",\"map_idx\":6,\"op\":\"add_group\"}],\"review_slot\":\"review-009\"},{\"conditions\":[\"Hypothesis: add freshly supplied bromoacetaldehyde to triphenylphosphine in dry acetonitrile at low temperature, then allow phosphonium formation before introducing base.\",\"After alkylation, treat briefly with aqueous potassium carbonate under biphasic conditions; extract and isolate the stabilized ylide, limiting aldehyde exposure to base.\",\"c1ccc(P(c2ccccc2)c2ccccc2)cc1\"],\"mapped_auxiliary_reagent_smiles\":[\"[cH:45]1[cH:46][c:80]([P:73]([c:47]2[cH:48][cH:49][cH:50][cH:51][cH:52]2)[c:74]2[cH:75][cH:76][cH:77][cH:78][cH:79]2)[cH:81][cH:82][cH:83]1\"],\"mapped_precursor_smiles\":[\"[CH2:7]([CH:8]=[O:9])[Br:68]\"],\"mapped_product_smiles\":\"[CH:7]([CH:8]=[O:9])=[P:73]([c:47]1[cH:48][cH:49][cH:50][cH:51][cH:52]1)([c:74]1[cH:75][cH:76][cH:77][cH:78][cH:79]1)[c:80]1[cH:46][cH:45][cH:83][cH:82][cH:81]1\",\"mapped_reaction_input_smiles\":[\"[CH2:7]([CH:8]=[O:9])[Br:68]\",\"[cH:45]1[cH:46][c:80]([P:73]([c:47]2[cH:48][cH:49][cH:50][cH:51][cH:52]2)[c:74]2[cH:75][cH:76][cH:77][cH:78][cH:79]2)[cH:81][cH:82][cH:83]1\"],\"reaction_family\":\"Prepare the formyl-stabilized Wittig ylide by triphenylphosphine alkylation with bromoacetaldehyde followed by deprotonation.\",\"reaction_operations\":[{\"map_a\":7,\"map_b\":73,\"op\":\"break_bond\"},{\"count\":2,\"map_idx\":7,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[Br:68]\",\"map_idx\":7,\"op\":\"add_group\"}],\"review_slot\":\"review-010\"},{\"conditions\":[\"Forward hypothesis: deprotonate the NH indole ester with NaH in dry THF at 0 °C; after hydrogen evolution subsides, add isopropyl iodide and warm cautiously, then quench with aqueous ammonium chloride. Secondary-halide elimination may compete with N-alkylation.\"],\"mapped_precursor_smiles\":[\"[CH3:1][CH:2]([CH3:3])[I:69]\",\"[nH:4]1[c:5]([C:6]([O:65][CH2:66][CH3:67])=[O:72])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\"],\"mapped_product_smiles\":\"[CH3:1][CH:2]([CH3:3])[n:4]1[c:5]([C:6]([O:65][CH2:66][CH3:67])=[O:72])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect indole N-isopropylation to expose the NH indole ester for Fischer ring-construction analysis.\",\"reaction_operations\":[{\"map_a\":2,\"map_b\":4,\"op\":\"break_bond\"},{\"count\":1,\"map_idx\":4,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*[I:69]\",\"map_idx\":2,\"op\":\"add_group\"}],\"review_slot\":\"review-011\"},{\"conditions\":[\"Hypothesis: condense the arylpyruvate with phenylhydrazine in ethanol under catalytic acetic acid, remove solvent and water, then heat the resulting hydrazone with anhydrous ZnCl2 in acetic acid for Fischer cyclization; cool and neutralize promptly before extraction. Hydrazone equilibration, cyclization efficiency and ethyl-ester retention require verification.\"],\"mapped_precursor_smiles\":[\"[C:5]([C:6]([O:65][CH2:66][CH3:67])=[O:72])([CH2:17][c:18]1[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]1)=[O:70]\",\"[NH:4]([c:30]1[cH:25][cH:26][cH:27][cH:28][cH:29]1)[NH2:71]\"],\"mapped_product_smiles\":\"[nH:4]1[c:5]([C:6]([O:65][CH2:66][CH3:67])=[O:72])[c:17](-[c:18]2[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]2)[c:25]2[cH:26][cH:27][cH:28][cH:29][c:30]12\",\"reaction_family\":\"Disconnect the Fischer indole construction into phenylhydrazine and ethyl 3-(4-fluorophenyl)-2-oxopropanoate, retaining the required C2 ester and C3 aryl mappin\",\"reaction_operations\":[{\"map_a\":4,\"map_b\":5,\"op\":\"break_bond\"},{\"map_a\":17,\"map_b\":25,\"op\":\"break_bond\"},{\"delta\":-0.5,\"map_a\":4,\"map_b\":30,\"op\":\"change_bond_order\"},{\"delta\":-0.5,\"map_a\":5,\"map_b\":17,\"op\":\"change_bond_order\"},{\"count\":2,\"map_idx\":17,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"count\":1,\"map_idx\":25,\"no_implicit\":true,\"op\":\"set_explicit_h\"},{\"fragment_smiles\":\"*=[O:70]\",\"map_idx\":5,\"op\":\"add_group\"},{\"fragment_smiles\":\"*[NH2:71]\",\"map_idx\":4,\"op\":\"add_group\"}],\"review_slot\":\"review-012\"},{\"conditions\":[\"Forward hypothesis: esterify the arylpyruvic acid with excess dry ethanol and catalytic sulfuric acid under mild temperature control, then neutralize and extract promptly; conversion without alpha-ketoacid decomposition requires verification.\"],\"mapped_precursor_smiles\":[\"[C:5]([C:6]([OH:65])=[O:72])([CH2:17][c:18]1[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]1)=[O:70]\"],\"mapped_product_smiles\":\"[C:5]([C:6]([O:65][CH2:66][CH3:67])=[O:72])([CH2:17][c:18]1[cH:19][cH:20][c:21]([F:22])[cH:23][cH:24]1)=[O:70]\",\"reaction_family\":\"Reverse ethyl esterification to expose the arylpyruvic acid required after hydrolysis and selective decarboxylation of the crossed-Claisen adduct.\",\"reaction_operations\":[{\"map_indices\":[66,67],\"op\":\"remove_group\"},{\"count\":1,\"map_idx\":65,\"no_implicit\":true,\"op\":\"set_explicit_h\"}],\"review_slot\":\"review-013\"}]}"
+  }
+}

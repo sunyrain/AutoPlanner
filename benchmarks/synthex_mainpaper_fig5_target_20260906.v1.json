@@ -1,0 +1,27 @@
+{
+  "schema_version": "blind_retrosynthesis_manifest.v1",
+  "cases": [
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 128,
+        "max_attempt_runs": 320,
+        "max_model_invocations": 240,
+        "max_prompt_context_bytes": 96000,
+        "max_total_input_tokens": 6000000,
+        "max_total_output_tokens": 2000000,
+        "max_total_wall_time_s": 14400
+      },
+      "case_id": "mainpaper-20260906-04",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque target 004",
+      "target_smiles": "CCOC(=O)C1(O)c2cc3c(cc2C(=O)C1(C)O)C1(CC(=O)C[C@@H](C)O1)O[C@H](C)C3"
+    }
+  ]
+}

@@ -750,7 +750,9 @@ def test_exact_precedent_can_support_edit_set_above_screening_budget() -> None:
     product = "C1=CC(=C2CCCCC2)C=C1"
     reactants = ["C1=CCC=C1", "O=C1CCCCC1"]
     mapped = (
-        "[CH:1]1=[CH:11][CH2:10][CH:3]=[CH:2]1."
+        # Non-minimal atom correspondence keeps this above eight changed
+        # pairs even when bond-order changes are correctly counted once.
+        "[CH:1]1=[CH:10][CH2:2][CH:11]=[CH:3]1."
         "O=[C:4]1[CH2:5][CH2:6][CH2:7][CH2:8][CH2:9]1>>"
         "[CH:1]1=[CH:2][C:3](=[C:4]2[CH2:5][CH2:6][CH2:7]"
         "[CH2:8][CH2:9]2)[CH:10]=[CH:11]1"
@@ -1156,7 +1158,7 @@ def test_exact_source_supported_artemisinin_oxidative_cascade_is_validated() -> 
     assert supported["accepted"] is True
     assert supported["proof_level"] == "L2_reaction_validated"
     assert supported["atom_map_audit"]["net_ring_increase"] == 3
-    assert supported["bond_change_audit"]["bond_edit_count"] == 9
+    assert supported["bond_change_audit"]["bond_edit_count"] == 8
     assert supported["deterministic_transform_audit"]["transform_family"] == (
         "source_supported_tandem_oxidative_cyclization"
     )

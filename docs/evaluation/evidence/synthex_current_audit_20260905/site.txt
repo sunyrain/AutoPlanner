@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SynthAtlas — Agentic Synthesis Planning for Natural Products</title>
+  <!-- Route-tree mark (see favicon.svg). PNG for the browsers that still ignore SVG favicons;
+       apple-touch-icon is the opaque, padded variant iOS needs for the home screen. -->
+  <link rel="icon" href="favicon.svg?v=2" type="image/svg+xml">
+  <link rel="icon" href="favicon-32.png?v=2" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=2">
+  <link rel="stylesheet" href="styles.css?v=54">
+</head>
+<body>
+  <nav class="nav"><div class="wrap">
+    <div class="brand" onclick="location.hash='#/'"><span class="dot"></span>SynthAtlas <span class="chip">beta</span></div>
+    <div class="links" id="navLinks">
+      <a data-tab="routes" href="#/routes">Routes</a>
+      <a data-tab="reactions" href="#/reactions">Reactions</a>
+      <a data-tab="molecules" href="#/molecules">Molecules</a>
+      <a data-tab="glossary" href="#/glossary">Glossary</a>
+      <a data-tab="about" href="#/about">About</a>
+    </div>
+    <!-- Suggest is deliberately NOT in the nav bar. It reaches #/suggest from the footer link
+         below (present on every page) and from the button row on the landing page — the top bar
+         stays a list of sections. The Google Form this used to point at is retired; the form is
+         now a page of this site, backed by the `suggestions` table. -->
+    <span id="authbox" class="authbox"></span>
+    <!-- Shown only below 960px, where the links collapse into a panel. Until this existed the
+         links were simply display:none on narrow screens, so a phone or tablet had no way to
+         reach any section — the brand logo was the only working link on the site. -->
+    <button class="nav-toggle no-print" id="navToggle" type="button"
+            aria-label="Open menu" aria-expanded="false" aria-controls="navLinks">
+      <svg class="i-menu" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      <svg class="i-close" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div></nav>
+  <main id="app"><div class="page"><div class="wrap"><div class="empty">Loading the atlas…</div></div></div></main>
+  <footer class="foot"><div class="wrap">
+    <div class="foot-brand">
+      <div class="brand"><span class="dot"></span>SynthAtlas</div>
+      <!-- Two lines, not one: what the site is, then who made it. Run together with a · they read
+           as one long string and the credit disappears into the tagline.
+           The atlas is four labs, not one: LIAC built the agent, and LSPN (EPFL), the Njardarson
+           Laboratory (Arizona) and the Wipf Group (Pittsburgh) supplied the synthetic chemistry
+           judgement. Crediting only the Schwaller Group here understated that. The institutions are
+           named once and cover all four; the link lands on the Team section itself. -->
+      <div class="attr">Agentic synthesis planning for natural products</div>
+      <div class="attr credit">Schwaller Group and
+        <a href="#/about/team">synthetic chemistry colleagues</a> at EPFL, Arizona and Pittsburgh</div>
+    </div>
+    <div class="foot-right">
+      <a class="foot-link" href="#/suggest">Suggest a target</a>
+      <!-- Here rather than only in the hero so the paper is one click from every route and reaction
+           page, not just the landing page. -->
+      <a class="foot-link ext" href="https://arxiv.org/abs/2608.07454" target="_blank"
+         rel="noopener">Preprint</a>
+      <a class="foot-link" href="#/privacy">Privacy Policy</a>
+      <a class="epfl-logo" href="https://www.epfl.ch" target="_blank" rel="noopener"
+         title="EPFL — École polytechnique fédérale de Lausanne" aria-label="EPFL home page">
+        <img src="vendor/epfl-logo.svg" alt="EPFL" width="96" height="28">
+      </a>
+    </div>
+  </div></footer>
+  <script src="vendor/dagre.min.js"></script>
+  <script src="vendor/cytoscape.min.js"></script>
+  <script src="vendor/cytoscape-dagre.js"></script>
+  <script src="vendor/pdf-lib.min.js"></script>
+  <script src="vendor/svg-to-pdf.js?v=2"></script>
+  <script src="config.js?v=29"></script>
+  <script src="data-access.js?v=32"></script>
+  <script src="pdf.js?v=5"></script>
+  <script src="chem-search.js?v=5"></script>
+  <script src="app.js?v=66"></script>
+</body>
+</html>

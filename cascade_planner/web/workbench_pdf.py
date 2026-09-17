@@ -672,7 +672,11 @@ def _scheme_molecule(value: Mapping[str, Any]) -> str:
     molecule = dict(value or {})
     smiles = str(molecule.get("canonical_smiles") or "")
     label = str(molecule.get("label") or "")
-    stock = "可采购/库存闭合" if molecule.get("stock_closed") is True else "库存待核验"
+    stock = (
+        "配置目录已命中"
+        if molecule.get("stock_closed") is True
+        else "配置目录未命中或待审"
+    )
     return f"""<div class="scheme-molecule">
       <div class="scheme-structure">{_molecule_svg(smiles, 330, 190)}</div>
       <b>{_esc(label or smiles or "结构未记录")}</b>

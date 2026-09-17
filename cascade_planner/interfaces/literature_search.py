@@ -53,6 +53,7 @@ def europe_pmc_metadata_search(
     limit: int,
     *,
     requester: HttpRequester = requests.get,
+    include_abstract: bool = False,
 ) -> list[dict[str, Any]]:
     """Search chemistry papers and patents without downloading source files.
 
@@ -129,6 +130,9 @@ def europe_pmc_metadata_search(
                 ),
                 "source_kind": "paper_si",
                 "metadata_provider": "europe_pmc",
+                **({"abstract": html.unescape(re.sub(r"<[^>]+>", " ",
+                     str(record.get("abstractText") or "")))[:1200]}
+                   if include_abstract else {}),
             }
         )
     return rows[: max(1, int(limit))]

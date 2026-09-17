@@ -2,6 +2,8 @@
 
 本文档描述 paper-matched SynthEx 流程的当前真实实现。它是维护时的边界清单：每个组件只做自己的工作；模型声明不是结构、库存或 solved 事实；任何新增状态都必须先在本文中找到唯一归属。
 
+增强配置 `self_correcting_sequential` 现可使用 [有限规划查询](BOUNDED_PLANNING_EVIDENCE.md)：查询只提供观察，Host 持有跨分支额度、缓存与原有提交权限。冻结 paper 配置继续关闭该能力。Critic 的原料边界/路线经济性提示不新增硬性否决规则。
+
 ## 1. 当前阶段顺序
 
 ```text
@@ -28,11 +30,14 @@ Critic/Editor 位于战略路线的关键检查点和最终路线边界。Critic
 2. `precursor_smiles` 和 `mapped_precursor_smiles` 的唯一结构权威是 Host compiler/replay。
 3. 库存由绑定的精确 full-InChIKey oracle 判定。任何模型或 provider 的库存文字都只是 advisory。
 4. solved 仅由 Host 在目标根连通、全部步骤可物化、全部终端叶库存闭合后计算。
-5. Builder 不拥有 handoff、失败、停止或终止 Strategy 的权限；战略层仅由 Host/MCTS 的库存状态、可扩展状态和预算结束。
-6. 目标根可达、真实回放产生且库存未闭合的叶，只能继续进入同一个正常 Builder 合同。
+5. Builder 不拥有 handoff、失败、停止或终止 Strategy 的权限；Host/MCTS 决定搜索终止。启用有限规划查询的增强配置中，Strategy 可提出绑定真实叶的 `material_boundary` 请求，由 Host 暂停该分支并保留已选路径；这不授予库存闭合或 solved。
+6. 目标根可达、真实回放产生且库存未闭合的叶，在继续合成展开时仍使用同一个 Builder 合同；待核查原料边界保持未闭合，不能伪装成反应或强制新增合成步骤。
 7. Builder 不自报具有判定权的 `strategy_relation`。Builder 的 `checkpoint_relation=preparatory|executes_checkpoint` 仅作为稀疏 Critic 的调度 metadata，不参与 admission，也不证明 Strategy 已执行；Host 必须先回放，Critic 再根据真实图编辑确认 `checkpoint_match`。
 8. Critic 可以标记 blocking，Editor 可以提交 RouteJSON 的依赖闭合替换范围，但两者都不能降低 Host 的结构 admission 标准。
 9. 工具预算只统计实际开始执行的调用。被 sandbox 在执行前拦截的尝试保留在 worker 审计记录中，但不得吞掉已经完整生成且通过 schema 的结构化 artifact；实际执行的越权或超预算调用仍然拒绝整轮 worker 输出。
+10. 条件文本属于待审查的化学输入。`application/condition_predictions.py::normalize_condition_text` 仅移除明确的独立占位值；具体条件及其不确定性说明必须一起保留。含 `screening` 的混合句和可能命名试剂的缩写不能按子串删除。Critic 提示压缩不得截断条件或遗漏后续条件项；完整必需输入超过预算时返回输入不可用。条件预测始终不授予 source evidence、reaction proof 或实验可行性。
+11. 化学分子身份由 `application/stereochemistry.py::canonical_stereo_smiles` 去映射后重新清理立体状态；Director、repair、Route Critic context 与 compiler/replay 共用该比较。真实构型、未指定构型、同位素、电荷和连接关系仍被区分；mapped 序列化、原子来源和 edit namespace 保持各自合同。
+12. `key_event_critic_history` 仍是 Key Critic 的唯一持久化判断来源。`orchestration/key_event_review.py` 统一解释首次/随访结果并归约选中路径：无效输出记录为 `review_unavailable`，`checkpoint_match=null`，不改写成有效的 `false` 判断；读取旧历史时不以 display status 决定有效性。失败复审保留此前仍适用的判断，并派生 `review_pending` 与未覆盖证据；首次失败不能生成 pass，真实后续 reject 与有效不匹配判断仍能覆盖旧判断。pass/uncertain 依赖的证据被剪枝后不能继续使用，reject 在其 focus 仍被选中时保留。派生待审信息不拥有新的重试预算或路线通过权限。
 
 ### 2.1 与原论文的 Editor 对齐边界
 
@@ -58,11 +63,11 @@ Critic/Editor 位于战略路线的关键检查点和最终路线边界。Critic
 
 ### 3.2 Strategy Generator（LLM）
 
-职责：先于反应搜索提出三个实质不同的高层合成假设。每个假设指出关键正向事件、使其成立的 reactive-handle motif，以及主要立体或官能团控制。
+职责：先于反应搜索提出有希望、实质不同的高层合成假设，数量由化学判断决定。每个假设指出关键正向事件、使其成立的 reactive-handle motif，以及主要立体或官能团控制。
 
-输入：paper-matched 模式只接收 canonical `campaign_target` 和 `strategy_count=3`。三个 Strategy 在一次模型调用中共同生成。
+输入：接收 canonical `campaign_target` 和 Host 拓扑提示。增强模式在一次调用中生成数量可变的 portfolio，不要求凑数；冻结论文模式仍使用 `strategy_count=3`。
 
-输出：恰好三个 compact StrategyCard；每张只有：
+输出：compact StrategyCard 列表，可为空；每张仍只有：
 
 - `strategy_query`：一句高层方向；
 - `critical_assumption`：一句最重要的化学假设；
@@ -72,13 +77,19 @@ Critic/Editor 位于战略路线的关键检查点和最终路线边界。Critic
 
 禁止拥有的权限：不画前体，不写 ReactionJSON，不给完整路线、条件、库存、证据或 solved；不要求 Builder 一次生成全路线。
 
-失败去向：输出数量、字段或多样性合同不成立时，该 Strategy portfolio 不进入 Builder。
+失败去向：字段或多样性合同不成立时，该 portfolio 不进入 Builder。合法空列表表示本次没有有希望的方向，不补造卡片或自动重试。Strategy Critic 按输入顺序逐卡返回，可用既有 `review_decision=discard` 丢弃方向；Host 仅为幸存方向建立搜索分支。分支数增加不扩大目标共享调用、token 或时间预算。
 
-Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdict。初始 portfolio Critic 读取 target topology 与三张卡；后续 Strategy Generator 和 Strategy Critic 读取同一个 Host 派生的 `strategy_horizon_context`：当前真实 mapped leaf、该分子 occurrence 的 `connected_path_reactions`、已完成 milestones，以及当前 split 的 sibling co-precursor 状态。完整 RouteJSON 仍由 Host、路线级 Critic 和 Editor 持有，不能再把“全分支最后若干行”复制成 Strategy 的 prefix；那会把 sibling 的上游反应伪装成当前叶历史。Critic 据此检查新方向能否从当前叶合成既有下游反应 spine。`active sibling horizon` 不等于 `completed milestone`：切换到没有适用 horizon 的 sibling 可以生成新 Strategy，但只有当前 mapped target-to-leaf spine 上已经由 Key Critic `pass` 的 checkpoint 才能进入 `completed_milestones`；仅附着在 preparatory step 上或属于其他 sibling 的 Strategy 继续保存在 branch state，返回该 lineage 时恢复，不能伪装成 Host 已完成事实。Strategy horizon 不等于 Builder 的下一步反应：Builder 可以先逐步完成必要的保护、氧化还原、解掩蔽或 reactive-handle 安装，Critic 只能审查这些准备步骤的相容性与顺序，不能用其中一个准备步骤替换路线定义级 horizon 或 checkpoint。只要当前叶仍有复杂主骨架，Critic 的修订或替换就必须保持骨架构建、重排、立体接力或收敛简化的 route-defining 粒度；只有主骨架已经简单且不存在待解决的路线定义级问题时，外围官能团调整才可能成为新 Strategy。Critic 不得把新叶当孤立分子审查，也不得为显得具体而自行发明命名反应。若 `critical_assumption` 依赖同一个关键事件产生的立体或选择性结果，`critic_checkpoint` 必须保留该结果，不能削弱为“只形成一根键”。
+Strategy Critic 保留同一 Strategy 三字段，并附加简短 review decision 和 decisive risk；不建立第二套化学 admission verdict。初始 portfolio Critic 读取 target topology 与卡片列表；后续 Strategy Generator 和 Strategy Critic 读取同一个 Host 派生的 `strategy_horizon_context`：当前真实 mapped leaf、该分子 occurrence 的 `connected_path_reactions`、已执行 milestones，以及当前 split 的 sibling co-precursor 状态。完整 RouteJSON 仍由 Host、路线级 Critic 和 Editor 持有，不能把“全分支最后若干行”复制成 Strategy 的 prefix；那会把 sibling 的上游反应伪装成当前叶历史。Critic 据此检查新方向能否从当前叶合成既有下游反应 spine。
+
+拓扑输入的 `cycle_rank` 按图的 E−V+连通分量数计算，各连通环系按其环边并集计算 E−V+1。`perceived_ring_sizes_unordered` 是 RDKit 对称化感知环的大小，可能包含线性相关的环，不能当作独立环基或有序骨架名称。`ring_junction_topology` 仅描述这些感知环之间的共享原子；它不是唯一物理桥或稠合接点的计数。删除环系内重复的 fused/spiro/bridged pair 统计，不保留旧 `cycle_basis_sizes_unordered` 别名；历史模型输入保持原样，新输入由结构重新派生。
+
+`active sibling horizon` 不等于 `completed milestone`。切换到没有适用 horizon 的 sibling 可以生成新 Strategy；只有当前 mapped target-to-leaf spine 上被选中、且有效 Key Critic 确认 `checkpoint_match=true` 并给出 pass/uncertain 的事件，才可作为已执行 milestone。`checkpoint_executed` 与 `checkpoint_critic_passed`、`chemical_confidence` 分开记录：uncertain 可以推进探索，但风险并未解除。仅附着在 preparatory step 上或属于其他 sibling 的 Strategy 继续保存在 branch state，返回该 lineage 时恢复，不能伪装成当前路径已执行事实。
+
+Strategy horizon 不等于 Builder 的下一步反应：Builder 可以先逐步完成必要的保护、氧化还原、解掩蔽或 reactive-handle 安装，Critic 审查这些准备步骤的相容性与顺序，不能用其中一个准备步骤替换路线定义级 horizon 或 checkpoint。只要当前叶仍有复杂主骨架，Critic 的修订或替换就应保持骨架构建、重排、立体接力或收敛简化的 route-defining 粒度；只有主骨架已经简单且不存在待解决的路线定义级问题时，外围官能团调整才可能成为新 Strategy。Critic 不得把新叶当孤立分子审查，也不得为显得具体而自行发明命名反应。若 `critical_assumption` 依赖同一个关键事件产生的立体或选择性结果，`critic_checkpoint` 必须保留该结果，不能削弱为“只形成一根键”。
 
 ### 3.3 Route Builder（LLM，单节点策略）
 
-职责：对 MCTS 当前选中的一个节点，先在内部推演从当前叶经过 Strategy 命名关键构建并通向可得前体的完整化学路径，再在该路线语境中比较断键，只返回当前一个最好的真实反应动作。“只输出一个 ReactionJSON”是输出边界，不是思考边界。复杂 concerted 或真正不可分的 cascade 可以在同一个反应中包含多个相互关联的 graph edit，但不能用虚构中间步拆开；独立的保护/脱保护、活化、氧化还原、workup 共价变化或第二套试剂阶段必须是相邻的独立 route edge，即使实验上可以不分离中间体，也不能为了通过 Critic 而合并计步。
+职责：对 MCTS 当前选中的一个节点，先在内部推演从当前叶经过 Strategy 命名关键构建并通向可得前体的完整化学路径，再在该路线语境中比较断键，只返回当前一个最好的真实反应动作。“只输出一个 ReactionJSON”是输出边界，不是思考边界。默认一条 edge 表示一个有明确合成目的的转化，可包含服务于该转化的原位活化、加料和后处理；不能仅因出现瞬态反应物、换试剂、换容器或质子转移就新增路线节点。独立保护后偶联、氧化后烯化、自由基前体制备后脱氧等仍是不同合成转化，即使实验上可以串联操作。协同反应或化学上连贯的 cascade 可以包含多个 graph edit，必须编码完整净转化，不能虚构中间步骤或用名称掩盖独立合成负担。共用语义由 `orchestration/reaction_granularity.py` 提供给 Builder、Editor 和各级 Critic。
 
 输入：
 
@@ -89,25 +100,28 @@ Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdic
 - `current_split_context`：仅包含产生当前叶的父反应，以及同一次 split 的 Host-mapped sibling co-precursors；它用于判断偶联手柄和官能团兼容性，不扩展成整棵搜索树；Host 优先按 mapped boundary 追踪 lineage，不能因搜索树的未映射投影不同而丢失父步骤或 sibling；
 - `ancestor_smiles`：防止回到路径祖先的结构负记忆；
 - `last_rejection_for_this_leaf`：该叶最近一次 Host replay/cycle 失败，只携带原始 typed compiler error、`operation_index`、`failed_operation` 和必要的局部端点事实；不回灌整组 operations，也不得压成笼统的 replay failed。
-- `pending_checkpoint_feedback.active_constraints`：从 append-only `key_event_critic_history` 派生、只属于当前 Strategy 与当前 mapped leaf lineage、且能够由同一父 leaf 的新 candidate 或一个以该 leaf 为 product 的新准备步骤修正的 blocking obligation；不同 reject 不得互相覆盖，preparatory move 不得擦除，sibling leaf 与新 Strategy 不得串用。若 Key Critic 判定修复必须修改或重排 focus 之前任何已接纳行，Host 不把该 finding 再交给普通 Builder，而是立即停止当前 selected branch expansion 并调度既有 transactional Path Repair。`uncertain` 是 Critic 自己的 evidence debt，不进入后续 Builder prompt，也不能要求后续叶修改已经物化的旧边；MCTS 选中该关键事件直接 mapped precursor 的新上游步骤后，Critic 最多做一次局部证据复审。只有复审 `pass` 且 focus/evidence steps 都已进入当前路径，或同一 horizon 的新 checkpoint `pass` 被选中后才退休。它不复制完整 Critic 输出，也不建立第二个可写状态权威。
+- `pending_checkpoint_feedback.active_constraints`：从 append-only `key_event_critic_history` 派生，只属于当前 Strategy 与 mapped leaf lineage。不同 reject 不得互相覆盖，preparatory move 不得擦除，sibling leaf 与新 Strategy 不得串用。若修复必须修改 focus 之前的已接纳行，调度既有 transactional Path Repair。新 `uncertain` 按 `uncertainty_source` 分流：缺实现细节在候选入树前请求同一叶 Builder 澄清一次；缺证据在既有受限查询可用时安排一次针对性查询复审，不可用时保留假设；判断未厘清时安排一次结构或立体定向复核。普通上游准备步骤不再自动触发这些复审。旧的无类型历史仍按直接前体证据规则读取。后续叶无权直接改写已接纳的旧边。只有有效复审 pass，且它依赖的步骤仍在当前路径中，才能解除风险；这不建立第二个化学判断来源。
 
 输出只有一个 expansion object：
 
 - `reaction_intent`：合并 reaction family 与 rationale 的一句简短反应意图；
+- `continuation_hint`：一至两句尚未执行的局部续接假设，说明得到的前体保留了什么简化机会及下一关键问题；只沿实际父反应 occurrence 传给下一 Builder/Strategy，不堆积成历史，不复制当前反应、条件或整个 Strategy。分叉时指出适用前体；它可被修订，不构成事实、约束或证据。Host replay、RouteJSON、sidecar 和 route-bound origin 保留该建议。
 - `checkpoint_relation`：仅为 `preparatory` 或 `executes_checkpoint`；只有当前 operations 本身实现 `strategy.critic_checkpoint` 时才选择后者。它只请求一次 Host 回放后的 Critic 调度，不证明 Strategy 已执行，也不参与 admission；
 - `reaction_operations`：一组有序 ReactionJSON operations，不设论文未规定的 12-operation 上限；
 - 模型端不输出 `order`：`add_bond` 固定新增单键；新增双键或三键时随后使用 `change_bond_order`；`add_group` 的连接键级直接写在 `fragment_smiles` 的 `[*]` 键中。Host 继续兼容并严格校验历史输入中的显式 `order`。
 - 模型端不计算 RDKit `stereo_atom_maps`：`set_bond_stereo` 只表达键端点和 E/Z/CIS/TRANS/NONE/ANY 意图；Host 在完成图编辑与价态补全后按当前结构派生 reference neighbours。历史 artifact 中错误的 reference maps 不得覆盖 Host 派生结果。
 - 论文公开的十个 primitive 继续固定为 `reactionjson_public_profile.2026-08-17.v1`。当前管线若需给新生成或原本未指定的四面体中心赋绝对构型，只能使用显式版本化扩展 `set_tetrahedral_stereo(map_idx, configuration=R|S)`；Host 尝试 RDKit CW/CCW 并验证实际 CIP。扩展使用必须进入 replay audit，不能伪装成论文公开 profile，也不能把 `invert_stereocenter` 复用为“创建手性”。
-- `conditions`：简短条件假设，催化剂写在此处。
+- `conditions`：简短但完整的条件假设，催化剂写在此处。每个假设说明必要活化、主体反应、淬灭/后处理的正向顺序，以及不相容残留物的去除；多个假设不能被当成连续阶段共同施加。保留既有列表表示，不新增 StageJSON；移除 Builder/Editor 条件字符串的 160 字符上限，由已有单次输出字节预算约束总长度，避免关键试剂或最终交付状态在句中丢失。
 
 拥有的权限：设计当前 mapped product 的一个局部 ReactionJSON；在内部推演完整路线因果以选择这一个当前动作。
 
-结构真实性规则：Strategy 点名的关键反应不能只出现在 `reaction_intent`、催化剂或条件文字中。若命名构建消耗或产生特定 reactive handle，相关 mapped atoms/bonds 必须参与定义该构建的 operations；若命名构建依赖立体控制，相关立体/几何信息必须在可回放结构或 operations 中被表达或有意变换。当前结构缺少必要手柄或立体设置时，应诚实输出 `checkpoint_relation=preparatory`，不能把不相干 graph edit 标成 `executes_checkpoint`。一个 key edge 若还需要独立脱保护、氧化还原或 workup 才得到其 product，必须拆成相邻步骤；名称、多个 conditions 字符串或“一锅完成”不能把两个独立化学事件变成一个 route edge。
+结构真实性规则：Strategy 点名的关键反应不能只出现在 `reaction_intent`、催化剂或条件文字中。若命名构建消耗或产生特定 reactive handle，相关 mapped atoms/bonds 必须参与定义该构建的 operations；若命名构建依赖立体控制，相关立体/几何信息必须在可回放结构或 operations 中被表达或有意变换。当前结构缺少必要手柄或立体设置时，应诚实输出 `checkpoint_relation=preparatory`，不能把不相干 graph edit 标成 `executes_checkpoint`。ReactionJSON 编码实际输入与交付产物之间的净逆向图编辑，并非正向加料顺序或反应机理。常规水解、质子化、中和可以属于主体转化，真实端点、原子来源和必要选择性不能省略。独立的保护、氧化还原或骨架转化不能藏在条件文字中。已分离或外部供应的中间体可以作为明确边界，但其上游制备不能因此被视作完成。
+
+粒度与化学 verdict 分开：Critic 审查一个转化内的所有必要阶段；具体结构、选择性、试剂相容性或顺序矛盾仍为 reject，仅缺少阶段细节为 uncertain。不得仅因常规活化/后处理未单独成节点而 reject。若一个化学上可行的记录合并了独立合成目的，应在条件评价或最小修订建议中说明拆分与真实负担；计步口径本身不能伪装成化学失败。公开路线、历史路线和新路线比较时，分别说明原始记录数、合成转化数、同口径最长线性序列与前体边界；实际实验操作数未知时保留未知，不靠“一锅”标签推断。
 
 禁止拥有的权限：不输出 precursor SMILES，不改 atom-map namespace，不声明结构已回放、库存、路线完整、Critic 通过或 solved；不能输出 `handoff`、`fail`、`abort`、`give_up`、`stop` 或任何其他终止 Strategy 的动作。
 
-继续规则：Builder 始终返回当前最佳可用 expansion。缺少关键手柄时，可以逐次执行必要的 enabling reaction，不要求一个调用完成整条路线；当前叶已经具备命名关键构建所需拓扑时，应优先执行该关键构建，而不是继续累积无关 enabling/supporting 转换。反应复杂、不确定、constraint conflict 或没有找到理想断键都不能授权停止；是否继续调用由 Host/MCTS/预算决定。
+继续规则：普通构建的 Builder 返回当前最佳可用 expansion。缺少关键手柄时，可以逐次执行必要的 enabling reaction，不要求一个调用完成整条路线；当前叶已经具备命名关键构建所需拓扑时，应优先执行该关键构建，而不是继续累积无关 enabling/supporting 转换。修复模式额外支持第 3.9b 节的有限 `recovery` 请求，不能因此终止整个 Strategy 或声明 solved；是否继续调用由 Host/MCTS/预算决定。
 
 失败去向：ReactionJSON 不可回放时，Host 拒绝该 candidate，并只把底层 typed compiler error、失败 operation 及其索引和必要端点事实交给下一次 Builder 调用；完整失败候选留在 worker record，不复制进 prompt。Host 在剩余预算内重试。预算耗尽、连续回放失败、MCTS 无可扩展节点或搜索 runtime 异常由 Host/runtime 记录，Builder 本身不能主动终止 Strategy。
 
@@ -119,11 +133,13 @@ Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdic
 
 输出：`accepted_draft` 或带稳定 reason code 的拒绝记录。
 
-拥有的权限：要求恰好一个 expansion；拒绝 Builder 控制字段和非法结构；添加 artifact id、case id、source 等 Host-owned envelope。
+拥有的权限：普通任务要求恰好一个 expansion；仅在 Host 指定的修复任务中接受有限 `recovery`；拒绝无约束 Builder 控制字段和非法结构；添加 artifact id、case id、source 等 Host-owned envelope。
 
 禁止拥有的权限：schema 通过不等于化学正确、结构可回放、库存闭合或 handoff 合格。
 
-运行时工具合同：Strategy、Builder、Critic、Editor 不设置 tool-call 次数上限，也不因模型调用过工具而拒绝已经生成的结构化 artifact。原始 tool-call 记录仍保留在 `WorkerRunRecord.tool_calls`，仅用于观测；Prompt 不讨论工具是否允许。隔离 worker 暴露的只读 `inspect_mapped_smiles` 直接返回局部原子邻接、键级、环路径和立体事实，避免模型为结构检查另写 RDKit shell。工具调用不绕过后续 schema、RouteJSON compiler、Critic 或库存审查。
+Strategy 三句、review risk 和 Key/Route Critic 的理由、条件评价、修订建议与整体评价不再设置逐句 `maxLength`；仍要求简洁，并保留条目数、枚举、标识符约束和 worker 总输出字节预算。Host 向 Builder、Editor 和后续 Strategy 投影这些化学陈述时保留完整句子，通过选择相关条目减少重复，不在句中截断。此调整保证信息可以完整传递，不证明模型化学判断质量已经提高。
+
+运行时工具合同：工具权限与调用额度由实际 WorkerTask 和所启用的规划查询配置决定；无次数限制不等于允许任意工具。增强配置的外部发现使用 Host 管理的有限查询，冻结 paper 配置关闭外部发现。隔离 worker 暴露的只读 `inspect_mapped_smiles` 直接返回局部原子邻接、键级、环路径和立体事实。原始调用保留在 `WorkerRunRecord.tool_calls`；实际执行的越权或超预算调用按全局不变量 9 处理，工具调用不绕过后续 schema、RouteJSON compiler、Critic 或库存审查。
 
 失败去向：非法结构化输出以及实际执行的越权工具调用停留在 worker record，不进入 compiler/MCTS。工具失败和执行前被 sandbox 拦截的尝试都保留在 worker record 作为观测信息，但不覆盖合法结构化 artifact 的正常 schema、compiler、Critic 和库存判定。
 
@@ -169,9 +185,11 @@ Strategy Critic 复用同一个三字段输出合同，不建立第二套 verdic
 
 ### 3.8 Critic（LLM）
 
+Key/Route Critic 的逐步 assessment 仅新增 `uncertainty_source`：`proposal_underspecified`（缺实现细节）、`evidence_missing`（方案明确但缺底物或选择性支持）、`assessment_unresolved`（给定事实或解释尚未厘清）三选一为主因，次要原因写在既有 reasons 中，pass/reject 为 null。它区分成因，既有 `blocking_type` 仍表示化学问题主题；缺证据不构成 reject。新输出检查 verdict/source 一致性，旧的缺字段记录不猜测补值。
+
 职责：按正向合成依赖顺序模拟完整 Host-replayed RouteJSON，逐步识别具体 chemical contradiction，并独立核查路线是否真正执行 Strategy 的关键构建。
 
-在线 key-event 调度：每个通过 Host replay、且 Builder 标为 `executes_checkpoint` 的新候选都应进入一次独立 Critic；不得按每个 Strategy 固定两次或其他魔法数字封顶。该 horizon 仅在 Critic pass 且候选被 AiZ 选入当前路径后退休，或者因 Builder/全局真实模型预算、wall time、MCTS/分支终止而自然结束。共享预算仍为每条已建立路线保护一次最终 Route Critic；在线 Critic 只在实际发起时结算，不能预占假想调用，也不能消费受保护的最终 Critic 槽位。当前 3×25 论文级 profile 的共享 operational envelope 为 240 次模型调用、6M input tokens、2M output tokens，以覆盖最坏情况下每个 Builder candidate 一次在线 Critic及后续 Improvement；它不是论文指标，也不是 Critic 私有配额。
+在线 key-event 调度：每个通过 Host replay、且 Builder 标为 `executes_checkpoint` 的新候选都应进入一次独立 Critic；不得按每个 Strategy 固定两次或其他魔法数字封顶。有效 Critic 确认事件匹配且 verdict 为 pass/uncertain、候选被 AiZ 选入当前路径后，可以推进下一阶段；uncertain 的化学风险继续保留。具体战略假设被否定时可以更换 horizon；Builder/全局真实模型预算、wall time、MCTS/分支终止也可结束搜索。共享预算仍为每条已建立路线保护一次最终 Route Critic；在线 Critic 只在实际发起时结算，不能预占假想调用，也不能消费受保护的最终 Critic 槽位。当前 3×25 论文级 profile 的共享 operational envelope 为 240 次模型调用、6M input tokens、2M output tokens，以覆盖在线 Critic 及后续 Improvement；它不是论文指标，也不是 Critic 私有配额。
 
 在线反馈记忆：`key_event_critic_history` 是唯一事实流。Host 从中按 Strategy digest、mapped leaf lineage 和稳定 obligation id 派生 active constraints；不同 checkpoint attempt 的原因累积，同一 obligation 的新证据复审替换旧判断而不覆盖其他 obligation。下一次 Builder 与下一次 key-event Critic 都看到当前未解决约束。未选中的 pass、sibling 或新 Strategy 均不影响它。
 
@@ -226,24 +244,35 @@ Host 合并与失败去向：Host 按 step ID 保留所有未列入 `remove_step
 
 ### 3.9b Path Repair Editor（LLM 扩展）
 
-职责：仍读取完整当前 RouteJSON 和 Critic annotations，但只决定“从哪一个真实步骤开始重建”以及局部重建必须达到的化学目标；不再兼任 ReactionJSON 编写、atom-map 传播或 DAG 迁移。在线 Key Critic 触发时，repair context 是完整已接纳前缀加上一个 Host-replayed、但未接纳的 rejected focus；该 provisional 行只暴露跨步依赖，绝不成为权威路线。
+职责：读取完整当前 RouteJSON 和 Critic annotations，决定哪些反应或它们提供的分子状态需要重新考虑，以及重建必须达到的化学目标；不兼任 ReactionJSON 编写、atom-map 传播或 DAG 迁移。在线 Key Critic 触发时，repair context 是完整已接纳前缀加上一个 Host-replayed、但未接纳的 rejected focus；该 provisional 行只暴露跨步依赖，绝不成为权威路线。
 
 输出严格只有：
 
 ```json
 {
-  "rollback_start_step_id": "first_target_side_step_to_change",
-  "rebuild_through_step_id": "last_upstream_step_to_regenerate",
+  "change_step_ids": ["consumer_step", "preparation_step"],
+  "additional_coupled_blocker_step_ids": [],
+  "preserved_suffix_compatible": true,
   "repair_goal": "一句可执行的局部化学修复目标",
   "active_constraints": ["至多五条无法由当前结构恢复的路线级约束"]
 }
 ```
 
-两个边界都必须是当前 repair context 中的真实 step ID。RouteJSON 按 target-rooted 顺序排列：`rollback_start_step_id` 是最靠 target-side、必须改变的第一行，`rebuild_through_step_id` 是最上游、仍须重建的最后一行。在线 accepted-prefix repair 中，`rollback_start_step_id` 必须属于已接纳前缀；provisional rejected focus 只能帮助界定上游重建终点和 blocker，不能被单独替换后冒充前缀修复。Host 用真实祖先关系与 Critic `coupled_blocker_groups` 合并 blocker component；Editor 仍看到完整路线，并可用 `additional_coupled_blocker_step_ids` 补充 Critic 漏掉、但确实共享不可分割官能团状态或步骤时序的 deferred blocker。Host 只接受当前 deferred blocker id，不接受任意扩权。Editor 同时给出 `preserved_suffix_compatible`；若它声明 repair goal 与待保留 exact suffix 不兼容，Host 在零 Builder 调用时拒绝该边界，要求扩大 `rebuild_through_step_id`。Editor 不输出保留行、mapped boundary、precursor、ReactionJSON 或库存字段。
+`change_step_ids` 必须引用当前 repair context 的真实 reaction occurrences。Host 在编译器给出的 occurrence tree 上计算包含这些节点的最小连通子树，用共同祖先路径确定实际移除区域；数组中交错的无关 sibling 不随之删除。Editor 可选择局部通过、但其产物不满足下游要求的制备步骤。Host 只保证选定节点的最小拓扑连接，不保证模型已经找全最小化学充分修复范围。旧记录的 `rollback_start_step_id` / `rebuild_through_step_id` 仍可重放；新 directive 的这两个字段只在 Host 内派生用于历史展示，不再进入模型输出合同。
+
+在线 accepted-prefix repair 的 target-side 切口必须属于已接纳前缀；provisional rejected focus 不能被单独替换后冒充前缀修复。Host 用真实祖先关系与 Critic `coupled_blocker_groups` 合并 blocker component；Editor 可用 `additional_coupled_blocker_step_ids` 纳入确实与当前修复耦合的 deferred blocker。Host 只接受当前 deferred blocker id。若 Editor 声明 repair goal 与待保留 exact suffix 不兼容，Host 在零 Builder 调用时拒绝该边界；应扩大实际需重新考虑的节点集合。Editor 不输出保留行、mapped boundary、precursor、ReactionJSON 或库存字段。
 
 Host 事务：旧路线先保持权威；Host 编译 durable DAG 得到真实 mapped rollback frontier，并给 Builder 唯一的紧凑 `path_repair` contract：repair goal、active constraints、完整已回放反应摘要和 cut frontier。cut frontier 同时包含被删除 span 通向 preserved suffix 的入口，以及该 span 原本产生的所有 terminal open precursor occurrences；重复分子按 occurrence 保留，不能用集合去重。普通 `pending_checkpoint_feedback` 不再同时送入 repair Builder，避免同一 Critic finding 以两套合同重复出现。Final Critic 全文只供 Editor 使用，不再在每轮 Builder 中重复。命名空间只保留 target、durable rows、live siblings，以及 suffix 中不属于 reconnect boundary 的内部 maps；被替换路径独有的 maps 不再作为 tombstone 阻止合法复用。Host 为 unmapped `add_group` 分配的新 maps 必须写回 compiled `fragment_smiles`，使下一步和整路 replay 使用同一 provenance identity。`reserved_atom_maps` 只约束新 Builder edit 的 admission；已经 Host-materialized 的 rebuild prefix 重放时不得再次套用同一 reservation，否则会把其合法的显式 maps 误判为自碰撞。
 
-搜索树以零模型调用重放 durable steps，普通 Builder 从 frontier 每次只写一个 ReactionJSON；Builder 没有 handoff/fail/stop/solved。Host 只把非库存 cut-boundary occurrences 用于局部搜索的提前停止；事务完成时再从完整 RouteJSON replay 的全部开放前体核对整个边界，库存叶也不能被省略。suffix 只在 exact mapped boundary，或 stereo-aware whole-molecule isomorphism 下重接；新旧边界共有的 atom maps 是 durable provenance，匹配时必须保持原号，只有单侧独有 maps 才可翻译。单个分子 occurrence 内由化学等价原子产生的多个 automorphism 采用稳定的确定性 translation，随后仍须通过完整 RouteJSON replay；重复分子 occurrences 必须逐一匹配，真实 map 冲突、立体不一致或多余/缺失 precursor 不得拼接。Builder 新动作若产生与 suffix 同连接关系但错误立体的前体，Host 在该动作入树前返回 mismatch maps，让 MCTS 在同一父 leaf 请求修正，不沿该错误前体继续上游扩展。map 冲突、孤立后缀或完整 replay 失败均恢复旧路线。无论有无 suffix，只有完整 cut frontier 已恢复、suffix（若有）已重接、最终开放前体 multiset 与原路线一致时，候选才能进入路线级 re-Critic；产生任意一条 replacement edge 不是完成条件。`path_repair.repair_goal` 只指导替换化学；Builder 的 `checkpoint_relation` 保持原有 Strategy Critic 调度语义，不能表示修复完成，也不是 proof、admission、handoff、stop 或 stock claim。仅当完整 replay 成功但 cut frontier 尚未全部出现时，事务保存为非权威诊断 `retained_uncommitted_prefix`；边界歧义、立体不符、prefix/suffix replay error 与 map conflict 必须保留各自因果原因并记为 `rolled_back_uncommitted`，不能统一改写为“未到边界”。旧路线始终是唯一权威路线。进入 `rebuilt_pending_recritic` 的候选若只剩预先 deferred 的 sibling blockers，则提交当前 component 并继续下一轮；重建 component 仍被拒绝、出现新 blocker，或原路线已库存闭合而候选仍有未闭叶时恢复旧路线。
+搜索树以零模型调用重放 durable steps，Builder 从 frontier 每次写一个 ReactionJSON，或在修复模式下提出有限的恢复请求；没有 solved 权限。Host 只把非库存 cut-boundary occurrences 用于局部搜索的提前停止；事务完成时从完整 RouteJSON replay 的全部开放前体核对边界，库存叶也不能省略。
+
+suffix 只在 exact mapped boundary 或 stereo-aware whole-molecule isomorphism 下重接。新旧边界共有的 atom maps 保持原号，只有单侧独有 maps 才可翻译；化学等价原子的多个 automorphism 采用稳定 translation，随后仍须通过整路 replay；重复分子 occurrences 逐一匹配。真实 map 冲突、立体不一致或多余/缺失 precursor 不得拼接。
+
+与 suffix 同连接关系但不同立体的前体现在是结构观察，不能直接接回，但允许通过显式中间反应继续转换。Host 不据此断言不存在可行路径。边界比较统一位于 `path_repair_boundary.py`。R/S 标签变化不能当作物理反转；`invert_stereocenter` 翻转操作时的邻接序标签，配体替换后的最终绝对意图可用 `set_tetrahedral_stereo` 指定并回放核对；结构回放不证明机理或选择性。
+
+仅修复任务提供 `recovery`：`expand` 继续当前动作或纠正当前编辑；`backtrack` 指向当前路径的临时步骤，Host 限制在 durable prefix 之外并复用 AiZ 的父节点恢复；`expand_scope` 把原因交回原有 Editor，由 Editor 重新选择原路线的修改节点。后两者不携带假反应或条件，消费正常预算，不作化学拒绝判断。`expand` 附带的参考 ID 没有控制权限，不导致有效反应被丢弃。恢复原因与 replay failure 共享事务上下文，下一次 Editor 从事务记录读取，不复制第二套失败状态。
+
+只有完整 cut frontier 恢复、suffix 重接、最终开放前体 multiset 与原路线一致时，候选才能进入路线级 re-Critic。`checkpoint_relation` 仍是 Strategy 调度信息，不能表示修复完成。未完成但可回放的前缀保存为非权威诊断 `retained_uncommitted_prefix`；实际边界歧义、错误最终立体、replay error 与 map conflict 保留各自原因并恢复旧路线。进入 `rebuilt_pending_recritic` 的候选若只剩预先 deferred 的 sibling blockers，则提交当前 component 并继续下一轮；新 blocker、重建 component 仍被拒绝、或原闭合路线变得未闭合，均恢复旧路线。
 
 Builder 只有一个配置化分支扩展上限 `max_node_expansions_per_branch`：初始构建阶段和 transactional repair 阶段都读取这一权威值；repair 调用在所有 Editor 事务间累计，计数仅用于成本归因，不再拥有独立的 6-call admission 权限。所有调用继续由同一全局模型调用/token/wall-time ledger 结算，到达 suffix 时 Host 提前停止。`max_route_local_repair_rounds` 只限制 Critic/Editor 事务轮数。
 
@@ -260,6 +289,8 @@ Builder 只有一个配置化分支扩展上限 `max_node_expansions_per_branch`
 拥有的权限：控制循环、保留上一份可回放路线、机械合并替换范围、拒绝不连通 Editor draft。
 
 禁止拥有的权限：不能因为新 draft 文字更好就覆盖旧路线；不能用拓扑分数或库存偏好代替“是否修复 blocking reaction”的判断。
+
+前提连续性：最终 Critic 的 `chemical_dependencies` 最多六条，使用 `consumer_review_slot`、`prerequisite_review_slots`、`requirement` 表达重要跨步要求；Host 同步绑定为当前 canonical step IDs。producer 可以局部 pass。错误的辅助依赖只产生 `chemical_dependency_diagnostics`，不覆盖有效逐步 verdict，不建立新的 admission gate。Editor 从原 critique 接收这些关系；新路线复审从同一原 critique、repair goal 和 active constraints 派生 `repair_requirements_to_reassess`，要求独立检查原问题和保留消费者，不能因为原 step ID 消失就视为已解决。只有普通逐步 verdict 决定化学 blocking。本轮未给在线 Key Critic 增加相同依赖 wire，亦未实现全路线逐原子前提台账。详见 [化学意图规划设计](CHEMICAL_INTENT_PLANNING_20260906.md)。
 
 ### 3.11 Canonical graph ingestion / final materialization（Host）
 
@@ -327,7 +358,7 @@ Provider 暂停合同：任一 transient Provider failure 只标记缺失的最�
 
 ## 4. 状态与去向
 
-Builder 没有动作/reason 词表和终止通道。worker schema 只接纳一个 ReactionJSON expansion；Host 将其回放为 candidate 后交给当前分支的 MCTS/canonical graph。任何遗留的 `builder_action`、`builder_reason`、`stop_signal` 或 `stop_reason` 都由合同校验拒绝。
+普通 Builder 的 worker schema 接纳一个 ReactionJSON expansion，由 Host 回放后交给 MCTS/canonical graph。修复模式额外接受上文的 `recovery` 请求，仅改变临时搜索或请求 Editor 重划范围；不能终止整个 Strategy、判定化学失败或声称 solved。遗留的无约束 `builder_action`、`builder_reason`、`stop_signal`、`stop_reason` 仍被拒绝。
 
 | 状态 | 谁产生 | 含义 | 下一步 | 绝不代表 |
 |---|---|---|---|---|
@@ -354,7 +385,7 @@ Builder 没有动作/reason 词表和终止通道。worker schema 只接纳一�
 | AiZ strategic MCTS | 否 | 否 | 否 | 使用绑定 oracle | 否 | 否 | 否 |
 | Critic | 审查 adherence | 否 | 否 | 否 | 是 | 否 | 否 |
 | Editor（冻结 paper） | 必须保留核心 Strategy | 是，依赖闭合替换范围 | 否 | 否 | 修复 blocker | 是 | 否 |
-| Path Repair Editor | 必须保留核心 Strategy | 否，只给 rollback intent | 否 | 否 | 定位 blocker 修复范围 | 否 | 否 |
+| Path Repair Editor | 在线保留 owning horizon；最终按具体问题协调 | 否，只给化学目标和需重考虑的节点 | 否 | 否 | 定位 blocker 及相关制备范围 | 否 | 否 |
 | Exact stock oracle | 否 | 否 | 否 | 是 | 否 | 否 | 否 |
 | Final Host | 否 | 否 | 接纳已回放结构 | 是 | 记录 Critic | 接纳/拒绝 | 是 |
 | Analyst（未实现） | 否 | 否 | 否 | 否 | 总结风险 | 否 | 否 |
@@ -377,7 +408,7 @@ Builder 没有动作/reason 词表和终止通道。worker schema 只接纳一�
 12. Host 客观失败是否与模型动作完全分离？
 13. 被 sandbox 在执行前拦截的工具尝试是否仍被错误计入预算或吞掉结构化 artifact？实际执行的越权调用是否仍会被拒绝？
 14. 需要网站实时展示的运行是否由同一 Web gateway `/api/v4/jobs` 注册，而不是写入孤立运行索引？
-15. 冻结 paper Editor 是否只输出 `replace_span`；Path Repair Editor 是否只输出两个 step boundary、短 repair goal/constraints、可选 coupled blocker ids 与 suffix compatibility？entry/resume/mapped boundary 是否仍只由 Host 推导？
+15. 冻结 paper Editor 是否只输出 `replace_span`；Path Repair Editor 是否只输出 `change_step_ids`、短 repair goal/constraints、coupled blocker ids 与 suffix compatibility？最小连接区域和所有精确分子切口是否仍只由 Host 推导？历史两端点 directive 是否仍能重放？
 16. full-route repair 中未列入 `remove_step_ids` 的行，或局部依赖路径以外的 target-side/sibling/suffix 行，是否保留并经过完整 DAG replay？
 17. transactional repair 是否拒绝 unrelated rollback、保留旧权威路线、只保留 live map namespace，并证明 deletion-only 不能提交？
 18. 聚焦测试是否覆盖单行替换、多行/整路线替换、fresh-map 跨步引用、对称 atom-map 的确定性 suffix 重接、多个分子 occurrence 的拒绝，以及连接或立体不匹配边界拒绝？

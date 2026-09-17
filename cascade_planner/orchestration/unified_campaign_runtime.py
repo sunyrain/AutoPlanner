@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import as_completed, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import time
@@ -917,7 +917,9 @@ class CampaignActionRuntime:
             )
             if not decision.get("selected_action_id"):
                 continue
-            action = bind_scheduled_action(decision, input_revision=input_revision)
+            action = self._resume_reserved_action(
+                bind_scheduled_action(decision, input_revision=input_revision)
+            )
             if action.resource_class in selected_resource_classes:
                 resource_collisions.append(kind.value)
                 continue
@@ -1180,6 +1182,7 @@ class CampaignActionRuntime:
         *,
         decision: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        action = self._resume_reserved_action(action)
         cached = self._load_cached(action)
         if cached is not None:
             return {
@@ -1220,6 +1223,45 @@ class CampaignActionRuntime:
             decision=decision,
             resource_reservation=resource_reservation,
         )
+
+    def _resume_reserved_action(self, action: CampaignAction) -> CampaignAction:
+        """Restore the original input envelope before resuming its reservation.
+
+        A scheduler cursor or score is diagnostic, but the durable receipt must
+        still use the exact input digest recorded at reservation time.
+        """
+        lifecycle = self.kernel.task_lifecycle(action.task_id)
+        if lifecycle.get("status") != "in_flight":
+            return action
+        reservation = dict(dict(lifecycle.get("reservation") or {}).get("payload") or {})
+        metadata = dict(reservation.get("metadata") or {})
+        bound_sha256 = metadata.get("campaign_action_sha256")
+        if bound_sha256 in {action.to_dict()["content_sha256"], legacy_campaign_action_sha256(action)}:
+            return action
+        saved = metadata.get("campaign_action_input")
+        if isinstance(saved, Mapping):
+            original = _action_from_checkpoint({"action": saved})
+            diagnostic_keys = {"round_robin_cursor", "scheduler_policy", "schedule_score", "schedule_components"}
+            # Compare every execution-bearing field, including all handler
+            # metadata. Only scheduler diagnostics may differ on resumption.
+            def semantic_input(value: CampaignAction) -> dict[str, Any]:
+                row = value.to_dict()
+                row.pop("content_sha256", None)
+                row["metadata"] = {key: item for key, item in row["metadata"].items() if key not in diagnostic_keys}
+                return row
+
+            if original.to_dict()["content_sha256"] == bound_sha256 and semantic_input(original) == semantic_input(action):
+                return original
+        else:
+            # Old reservations kept the digest but omitted the input envelope.
+            # Recover only a reset slice cursor, bounded by durable task history,
+            # and require the entire original digest to match. No chemistry or
+            # resource field is relaxed and the event log is never rewritten.
+            for cursor in range(len(self.kernel.task_reservation_history()) + 1):
+                original = replace(action, metadata={**action.metadata, "round_robin_cursor": cursor})
+                if bound_sha256 in {original.to_dict()["content_sha256"], legacy_campaign_action_sha256(original)}:
+                    return original
+        raise CampaignActionRuntimeError("campaign_action_in_flight_binding_invalid")
 
     def _reserve_action(
         self,
@@ -1296,6 +1338,7 @@ class CampaignActionRuntime:
                     action.kind.value
                 ),
                 "campaign_action_sha256": action_row["content_sha256"],
+                "campaign_action_input": action_row,
                 "campaign_action_opportunity_sha256": (
                     action.opportunity_sha256
                 ),

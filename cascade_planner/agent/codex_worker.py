@@ -26,6 +26,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+from cascade_planner.agent.worker_usage import (
+    WorkerUsageTrace, prompt_measurements, worker_usage_diagnostics, text_size,
+)
 from cascade_planner.agent.action_contracts import (
     ALLOWED_AGENT_ACTIONS as WORKER_AGENT_ACTION_TYPES,
     PLANNER_SOURCE_HINT_SCHEMA,
@@ -35,10 +38,14 @@ from cascade_planner.application.strategy_contract import (
     KEY_EVENT_REPAIR_SCOPES,
     normalize_key_event_repair_scope,
 )
+from cascade_planner.application.material_boundary import (
+    material_boundary_schema, material_boundary_contract_reasons,
+)
 WORKER_TASK_SCHEMA = "worker_task.v1"
 WORKER_RUN_RECORD_SCHEMA = "worker_run_record.v1"
 WORKER_OUTPUT_VALIDATION_SCHEMA = "worker_output_validation.v1"
 DEFAULT_RETROSYNTHESIS_KEY_FILE = Path(__file__).resolve().parents[2] / "key.txt"
+DEFAULT_CODEX_REASONING_EFFORT = "medium"
 
 # Ambient ChatGPT auth is snapshotted into an isolated worker home so the
 # chemistry worker cannot mutate the user's Codex configuration. Near token
@@ -80,6 +87,13 @@ PAPER_MATCHED_WORKER_TASK_TYPES = frozenset(
     }
 )
 PATH_REPAIR_WORKER_TASK_TYPES = frozenset({"path_repair_editor"})
+KEY_EVENT_REQUIRED_CHANGE_KINDS = (
+    "none",
+    "conditions_or_catalyst",
+    "precursor_covalent_state",
+    "reaction_topology",
+    "strategy_horizon",
+)
 STRICT_CHEMISTRY_WORKER_TASK_TYPES = (
     PAPER_MATCHED_WORKER_TASK_TYPES
     | PATH_REPAIR_WORKER_TASK_TYPES
@@ -214,10 +228,11 @@ WorkerRunner = Callable[[WorkerTask], WorkerProcessResult]
 
 
 class WorkerTimeoutError(TimeoutError):
-    def __init__(self, message: str, *, backend: str, command: list[str] | None = None):
+    def __init__(self, message: str, *, backend: str, command: list[str] | None = None, metadata: dict[str, Any] | None = None):
         super().__init__(message)
         self.backend = backend
         self.command = list(command or [])
+        self.metadata = dict(metadata or {})
 
 
 class WorkerCancelledError(RuntimeError):
@@ -301,6 +316,7 @@ def run_codex_worker(
             output_validation={"accepted": False, "reasons": ["timeout"], "schema_version": WORKER_OUTPUT_VALIDATION_SCHEMA},
             elapsed_s=round(time.monotonic() - started, 3),
             timed_out=True,
+            metadata=dict(getattr(exc, "metadata", {}) or {}),
         )
     except WorkerCancelledError as exc:
         return WorkerRunRecord(
@@ -477,10 +493,28 @@ def validate_worker_output(task: WorkerTask, artifact: Any) -> dict[str, Any]:
         reasons.append("worker_raw_reaction_injection")
     if task.task_type == "paper_matched_route_step":
         payload = artifact.get("payload") if isinstance(artifact, dict) else None
-        reasons.extend(_paper_matched_route_step_contract_reasons(payload))
+        reasons.extend(_paper_matched_route_step_contract_reasons(
+            payload, allow_recovery=bool(task.host_context.get("allow_repair_recovery")),
+        ))
     if task.task_type == "paper_matched_key_event_critic":
         payload = artifact.get("payload") if isinstance(artifact, dict) else None
         reasons.extend(_paper_matched_key_event_critic_contract_reasons(payload))
+    if task.task_type in {"paper_matched_key_event_critic", "paper_matched_route_critic"}:
+        payload = artifact.get("payload") or {}
+        for assessment in payload.get("step_assessments") or []:
+            if isinstance(assessment, Mapping) and "uncertainty_source" in assessment:
+                source = assessment["uncertainty_source"]
+                if ((assessment.get("verdict") == "uncertain" and source not in
+                     {"proposal_underspecified", "evidence_missing", "assessment_unresolved"})
+                        or (assessment.get("verdict") != "uncertain" and source is not None)):
+                    reasons.append("paper_critic_uncertainty_source_inconsistent")
+    if task.required_artifact_type == "StrategyCardReport":
+        payload = artifact.get("payload") or {}
+        card = payload.get("strategy_card") if isinstance(payload, Mapping) else None
+        if isinstance(card, Mapping):
+            reasons.extend(material_boundary_contract_reasons(
+                card, allowed=bool(task.host_context.get("allow_material_boundary")),
+            ))
     return {
         "schema_version": WORKER_OUTPUT_VALIDATION_SCHEMA,
         "accepted": not reasons,
@@ -490,7 +524,7 @@ def validate_worker_output(task: WorkerTask, artifact: Any) -> dict[str, Any]:
     }
 
 
-def _paper_matched_route_step_contract_reasons(payload: Any) -> list[str]:
+def _paper_matched_route_step_contract_reasons(payload: Any, *, allow_recovery: bool = False) -> list[str]:
     """Validate one Builder expansion without granting terminal authority."""
 
     if not isinstance(payload, Mapping):
@@ -511,6 +545,20 @@ def _paper_matched_route_step_contract_reasons(payload: Any) -> list[str]:
         reasons.append("paper_route_step_candidate_not_object")
     else:
         candidate = candidates[0]
+        recovery = candidate.get("recovery")
+        if recovery is not None:
+            if not allow_recovery:
+                return ["paper_route_step_recovery_forbidden"]
+            from cascade_planner.orchestration.repair_recovery import recovery_request
+            request, error = recovery_request(
+                recovery, reversible_step_ids=[str(dict(recovery).get("step_id") or "")]
+                if isinstance(recovery, Mapping) else [],
+            )
+            if error:
+                return [error]
+            if request:
+                return (["repair_recovery_must_not_include_reaction"]
+                        if candidate.get("reaction_operations") or candidate.get("conditions") else [])
         if not str(candidate.get("reaction_family") or "").strip():
             reasons.append("paper_route_step_reaction_intent_missing")
         if str(candidate.get("checkpoint_relation") or "") not in {
@@ -544,6 +592,12 @@ def _paper_matched_key_event_critic_contract_reasons(payload: Any) -> list[str]:
         verdict=assessment.get("verdict"),
     ):
         return ["paper_key_critic_repair_scope_inconsistent"]
+    verdict = str(assessment.get("verdict") or "")
+    change_kind = str(assessment.get("required_change_kind") or "")
+    if change_kind not in KEY_EVENT_REQUIRED_CHANGE_KINDS:
+        return ["paper_key_critic_required_change_kind_invalid"]
+    if (verdict == "reject") == (change_kind == "none"):
+        return ["paper_key_critic_required_change_kind_inconsistent"]
     return []
 
 
@@ -644,16 +698,23 @@ def _run_codex_cli_worker(
     }
     if worker_temp_root is not None:
         temp_kwargs["dir"] = str(worker_temp_root)
-    with tempfile.TemporaryDirectory(**temp_kwargs) as tmp:
+    with tempfile.TemporaryDirectory(**temp_kwargs) as tmp, WorkerUsageTrace(
+        audit_root, task_id=task.task_id,
+        enabled=_env_flag("AUTOPLANNER_CODEX_WORKER_USAGE_TRACE", default=True),
+    ) as usage_trace:
         tmp_path = Path(tmp)
         model_workspace = audit_root
-        local_chemistry_tool = task.task_type in LOCAL_CHEMISTRY_TOOL_TASK_TYPES
+        evidence_transport = dict(task.host_context.get("planning_evidence_transport") or {})
+        local_chemistry_tool = (
+            task.task_type in LOCAL_CHEMISTRY_TOOL_TASK_TYPES or bool(evidence_transport)
+        )
         if strict_chemistry:
             model_workspace = tmp_path / "model_workspace"
             model_workspace.mkdir(parents=True, exist_ok=True)
             if local_chemistry_tool:
                 for name in (
                     "chemistry_inspection.py",
+                    "stereochemistry.py",
                     "chemistry_inspection_mcp.py",
                 ):
                     shutil.copyfile(
@@ -677,6 +738,7 @@ def _run_codex_cli_worker(
                 model_workspace=model_workspace,
                 audit_root=audit_root,
                 enable_local_chemistry_tool=local_chemistry_tool,
+                evidence_transport=evidence_transport,
             )
             metadata = {
                 **metadata,
@@ -703,6 +765,9 @@ def _run_codex_cli_worker(
             ),
             use_permission_profile=strict_chemistry,
         )
+        usage_trace.configure(command, env)
+        measurements = prompt_measurements(task.objective, prompt, schema)
+        tool_monitor = _CodexToolPolicyMonitor(task)
         auth_refresh_lease = False
         ambient_home = _ambient_worker_auth_home(metadata)
         worker_home = _worker_codex_home(env)
@@ -728,12 +793,21 @@ def _run_codex_cli_worker(
                     timeout_s=float(task.budget.timeout_s),
                     cancel_event=cancel_event,
                     cancel_backend="codex_cli",
+                    tool_monitor=tool_monitor,
                 )
             except subprocess.TimeoutExpired as exc:
+                partial_stderr = exc.stderr or ""
+                if isinstance(partial_stderr, bytes):
+                    partial_stderr = partial_stderr.decode("utf-8", errors="replace")
+                usage_trace.capture(partial_stderr)
                 raise WorkerTimeoutError(
                     f"worker timeout after {task.budget.timeout_s}s",
                     backend="codex_cli",
                     command=command,
+                    metadata={**metadata, "usage_diagnostics": worker_usage_diagnostics(
+                        measurements=measurements, usage={}, trace=usage_trace.summary(),
+                        tool_calls=[], stderr="",
+                    )},
                 ) from exc
         finally:
             if ambient_home is not None:
@@ -744,8 +818,9 @@ def _run_codex_cli_worker(
             if auth_refresh_lease:
                 _AMBIENT_AUTH_REFRESH_LOCK.release()
         final = output_path.read_text(encoding="utf-8", errors="replace") if output_path.exists() else stdout
-        stderr = stderr or ""
+        stderr = usage_trace.capture(stderr or "")
         event_audit = _parse_codex_jsonl_events(stdout)
+        usage = event_audit["usage"]
         event_log_path = _write_codex_event_log(
             audit_root,
             task=task,
@@ -758,11 +833,17 @@ def _run_codex_cli_worker(
         metadata = {
             **metadata,
             "agent_mode": task.agent_mode,
+            "task_type": task.task_type,
             "child_roles": list(task.child_roles),
             "event_summary": event_audit["summary"],
             "event_log_path": str(event_log_path) if event_log_path is not None else "",
             "session_id": event_audit["session_id"],
             "child_agents": child_agents,
+            "tool_policy_stop": dict(tool_monitor.violation),
+            "usage_diagnostics": worker_usage_diagnostics(
+                measurements=measurements, usage=usage,
+                trace=usage_trace.summary(), tool_calls=event_audit["tool_calls"], stderr=stderr,
+            ),
         }
         return WorkerProcessResult(
             stdout=final,
@@ -772,7 +853,7 @@ def _run_codex_cli_worker(
             command=list(command),
             metadata=metadata,
             tool_calls=event_audit["tool_calls"],
-            usage=event_audit["usage"],
+            usage=usage,
         )
 
 
@@ -808,6 +889,7 @@ def _run_worker_command(
     env: dict[str, str] | None = None,
     cancel_event: threading.Event | None = None,
     cancel_backend: str = "subprocess_command",
+    tool_monitor: _CodexToolPolicyMonitor | None = None,
 ) -> tuple[int, str, str]:
     proc = subprocess.Popen(
         command,
@@ -824,11 +906,26 @@ def _run_worker_command(
     )
     windows_job = _create_windows_kill_job(proc)
     stdin_writer = _start_worker_stdin_writer(proc, input_text)
-    stdout_reader, stdout_chunks = _start_worker_pipe_reader(proc.stdout)
+    stdout_reader, stdout_chunks = _start_worker_pipe_reader(
+        proc.stdout, on_line=tool_monitor.observe_line if tool_monitor else None,
+    )
     stderr_reader, stderr_chunks = _start_worker_pipe_reader(proc.stderr)
     try:
         deadline = time.monotonic() + float(timeout_s)
         while proc.poll() is None:
+            if tool_monitor is not None and tool_monitor.stop_requested.is_set():
+                # A hosted tool may already have started. Stop subsequent work
+                # at the first observable violation; do not claim to undo it.
+                if windows_job is not None:
+                    _close_windows_job(windows_job)
+                    windows_job = None
+                    try:
+                        proc.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        _terminate_worker_process_group(proc)
+                else:
+                    _terminate_worker_process_group(proc)
+                break
             if cancel_event is not None and cancel_event.is_set():
                 if windows_job is not None:
                     _close_windows_job(windows_job)
@@ -998,14 +1095,21 @@ def _start_worker_stdin_writer(proc: subprocess.Popen[str], input_text: str | No
     return thread
 
 
-def _start_worker_pipe_reader(pipe: Any) -> tuple[threading.Thread, list[str]]:
+def _start_worker_pipe_reader(
+    pipe: Any, *, on_line: Callable[[str], None] | None = None,
+) -> tuple[threading.Thread, list[str]]:
     chunks: list[str] = []
 
     def _read_pipe() -> None:
         if pipe is None:
             return
         try:
-            chunks.append(pipe.read() or "")
+            if on_line is None:
+                chunks.append(pipe.read() or "")
+            else:
+                for line in iter(pipe.readline, ""):
+                    chunks.append(line)
+                    on_line(line)
         except (OSError, ValueError):
             return
 
@@ -1348,6 +1452,7 @@ def _configure_strict_chemistry_worker_environment(
     model_workspace: Path,
     audit_root: Path,
     enable_local_chemistry_tool: bool = False,
+    evidence_transport: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     """Install one per-worker least-privilege command profile.
 
@@ -1400,8 +1505,29 @@ def _configure_strict_chemistry_worker_environment(
             "",
         ]
     )
+    tool_names = [LOCAL_CHEMISTRY_TOOL_NAME] if enable_local_chemistry_tool else []
+    if enable_local_chemistry_tool and evidence_transport:
+        tool_names.append("query_planning_evidence")
+    evidence_operations = (evidence_transport or {}).get(
+        "operations", ["stock", "compound", "search", "read", "list"],
+    )
+    external_evidence = bool(set(evidence_operations) & {"compound", "search", "read"})
+    tool_instructions = (
+        "You are executing a bounded AutoPlanner chemistry worker. "
+        "For this task, use only these tools: "
+        + (", ".join(tool_names) if tool_names else "none")
+        + ". Do not invoke native web_search, browser, shell, or other tools, "
+        "even if they appear available. Tool availability does not expand this task's permissions. "
+        + ("For external information use query_planning_evidence; if it is unavailable or "
+           "exhausted, finish the requested JSON with the remaining uncertainty."
+           if evidence_transport and external_evidence else
+           "External lookup is disabled. Use query_planning_evidence only for its listed local operations."
+           if evidence_transport else
+           "Reason from the supplied input and return the requested JSON without external lookup.")
+    )
     config_lines = [
         f"default_permissions = {_toml_string(STRICT_CHEMISTRY_PERMISSION_PROFILE)}",
+        f"developer_instructions = {_toml_string(tool_instructions)}",
         "",
         *retained,
         "",
@@ -1425,18 +1551,29 @@ def _configure_strict_chemistry_worker_environment(
             [
                 "[mcp_servers.chemistry_inspection]",
                 f"command = {_toml_string(sys.executable)}",
-                f"args = [{_toml_string(str(server_path))}]",
+                f"args = [\"-X\", \"utf8\", {_toml_string(str(server_path))}]",
                 f"cwd = {_toml_string(str(model_workspace))}",
                 "required = true",
-                f"enabled_tools = [{_toml_string(LOCAL_CHEMISTRY_TOOL_NAME)}]",
+                f"enabled_tools = [{', '.join(_toml_string(name) for name in tool_names)}]",
                 "startup_timeout_sec = 15",
-                "tool_timeout_sec = 30",
+                f"tool_timeout_sec = {50 if evidence_transport else 30}",
                 "",
                 "[mcp_servers.chemistry_inspection.tools.inspect_mapped_smiles]",
                 'approval_mode = "approve"',
                 "",
             ]
         )
+        if evidence_transport:
+            config_lines.extend([
+                "[mcp_servers.chemistry_inspection.env]",
+                f"AUTOPLANNER_EVIDENCE_ENDPOINT = {_toml_string(evidence_transport['endpoint'])}",
+                f"AUTOPLANNER_EVIDENCE_TOKEN = {_toml_string(evidence_transport['token'])}",
+                f"AUTOPLANNER_EVIDENCE_OPERATIONS = {_toml_string(json.dumps(evidence_operations))}",
+                "",
+                "[mcp_servers.chemistry_inspection.tools.query_planning_evidence]",
+                'approval_mode = "approve"',
+                "",
+            ])
     config_path.write_text(
         "\n".join([*config_lines, *profile_lines]).lstrip(),
         encoding="utf-8",
@@ -1459,7 +1596,7 @@ def _task_reasoning_effort(task: WorkerTask) -> str:
         return explicit
     return str(
         os.environ.get("AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT")
-        or "medium"
+        or DEFAULT_CODEX_REASONING_EFFORT
     ).strip()
 
 
@@ -1467,7 +1604,7 @@ def _task_reasoning_effort_from_config(config: dict[str, str]) -> str:
     return str(
         config.get("reasoning_effort")
         or os.environ.get("AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT")
-        or "medium"
+        or DEFAULT_CODEX_REASONING_EFFORT
     ).strip()
 
 
@@ -1488,7 +1625,7 @@ def _use_ambient_codex_cli_auth() -> bool:
 
 
 def _toml_string(value: str) -> str:
-    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def _run_api_json_worker(task: WorkerTask) -> WorkerProcessResult:
@@ -1740,6 +1877,10 @@ def _codex_cli_command(
         search_allowed = bool(search_enabled) and search_allowed
     if search_allowed:
         command.append("--search")
+    else:
+        # Omitting --search leaves the CLI default (cached search) available.
+        # Enforce the task policy at the tool configuration boundary as well.
+        command.extend(["-c", 'web_search="disabled"'])
     if multi_agent_enabled:
         command.extend(["--enable", "multi_agent"])
     command.extend([
@@ -1869,15 +2010,28 @@ def _task_allows_cli_search(task: WorkerTask) -> bool:
 
 def _codex_worker_prompt(task: WorkerTask) -> str:
     if task.task_type in STRICT_CHEMISTRY_WORKER_TASK_TYPES:
+        operations = task.host_context.get("planning_evidence_transport", {}).get(
+            "operations", ["stock", "compound", "search", "read", "list"],
+        )
+        external_evidence = bool(set(operations) & {"compound", "search", "read"})
         execution_context = (
-            "This is a blind self-correcting route-repair task derived from the frozen paper baseline."
+            ("This is an AutoPlanner chemistry task with bounded external discovery."
+             if external_evidence else
+             "This is an AutoPlanner chemistry task with local structure and stock queries only.")
+            if "query_planning_evidence" in task.allowed_tools
+            else
+            "This is an AutoPlanner route-repair task."
             if task.task_type in PATH_REPAIR_WORKER_TASK_TYPES
-            else "This is a blind paper-matched chemistry task."
+            else "This is an AutoPlanner retrosynthesis task."
         )
         return "\n".join(
             [
                 "Return exactly one JSON object satisfying the supplied output schema; emit no markdown or prose outside JSON.",
-                execution_context + " Judge the supplied structures and route context without inferring target identity or claiming evidence, validation, stock, or solved status.",
+                execution_context + (
+                    " Use the exact submitted structures; query results cannot assign missing stereochemistry or grant reaction proof, stock closure, or solved status."
+                    if "query_planning_evidence" in task.allowed_tools else
+                    " Judge the supplied structures and route context without inferring target identity or claiming evidence, validation, stock, or solved status."
+                ),
                 "Reason deeply before choosing, but keep authored fields concise and report only the selected result, not hidden deliberation or a long explanation.",
                 "Task objective:",
                 task.objective,
@@ -1900,7 +2054,7 @@ def _codex_worker_prompt(task: WorkerTask) -> str:
         else "- Do not inject raw reaction candidates or reaction SMILES. Avoid strings containing '>>' unless the task explicitly asks for audit of an existing input reference."
     )
     source_rule = (
-        "- This is blind strategy design. Do not search for literature, infer target identity/name, or optimize for source availability. Source/evidence fields are optional and carry no strategic weight."
+        "- This is structure-based strategy design. Do not search for literature, infer target identity/name, or optimize for source availability. Source/evidence fields are optional and carry no strategic weight."
         if task.task_type in {
             "strategic_disconnection_mining",
             "route_chemistry_critique",
@@ -1948,16 +2102,23 @@ def _artifact_payload_instruction(
     *,
     task: WorkerTask | None = None,
 ) -> str:
+    if task is not None and getattr(task, "host_context", {}).get("allow_material_boundary"):
+        return (
+            "Return either the ordinary Strategy sentences with material_boundary=null, "
+            "or empty Strategy sentences plus one material_boundary sourcing-review request "
+            "bound to the exact selected upstream leaf. References must be observed query_key "
+            "or source_id values. A request is unresolved work, not a reaction or completed route."
+        )
     paper_task_type = str(task.task_type if task is not None else "")
     paper_instruction = {
         ("paper_matched_strategy_generator", "StrategyCardReport"): (
             "Return one schema-defined one-sentence steering query plus its short identity signature; do not expose the internal comparison or add routes, precursor structures, conditions, evidence, or alternatives."
         ),
         ("paper_matched_strategy_generator", "StrategyPortfolioReport"): (
-            "Return exactly three materially distinct one-sentence steering queries plus short identity signatures; do not expose the internal comparison or add routes, precursor structures, conditions, evidence, or extra alternatives."
+            "Return the promising materially distinct Strategy cards requested by the objective, without filling a quota. A frozen objective may require exactly three. Use only the compact schema; do not add routes, structures, conditions, or evidence."
         ),
         ("paper_matched_strategy_critic", "StrategyPortfolioReport"): (
-            "Return exactly three reviewed and, where needed, revised one-sentence steering queries plus their critical assumptions; do not expose the critique, build routes, or add structures, conditions, evidence, or admission claims."
+            "Return one reviewed per supplied and, where needed, revised one-sentence steering queries plus their critical assumptions. For each card, add only review_decision (keep, revise, replace, or discard for portfolios) and one concise decisive_risk sentence; do not expose a longer critique, build routes, or add structures, conditions, evidence, or admission claims."
         ),
         ("paper_matched_route_step", "RetrosynthesisProposalReport"): (
             "Return one schema-defined ReactionJSON expansion for the selected node; the host derives structures and exclusively owns MCTS termination, budget exhaustion, stock, and solved status. Every open leaf continues through this same Builder contract."
@@ -1966,15 +2127,23 @@ def _artifact_payload_instruction(
             "Return one schema-defined dependency-closed replace_span; the host preserves all unlisted rows, derives every precursor, merges the span into the full RouteJSON, and replays the complete route."
         ),
         ("path_repair_editor", "RetrosynthesisProposalReport"): (
-            "Return one compact rollback directive naming a current RouteJSON step and the chemical repair goal. The host computes only the rollback-to-blocker dependency path, preserves unrelated rows and the reconnectable suffix, restores the exact mapped frontier, and ordinary one-step Builder calls perform every structural edit."
+            "Return one compact chemical intervention naming change_step_ids and the repair goal. Include preparations whose delivered state must change, even if they pass locally. The host computes the smallest connecting subtree of reaction occurrences, preserves unrelated rows and exact cut states, and ordinary one-step Builder calls perform every structural edit."
         ),
         ("paper_matched_route_critic", "ChemicalStrategyCritique"): (
-            "Return the schema-defined concise forward audit with each Host-issued review_slot exactly once and mark only concrete chemical contradictions as blocking; the Host binds each slot to its authoritative reaction edit. Strategy adherence is non-blocking observation metadata. Include route_overall_evaluation as a concise 2-4 sentence whole-route judgment covering strategic coherence, the strongest feature, the decisive risk, and experimental maturity without repeating the step audit."
+            "Return the schema-defined concise forward audit with each Host-issued review_slot exactly once; the Host derives blocking and the overall verdict from step verdicts and binds each slot to its authoritative reaction edit. Strategy adherence is non-blocking observation metadata. Include route_overall_evaluation as a concise 2-4 sentence whole-route judgment covering strategic coherence, the strongest feature, the decisive risk, and experimental maturity without repeating the step audit."
         ),
         ("paper_matched_key_event_critic", "ChemicalStrategyCritique"): (
-            "Return the schema-defined concise audit of the first purported key construction, marking only concrete chemical or Strategy contradictions as blocking."
+            "Return the schema-defined concise audit of the first purported key construction. For a reject, identify the required change kind and any competing mapped sites; use none and an empty map list for a non-reject."
         ),
     }.get((paper_task_type, artifact_type))
+    if (task is not None and task.task_type == "paper_matched_route_step"
+            and task.host_context.get("allow_repair_recovery")):
+        return (
+            "Return one schema-defined ReactionJSON expansion, or an explicit recovery request "
+            "for provisional backtracking or Editor scope expansion. Recovery requests have empty "
+            "operations and conditions, consume the ordinary budget, and grant no chemical verdict "
+            "or solved status. The Host validates and executes every request."
+        )
     if paper_instruction:
         return paper_instruction
     if artifact_type == "AgentActionBatch":
@@ -2401,6 +2570,17 @@ def _reaction_operation_json_schema() -> dict[str, Any]:
     }
 
 
+def _planning_catalyst_json_schema() -> dict[str, Any]:
+    """Shared implementation metadata, not catalyst identity or capability proof."""
+    return {
+        "execution_domain": {
+            "type": "string",
+            "enum": ["chemical", "enzymatic", "whole_cell", "hybrid"],
+        },
+        "catalyst": {"type": "string"},
+    }
+
+
 def _paper_editor_route_step_json_schema() -> dict[str, Any]:
     """Only the fields the Editor must author for one revised route row."""
 
@@ -2409,15 +2589,26 @@ def _paper_editor_route_step_json_schema() -> dict[str, Any]:
             "step_id": _short_text_schema(160),
             "product_smiles": {"type": "string"},
             "reaction_family": _short_text_schema(160),
-            "conditions": _string_array_schema(max_items=4, item_max_length=160),
-            "catalyst": _short_text_schema(160),
-                "reaction_operations": {
-                    "type": "array",
-                    "items": _reaction_operation_json_schema(),
-                    "minItems": 1,
-                },
+            # The task-level output byte budget bounds verbosity. A per-string
+            # cap clips complete staged condition hypotheses at reagent/workup
+            # boundaries, including on otherwise valid Host-replayable edits.
+            "conditions": _string_array_schema(max_items=4),
+            **_planning_catalyst_json_schema(),
+            "reaction_operations": {
+                "type": "array",
+                "items": _reaction_operation_json_schema(),
+                "minItems": 1,
+            },
         }
     )
+
+
+def _repair_recovery_json_schema() -> dict[str, Any]:
+    return _strict_object_schema({
+        "action": {"type": "string", "enum": ["expand", "backtrack", "expand_scope"]},
+        "step_id": _short_text_schema(160),
+        "reason": _short_text_schema(500),
+    })
 
 
 def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
@@ -2431,34 +2622,37 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
         "paper_matched_strategy_generator",
         "paper_matched_strategy_critic",
     }:
+        strategy_card_schema = _paper_strategy_card_output_json_schema(task)
         if task.required_artifact_type == "StrategyPortfolioReport":
             return _strict_object_schema(
                 {
                     "strategy_cards": {
                         "type": "array",
-                        "items": _paper_strategy_card_json_schema(),
-                        "minItems": 3,
-                        "maxItems": 3,
+                        "items": strategy_card_schema,
+                        **({"minItems": 3, "maxItems": 3}
+                           if getattr(task, "host_context", {}).get("strategy_count") == 3 else {"minItems": 0}),
                     }
                 }
             )
-        return _paper_strategy_card_json_schema()
+        return strategy_card_schema
     if task.task_type == "paper_matched_route_step":
         return _strict_object_schema(
             {
+                **({"recovery": _repair_recovery_json_schema()}
+                   if task.host_context.get("allow_repair_recovery") else {}),
                 "checkpoint_relation": {
                     "type": "string",
                     "enum": ["preparatory", "executes_checkpoint"],
                 },
                 "reaction_intent": _short_text_schema(300),
+                **_planning_catalyst_json_schema(),
+                "continuation_hint": {"type": "string"},
                 "reaction_operations": {
                     "type": "array",
                     "items": _reaction_operation_json_schema(),
-                    "minItems": 1,
+                    "minItems": 0 if task.host_context.get("allow_repair_recovery") else 1,
                 },
-                "conditions": _string_array_schema(
-                    max_items=4, item_max_length=160
-                ),
+                "conditions": _string_array_schema(max_items=4),
             }
         )
     if task.task_type == "paper_matched_route_editor":
@@ -2487,8 +2681,7 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
     if task.task_type == "path_repair_editor":
         return _strict_object_schema(
             {
-                "rollback_start_step_id": _short_text_schema(160),
-                "rebuild_through_step_id": _short_text_schema(160),
+                "change_step_ids": _string_array_schema(max_items=25, item_max_length=160),
                 "additional_coupled_blocker_step_ids": {
                     "type": "array",
                     "items": _short_text_schema(160),
@@ -2502,6 +2695,8 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
             }
         )
     if task.task_type == "paper_matched_key_event_critic":
+        # Bound explanation count and total worker bytes, not sentence length.
+        # The artifact schema and downstream repair context preserve this prose.
         return _strict_object_schema(
             {
                 "checkpoint_match": {"type": "boolean"},
@@ -2509,6 +2704,7 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                     "type": "string",
                     "enum": ["pass", "uncertain", "reject"],
                 },
+                "uncertainty_source": _uncertainty_source_json_schema(),
                 "blocking_type": {
                     "type": "string",
                     "enum": [
@@ -2529,8 +2725,17 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                     "type": "string",
                     "enum": list(KEY_EVENT_REPAIR_SCOPES),
                 },
-                "reasons": _string_array_schema(max_items=2, item_max_length=260),
-                "suggested_revision": _short_text_schema(420),
+                "required_change_kind": {
+                    "type": "string",
+                    "enum": list(KEY_EVENT_REQUIRED_CHANGE_KINDS),
+                },
+                "competing_site_maps": {
+                    "type": "array",
+                    "items": {"type": "integer", "minimum": 1},
+                    "maxItems": 8,
+                },
+                "reasons": _string_array_schema(max_items=2),
+                "suggested_revision": {"type": "string"},
             }
         )
     if task.task_type == "paper_matched_route_critic":
@@ -2541,7 +2746,7 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                     "type": "string",
                     "enum": ["pass", "uncertain", "reject"],
                 },
-                "blocking": {"type": "boolean"},
+                "uncertainty_source": _uncertainty_source_json_schema(),
                 "blocking_type": {
                     "type": "string",
                     "enum": [
@@ -2558,17 +2763,13 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                         "competing_pathway",
                     ],
                 },
-                "reasons": _string_array_schema(max_items=2, item_max_length=260),
-                "condition_assessment": _short_text_schema(320),
-                "suggested_revision": _short_text_schema(420),
+                "reasons": _string_array_schema(max_items=2),
+                "condition_assessment": {"type": "string"},
+                "suggested_revision": {"type": "string"},
             }
         )
         properties: dict[str, Any] = {
-                "overall_assessment": {
-                    "type": "string",
-                    "enum": ["viable", "uncertain", "reject"],
-                },
-                "route_overall_evaluation": _short_text_schema(960),
+                "route_overall_evaluation": {"type": "string"},
                 "strategy_adherence": {"type": "boolean"},
                 "step_assessments": {
                     "type": "array",
@@ -2577,10 +2778,10 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                     "maxItems": 32,
                 },
                 "route_level_risks": _string_array_schema(
-                    max_items=4, item_max_length=280
+                    max_items=4
                 ),
                 "repair_actions": _string_array_schema(
-                    max_items=4, item_max_length=360
+                    max_items=4
                 ),
                 "coupled_blocker_groups": {
                     "type": "array",
@@ -2590,12 +2791,25 @@ def _worker_model_output_json_schema(task: WorkerTask) -> dict[str, Any]:
                         "minItems": 2,
                     },
                 },
+                "chemical_dependencies": _chemical_dependency_schema(),
                 "limitations": _string_array_schema(
-                    max_items=2, item_max_length=240
+                    max_items=2
                 ),
         }
         return _strict_object_schema(properties)
     return _worker_output_json_schema(task)
+
+
+def _chemical_dependency_schema() -> dict[str, Any]:
+    """One shared schema for the compact wire and normalized Critic artifact."""
+    return {
+        "type": "array", "maxItems": 6,
+        "items": _strict_object_schema({
+            "consumer_review_slot": _short_text_schema(32),
+            "prerequisite_review_slots": _string_array_schema(max_items=8, item_max_length=32),
+            "requirement": _short_text_schema(320),
+        }),
+    }
 
 
 _PROVIDER_RESPONSE_SCHEMA_KEYWORDS = frozenset(
@@ -3009,11 +3223,7 @@ def _materialize_paper_matched_artifact(
                 "schema_version": "strategy_portfolio_report.v1",
                 "case_id": task.case_id,
                 "target_smiles": target,
-                "strategy_cards": [
-                    dict(value)
-                    for value in result.get("strategy_cards") or []
-                    if isinstance(value, Mapping)
-                ],
+                "strategy_cards": result.get("strategy_cards"),
                 "no_route_or_solved_claim": True,
             }
         else:
@@ -3027,6 +3237,8 @@ def _materialize_paper_matched_artifact(
     elif task.task_type == "paper_matched_route_step":
         selected_product = str(context.get("selected_product") or "")
         candidate = {
+            **({"recovery": dict(result.get("recovery") or {})}
+               if task.host_context.get("allow_repair_recovery") else {}),
             "schema_version": "retrosynthesis_candidate.v1",
             "candidate_id": f"{task.task_id}:candidate:1",
             "product_smiles": selected_product,
@@ -3035,6 +3247,11 @@ def _materialize_paper_matched_artifact(
                 result.get("checkpoint_relation") or ""
             ),
             "reaction_family": str(result.get("reaction_intent") or ""),
+            # Historical compact outputs lack these fields; do not infer an
+            # enzyme or rewrite old envelopes by scanning natural-language text.
+            "execution_domain": str(result.get("execution_domain") or "chemical"),
+            "catalyst": str(result.get("catalyst") or ""),
+            "continuation_hint": str(result.get("continuation_hint") or ""),
             "conditions": list(result.get("conditions") or []),
             "limitations": [],
             "no_solved_claim": True,
@@ -3106,6 +3323,7 @@ def _materialize_paper_matched_artifact(
                     "no_solved_claim": True,
                     "not_parent_route_proof": True,
                     "repair_directive": {
+                        "change_step_ids": [str(value) for value in result.get("change_step_ids") or []],
                         "rollback_start_step_id": str(
                             result.get("rollback_start_step_id") or ""
                         ),
@@ -3158,9 +3376,19 @@ def _materialize_paper_matched_artifact(
                 {
                     "step_id": focus_step_id,
                     "verdict": verdict,
+                    **({"uncertainty_source": result["uncertainty_source"]}
+                       if "uncertainty_source" in result else {}),
                     "blocking": verdict == "reject",
                     "blocking_type": blocking_type,
                     "repair_scope": repair_scope,
+                    "required_change_kind": str(
+                        result.get("required_change_kind") or "none"
+                    ),
+                    "competing_site_maps": [
+                        int(value)
+                        for value in result.get("competing_site_maps") or []
+                        if int(value) > 0
+                    ][:8],
                     "reasons": list(result.get("reasons") or [])[:2],
                     "condition_assessment": "",
                     "suggested_revision": str(
@@ -3176,10 +3404,34 @@ def _materialize_paper_matched_artifact(
             "no_solved_claim": True,
         }
     elif task.task_type == "paper_matched_route_critic":
+        step_assessments = []
+        verdicts: list[str] = []
+        for raw in result.get("step_assessments") or []:
+            if not isinstance(raw, Mapping):
+                continue
+            assessment = dict(raw)
+            verdict = str(assessment.get("verdict") or "uncertain")
+            verdicts.append(verdict)
+            step_assessments.append(
+                {
+                    **assessment,
+                    "blocking": verdict == "reject",
+                }
+            )
+        overall_assessment = (
+            "reject"
+            if "reject" in verdicts
+            else "uncertain"
+            if "uncertain" in verdicts or not verdicts
+            else "viable"
+        )
         payload = {
             "schema_version": "chemical_strategy_critique.v1",
             "case_id": task.case_id,
             **result,
+            "chemical_dependencies": result.get("chemical_dependencies", []),
+            "overall_assessment": overall_assessment,
+            "step_assessments": step_assessments,
             "no_reaction_proof": True,
             "no_source_authority": True,
             "no_solved_claim": True,
@@ -3317,18 +3569,58 @@ def _biocatalytic_step_json_schema() -> dict[str, Any]:
     )
 
 
+def _uncertainty_source_json_schema() -> dict[str, Any]:
+    return {"type": ["string", "null"], "enum": [
+        None, "proposal_underspecified", "evidence_missing", "assessment_unresolved",
+    ]}
+
+
 def _paper_strategy_card_json_schema() -> dict[str, Any]:
     return _strict_object_schema(
         {
-            "strategy_query": _short_text_schema(600),
-            "critical_assumption": _short_text_schema(300),
-            "critic_checkpoint": _short_text_schema(360),
+            "strategy_query": {"type": "string"},
+            "critical_assumption": {"type": "string"},
+            "critic_checkpoint": {"type": "string"},
         }
     )
 
 
+def _paper_strategy_review_card_json_schema() -> dict[str, Any]:
+    return _strict_object_schema(
+        {
+            **_paper_strategy_card_json_schema()["properties"],
+            "review_decision": {
+                "type": "string",
+                "enum": ["keep", "revise", "replace"],
+            },
+            "decisive_risk": {
+                "type": "string",
+                "minLength": 1,
+            },
+        }
+    )
+
+
+def _paper_strategy_card_output_json_schema(task: WorkerTask) -> dict[str, Any]:
+    if task.task_type == "paper_matched_strategy_critic":
+        schema = _paper_strategy_review_card_json_schema()
+        if task.required_artifact_type == "StrategyPortfolioReport":
+            schema["properties"]["review_decision"]["enum"].append("discard")
+        return schema
+    if getattr(task, "host_context", {}).get("allow_material_boundary"):
+        return _strict_object_schema({
+            **_paper_strategy_card_json_schema()["properties"],
+            "material_boundary": material_boundary_schema(),
+        })
+    return _paper_strategy_card_json_schema()
+
+
 def _strategy_card_report_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
-    if task.task_type == "paper_matched_strategy_generator":
+    if task.task_type in {
+        "paper_matched_strategy_generator",
+        "paper_matched_strategy_critic",
+    }:
+        strategy_card_schema = _paper_strategy_card_output_json_schema(task)
         return _strict_object_schema(
             {
                 "schema_version": {
@@ -3337,7 +3629,7 @@ def _strategy_card_report_payload_json_schema(task: WorkerTask) -> dict[str, Any
                 },
                 "case_id": {"type": "string", "enum": [task.case_id]},
                 "target_smiles": {"type": "string"},
-                "strategy_card": _paper_strategy_card_json_schema(),
+                "strategy_card": strategy_card_schema,
                 "no_route_or_solved_claim": {"type": "boolean", "enum": [True]},
             }
         )
@@ -3391,6 +3683,8 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
     if task.task_type == "paper_matched_route_step":
         candidate = _strict_object_schema(
             {
+                **({"recovery": _repair_recovery_json_schema()}
+                   if task.host_context.get("allow_repair_recovery") else {}),
                 "schema_version": {
                     "type": "string",
                     "enum": ["retrosynthesis_candidate.v1"],
@@ -3403,9 +3697,10 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
                     "enum": ["preparatory", "executes_checkpoint"],
                 },
                 "reaction_family": _short_text_schema(160),
+                **_planning_catalyst_json_schema(),
+                "continuation_hint": {"type": "string"},
                 "conditions": _string_array_schema(
                     max_items=4,
-                    item_max_length=160,
                 ),
                 "limitations": _string_array_schema(
                     max_items=2,
@@ -3416,7 +3711,7 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
                 "reaction_operations": {
                     "type": "array",
                     "items": reaction_operation,
-                    "minItems": 1,
+                    "minItems": 0 if task.host_context.get("allow_repair_recovery") else 1,
                 },
             }
         )
@@ -3518,6 +3813,7 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
                 },
                 "repair_directive": _strict_object_schema(
                     {
+                        "change_step_ids": _string_array_schema(max_items=25, item_max_length=160),
                         "rollback_start_step_id": _short_text_schema(160),
                         "rebuild_through_step_id": _short_text_schema(160),
                         "additional_coupled_blocker_step_ids": {
@@ -3684,11 +3980,10 @@ def _strategy_portfolio_report_payload_json_schema(task: WorkerTask) -> dict[str
         "paper_matched_strategy_generator",
         "paper_matched_strategy_critic",
     }
-    strategy_card_schema = (
-        _paper_strategy_card_json_schema()
-        if paper_matched
-        else _strategy_card_json_schema()
-    )
+    if paper_matched:
+        strategy_card_schema = _paper_strategy_card_output_json_schema(task)
+    else:
+        strategy_card_schema = _strategy_card_json_schema()
     properties: dict[str, Any] = {
         "schema_version": {
             "type": "string",
@@ -3698,8 +3993,9 @@ def _strategy_portfolio_report_payload_json_schema(task: WorkerTask) -> dict[str
         "target_smiles": {"type": "string"},
         "strategy_cards": {
             "type": "array",
-            "minItems": 3,
-            "maxItems": 3,
+            **({"minItems": 3, "maxItems": 3}
+               if not paper_matched or getattr(task, "host_context", {}).get("strategy_count") == 3
+               else {"minItems": 0}),
             "items": strategy_card_schema,
         },
         "no_route_or_solved_claim": {"type": "boolean", "enum": [True]},
@@ -3826,6 +4122,7 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
                     "enum": ["pass", "uncertain", "reject"],
                 },
                 "blocking": {"type": "boolean"},
+                "uncertainty_source": _uncertainty_source_json_schema(),
                 "blocking_type": {
                     "type": "string",
                     "enum": [
@@ -3844,16 +4141,24 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
                 },
                 "reasons": _string_array_schema(
                     max_items=2,
-                    item_max_length=260,
                 ),
-                "condition_assessment": _short_text_schema(320),
-                "suggested_revision": _short_text_schema(420),
+                "condition_assessment": {"type": "string"},
+                "suggested_revision": {"type": "string"},
         }
         if task.task_type == "paper_matched_key_event_critic":
             step_assessment_properties["step_id"] = _short_text_schema(160)
             step_assessment_properties["repair_scope"] = {
                 "type": "string",
                 "enum": list(KEY_EVENT_REPAIR_SCOPES),
+            }
+            step_assessment_properties["required_change_kind"] = {
+                "type": "string",
+                "enum": list(KEY_EVENT_REQUIRED_CHANGE_KINDS),
+            }
+            step_assessment_properties["competing_site_maps"] = {
+                "type": "array",
+                "items": {"type": "integer", "minimum": 1},
+                "maxItems": 8,
             }
         else:
             step_assessment_properties["review_slot"] = _short_text_schema(32)
@@ -3877,15 +4182,12 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
                 },
                 "route_level_risks": _string_array_schema(
                     max_items=4,
-                    item_max_length=280,
                 ),
                 "repair_actions": _string_array_schema(
                     max_items=4,
-                    item_max_length=360,
                 ),
                 "limitations": _string_array_schema(
                     max_items=2,
-                    item_max_length=240,
                 ),
                 "no_reaction_proof": {"type": "boolean", "enum": [True]},
                 "no_source_authority": {"type": "boolean", "enum": [True]},
@@ -3894,7 +4196,8 @@ def _chemical_strategy_critique_payload_json_schema(task: WorkerTask) -> dict[st
         if task.task_type == "paper_matched_key_event_critic":
             properties["checkpoint_match"] = {"type": "boolean"}
         else:
-            properties["route_overall_evaluation"] = _short_text_schema(960)
+            properties["route_overall_evaluation"] = {"type": "string"}
+            properties["chemical_dependencies"] = _chemical_dependency_schema()
             properties["coupled_blocker_groups"] = {
                 "type": "array",
                 "items": {
@@ -4540,7 +4843,7 @@ def _parse_codex_jsonl_events(stdout: str) -> dict[str, Any]:
     """Normalize Codex ``exec --json`` events for audit and budget checks."""
     events: list[dict[str, Any]] = []
     invalid_lines = 0
-    for line in str(stdout or "").splitlines():
+    for line in str(stdout or "").split("\n"):
         if not line.strip():
             continue
         try:
@@ -4602,6 +4905,12 @@ def _parse_codex_jsonl_events(stdout: str) -> dict[str, Any]:
         record = {
             "call_id": call_id,
             "tool": tool_name,
+            "action_type": str(dict(item.get("action") or {}).get("type") or "") if isinstance(item.get("action"), dict) else "",
+            "result_size": (
+                text_size(json.dumps(item["result"], ensure_ascii=False))
+                if "result" in item else text_size(str(item["aggregated_output"]))
+                if item.get("aggregated_output") else None
+            ),
             "event_type": event_type,
             "status": str(item.get("status") or ""),
             "exit_code": item.get("exit_code"),
@@ -4853,18 +5162,7 @@ def _worker_runtime_reasons(task: WorkerTask, process: WorkerProcessResult) -> l
         for call in tool_calls
         if not (recovered_codex_completion and _tool_failed_before_execution(call))
     ]
-    if (
-        task.budget.max_tool_calls is not None
-        and len(executed_tool_calls) > int(task.budget.max_tool_calls)
-    ):
-        reasons.append("tool_call_budget_exceeded")
-    allowed = {_canonical_runtime_tool_name(tool) for tool in task.allowed_tools}
-    if allowed:
-        for call in executed_tool_calls:
-            observed = _canonical_runtime_tool_name(call.get("tool") or call.get("name") or "")
-            if observed not in allowed:
-                reasons.append("tool_not_allowed")
-                break
+    reasons.extend(_worker_tool_policy_reasons(task, executed_tool_calls))
     if task.agent_mode == "coordinator":
         spawned = list((process.metadata or {}).get("child_agents") or [])
         if len(spawned) < len(task.child_roles):
@@ -4888,11 +5186,72 @@ def _worker_runtime_reasons(task: WorkerTask, process: WorkerProcessResult) -> l
     return reasons
 
 
+def _worker_tool_policy_reasons(
+    task: WorkerTask, calls: list[dict[str, Any]],
+) -> list[str]:
+    """One task policy for both live interruption and completed-output checks."""
+    reasons = []
+    if task.budget.max_tool_calls is not None and len(calls) > task.budget.max_tool_calls:
+        reasons.append("tool_call_budget_exceeded")
+    allowed = {_canonical_runtime_tool_name(tool) for tool in task.allowed_tools}
+    if allowed and any(
+        _canonical_runtime_tool_name(call.get("tool") or call.get("name") or "")
+        not in allowed for call in calls
+    ):
+        reasons.append("tool_not_allowed")
+    return reasons
+
+
+class _CodexToolPolicyMonitor:
+    """Observe CLI JSONL, never prompt prose, and interrupt a violating worker.
+
+    Hosted search starts are actionable immediately. Other tools are checked
+    on completion so a sandbox refusal before execution can still recover.
+    This is containment after observation, not a server-side tool firewall.
+    """
+
+    def __init__(self, task: WorkerTask):
+        self.task = task
+        self.stop_requested = threading.Event()
+        self.violation: dict[str, Any] = {}
+        self.calls: dict[str, dict[str, Any]] = {}
+
+    def observe_line(self, line: str) -> None:
+        if self.stop_requested.is_set():
+            return
+        for call in _parse_codex_jsonl_events(line)["tool_calls"]:
+            event_type = call.get("event_type")
+            if event_type != "item.completed" and not (
+                event_type == "item.started" and call.get("tool") == "web_search"
+            ):
+                continue
+            if _tool_failed_before_execution(call):
+                continue
+            call_id = str(call["call_id"])
+            if call_id.startswith("event:"):
+                call_id = f"event:{len(self.calls)}"
+            self.calls[call_id] = call
+            reasons = _worker_tool_policy_reasons(self.task, list(self.calls.values()))
+            if reasons:
+                self.violation = {
+                    "reasons": reasons, "tool": call["tool"], "call_id": call_id,
+                    "event_type": event_type, "observed_tool_count": len(self.calls),
+                    "scope": "worker_interrupted_after_observation",
+                }
+                self.stop_requested.set()
+                return
+
+
 def _worker_provider_failure_reason_from_process(
     process: WorkerProcessResult,
 ) -> str:
     """Classify a missing provider turn separately from schema rejection."""
 
+    if (process.metadata or {}).get("tool_policy_stop"):
+        # Reuse the existing resumable runtime-failure path. A tool-policy
+        # interruption is not a chemical rejection and must not trigger a
+        # Critic/Editor repair loop. Unknown token usage retains its hold.
+        return "provider_tool_policy_violation"
     event_summary = dict((process.metadata or {}).get("event_summary") or {})
     if (
         event_summary.get("turn_completed") is True
@@ -5013,6 +5372,9 @@ def _tool_failed_before_execution(call: Mapping[str, Any]) -> bool:
 def _canonical_runtime_tool_name(value: Any) -> str:
     """Normalize Codex CLI tool names that changed across multi-agent releases."""
     name = str(value or "").strip().lower().replace("-", "_")
+    for tool in ("inspect_mapped_smiles", "query_planning_evidence"):
+        if name in {f"mcp__chemistry_inspection__{tool}", f"chemistry_inspection.{tool}"}:
+            return tool
     aliases = {
         "wait_agent": "wait",
         "agent_wait": "wait",

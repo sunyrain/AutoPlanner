@@ -239,6 +239,24 @@ def test_non_paper_panel_cutoff_keeps_legacy_default() -> None:
     )
 
 
+def test_enhanced_panel_honors_explicit_shorter_execution_cutoff() -> None:
+    cutoff = _resolve_panel_fixed_cutoff_wall_time_s(
+        execution_profile="self_correcting_sequential", requested=14_400.0,
+    )
+    assert cutoff == 14_400.0
+    assert _resolved_model_wall_time_s(
+        case_budget={"max_total_wall_time_s": 70_200}, fixed_cutoff_wall_time_s=cutoff,
+    ) == 14_400.0
+
+
+@pytest.mark.parametrize("requested", [0.0, -1.0])
+def test_enhanced_panel_rejects_nonpositive_execution_cutoff(requested: float) -> None:
+    with pytest.raises(ValueError, match="must be positive"):
+        _resolve_panel_fixed_cutoff_wall_time_s(
+            execution_profile="self_correcting_sequential", requested=requested,
+        )
+
+
 def test_fixed_cutoff_caps_an_older_larger_manifest_model_budget() -> None:
     assert (
         _resolved_model_wall_time_s(

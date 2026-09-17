@@ -1,0 +1,38 @@
+[
+  {
+    "url": "https://data.synthatlas.xyz/20260809-00e8823-5a1cf6/routes/npa030041_s3.json",
+    "path": "npa030041_s3.json",
+    "sha256": "34eb36a2999a6d7ce19a543814ca0fae307aa09907ab7255df3f8890216cc2e9",
+    "fetched_at_utc": "2026-09-06T03:46:45.188775+00:00"
+  },
+  {
+    "url": "https://data.synthatlas.xyz/20260809-00e8823-5a1cf6/routes/npa026027_s1.json",
+    "path": "npa026027_s1.json",
+    "sha256": "21c3b9bb10ad6f4ab72e20c3c46a59e46b0a6f450073915fa81972215c6194a8",
+    "fetched_at_utc": "2026-09-06T03:46:46.985204+00:00"
+  },
+  {
+    "url": "https://data.synthatlas.xyz/20260809-00e8823-5a1cf6/routes/npa026027_s2.json",
+    "path": "npa026027_s2.json",
+    "sha256": "12bc4557dd94692b730ad3e3be85f5ad26046daf013a1a6a0fdc723b343cf57a",
+    "fetched_at_utc": "2026-09-06T03:46:49.340222+00:00"
+  },
+  {
+    "url": "https://data.synthatlas.xyz/20260809-00e8823-5a1cf6/routes/npa026027_s3.json",
+    "path": "npa026027_s3.json",
+    "sha256": "fe76091a512a222d680ec3fb1ed1b9149a493720ab70619e58529766587dae33",
+    "fetched_at_utc": "2026-09-06T03:46:51.189541+00:00"
+  },
+  {
+    "url": "https://data.synthatlas.xyz/20260809-00e8823-5a1cf6/routes/npa006547_s3.json",
+    "path": "npa006547_s3.json",
+    "sha256": "df7a83e2cde4e0c30522e591ef101271276358cfee4704029a069a11bbe8807b",
+    "fetched_at_utc": "2026-09-06T03:46:53.200330+00:00"
+  },
+  {
+    "url": "https://data.synthatlas.xyz/20260809-00e8823-5a1cf6/routes/npa000656_s2.json",
+    "path": "npa000656_s2.json",
+    "sha256": "22f2f41f87a0c50fe06e81e511ecd67c4d2709f0f8b4b529f4ec5ff7ec7fbd87",
+    "fetched_at_utc": "2026-09-06T03:46:54.557695+00:00"
+  }
+]

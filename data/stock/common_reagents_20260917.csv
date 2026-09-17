@@ -1,0 +1,45 @@
+name,smiles,full_inchikey,pubchem_cid,identity_url
+methanesulfonyl chloride,CS(=O)(=O)Cl,QARBMVPHQWIHKH-UHFFFAOYSA-N,31297,https://pubchem.ncbi.nlm.nih.gov/compound/31297
+methanesulfonic acid,CS(=O)(=O)O,AFVFQIVMOAPDHO-UHFFFAOYSA-N,6395,https://pubchem.ncbi.nlm.nih.gov/compound/6395
+tosyl chloride,Cc1ccc(S(=O)(=O)Cl)cc1,YYROPELSRYBVMQ-UHFFFAOYSA-N,7397,https://pubchem.ncbi.nlm.nih.gov/compound/7397
+triflic acid,OS(=O)(=O)C(F)(F)F,ITMCEJHCFYSIIV-UHFFFAOYSA-N,62406,https://pubchem.ncbi.nlm.nih.gov/compound/62406
+thionyl chloride,O=S(Cl)Cl,FYSNRJHAOHDILO-UHFFFAOYSA-N,24386,https://pubchem.ncbi.nlm.nih.gov/compound/24386
+sulfuryl chloride,O=S(=O)(Cl)Cl,YBBRCQOCSYXUOC-UHFFFAOYSA-N,24648,https://pubchem.ncbi.nlm.nih.gov/compound/24648
+oxalyl chloride,O=C(Cl)C(=O)Cl,CTSLXHKWHWQRSH-UHFFFAOYSA-N,65578,https://pubchem.ncbi.nlm.nih.gov/compound/65578
+acetyl chloride,CC(=O)Cl,WETWJCDKMRHUPV-UHFFFAOYSA-N,6367,https://pubchem.ncbi.nlm.nih.gov/compound/6367
+acetic anhydride,CC(=O)OC(C)=O,WFDIJRYMOXRFFG-UHFFFAOYSA-N,7918,https://pubchem.ncbi.nlm.nih.gov/compound/7918
+chloroacetyl chloride,O=C(Cl)CCl,VGCXGMAHQTYDJK-UHFFFAOYSA-N,6577,https://pubchem.ncbi.nlm.nih.gov/compound/6577
+trimethylsilyl chloride,C[Si](C)(C)Cl,IJOOHPMOJXWVHK-UHFFFAOYSA-N,6397,https://pubchem.ncbi.nlm.nih.gov/compound/6397
+tert-butyldimethylsilyl chloride,CC(C)(C)[Si](C)(C)Cl,BCNZYOJHNLTNEZ-UHFFFAOYSA-N,28928,https://pubchem.ncbi.nlm.nih.gov/compound/28928
+triethylsilyl chloride,CC[Si](CC)(CC)Cl,DCFKHNIGBAHNSS-UHFFFAOYSA-N,13819,https://pubchem.ncbi.nlm.nih.gov/compound/13819
+dimethylformamide,CN(C)C=O,ZMXDDKWLCZADIW-UHFFFAOYSA-N,6228,https://pubchem.ncbi.nlm.nih.gov/compound/6228
+dimethylacetamide,CC(=O)N(C)C,FXHOOIRPVKKKFG-UHFFFAOYSA-N,31374,https://pubchem.ncbi.nlm.nih.gov/compound/31374
+dimethyl sulfoxide,CS(C)=O,IAZDPXIOMUYVGZ-UHFFFAOYSA-N,679,https://pubchem.ncbi.nlm.nih.gov/compound/679
+tetrahydrofuran,C1CCOC1,WYURNTSHIVDZCO-UHFFFAOYSA-N,8028,https://pubchem.ncbi.nlm.nih.gov/compound/8028
+diethyl ether,CCOCC,RTZKZFJDLAIYFH-UHFFFAOYSA-N,3283,https://pubchem.ncbi.nlm.nih.gov/compound/3283
+ethyl acetate,CCOC(C)=O,XEKOWRVHYACXOJ-UHFFFAOYSA-N,8857,https://pubchem.ncbi.nlm.nih.gov/compound/8857
+acetone,CC(C)=O,CSCPPACGZOOCGX-UHFFFAOYSA-N,180,https://pubchem.ncbi.nlm.nih.gov/compound/180
+isopropanol,CC(O)C,KFZMGEQAYNKOFK-UHFFFAOYSA-N,3776,https://pubchem.ncbi.nlm.nih.gov/compound/3776
+tert-butanol,CC(C)(C)O,DKGAVHZHDRPRBM-UHFFFAOYSA-N,6386,https://pubchem.ncbi.nlm.nih.gov/compound/6386
+toluene,Cc1ccccc1,YXFVVABEGXRONW-UHFFFAOYSA-N,1140,https://pubchem.ncbi.nlm.nih.gov/compound/1140
+pyridine,c1ccncc1,JUJWROOIHBZHMG-UHFFFAOYSA-N,1049,https://pubchem.ncbi.nlm.nih.gov/compound/1049
+triethylamine,CCN(CC)CC,ZMANZCXQSJIPKH-UHFFFAOYSA-N,8471,https://pubchem.ncbi.nlm.nih.gov/compound/8471
+diisopropylethylamine,CCN(C(C)C)C(C)C,JGFZNNIVVJXRND-UHFFFAOYSA-N,81531,https://pubchem.ncbi.nlm.nih.gov/compound/81531
+imidazole,c1cnc[nH]1,RAXXELZNTBOGNW-UHFFFAOYSA-N,795,https://pubchem.ncbi.nlm.nih.gov/compound/795
+N-bromosuccinimide,O=C1CCC(=O)N1Br,PCLIMKBDDGJMGD-UHFFFAOYSA-N,67184,https://pubchem.ncbi.nlm.nih.gov/compound/67184
+N-chlorosuccinimide,O=C1CCC(=O)N1Cl,JRNVZBWKYDBUCA-UHFFFAOYSA-N,31398,https://pubchem.ncbi.nlm.nih.gov/compound/31398
+urea,NC(N)=O,XSQUKJJJFZCRTK-UHFFFAOYSA-N,1176,https://pubchem.ncbi.nlm.nih.gov/compound/1176
+thiourea,NC(N)=S,UMGDCJDMYOKAJW-UHFFFAOYSA-N,2723790,https://pubchem.ncbi.nlm.nih.gov/compound/2723790
+sodium acetate,CC(=O)[O-].[Na+],VMHLLURERBWHNL-UHFFFAOYSA-M,517045,https://pubchem.ncbi.nlm.nih.gov/compound/517045
+sodium sulfate,O=S(=O)([O-])[O-].[Na+].[Na+],PMZURENOXWZQFD-UHFFFAOYSA-L,24436,https://pubchem.ncbi.nlm.nih.gov/compound/24436
+magnesium sulfate,O=S(=O)([O-])[O-].[Mg+2],CSNNHWWHGAXBCP-UHFFFAOYSA-L,24083,https://pubchem.ncbi.nlm.nih.gov/compound/24083
+lithium chloride,[Li+].[Cl-],KWGKDLIKAYFUFQ-UHFFFAOYSA-M,433294,https://pubchem.ncbi.nlm.nih.gov/compound/433294
+magnesium,[Mg],FYYHWMGAXLPEAU-UHFFFAOYSA-N,5462224,https://pubchem.ncbi.nlm.nih.gov/compound/5462224
+zinc,[Zn],HCHKCACWOHOZIP-UHFFFAOYSA-N,23994,https://pubchem.ncbi.nlm.nih.gov/compound/23994
+boric acid,OB(O)O,KGBXLFKZBHKPEV-UHFFFAOYSA-N,7628,https://pubchem.ncbi.nlm.nih.gov/compound/7628
+trimethyl borate,COB(OC)OC,WRECIMRULFAWHA-UHFFFAOYSA-N,8470,https://pubchem.ncbi.nlm.nih.gov/compound/8470
+triethyl borate,CCOB(OCC)OCC,AJSTXXYNEIHPMD-UHFFFAOYSA-N,9009,https://pubchem.ncbi.nlm.nih.gov/compound/9009
+potassium tert-butoxide,CC(C)(C)[O-].[K+],LPNYRYFBWFDTMA-UHFFFAOYSA-N,23665647,https://pubchem.ncbi.nlm.nih.gov/compound/23665647
+sodium hydride,[H-].[Na+],BZKBCQXYZZXSCO-UHFFFAOYSA-N,24758,https://pubchem.ncbi.nlm.nih.gov/compound/24758
+acetic acid,CC(=O)O,QTBSBXVTEAMEQO-UHFFFAOYSA-N,176,https://pubchem.ncbi.nlm.nih.gov/compound/176
+dimethyl disulfide,CSSC,WQOXQRCZOLPYPM-UHFFFAOYSA-N,12232,https://pubchem.ncbi.nlm.nih.gov/compound/12232

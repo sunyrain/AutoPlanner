@@ -1,0 +1,134 @@
+{
+  "source": "D:\\Autoplanner\\AutoPlanner\\results\\discussion\\p0-route-reassessment-20260906\\bch\\branch-3\\context.json",
+  "step_id": "codex:branch:3:node:6:candidate:1",
+  "rdkit_version": "2023.09.6",
+  "method": "ETKDGv3, seed 20260906, 8 conformers per variant, UFF; substituent projections onto best-fit cyclobutane plane",
+  "scope": "Static ring-face assignment only; no barrier, reaction yield or kinetic feasibility calculation",
+  "control_not_a_repaired_route": true,
+  "results": [
+    {
+      "variant": "saved_precursor",
+      "mapped_smiles": "[CH2:6]([CH2:7][C@:8]1([c:9]2[cH:10][cH:11][cH:12][cH:13][cH:14]2)[CH2:15][C@H:16]([Br:46])[CH2:17]1)[C:31](=[O:32])[O:33][CH3:45]",
+      "conformers": [
+        {
+          "conformer": 0,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.294898283174048,
+          "bromide_signed_projection": -1.6096342441235214,
+          "same_ring_face": true
+        },
+        {
+          "conformer": 1,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.330752733618786,
+          "bromide_signed_projection": -1.6539185751666896,
+          "same_ring_face": true
+        },
+        {
+          "conformer": 2,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3256820650398147,
+          "bromide_signed_projection": -1.6010672438830686,
+          "same_ring_face": true
+        },
+        {
+          "conformer": 3,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3307537580553686,
+          "bromide_signed_projection": -1.6539193372416496,
+          "same_ring_face": true
+        },
+        {
+          "conformer": 4,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": 1.3292196072194524,
+          "bromide_signed_projection": 1.6475898563052351,
+          "same_ring_face": true
+        },
+        {
+          "conformer": 5,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3304414347029976,
+          "bromide_signed_projection": -1.6535311785487967,
+          "same_ring_face": true
+        },
+        {
+          "conformer": 6,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": 1.325690765925255,
+          "bromide_signed_projection": 1.6010831453654275,
+          "same_ring_face": true
+        },
+        {
+          "conformer": 7,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3304389691247163,
+          "bromide_signed_projection": -1.6535286903234125,
+          "same_ring_face": true
+        }
+      ]
+    },
+    {
+      "variant": "opposite_C16_control",
+      "mapped_smiles": "[CH2:6]([CH2:7][C@:8]1([c:9]2[cH:10][cH:11][cH:12][cH:13][cH:14]2)[CH2:15][C@@H:16]([Br:46])[CH2:17]1)[C:31](=[O:32])[O:33][CH3:45]",
+      "conformers": [
+        {
+          "conformer": 0,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.360630541071113,
+          "bromide_signed_projection": 1.5258976217482292,
+          "same_ring_face": false
+        },
+        {
+          "conformer": 1,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3244998894863242,
+          "bromide_signed_projection": 1.6041622078425548,
+          "same_ring_face": false
+        },
+        {
+          "conformer": 2,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3529135314547713,
+          "bromide_signed_projection": 1.598767365741484,
+          "same_ring_face": false
+        },
+        {
+          "conformer": 3,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3083492152277794,
+          "bromide_signed_projection": 1.5545597958941009,
+          "same_ring_face": false
+        },
+        {
+          "conformer": 4,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3277699168050752,
+          "bromide_signed_projection": 1.5951396242191926,
+          "same_ring_face": false
+        },
+        {
+          "conformer": 5,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3277524542497683,
+          "bromide_signed_projection": 1.5951708815656194,
+          "same_ring_face": false
+        },
+        {
+          "conformer": 6,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": 1.2946246991004353,
+          "bromide_signed_projection": -1.5737549949037302,
+          "same_ring_face": false
+        },
+        {
+          "conformer": 7,
+          "uff_convergence_code": 0,
+          "tether_signed_projection": -1.3279086062481655,
+          "bromide_signed_projection": 1.5950633481677314,
+          "same_ring_face": false
+        }
+      ]
+    }
+  ]
+}

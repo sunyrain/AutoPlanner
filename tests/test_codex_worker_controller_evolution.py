@@ -132,8 +132,8 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             "properties"
         ]["payload"]
         strategy_cards = strategy_payload["properties"]["strategy_cards"]
-        self.assertEqual(strategy_cards["minItems"], 3)
-        self.assertEqual(strategy_cards["maxItems"], 3)
+        self.assertEqual(strategy_cards["minItems"], 0)
+        self.assertNotIn("maxItems", strategy_cards)
         strategy_card = strategy_cards["items"]
         self.assertEqual(
             set(strategy_card["properties"]),
@@ -155,7 +155,6 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             {
                 "route_json",
                 "enzyme",
-                "execution_domain",
                 "biocatalytic_step",
                 "evidence_refs",
                 "source_refs",
@@ -165,7 +164,8 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         )
         self.assertIn("conditions", route_candidate["properties"])
         self.assertIn("checkpoint_relation", route_candidate["properties"])
-        self.assertNotIn("catalyst", route_candidate["properties"])
+        self.assertIn("catalyst", route_candidate["properties"])
+        self.assertIn("execution_domain", route_candidate["properties"])
         self.assertNotIn("step_role", route_candidate["properties"])
         self.assertNotIn("feasibility_check", route_candidate["properties"])
         self.assertNotIn("transformation_rationale", route_candidate["properties"])
@@ -217,6 +217,9 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             {
                 "checkpoint_relation",
                 "reaction_intent",
+                "execution_domain",
+                "catalyst",
+                "continuation_hint",
                 "reaction_operations",
                 "conditions",
             },
@@ -300,6 +303,99 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             "properties"
         ]["revised_steps"]["items"]["properties"]["reaction_operations"]
         self.assertNotIn("maxItems", editor_operations)
+
+    def test_paper_strategy_critic_adds_only_review_metadata_to_cards(self):
+        base_fields = {
+            "strategy_query",
+            "critical_assumption",
+            "critic_checkpoint",
+        }
+        review_fields = {"review_decision", "decisive_risk"}
+        tasks = {
+            "generator_portfolio": WorkerTask(
+                task_id="paper-strategy-generator",
+                case_id="opaque-case",
+                task_type="paper_matched_strategy_generator",
+                required_artifact_type="StrategyPortfolioReport",
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
+            "critic_portfolio": WorkerTask(
+                task_id="paper-strategy-critic",
+                case_id="opaque-case",
+                task_type="paper_matched_strategy_critic",
+                required_artifact_type="StrategyPortfolioReport",
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
+            "generator_card": WorkerTask(
+                task_id="paper-strategy-generator-card",
+                case_id="opaque-case",
+                task_type="paper_matched_strategy_generator",
+                required_artifact_type="StrategyCardReport",
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
+            "critic_card": WorkerTask(
+                task_id="paper-strategy-critic-card",
+                case_id="opaque-case",
+                task_type="paper_matched_strategy_critic",
+                required_artifact_type="StrategyCardReport",
+                budget=WorkerBudget(max_tool_calls=0),
+            ),
+        }
+
+        preflight_worker_response_schemas(tasks.values())
+
+        for name, task in tasks.items():
+            with self.subTest(name=name, surface="model"):
+                model_schema = _worker_model_output_json_schema(task)
+                card_schema = (
+                    model_schema["properties"]["strategy_cards"]["items"]
+                    if task.required_artifact_type == "StrategyPortfolioReport"
+                    else model_schema
+                )
+                expected_fields = (
+                    base_fields | review_fields
+                    if task.task_type == "paper_matched_strategy_critic"
+                    else base_fields
+                )
+                self.assertEqual(set(card_schema["properties"]), expected_fields)
+                self.assertEqual(
+                    set(card_schema["required"]), set(card_schema["properties"])
+                )
+                self.assertFalse(card_schema["additionalProperties"])
+                if task.task_type == "paper_matched_strategy_critic":
+                    self.assertEqual(
+                        card_schema["properties"]["review_decision"]["enum"],
+                        ["keep", "revise", "replace"] + (["discard"] if name == "critic_portfolio" else []),
+                    )
+                    self.assertNotIn("maxLength", card_schema["properties"]["decisive_risk"])
+                    self.assertEqual(
+                        card_schema["properties"]["decisive_risk"]["minLength"],
+                        1,
+                    )
+
+            with self.subTest(name=name, surface="artifact"):
+                payload_schema = _worker_output_json_schema(task)["properties"][
+                    "payload"
+                ]
+                card_schema = (
+                    payload_schema["properties"]["strategy_cards"]["items"]
+                    if task.required_artifact_type == "StrategyPortfolioReport"
+                    else payload_schema["properties"]["strategy_card"]
+                )
+                expected_fields = (
+                    base_fields | review_fields
+                    if task.task_type == "paper_matched_strategy_critic"
+                    else base_fields
+                )
+                self.assertEqual(set(card_schema["properties"]), expected_fields)
+                self.assertEqual(
+                    set(card_schema["required"]), set(card_schema["properties"])
+                )
+                self.assertFalse(card_schema["additionalProperties"])
+
+                for field in base_fields | (review_fields - {"review_decision"}):
+                    if field in card_schema["properties"]:
+                        self.assertNotIn("maxLength", card_schema["properties"][field])
 
     def test_literature_strategy_match_evaluator_has_compact_provider_schema(self):
         task = WorkerTask(
@@ -387,8 +483,7 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertEqual(
             set(wire["properties"]),
             {
-                "rollback_start_step_id",
-                "rebuild_through_step_id",
+                "change_step_ids",
                 "additional_coupled_blocker_step_ids",
                 "preserved_suffix_compatible",
                 "repair_goal",
@@ -698,7 +793,7 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         }
         self.assertFalse(evidence_fields & set(candidate["properties"]))
         self.assertEqual(set(candidate["required"]), set(candidate["properties"]))
-        self.assertIn("blind strategy design", prompt)
+        self.assertIn("structure-based strategy design", prompt)
         self.assertNotIn("Prefer traceable sources", prompt)
         self.assertIn("schema_version=retrosynthesis_proposal_report.v1", prompt)
         self.assertIn("candidate.strategy_card", prompt)
@@ -1291,7 +1386,10 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertGreater(command.index("--sandbox"), exec_index)
         self.assertIn("--skip-git-repo-check", command)
         self.assertNotIn("--search", no_search_command)
+        self.assertIn('web_search="disabled"', no_search_command)
+        self.assertEqual(no_search_command[no_search_command.index('web_search="disabled"') - 1], "-c")
         self.assertIn("--search", search_command)
+        self.assertNotIn('web_search="disabled"', search_command)
         self.assertIn('model_reasoning_effort="medium"', effort_command)
         self.assertLess(search_command.index("--search"), search_command.index("exec"))
 
@@ -1466,6 +1564,7 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             observed["cwd"] = cwd
             observed["env"] = env
             self.assertTrue((cwd / "chemistry_inspection.py").is_file())
+            self.assertTrue((cwd / "stereochemistry.py").is_file())
             self.assertTrue((cwd / "chemistry_inspection_mcp.py").is_file())
             strict_config = (
                 Path(env["CODEX_HOME"]) / "config.toml"

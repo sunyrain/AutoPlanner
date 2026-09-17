@@ -1,6 +1,6 @@
 # AutoPlanner 架构总览
 
-更新：2026-09-03
+更新：2026-09-06
 
 状态：本文是当前架构的总入口。它只汇总已经存在的运行路径和明确标注的过渡/目标能力，
 不替代各组件合同，也不从设计文档反推实现完成。
@@ -10,6 +10,10 @@
 面向合成学者的简化说明见
 [策略先行的生成式逆合成概念图](../assets/current-architecture/strategy-first-generative-retrosynthesis-zh.png)。
 该图是展示投影，不参与架构或运行状态判定。
+
+从一个目标产物出发的当前网站默认流程、单步搜索与局部修复见
+[目标到路线：流程图与逐阶段说明](TARGET_TO_ROUTE_FLOW_20260906.md)
+（含可离线打开的图文版及 SVG）。
 
 ## 1. 一句话架构
 
@@ -40,8 +44,8 @@ Program 研究只是同一宿主上的配置或尚未接管主线的研究能力
    每个已完成 worker artifact 同时按稳定 task id 与完整 task-contract digest 写入 durable worker journal；
    分支状态由这些有序记录和 Host compiler 确定性重建，不另存一份可漂移的 branch snapshot。
 6. 完整战略段经过 Critic/Editor 审查。full-route Editor 输出 dependency-closed `replace_span`；
-   transactional Path Repair Editor 只给 rollback directive，Host 从 replay 派生包含 suffix 入口与原 terminal precursor occurrences 的完整 cut frontier，Builder 逐步重建到该边界，
-   suffix 经 exact/stereo-aware 唯一同构边界重接后全量回放。任何经库存审计仍未闭合的真实开放叶，都回到同一套
+   transactional Path Repair Editor 给出修改步骤、修复目标与约束，Host 在实际 reaction occurrence tree 上确定连通修改区域。必须废弃的试剂制备支线使用同一 `change_step_ids` 完整选入；未选支线必须保留。suffix 入口和保留支路的开放叶是必需切口；仅由被删反应产生的旧终端原料可以保留，但不强制重建。新终端原料必须经 Host 库存确认或继续合成。
+   suffix 经保持结构、同位素与立体化学的同构边界重接，Host 一致更新后续原子编号，再全量回放及复审；不要求模型为旧编号虚构氧交换。任何经库存审计仍未闭合的真实开放叶，都回到同一套
    Route Builder 单步 ReactionJSON 合同；不存在独立 short-tail 模式、第二套 prompt 或 provider admission。
 7. 所有可接纳结果通过一个 canonical ingestion 进入同一 AND/OR hypergraph。`DeficitFrontier`
    从当前 revision 派生下一项 materialize、validate、stock、evidence、condition、Program 或 replan
@@ -124,7 +128,7 @@ canonical admission + one hypergraph revision
 | Builder | Strategy、当前 mapped leaf、已回放反应摘要、split context、最近 typed failure；repair 时只增加短 repair goal/constraints 与 Host-derived cut frontier，不重复 Final Critic 全文 | 一个 ReactionJSON expansion + 简洁条件/意图 metadata | precursor SMILES、map 分配、handoff/fail/stop、Strategy 认证 |
 | Route Critic Agent | Strategy + Host-replayed 路径 + 触发原因；closeout 前还会看到最终 canonical route revision | 按 Host `review_slot` 返回逐步 pass/uncertain/reject、最早 blocker 与简洁路线整体评价；Host 回填 step/digest 身份，最终结论绑定路线 digest | 改结构、库存、solved、Host reaction proof、实验可行性证明 |
 | Full-route Editor | 完整 RouteJSON + Critic annotations + 真实 mapped frontier | dependency-closed `replace_span` | 直接发布 precursor、降低 replay/admission 标准 |
-| Path Repair Editor | 完整 RouteJSON + Critic annotations | 两个 step boundary、可选 coupled blocker ids、suffix compatibility、短 repair goal/constraints | ReactionJSON、map、precursor、保留/删除行事实 |
+| Path Repair Editor | 完整 RouteJSON + Critic annotations 与依赖 | 修改 step IDs、可选 coupled blocker ids、suffix compatibility、短 repair goal/constraints；Host 派生边界 | ReactionJSON、map、precursor、保留/删除行事实 |
 | Host | 所有结构化候选、运行输入和当前事实 | replay、canonical revision、stock/closure 与 typed diagnostics | 用命名反应或模型信心替代化学验证 |
 
 ## 6. 四个当前权威
@@ -167,6 +171,10 @@ panel launcher / CLI --publish-registry
 | configured acceptance | 是否达到用户声明的产品质量合同？ | acceptance/quality projection |
 
 `paper_equivalent_solved=true` 不等于 reaction-validated、evidence-closed、process-ready 或实验可行。
+默认 `benchmark_search` 的 stock 轴只表示精确命中冻结的 `ZINC+eMolecules` 集合，既不声称实时可采购，
+也不能把未命中解释为不可采购。乙醛等常见、挥发或反应性原料可能缺席于该筛选型目录；若要主张实际
+可得性，必须由独立、带时间戳和供应商证据的 procurement snapshot 建立观察。采购观察不得回写或扩充
+冻结论文目录，也不得据此提升 `paper_equivalent_solved`。
 Route Critic Agent 是管线内审核者；外部合成专家只评价路线洞察、价值和实验优先级，是独立科学评价轴，
 不负责替系统补做内部审核。Critic 读取 Host 已绑定的 mapped boundary 也不会提升原 reaction proof、
 放宽 canonical admission 或改变库存闭合。
@@ -182,6 +190,14 @@ Route Critic Agent 是管线内审核者；外部合成专家只评价路线洞�
 | GRIA | Program-first 长期目标 | 当前只有 shadow projection/store，尚未接管生产路线语义 |
 
 ## 9. 当前主要架构债
+
+2026-09-05 第一轮拆分与 P0 修复明确了以下职责边界：
+
+- `application/stereochemistry.py` 统一提供去除 atom-map 后的 CIP 观察；结构检查、绝对构型设置、回放校验与修复边界比较共用此语义。atom-map 只表示原子身份，不参与化学优先级。隔离的 chemistry MCP 同步携带该模块。
+- `application/reaction_inputs.py` 统一读取完整反应输入。`reaction_input_smiles` 用于映射与反应验证；`precursor_smiles` 只表示需要继续合成的路线前体。辅助试剂保留在完整输入与 Critic 上下文中，不进入路线前沿；组分匹配保留重复项。
+- `application/route_review_context.py` 从 canonical 图编译 revision-bound Critic 上下文，负责映射边界、路线命名空间与策略来源投影；不调度 worker、不写运行状态、不授予反应证明。Director 与 target solver 直接消费此模块。
+- `interfaces/target_report_projection.py` 负责报告和 checkpoint 的有界展示投影；完整执行历史仍由 RunKernel 与不可变 artifact 持有。
+- 反应验证器版本升为 `v12`，旧版本 proof 需要重新验证后才能作为当前验证结果。包含立体设置操作的旧回放缓存必须按当前 `host_stereochemistry.v2` 重新回放。历史结果不原地改写；真实回放失败仍保留为失败。
 
 - `target_solver.py` 与 `sequential_strategy_director.py` 仍承载过多 prompt、状态机、兼容投影和搜索
   适配逻辑；下一步应按现有权威边界拆包，而不是增加新的 gate。

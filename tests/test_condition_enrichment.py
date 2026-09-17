@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from cascade_planner.application.condition_predictions import (
     normalize_condition_predictions,
+    normalize_condition_text,
+    reaction_smiles_for_edge,
 )
 from cascade_planner.application.deficit_frontier import compile_deficit_frontier
 from cascade_planner.application.retrosynthesis_run_contract import (
@@ -73,6 +77,101 @@ class _EmptyPredictor:
     def predict_many(self, reactions: list[str], *, top_k: int) -> dict[str, list[dict]]:
         assert top_k == 2
         return {reaction: [] for reaction in reactions}
+
+
+@pytest.mark.parametrize("value", [
+    "TBD",
+    "TBDMSCl, imidazole, dry DMF",
+    "TBDPSCl, imidazole; temperature to be determined",
+    "TBD (10 mol%), THF; catalyst loading requires screening",
+    "Hypothesized screening conditions: UV irradiation with catalytic xanthone",
+    "Chiral HPLC; collect the R fraction; eluent requires screening",
+    "K2CO3 in methanol; avoid secondary-alcohol TBDMS deprotection",
+    "NaOH in water; addition order not specified",
+    "Pd catalyst selected after screening; proposed solvent: ethanol",
+])
+def test_concrete_conditions_and_uncertainty_are_both_retained(value):
+    assert normalize_condition_text(value) == value
+    normalized = normalize_condition_predictions([{"reagents": [value], "catalyst": "n/a"}])
+    assert normalized[0]["reagents"] == [value]
+    assert "catalyst" not in normalized[0]
+    assert normalized[0]["not_reaction_proof"] is True
+    assert normalized[0]["not_source_evidence"] is True
+
+
+@pytest.mark.parametrize("placeholder", [None, "", "  ", "to be determined", "N/A.", "screen", "not specified"])
+def test_empty_condition_predictions_do_not_fill_evidence_gaps(placeholder):
+    assert normalize_condition_text(placeholder) == ""
+    assert normalize_condition_predictions([{"reagents": [placeholder], "catalyst": "n/a"}]) == []
+
+
+def test_conditions_cross_builder_host_storage_critic_and_export_without_text_loss(tmp_path):
+    from cascade_planner.application.canonical_hypergraph import CanonicalIngestionBatch
+    from cascade_planner.application.route_review_context import compile_revision_bound_route_critic_context
+    from cascade_planner.application.routejson_compiler import RouteJSONCompiler
+    from cascade_planner.orchestration.sequential_strategy_director import (
+        _expansion_from_materialized, _step_row, _critic_step_row, _paper_critic_step_row,
+        _host_route_json_from_steps,
+    )
+    from cascade_planner.web.v4_live_synthesis import _route_condition_texts
+
+    # The last qualification and the third condition must reach the reviewer,
+    # including when its prompt is compacted. Neither is a source/execution proof.
+    conditions = [
+        "TBDMSCl, imidazole, DMF; proposed conditions require screening",
+        "Substrate-dependent hypothesis; " * 10 + "avoid irradiation during workup",
+        "UV irradiation with xanthone during the reaction only",
+    ]
+    catalyst = "xanthone; loading requires screening"
+    compiled = RouteJSONCompiler().compile_step(
+        mapped_product_smiles="[CH3:1][CH2:2][O:3][C:4]([CH3:5])=[O:6]",
+        operations=[{"op": "break_bond", "map_a": 3, "map_b": 4}],
+        expected_product_smiles="CCOC(C)=O",
+    )
+    step = _step_row(
+        _expansion_from_materialized(compiled, {"conditions": conditions, "catalyst": catalyst}),
+        step_id="builder-step",
+    )
+    service = _service(tmp_path)
+    service.graph_store.apply(
+        CanonicalIngestionBatch(route_families=({"route_family_id": "codex:sequential:family:1"},)),
+        idempotency_key="condition-route",
+    )
+    service.execute_commands(
+        service.graph_store.materialization_commands([
+            {**step, "origin_kind": "manual", "proposal_id": "conditions", "route_family_id": "codex:sequential:family:1"}
+        ]),
+        idempotency_key="condition-roundtrip", include_scheduled=False,
+    )
+    graph = service.graph_store.load()
+    family_id = next(iter(graph["route_families"]))
+    context, diagnostic = compile_revision_bound_route_critic_context(graph, route_family_id=family_id)
+    assert diagnostic == {}
+    for row in (step, context.steps[0]):
+        assert row["condition_predictions"][0]["reagents"] == conditions
+        assert row["condition_predictions"][0]["not_reaction_proof"] is True
+        assert _route_condition_texts(row) == conditions
+        for level in range(4):
+            assert _paper_critic_step_row(row, compact_level=level)["conditions"] == conditions
+            projected = _critic_step_row(row, compact_level=level)
+            if level == 0:
+                assert projected["condition_predictions"][0]["reagents"] == conditions
+            elif level == 1:
+                assert projected["condition_prediction"]["reagents"] == conditions
+            else:
+                assert projected["conditions"] == conditions
+    assert _host_route_json_from_steps([step])[0]["conditions"] == conditions
+
+
+def test_condition_input_keeps_auxiliary_reagents_without_making_route_nodes() -> None:
+    edge = {
+        "product_smiles": "C[Cu]",
+        "precursor_smiles": ["[Li]C"],
+        "reaction_input_smiles": ["[Cu]I", "[Li]C"],
+        "auxiliary_reagent_smiles": ["[Cu]I"],
+    }
+
+    assert reaction_smiles_for_edge(edge) == "[Cu]I.[Li]C>>C[Cu]"
 
 
 def test_condition_normalization_is_ranked_bounded_and_cannot_spoof_source() -> None:

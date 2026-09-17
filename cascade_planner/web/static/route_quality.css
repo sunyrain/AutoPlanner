@@ -1,0 +1,134 @@
+/* Actual-size reading and vector painting, shared by online and offline routes. */
+.criticScopeNote{margin:6px 0 0;color:#52645a;font:400 14px/1.6 system-ui,sans-serif;overflow-wrap:anywhere}
+.criticVerdict.unavailable{background:#edf1f2;color:#485b66;border-color:#d3dde0}
+.historicalCritic{border-left:3px solid #b68a3f;padding:12px;background:#fffaf0;gap:8px}
+.historicalCritic>p{font-size:14px;line-height:1.7}
+.routeCounting { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 14px; margin-bottom: 12px; border: 1px solid #c5d6ca; border-radius: 10px; background: #f6faf7; color: #234c3a; font: 13px/1.6 system-ui, sans-serif; max-width: 900px; }
+.routeCounting label { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-weight: 650; }
+.routeCounting small { flex-basis: 100%; color: #52645a; font-size: 12px; }
+.routeSequence { width: 270px; min-width: 270px; margin: 10px 0; align-self: center; color: #234c3a; }
+.routeSequence > summary { cursor: pointer; border: 1px solid #adc6b6; border-radius: 10px; padding: 12px; background: #f0f7f2; font: 13px/1.6 system-ui, sans-serif; }
+.routeSequence > summary > span { display: block; font-size: 12px; color: #52645a; }
+.routeSequence > summary ol { margin: 6px 0 0; padding-left: 20px; }
+.routeSequence > summary li { max-height: 3.2em; overflow: hidden; overflow-wrap: anywhere; margin: 4px 0; }
+.routeSequenceContent { display: flex; flex-direction: column; align-items: center; }
+.routeSequence[open] { width: max-content; }
+.routeSequence[open] > summary { max-width: 270px; }
+.routeSequence[open] > summary ol { display: none; }
+.horizontalRoute .routeSequence[open] { display: flex; align-items: center; }
+.horizontalRoute .routeSequenceContent { flex-direction: row; }
+@media print { .routeCounting input { display: none; } }
+:root { --muted: #52645a; }
+.routeScale, .route-tree { will-change: auto; }
+.moleculeNode, .routeTreeBranch > .moleculeNode, .graph-node { width: 260px; min-width: 260px; }
+.routeTreeBranch { min-width: 260px; }
+.routeViewport.horizontalRoute .routeTreeBranch { min-width: 0; }
+.routeViewport .moleculeVisual, .graph-molecule { height: 164px; padding: 4px; background: #fff; }
+.target-visual { height: 154px; background: #fff; }
+.moleculeVisual svg, .molecule-art svg, .graph-molecule svg, .target-visual svg { shape-rendering: geometricPrecision; }
+.nodeFlag, .graph-label { font-size: 11px; letter-spacing: .04em; }
+.moleculeNode.stockHit, .graph-node.stockHit, .molecule-card.stockHit { border: 2px solid #23834d; background: #effaf3; }
+.stockHitBadge { padding: 6px 10px; background: #dff3e6; color: #175c35; font: 700 12px/1.5 system-ui, sans-serif; border-top: 1px solid #b6ddc4; }
+.stockHit .nodeText, .stockHit .graph-smiles, .stockHit .molecule-smiles { background: #effaf3; color: #285c3e; }
+.nodeText, .graph-smiles, .molecule-smiles, .target-smiles { color: #52645a; font-size: 11px; line-height: 1.5; }
+.reactionConnector { width: 270px; }
+.reactionCard, .graph-reaction { width: 260px; }
+.reactionCard, .graph-reaction-card { padding: 10px 12px; }
+.reactionFamily, .graph-reaction-card b, .route-reaction b { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.reactionMeta, .graph-reaction-card > span, .route-reaction span { font-size: 12px; line-height: 1.6; color: #435b4e; }
+.origin-badge { font-size: 10px !important; }
+.hostTag, .origin-count, .origin-strip > strong, .origin-strip > span, .graph-toolbar > span { font-size: 11px; }
+.reactionDetail { max-height: min(62%, 620px); background: #fff; }
+.reactionDetailHead { align-items: flex-start; padding: 14px 20px; gap: 16px; }
+.reactionDetailHead b { font-size: 16px; font-weight: 650; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.reactionDetailClose { width: 34px; height: 34px; font-size: 20px; }
+.reactionDetailBody { display: block; min-height: 0; padding: 0 20px 18px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; container: reaction-details / inline-size; }
+.reactionDetailMeta { display: flex; flex-wrap: wrap; gap: 14px 32px; align-items: start; padding: 14px 0; margin-bottom: 18px; border-bottom: 1px solid var(--line, #dde5df); }
+.reactionDetailFact { flex: 0 1 auto; min-width: 0; max-width: 100%; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.reactionDetailFact > span { display: block; color: var(--muted); margin-bottom: 5px; font-size: 12px; font-weight: 600; }
+.reactionDetailFact .criticVerdict { display: inline-block; max-width: 100%; white-space: normal; font-size: 13px; }
+.reactionDetailColumns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.reactionDetailColumns.hasReview { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+.reactionDetailMain, .reactionDetailReview { min-width: 0; }
+.reactionDetailReview { padding-left: 24px; border-left: 1px solid var(--line, #dde5df); }
+.reactionDetailSection { min-width: 0; margin-bottom: 20px; }
+.reactionDetailSection > summary { display: flex; align-items: baseline; gap: 12px; padding: 0 0 10px; cursor: pointer; list-style: none; color: var(--green, #234c3a); font-size: 14px; line-height: 1.6; font-weight: 650; }
+.reactionDetailSection > summary::-webkit-details-marker { display: none; }
+.reactionDetailSection > summary::after { content: '展开 ＋'; margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 400; flex-shrink: 0; }
+.reactionDetailSection[open] > summary::after { content: '收起 −'; }
+.reactionDetailSection > summary:focus-visible, .reactionTechnical > summary:focus-visible { outline: 2px solid var(--green, #234c3a); outline-offset: 3px; border-radius: 3px; }
+.reactionSectionContent { font-size: 16px; font-weight: 400; line-height: 1.7; color: #283e32; overflow-wrap: anywhere; }
+.reactionDetailColumns:not(.hasReview) .reactionSectionContent { max-width: 110ch; }
+.reactionSectionContent p { margin: 0 0 14px; white-space: pre-line; }
+.reactionConditionList, .reactionReviewList { margin: 0; padding: 0; list-style: none; }
+.reactionConditionList li, .reactionReviewList li { margin: 0; padding: 12px 0; white-space: pre-line; }
+.reactionConditionList li:first-child, .reactionReviewList li:first-child { padding-top: 0; }
+.reactionConditionList li + li, .reactionReviewList li + li { border-top: 1px solid #edf1ee; }
+.reactionCatalyst { padding: 10px 12px; background: #f3f7f4; border-radius: 8px; }
+.reactionCatalyst > span { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.reactionDetailEmpty { color: var(--muted); }
+.reactionDetail .reactionTechnical { margin-top: 4px; padding-top: 12px; }
+.reactionDetail .reactionTechnical > summary { max-width: 100%; font-size: 14px; line-height: 1.6; }
+.reactionDetailFoot { padding: 10px 20px; }
+.reactionDetailJump { min-height: 36px; font-size: 14px; }
+@container reaction-details (max-width: 820px) {
+  .reactionDetailColumns.hasReview { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .reactionDetailReview { padding: 18px 0 0; border-left: 0; border-top: 1px solid var(--line, #dde5df); }
+}
+@media (max-width: 700px) {
+  .reactionDetail { max-height: min(72%, 640px); }
+  .reactionDetailHead { padding: 10px 14px; }
+  .reactionDetailBody { padding-inline: 14px; }
+  .reactionDetailMeta { gap: 12px 20px; }
+  .reactionDetailColumns.hasReview { grid-template-columns: minmax(0, 1fr); }
+  .reactionDetailFoot { padding: 8px 14px; }
+}
+.reactionDetailRow > span, .reactionDetailHead small, .reactionTechnical summary { font-size: 12px; }
+.reactionDetailRow > b, .reactionDetailRow > code, .reactionInsightList li { font-size: 14px; line-height: 1.7; }
+.reactionTechnicalGrid code { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.strategy-card h3, .strategyCard h3 { font-size: 14px; }
+.strategy-card p, .strategyCard p, .strategy-foot, .strategyFoot { font-size: 12px; line-height: 1.6; }
+.control, .canvas-control, .canvas-speed, .canvas-path, .layoutControl, .zoomControl { font-size: 12px; min-height: 34px; }
+.graph-toolbar, .graph-toolbar-actions { flex-wrap: wrap; }
+.route-workbench > .panel-header { flex-wrap: wrap; }
+.route-workbench > .panel-header > .graph-toolbar-actions { flex-shrink: 1; }
+.canvas-player { flex-wrap: wrap; }
+.canvas-player-event b, .showcaseActivityItem h3 { font-size: 13px; }
+.canvas-player-event small, .canvas-counter, .showcaseActivityItem p, .showcaseActivityTime { font-size: 11px; }
+.route-step { grid-template-columns: 74px minmax(230px, 1fr) 200px minmax(260px, 1.2fr); gap: 16px; padding: 14px; }
+.route-molecule .molecule-art, .route-precursors .molecule-art { height: 174px; }
+.route-precursors { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.molecule-card header, .route-step-no { font-size: 11px; }
+.route-summary p, .route-summary dl { font-size: 12px; }
+.structure-expand { position: absolute; right: 5px; bottom: 5px; z-index: 2; border: 1px solid #bacbc0; border-radius: 6px; padding: 3px 7px; color: #174c3c; background: #fff; font: 11px/1.4 system-ui, sans-serif; cursor: zoom-in; }
+.moleculeVisual, .molecule-art, .graph-molecule, .target-visual { position: relative; }
+.structure-dialog { width: min(1100px, 94vw); max-height: 94vh; padding: 20px; border: 1px solid #bacbc0; border-radius: 16px; color: #15231c; background: #fff; }
+.structure-dialog::backdrop { background: rgba(15, 30, 23, .55); }
+.structure-dialog header, .structure-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.structure-dialog button, .structure-dialog a { border: 1px solid #bacbc0; border-radius: 7px; padding: 7px 12px; background: #fff; color: #174c3c; font: 14px/1.5 system-ui, sans-serif; cursor: pointer; text-decoration: none; }
+.structure-large { height: min(64vh, 680px); display: grid; place-items: center; }
+.structure-large > svg, .structure-large > img { display: block; width: 100% !important; height: 100% !important; max-height: 100%; object-fit: contain; }
+.structure-dialog code { display: block; max-height: 100px; overflow: auto; overflow-wrap: anywhere; margin: 12px 0; font: 13px/1.6 Consolas, monospace; user-select: text; }
+.structure-dialog footer { font-size: 13px; color: #52645a; }
+@media(max-width:1180px) { .route-step { grid-template-columns: 60px minmax(0, 1fr); } .route-reaction, .route-precursors { grid-column: 2; } }
+@media(max-width:620px) {
+  .route-step { grid-template-columns: minmax(0, 1fr); }
+  .route-reaction, .route-precursors { grid-column: 1; }
+  .graph-toolbar-actions { flex: 1; }
+  .target-card { display: block; }
+  .target-smiles { border-left: 0; border-top: 1px solid #edf0ec; }
+}
+@media print {
+  .structure-expand, .structure-dialog, .canvas-player, .graph-toolbar-actions { display: none !important; }
+  .route-step { break-inside: avoid; grid-template-columns: 45px minmax(0, 1fr) 140px minmax(0, 1.1fr); gap: 8px; padding: 10px; }
+  .route-reaction, .route-precursors { grid-column: auto; }
+  .route-layout { grid-template-columns: 1fr; }
+  .route-precursors { grid-template-columns: minmax(0, 1fr); }
+}
+/* Reaction participants remain visible without becoming route search leaves. */
+.reactionInputStructures{display:flex;flex-wrap:wrap;gap:10px;margin:7px 0}
+.reactionInputStructures figure{flex:1 1 155px;min-width:0;max-width:260px;margin:0;border:1px solid #d3dfd5;border-radius:9px;background:#fff;overflow:hidden}
+.reactionInputStructures .moleculeVisual{position:relative;display:block;width:100%;height:110px;background:#fff}
+.reactionInputStructures .moleculeInline{position:absolute;inset:0;display:block;padding:8px}
+.reactionInputStructures .moleculeInline img,.reactionInputStructures .moleculeInline svg{display:block;width:100%;height:100%;object-fit:contain}
+.reactionInputStructures figcaption{padding:5px 7px;border-top:1px solid #edf0ec;overflow-wrap:anywhere;font-size:9px;line-height:1.35}

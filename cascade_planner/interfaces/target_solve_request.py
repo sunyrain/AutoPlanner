@@ -148,6 +148,12 @@ def solve_target_request(
             ),
             use_coordinator=_bool(payload, "use_coordinator", False),
             enable_web_search=_bool(payload, "enable_web_search", True),
+            enable_planning_evidence=_bool(payload, "enable_planning_evidence", True),
+            planning_stock_query_limit=_int(payload, "planning_stock_query_limit", 24),
+            planning_compound_query_limit=_int(payload, "planning_compound_query_limit", 4),
+            planning_literature_search_limit=_int(payload, "planning_literature_search_limit", 8),
+            planning_literature_read_limit=_int(payload, "planning_literature_read_limit", 4),
+            planning_queries_per_worker=_int(payload, "planning_queries_per_worker", 6),
             enable_initial_director_web_search=_bool(
                 payload,
                 "enable_initial_director_web_search",
@@ -428,7 +434,10 @@ def _web_visual_provider(
         CodexVisualEvidenceConfig(
             cache_dir=paths.external_data_root / "visual-evidence",
             model=str(payload.get("model") or DEFAULT_TARGET_DIRECTOR_MODEL),
-            reasoning_effort=str(payload.get("reasoning_effort") or "low"),
+            reasoning_effort=str(
+                payload.get("reasoning_effort")
+                or SYNTHEX_MATCHED_PROFILE_DEFAULTS["reasoning_effort"]
+            ),
             max_pages=_int(dict(payload), "max_visual_evidence_pages", 6),
         )
     )

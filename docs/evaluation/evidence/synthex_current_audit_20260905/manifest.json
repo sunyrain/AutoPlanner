@@ -1,0 +1,11 @@
+{
+ "dataVer": "20260809-00e8823-5a1cf6",
+ "renderVer": "4",
+ "builtAt": "2026-08-09T21:12:52+00:00",
+ "counts": {
+  "routes": 3243,
+  "compounds": 1098,
+  "reactions": 33145,
+  "molecules": 36434
+ }
+}

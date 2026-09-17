@@ -231,18 +231,7 @@ def project_rows(
     return projected
 
 
-def main() -> int:
-    args = parse_args()
-    slots = _read_jsonl((REPO_ROOT / args.target_slots).resolve())
-    pubchem_rows = _read_jsonl((REPO_ROOT / args.structure_candidates).resolve())
-    visual_results = _result_index((REPO_ROOT / args.visual_output_dir).resolve())
-    rows = project_rows(slots, pubchem_rows, visual_results)
-    output = (REPO_ROOT / args.output).resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
-        encoding="utf-8",
-    )
+def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     relation_counts: dict[str, int] = {}
     status_counts: dict[str, int] = {}
     paper_status_by_id: dict[str, str] = {}
@@ -255,7 +244,7 @@ def main() -> int:
     paper_status_counts: dict[str, int] = {}
     for status in paper_status_by_id.values():
         paper_status_counts[status] = paper_status_counts.get(status, 0) + 1
-    summary = {
+    return {
         "schema_version": "recent_total_synthesis_visual_structure_projection_summary.v1",
         "paper_attempts": len(paper_status_by_id),
         "paper_attempt_status_counts": dict(sorted(paper_status_counts.items())),
@@ -268,6 +257,21 @@ def main() -> int:
         "source_locator_complete": sum(bool(row["source_locator_complete"]) for row in rows),
         "admission_authority": False,
     }
+
+
+def main() -> int:
+    args = parse_args()
+    slots = _read_jsonl((REPO_ROOT / args.target_slots).resolve())
+    pubchem_rows = _read_jsonl((REPO_ROOT / args.structure_candidates).resolve())
+    visual_results = _result_index((REPO_ROOT / args.visual_output_dir).resolve())
+    rows = project_rows(slots, pubchem_rows, visual_results)
+    output = (REPO_ROOT / args.output).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    summary = summarize_rows(rows)
     summary_path = output.with_name(f"{output.stem}.summary.json")
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

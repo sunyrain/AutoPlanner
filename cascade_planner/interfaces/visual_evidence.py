@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from cascade_planner.agent.codex_worker import DEFAULT_CODEX_REASONING_EFFORT
+
 from cascade_planner.application.run_kernel import RunKernelError
 from cascade_planner.harness.visual_literature_chain_agent import (
     run_visual_literature_chain_agent,
@@ -37,7 +39,7 @@ VisualEvidenceProvider = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 class CodexVisualEvidenceConfig:
     cache_dir: str | Path
     model: str = "gpt-5.5"
-    reasoning_effort: str = "low"
+    reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT
     timeout_s: float = 240.0
     max_pages: int = 6
     max_steps: int = 16
@@ -45,7 +47,7 @@ class CodexVisualEvidenceConfig:
     def __post_init__(self) -> None:
         if not self.model.strip():
             raise ValueError("visual_evidence_model_missing")
-        if self.reasoning_effort not in {"low", "medium", "high"}:
+        if self.reasoning_effort not in {"low", "medium", "high", "xhigh"}:
             raise ValueError("visual_evidence_reasoning_effort_invalid")
         if self.timeout_s <= 0 or not 1 <= self.max_pages <= 12:
             raise ValueError("visual_evidence_execution_limit_invalid")

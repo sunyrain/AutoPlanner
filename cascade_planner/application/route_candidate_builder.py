@@ -11,6 +11,9 @@ from cascade_planner.application.route_innovations import (
     BIOCATALYTIC_KINDS,
     route_innovation_summary,
 )
+from cascade_planner.application.route_edge_scope import (
+    route_family_bound_origin_records,
+)
 from cascade_planner.application.route_strategy_value import (
     compile_evidence_maturity_vector,
     compile_strategic_value_vector,
@@ -18,6 +21,14 @@ from cascade_planner.application.route_strategy_value import (
 
 
 PROOF_ROUTE_SCHEMA = "proof_stitched_route.v1"
+CHEMICAL_CRITIC_RISK_VECTOR_SCHEMA = "chemical_critic_risk_vector.v1"
+
+_CRITIC_VERDICTS = ("pass", "uncertain", "reject")
+_CRITIC_VERDICT_RANK = {
+    "pass": 0,
+    "uncertain": 1,
+    "reject": 2,
+}
 
 
 def build_route_candidate(
@@ -186,13 +197,21 @@ def build_route_candidate(
         or codex_critic.get("overall_assessment")
         or "unavailable"
     )
+    critic_step_id_to_edge_id = _route_critic_step_id_to_edge_id(
+        graph=graph,
+        edge_ids=edge_ids,
+        route_family_id=family_id,
+    )
+    chemical_critic_risk = _compile_chemical_critic_risk_vector(
+        edge_ids=edge_ids,
+        family=family,
+        chemical_critic=codex_critic,
+        critic_step_id_to_edge_id=critic_step_id_to_edge_id,
+    )
     risk = (
         0.42 * bool(conflicts)
-        + 0.24 * min(1.0, len(critic_uncertainties) / 4.0)
-        + 0.18 * (codex_critic_status == "uncertain")
-        + 0.80 * (codex_critic_status == "reject")
+        + float(chemical_critic_risk["score"])
         + 0.12 * min(1.0, len(edge_ids) / 12.0)
-        + 0.14 * min(1.0, len(unvalidated_biocatalytic_edge_ids))
         + 0.08 * min(1.0, int(innovation_summary["mechanism_extrapolation_count"]))
     )
     identity = {
@@ -266,6 +285,7 @@ def build_route_candidate(
             "chemical_critic_uncertainties": critic_uncertainties,
             "codex_chemical_critic": codex_critic,
             "codex_chemical_critic_status": codex_critic_status,
+            "chemical_critic_risk_vector": chemical_critic_risk,
             "risk_score": round(float(risk), 6),
             "evidence_risk_score": round(1.0 - evidence_maturity["score"], 6),
             "complete": complete,
@@ -290,9 +310,174 @@ def build_route_candidate(
                 "strategic_value_is_independent_of_evidence": True,
                 "evidence_maturity_is_independent_of_strategy_wording": True,
                 "unrecognized_reaction_class_is_not_an_exploration_rejection": True,
+                "chemical_critic_risk_is_ranking_metadata_only": True,
             },
         }
     )
+
+
+def _route_critic_step_id_to_edge_id(
+    *,
+    graph: Mapping[str, Any],
+    edge_ids: list[str],
+    route_family_id: str,
+) -> dict[str, str]:
+    """Bind Critic step identities to canonical route edges without guessing.
+
+    Final-Critic input uses the proposal identity from the origin record bound
+    to this route family, while older Critic records may already use the
+    canonical edge identity.  Build both exact bindings from provenance.  Any
+    token that names more than one edge is intentionally left unbound.
+    """
+
+    edges = dict(graph.get("edges") or {})
+    bindings: dict[str, set[str]] = {}
+    for raw_edge_id in edge_ids:
+        edge_id = str(raw_edge_id or "")
+        if not edge_id:
+            continue
+        bindings.setdefault(edge_id, set()).add(edge_id)
+        edge = dict(edges.get(edge_id) or {})
+        for origin in route_family_bound_origin_records(
+            edge,
+            route_family_id=route_family_id,
+        ):
+            proposal_id = str(origin.get("proposal_id") or "")
+            if proposal_id:
+                bindings.setdefault(proposal_id, set()).add(edge_id)
+    return {
+        step_id: next(iter(bound_edge_ids))
+        for step_id, bound_edge_ids in bindings.items()
+        if len(bound_edge_ids) == 1
+    }
+
+
+def _compile_chemical_critic_risk_vector(
+    *,
+    edge_ids: list[str],
+    family: Mapping[str, Any],
+    chemical_critic: Mapping[str, Any],
+    critic_step_id_to_edge_id: Mapping[str, str],
+) -> dict[str, Any]:
+    """Derive route-ranking risk from already bound final-Critic assessments."""
+
+    route_step_ids = {str(value) for value in edge_ids if str(value)}
+    assessments_by_step_id: dict[str, dict[str, Any]] = {}
+    unmatched_assessment_count = 0
+    for raw in chemical_critic.get("step_assessments") or []:
+        if not isinstance(raw, Mapping):
+            unmatched_assessment_count += 1
+            continue
+        assessment = dict(raw)
+        step_id = str(assessment.get("step_id") or "")
+        verdict = str(assessment.get("verdict") or "")
+        edge_id = str(critic_step_id_to_edge_id.get(step_id) or "")
+        if edge_id not in route_step_ids or verdict not in _CRITIC_VERDICT_RANK:
+            unmatched_assessment_count += 1
+            continue
+        previous = assessments_by_step_id.get(edge_id)
+        if previous is None or _CRITIC_VERDICT_RANK[verdict] > _CRITIC_VERDICT_RANK[
+            str(previous.get("verdict") or "")
+        ]:
+            assessments_by_step_id[edge_id] = assessment
+
+    assessments = list(assessments_by_step_id.values())
+    reviewed_step_count = len(assessments)
+    route_step_count = len(route_step_ids)
+    verdict_counts = {
+        verdict: sum(row.get("verdict") == verdict for row in assessments)
+        for verdict in _CRITIC_VERDICTS
+    }
+    verdict_rates = {
+        verdict: round(count / max(1, reviewed_step_count), 6)
+        for verdict, count in verdict_counts.items()
+    }
+
+    identifiable_key_event_step_ids: set[str] = set()
+    for raw in family.get("key_event_critic_history") or []:
+        if not isinstance(raw, Mapping) or raw.get("checkpoint_match") is not True:
+            continue
+        raw_assessment = raw.get("assessment")
+        assessment = dict(raw_assessment) if isinstance(raw_assessment, Mapping) else {}
+        step_id = str(
+            raw.get("focus_step_id")
+            or assessment.get("step_id")
+            or ""
+        )
+        edge_id = str(critic_step_id_to_edge_id.get(step_id) or "")
+        if edge_id in route_step_ids:
+            identifiable_key_event_step_ids.add(edge_id)
+    reviewed_key_event_step_ids = (
+        identifiable_key_event_step_ids & assessments_by_step_id.keys()
+    )
+    key_event_verdict_counts = {
+        verdict: sum(
+            assessments_by_step_id[step_id].get("verdict") == verdict
+            for step_id in reviewed_key_event_step_ids
+        )
+        for verdict in _CRITIC_VERDICTS
+    }
+    key_event_reviewed_step_count = len(reviewed_key_event_step_ids)
+    key_event_uncertain_rate = (
+        key_event_verdict_counts["uncertain"]
+        / max(1, key_event_reviewed_step_count)
+    )
+
+    blocking_type_counts: dict[str, int] = {}
+    for assessment in assessments:
+        blocking_type = str(assessment.get("blocking_type") or "none")
+        if blocking_type == "none":
+            continue
+        blocking_type_counts[blocking_type] = (
+            blocking_type_counts.get(blocking_type, 0) + 1
+        )
+    typed_blocking_step_count = sum(blocking_type_counts.values())
+    typed_blocking_rate = typed_blocking_step_count / max(1, reviewed_step_count)
+
+    # A concrete reject is a route-level concern, while uncertain assessments
+    # scale with their prevalence.  Key-event uncertainty receives a separate,
+    # smaller term because it concentrates risk at the route's strategic hinge.
+    # Coverage is deliberately excluded: it describes review completeness, not
+    # chemistry, and must not turn an old partial review into a chemical defect.
+    score_components = {
+        "reject_presence": 0.52 * float(verdict_counts["reject"] > 0),
+        "reject_prevalence": 0.13 * verdict_rates["reject"],
+        "uncertainty_prevalence": 0.30 * verdict_rates["uncertain"],
+        "key_event_uncertainty": 0.12 * key_event_uncertain_rate,
+        "typed_blocking_prevalence": 0.03 * typed_blocking_rate,
+    }
+    score = min(1.0, sum(score_components.values()))
+    return {
+        "schema_version": CHEMICAL_CRITIC_RISK_VECTOR_SCHEMA,
+        "route_step_count": route_step_count,
+        "reviewed_step_count": reviewed_step_count,
+        "unreviewed_step_count": max(0, route_step_count - reviewed_step_count),
+        "unmatched_assessment_count": unmatched_assessment_count,
+        "review_coverage_rate": round(
+            reviewed_step_count / max(1, route_step_count),
+            6,
+        ),
+        "verdict_counts": verdict_counts,
+        "verdict_rates": verdict_rates,
+        "identifiable_key_event_step_count": len(identifiable_key_event_step_ids),
+        "key_event_reviewed_step_count": key_event_reviewed_step_count,
+        "key_event_verdict_counts": key_event_verdict_counts,
+        "key_event_uncertain_rate": round(key_event_uncertain_rate, 6),
+        "blocking_type_counts": dict(sorted(blocking_type_counts.items())),
+        "typed_blocking_step_count": typed_blocking_step_count,
+        "typed_blocking_rate": round(typed_blocking_rate, 6),
+        "score_components": {
+            key: round(value, 6) for key, value in score_components.items()
+        },
+        "score": round(score, 6),
+        "semantics": {
+            "derived_from_existing_host_bound_final_critic_assessments": True,
+            "sorting_and_display_metadata_only": True,
+            "grants_no_route_admission": True,
+            "review_coverage_is_not_chemical_risk": True,
+            "route_level_prose_risks_are_not_double_counted": True,
+        },
+    }
 
 
 def _with_content_digest(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -313,4 +498,8 @@ def _digest(value: Any) -> str:
     ).hexdigest()
 
 
-__all__ = ["PROOF_ROUTE_SCHEMA", "build_route_candidate"]
+__all__ = [
+    "CHEMICAL_CRITIC_RISK_VECTOR_SCHEMA",
+    "PROOF_ROUTE_SCHEMA",
+    "build_route_candidate",
+]

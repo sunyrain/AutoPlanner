@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import sqlite3
 
 import pytest
@@ -11,8 +12,45 @@ from scripts.build_full_inchikey_stock_index import (
     build_composite_index,
     build_inchikey_composite_index,
     build_index,
+    supplement_index,
 )
 from scripts.run_chem_enzy_plan_for_web import _smiles_in_stock_file
+
+
+def test_supplement_closes_explicit_commodities_without_changing_base_or_other_leaves(
+    tmp_path: Path,
+) -> None:
+    ethanol_key = Chem.MolToInchiKey(Chem.MolFromSmiles("CCO"))
+    ethylene_key = Chem.MolToInchiKey(Chem.MolFromSmiles("C=C"))
+    water_key = Chem.MolToInchiKey(Chem.MolFromSmiles("O"))
+    source = tmp_path / "zinc.txt"
+    source.write_text(f"{water_key}\n", encoding="utf-8")
+    base = tmp_path / "zinc.sqlite3"
+    original = build_index([source], base, column="", catalog_name="ZINC",
+                           expected_count=1, batch_size=10)
+    supplement = tmp_path / "basic.csv"
+    supplement.write_text(
+        f"name,full_inchikey\nethanol,{ethanol_key}\nethylene,{ethylene_key}\nwater,{water_key}\n",
+        encoding="utf-8",
+    )
+    combined = tmp_path / "combined.sqlite3"
+    built = supplement_index(base, [supplement], combined, column="full_inchikey",
+                             catalog_name="ZINC + basic chemicals", expected_count=3)
+
+    assert built["supplement_added_count"] == 2
+    assert hashlib.sha256(base.read_bytes()).hexdigest() == original["index_sha256"]
+    host = FrozenBenchmarkStockIndex(combined, expected_sha256=built["index_sha256"])
+    report = host(["CCO", "C=C", "O", "[CH3]", "C[C@H](O)C(=O)O"])
+    assert {row["canonical_smiles"] for row in report["members"]} == {"CCO", "C=C", "O"}
+    assert len(report["misses"]) == 2  # No blanket size/complexity bypass.
+    assert report["catalog_name"] == "ZINC + basic chemicals"
+    assert report["source"]["commercial_orderability_claimed"] is False
+    assert "C=C" in _SqliteStockMembership(combined)
+    assert _smiles_in_stock_file("CCO", combined) is True
+    pure = FrozenBenchmarkStockIndex(base, expected_sha256=original["index_sha256"])
+    assert pure(["CCO", "C=C"])["members"] == []
+    with pytest.raises(FileExistsError):
+        supplement_index(base, [supplement], base, column="full_inchikey", catalog_name="bad")
 
 
 def test_full_inchikey_index_is_shared_by_host_and_chemenzy(tmp_path: Path) -> None:

@@ -85,6 +85,25 @@ def test_empty_graph_includes_global_route_deficit_and_matches_oracle(
     assert graph["deficit_frontier"]["summary"]["by_kind"]["diversity"] == 1
 
 
+def test_material_review_is_persisted_but_grants_no_stock_or_proof(tmp_path):
+    store = CanonicalHypergraphStore(_kernel(tmp_path))
+    boundary = {"status": "pending_verification", "selected_smiles": "CO",
+                "material_name": "methanol", "availability_status": "unverified"}
+    graph = store.apply(CanonicalIngestionBatch(route_families=({
+        "route_family_id": "material-review", "strategy": "fixture",
+        "material_boundary_review": boundary,
+    },)), idempotency_key="material-review")['graph']
+    family = next(iter(graph["route_families"].values()))
+    assert family["material_boundary_review"] == boundary
+    assert family["closed"] is False
+    assert graph["stock_observations"] == {}
+    assert graph["exact_records"] == {}
+    graph = store.apply(CanonicalIngestionBatch(route_families=({
+        "route_family_id": "material-review", "strategy": "fixture", "material_boundary_review": {},
+    },)), idempotency_key="clear-material-review")['graph']
+    assert next(iter(graph["route_families"].values()))["material_boundary_review"] == {}
+
+
 def test_action_signal_is_canonical_frontier_work_not_scientific_fact(
     tmp_path: Path,
 ) -> None:
@@ -677,6 +696,95 @@ def test_shared_reaction_keeps_every_route_strategy_through_materialization(
         )
         for origin in edge["origin_records"]
     } == proposal_route_bindings
+
+
+@pytest.mark.parametrize("materializer", ["global_plan", "frontier"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_shared_edge_conditions_stay_with_branch_and_revision(tmp_path, materializer, reverse):
+    from copy import deepcopy
+    from cascade_planner.application.route_review_context import compile_revision_bound_route_critic_context
+    from cascade_planner.application.route_edge_scope import origin_condition_predictions
+
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    plan = _plan()
+    expected = {
+        "codex:sequential:family:1": [{"reagents": ["first implementation"], "catalyst": "catalyst A"}],
+        "codex:sequential:family:2": [{"reagents": ["second implementation"]}],
+        "codex:sequential:family:3": [],
+    }
+    base = plan["multi_step_skeletons"][0]["steps"][0]
+    base.update(
+        precursor_smiles=["CCO", "CC=O"],
+        mapped_product_smiles="[CH3:1][CH2:2][O:3][C:4]([CH3:5])=[O:6]",
+        reaction_operations=[{"op": "break_bond", "map_a": 3, "map_b": 4}],
+    )
+    aliases = list(expected)
+    base["reactionjson_audit"] = dict(RouteJSONCompiler().compile_step(
+        mapped_product_smiles=base["mapped_product_smiles"],
+        operations=base["reaction_operations"],
+        expected_product_smiles=base["product_smiles"],
+    ).audit)
+    if reverse:
+        aliases.reverse()
+    plan["route_families"] = [{"route_family_id": alias} for alias in aliases]
+    plan["multi_step_skeletons"] = [{
+        "skeleton_id": "skeleton:" + alias, "route_family_id": alias,
+        "steps": [{**base, "step_id": "step:" + alias, "condition_predictions": expected[alias]}],
+    } for alias in aliases]
+    store.apply(CanonicalIngestionBatch(global_plans=(plan,)), idempotency_key="conditions-plan")
+    commands = (
+        store.frontier_materialization_commands()
+        if materializer == "frontier" else materialization_commands_for_global_plan(
+            plan, run_id=kernel.spec.run_id, input_revision=kernel.state.graph_revision,
+        )
+    )
+    assert len(commands) == 1  # Structural deduplication is retained.
+    assert {row["route_family_id"]: row["condition_predictions"]
+            for row in commands[0].payload["proposal_refs"]} == expected
+    result = runtime.execute(commands[0])
+    graph = store.apply(CanonicalIngestionBatch(worker_results=(result,)),
+        worker_runtime=runtime, idempotency_key="conditions-materialized")["graph"]
+    assert len(graph["edges"]) == 1
+    edge = next(iter(graph["edges"].values()))
+    assert len(edge["origin_records"]) == 3
+
+    def contexts(graph):
+        found = {}
+        for family_id, family in graph["route_families"].items():
+            context, diagnostic = compile_revision_bound_route_critic_context(graph, route_family_id=family_id)
+            assert diagnostic == {}
+            alias = next(alias for alias in family["aliases"] if alias in expected)
+            assert context.steps[0]["condition_predictions"] == expected[alias]
+            found[alias] = context
+        return found
+
+    before = contexts(graph)
+    expected["codex:sequential:family:1"] = [{"reagents": ["revised first implementation"]}]
+    revised = deepcopy(plan)
+    for skeleton in revised["multi_step_skeletons"]:
+        if skeleton["route_family_id"] == "codex:sequential:family:1":
+            skeleton["steps"][0]["condition_predictions"] = expected["codex:sequential:family:1"]
+    updated = store.apply(CanonicalIngestionBatch(global_plans=(revised,)),
+        idempotency_key="conditions-revision")["graph"]
+    after = contexts(updated)
+    assert after["codex:sequential:family:1"].route_sha256 != before["codex:sequential:family:1"].route_sha256
+    for alias in ("codex:sequential:family:2", "codex:sequential:family:3"):
+        assert after[alias].route_sha256 == before[alias].route_sha256
+    assert len(next(iter(updated["edges"].values()))["origin_records"]) == 3
+    repeated = store.apply(CanonicalIngestionBatch(global_plans=(revised,)),
+        idempotency_key="conditions-repeat")["graph"]
+    assert {k: v.route_sha256 for k, v in contexts(repeated).items()} == {
+        k: v.route_sha256 for k, v in after.items()}
+    assert before["codex:sequential:family:1"].steps[0]["condition_predictions"][0]["reagents"] == ["first implementation"]
+
+    legacy = deepcopy(edge)
+    for origin in legacy["origin_records"]:
+        origin.pop("condition_predictions")
+    assert origin_condition_predictions(legacy, legacy["origin_records"][0]) == []
+    legacy["origin_records"] = legacy["origin_records"][:1]
+    assert origin_condition_predictions(legacy, legacy["origin_records"][0]) == legacy["condition_predictions"]
 
 
 def test_frozen_strategy_card_survives_distinct_multistep_reaction_edits(
@@ -1426,6 +1534,90 @@ def test_compiled_external_atom_step_materializes_from_the_target_root(
     assert edge["precursor_smiles"] == [precursor]
 
 
+def test_auxiliary_reagent_is_retained_on_edge_but_never_becomes_route_node(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    # A previously proposed reaction omitted its metal donor. The corrected
+    # complete input set must reach materialization despite identical route leaves.
+    legacy = RouteJSONCompiler().compile_step(
+        mapped_product_smiles="[CH3:1][Cu:36]",
+        operations=[
+            {"op": "remove_group", "map_indices": [36]},
+            {"op": "add_group", "map_idx": 1, "fragment_smiles": "*[Li:40]"},
+        ], expected_product_smiles="C[Cu]", target_atom_maps={1},
+    )
+    _apply_proposals(kernel, store, runtime, ({
+        "product_smiles": "C[Cu]", "precursor_smiles": ["[Li]C"],
+        "reaction_operations": list(legacy.reaction_operations),
+        "reactionjson_audit": dict(legacy.audit),
+        "transformation_hypothesis": "legacy proposal missing its copper input",
+    },), key="legacy-missing-copper")
+    assert store.load()["edges"]
+    materialized = RouteJSONCompiler().compile_step(
+        mapped_product_smiles="[CH3:1][Cu:36]",
+        operations=[
+            {"op": "break_bond", "map_a": 1, "map_b": 36},
+            {
+                "op": "add_group",
+                "map_idx": 1,
+                "fragment_smiles": "*[Li:40]",
+            },
+            {
+                "op": "add_group",
+                "map_idx": 36,
+                "fragment_smiles": "*[I:41]",
+            },
+        ],
+        expected_product_smiles="C[Cu]",
+        target_atom_maps={1},
+    )
+    row = {
+        "step_id": "step:transmetalation",
+        "product_smiles": materialized.product_smiles,
+        "precursor_smiles": list(materialized.precursor_smiles),
+        "reaction_input_smiles": list(materialized.reaction_input_smiles),
+        "auxiliary_reagent_smiles": list(materialized.auxiliary_reagent_smiles),
+        "reaction_component_ledger": dict(
+            materialized.audit["reaction_component_ledger"]
+        ),
+        "mapped_product_smiles": materialized.mapped_product_smiles,
+        "mapped_precursor_smiles": list(materialized.mapped_precursor_smiles),
+        "reaction_operations": [
+            dict(value) for value in materialized.reaction_operations
+        ],
+        "reactionjson_audit": dict(materialized.audit),
+        "transformation_hypothesis": "lithium-copper transmetallation",
+    }
+
+    proposed = store.apply(
+        CanonicalIngestionBatch(hypotheses=(row,)),
+        idempotency_key="propose-target-rooted-transmetalation",
+    )
+    hypothesis = next(iter(proposed["graph"]["hypotheses"].values()))
+    assert hypothesis["admission_accepted"] is True
+
+    results = tuple(
+        runtime.execute(command)
+        for command in store.frontier_materialization_commands()
+    )
+    graph = store.apply(
+        CanonicalIngestionBatch(worker_results=results),
+        worker_runtime=runtime,
+        idempotency_key="materialize-target-rooted-transmetalation",
+    )["graph"]
+    edge = graph["edges"][reaction_edge_identity("C[Cu]", ["[Cu]I", "[Li]C"])[0]]
+
+    assert edge["precursor_smiles"] == ["[Li]C"]
+    assert edge["reaction_input_smiles"] == ["[Cu]I", "[Li]C"]
+    assert edge["auxiliary_reagent_smiles"] == ["[Cu]I"]
+    assert molecule_identity("[Li]C")[0] in graph["molecules"]
+    assert molecule_identity("[Cu]I")[0] not in graph["molecules"]
+    assert store.frontier_materialization_commands() == ()
+
+
 def test_codex_provider_delegation_becomes_one_canonical_expansion_deficit(
     tmp_path: Path,
 ) -> None:
@@ -1711,6 +1903,24 @@ def test_frontier_builder_continuation_debits_remaining_initial_policy_axis() ->
                     "route_family_id": "route:selected",
                     "attempt_disposition": "candidate_rejected",
                     "lane_unavailable": False,
+                    "diagnostic": {"reason": "reactionjson_replay_failed"},
+                },
+            },
+            "builder:leaf:2": {
+                "kind": "expansion",
+                "status": "resolved",
+                "object_id": "molecule:leaf",
+                "metadata": {
+                    "attempt_lane": "codex_frontier_builder",
+                    "attempt_index": 2,
+                    "route_family_id": "route:selected",
+                    "attempt_disposition": "cancelled_without_model_call",
+                    "attempt_voided": True,
+                    "model_call_consumed": False,
+                    "lane_unavailable": False,
+                    "diagnostic": {
+                        "reason": "frontier_builder_cancelled_before_model_call"
+                    },
                 },
             },
         },
@@ -1735,6 +1945,10 @@ def test_frontier_builder_continuation_debits_remaining_initial_policy_axis() ->
     assert budget["remaining_calls"] == 1
     assert budget["available"] is True
     assert expansion["metadata"]["frontier_builder_budget"] == budget
+    assert expansion["metadata"]["frontier_builder_attempt_index"] == 3
+    assert expansion["metadata"]["frontier_builder_prior_rejection"] == {
+        "reason": "reactionjson_replay_failed"
+    }
 
 
 def test_exhausted_initial_policy_axis_keeps_leaf_deficit_without_provider_lane() -> None:
@@ -1805,7 +2019,8 @@ def test_exhausted_initial_policy_axis_keeps_leaf_deficit_without_provider_lane(
     ] == ["route:selected"]
 
 
-def test_unavailable_builder_route_moves_shared_leaf_to_next_route_family() -> None:
+@pytest.mark.parametrize("pause_kind", ["lane_unavailable", "material_boundary"])
+def test_unavailable_builder_route_moves_shared_leaf_to_next_route_family(pause_kind) -> None:
     graph = {
         "scientific_sha256": "fixture",
         "target_molecule_id": "molecule:target",
@@ -1861,6 +2076,11 @@ def test_unavailable_builder_route_moves_shared_leaf_to_next_route_family() -> N
         "conflicts": {},
     }
 
+    if pause_kind == "material_boundary":
+        del graph["action_signals"]["builder:route-a"]
+        graph["route_families"]["route:a"]["material_boundary_review"] = {
+            "status": "pending_verification", "selected_smiles": "CC",
+        }
     frontier = compile_deficit_frontier(graph)
     expansion = next(
         item
@@ -1874,6 +2094,18 @@ def test_unavailable_builder_route_moves_shared_leaf_to_next_route_family() -> N
     ]
     assert expansion["metadata"]["frontier_builder_route_family_id"] == "route:b"
     assert expansion["metadata"]["frontier_builder_attempt_index"] == 1
+    if pause_kind == "material_boundary":
+        from cascade_planner.application.campaign_actions import _action_mappings
+        graph["route_families"]["route:b"]["material_boundary_review"] = {
+            "status": "pending_verification", "selected_smiles": "CC",
+        }
+        pending = next(row for row in compile_deficit_frontier(graph)["items"]
+                       if row["kind"] == "expansion" and row["object_id"] == "molecule:leaf")
+        assert pending["reason"] == "material_boundary_review_pending"
+        assert pending["metadata"]["frontier_builder_budget"] == {}
+        assert pending["metadata"]["frontier_builder_exhausted_route_family_ids"] == []
+        assert _action_mappings(pending) == ()
+        assert graph["molecules"]["molecule:leaf"]["stock_closed"] is False
 
 
 def test_internal_node_provider_group_is_excluded_from_route_traversal() -> None:

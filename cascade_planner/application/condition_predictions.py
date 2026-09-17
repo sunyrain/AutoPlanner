@@ -18,6 +18,24 @@ from cascade_planner.application.fact_lifecycle import graph_fact_lifecycle_stat
 CONDITION_PREDICTION_SCHEMA = "advisory_reaction_condition_prediction.v1"
 CONDITION_PREDICTION_RESULT_SCHEMA = "reaction_condition_prediction_result.v1"
 
+_EMPTY_CONDITION_VALUES = frozenset({
+    "to be determined", "determine after", "not specified", "not applicable",
+    "n/a", "screen", "screening", "as needed",
+})
+
+
+def normalize_condition_text(value: Any) -> str:
+    """Drop standalone placeholders, preserving complete advisory hypotheses.
+
+    Uncertainty inside a condition is information for the reviewer. Substring
+    filtering loses both that qualification and real reagents/operations.
+    Ambiguous abbreviations are retained (for example, TBD also names a base).
+    This normalization does not confer source evidence or reaction proof.
+    """
+    text = " ".join(str(value or "").split())
+    return "" if text.casefold().strip(" .;:") in _EMPTY_CONDITION_VALUES else text
+
+
 _ALIASES = {
     "catalysts": "catalyst",
     "Catalyst": "catalyst",
@@ -150,7 +168,11 @@ def edge_has_complete_source_procedure(
 def reaction_smiles_for_edge(edge: Mapping[str, Any]) -> str:
     precursors = [
         str(value).strip()
-        for value in edge.get("precursor_smiles") or []
+        for value in (
+            edge.get("reaction_input_smiles")
+            or edge.get("precursor_smiles")
+            or []
+        )
         if str(value).strip()
     ]
     product = str(edge.get("product_smiles") or "").strip()
@@ -251,6 +273,18 @@ def _normalize_row(
             if number is not None:
                 row[key] = number
             continue
+        if key in _OPERATIONAL_FIELDS:
+            if isinstance(raw_value, str):
+                raw_value = normalize_condition_text(raw_value)
+            elif isinstance(raw_value, (list, tuple)):
+                raw_value = [
+                    cleaned
+                    for item in raw_value
+                    if (cleaned := normalize_condition_text(item) if isinstance(item, str) else item)
+                    not in (None, "", [], {})
+                ]
+            if raw_value in (None, "", [], {}):
+                continue
         if key == "reagents" and isinstance(raw_value, str):
             row[key] = [raw_value]
         else:
@@ -316,6 +350,7 @@ __all__ = [
     "edge_has_complete_source_procedure",
     "edge_has_usable_condition_prediction",
     "normalize_condition_predictions",
+    "normalize_condition_text",
     "predict_conditions_many",
     "reaction_smiles_for_edge",
 ]

@@ -220,6 +220,7 @@ def test_final_route_critic_resume_repairs_only_unsettled_blocking_rejects() -> 
                 "selected": True,
                 "edge_ids": ["edge:root"],
                 "aliases": ["family:one"],
+                "strategy_branch_ids": [1],
                 "strategy_card": {},
             }
         },
@@ -1705,6 +1706,7 @@ def _plan(context: Any, mode: str) -> dict[str, Any]:
         "route_families": [
             {
                 "route_family_id": family_id,
+                "strategy_branch_ids": [index],
                 "title": hypothesis,
                 "strategy": hypothesis,
                 "target_smiles": TARGET,
@@ -1712,7 +1714,10 @@ def _plan(context: Any, mode: str) -> dict[str, Any]:
                 "risks": ["selectivity"],
                 "diversity_basis": precursor,
             }
-            for family_id, precursor, hypothesis in families
+            for index, (family_id, precursor, hypothesis) in enumerate(
+                families,
+                start=1,
+            )
         ],
         "multi_step_skeletons": [
             {
@@ -3456,15 +3461,24 @@ def test_legacy_objective_labels_produce_the_same_campaign_trace(
     )
 
 
+@pytest.mark.parametrize(
+    "pause_first_builder, input_token_budget",
+    [(False, None), (True, None), (False, 72_100)],
+)
 def test_stock_rejected_leaf_continues_with_route_bound_builder_and_materializes(
     tmp_path: Path,
+    pause_first_builder: bool,
+    input_token_budget: int | None,
 ) -> None:
     gateway = CampaignGateway(_paths(tmp_path))
     builder_contexts: list[Any] = []
     final_critic_contexts: list[Any] = []
+    initial_calls: list[str] = []
+    failed_builder_ids: list[str] = []
 
     class FixtureSequentialRunner(SequentialStrategyDirectorRunner):
         def __call__(self, spec, context, mode, _config):
+            initial_calls.append(spec.agent_id)
             return AgentResult(
                 run_id=spec.run_id,
                 agent_id=spec.agent_id,
@@ -3487,6 +3501,18 @@ def test_stock_rejected_leaf_continues_with_route_bound_builder_and_materializes
 
         def run_frontier_builder_once(self, spec, *, context, config, prompt=None):
             del config, prompt
+            if pause_first_builder and not failed_builder_ids:
+                failed_builder_ids.append(spec.agent_id)
+                return (
+                    {"runtime_unavailable": True, "reason": "provider_service_unavailable"},
+                    WorkerRunRecord(
+                        run_id=f"{spec.agent_id}:run",
+                        task_id=spec.agent_id,
+                        case_id="fixture-frontier-builder",
+                        status="provider_error",
+                        usage={},
+                    ),
+                )
             builder_contexts.append(context)
             assert context.selected_product_smiles == "CCO"
             materialized = self.routejson_compiler.compile_step(
@@ -3601,7 +3627,7 @@ def test_stock_rejected_leaf_continues_with_route_bound_builder_and_materializes
             )
 
     runner = FixtureSequentialRunner()
-    result = gateway.solve_target(
+    request = dict(
         target_name="frontier builder fallback",
         target_smiles=TARGET,
         run_id="frontier-builder-fallback",
@@ -3620,10 +3646,43 @@ def test_stock_rejected_leaf_continues_with_route_bound_builder_and_materializes
         atom_mapper=_mapper,
         stock_catalog_builder=_partial_catalog,
     )
+    if input_token_budget is not None:
+        # The initial call spends 100 tokens. The three required reviews
+        # fit their 24k estimates; another Builder plus those reviews does not.
+        request["budget"] = RetrosynthesisRunBudget(
+            max_model_invocations=10,
+            max_total_input_tokens=input_token_budget, max_total_output_tokens=2_000_000,
+        )
+    result = gateway.solve_target(**request)
+    if pause_first_builder:
+        assert result["runtime_pause"] is True
+        assert result["stop_decision"]["decision"] == "paused"
+        assert not final_critic_contexts
+        checkpoint = json.loads(
+            (Path(result["run_dir"]) / ".autoplanner/target-solver-checkpoint.json").read_text(encoding="utf-8")
+        )
+        assert checkpoint["complete"] is False
+        result = gateway.solve_target(**request, resume=True)
+        assert result["runtime_pause"] is False
+        assert len(initial_calls) == 1
+        recovered = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))
+        assert recovered.kernel.task_lifecycle(failed_builder_ids[0])["status"] == "settled"
 
     builder_stage = next(
         stage for stage in result["stages"] if stage["stage"] == "route_builder_continuation"
     )
+    if input_token_budget is not None:
+        assert not builder_contexts
+        assert len(final_critic_contexts) == 3
+        assert builder_stage["detail"]["builder_dispositions"]["model_budget_deferred"] >= 1
+        service = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))
+        graph = service.graph_store.load()
+        assert len(graph["edges"]) == 3
+        assert service.kernel.state.model_totals["input_tokens"] == 400
+        assert service.kernel.state.model_totals["model_invocations"] == 4
+        assert all(route["chemical_critic"]["review_state"] == "complete"
+                   for route in graph["route_families"].values())
+        return
     assert builder_contexts
     assert len(final_critic_contexts) == len(builder_contexts)
     stage_names = [str(stage.get("stage") or "") for stage in result["stages"]]
@@ -3639,6 +3698,11 @@ def test_stock_rejected_leaf_continues_with_route_bound_builder_and_materializes
     )
     assert all(
         row["route_overall_evaluation"].startswith("The route is coherent")
+        for row in final_critic_stage["detail"]["results"]
+        if row["status"] in {"completed", "reused"}
+    )
+    assert all(
+        row["critic_task_id"]
         for row in final_critic_stage["detail"]["results"]
         if row["status"] in {"completed", "reused"}
     )

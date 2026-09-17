@@ -13,6 +13,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisRunBudget,
 )
 from cascade_planner.application.blind_benchmark_contract import canonical_smiles
+from cascade_planner.application.planning_evidence import DEFAULT_QUERY_LIMITS
 from cascade_planner.application.unified_campaign_spec import TargetConstraints
 from cascade_planner.interfaces.live_evidence import (
     HttpEvidenceConnectorConfig,
@@ -94,7 +95,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     )
     solve.add_argument(
         "--reasoning-effort",
-        choices=("low", "medium", "high"),
+        choices=("low", "medium", "high", "xhigh"),
         default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["reasoning_effort"],
     )
     solve.add_argument(
@@ -271,7 +272,10 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         action="store_true",
         help="compatibility flag; one bounded global director is already the default",
     )
-    solve.add_argument("--no-web-search", action="store_true")
+    solve.add_argument(
+        "--no-web-search", action="store_true",
+        help="disable native web search; bounded planning queries have separate per-operation limits",
+    )
     solve.add_argument(
         "--initial-director-web-search",
         action="store_true",
@@ -313,7 +317,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         default="",
         help=(
             "explicit content-addressed frozen SQLite override; omitted uses "
-            "the standard ZINC+eMolecules full-InChIKey index"
+            "the standard ZINC + basic chemicals full-InChIKey index"
         ),
     )
     solve.add_argument(
@@ -427,6 +431,15 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         action="store_true",
         help="disable bounded Crossref/DOI/PDF primary-paper discovery",
     )
+    for flag, operation in (
+        ("planning-compound-query-limit", "compound"),
+        ("planning-literature-search-limit", "search"),
+        ("planning-literature-read-limit", "read"),
+    ):
+        solve.add_argument(
+            "--" + flag, type=int, default=DEFAULT_QUERY_LIMITS[operation],
+            help=f"run-wide bounded planning {operation} allowance; 0 disables this operation",
+        )
     solve.add_argument(
         "--evidence-endpoint",
         help="trusted structured extraction HTTPS endpoint (loopback HTTP allowed)",
@@ -599,7 +612,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         default="",
         help=(
             "explicit frozen SQLite stock override; omitted uses the standard "
-            "ZINC+eMolecules full-InChIKey index"
+            "ZINC + basic chemicals full-InChIKey index"
         ),
     )
     validation_fork.add_argument(
@@ -670,8 +683,8 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     )
     validation_fork.add_argument(
         "--visual-reasoning-effort",
-        choices=("low", "medium", "high"),
-        default="low",
+        choices=("low", "medium", "high", "xhigh"),
+        default=SYNTHEX_MATCHED_PROFILE_DEFAULTS["reasoning_effort"],
     )
     validation_fork.add_argument(
         "--max-literature-sources", type=int, choices=range(1, 9), default=3
@@ -1039,6 +1052,9 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             objective_mode=objective_compatibility_view,
             use_coordinator=args.coordinator and not args.single_agent,
             enable_web_search=not args.no_web_search,
+            planning_compound_query_limit=args.planning_compound_query_limit,
+            planning_literature_search_limit=args.planning_literature_search_limit,
+            planning_literature_read_limit=args.planning_literature_read_limit,
             enable_initial_director_web_search=(
                 args.initial_director_web_search and not args.no_web_search
             ),
@@ -1162,14 +1178,16 @@ def _load_reviewed_strategy_portfolio(
         raise ValueError("strategy_portfolio_seed_target_invalid") from exc
     if not seed_target or not target_matches:
         raise ValueError("strategy_portfolio_seed_target_mismatch")
-    raw_cards = payload.get("reviewed_cards") or payload.get("strategy_cards") or []
-    if not isinstance(raw_cards, list) or len(raw_cards) != 3:
-        raise ValueError("strategy_portfolio_seed_requires_three_reviewed_cards")
+    raw_cards = payload.get("reviewed_cards", payload.get("strategy_cards"))
+    if not isinstance(raw_cards, list):
+        raise ValueError("strategy_portfolio_seed_cards_invalid")
     fields = ("strategy_query", "critical_assumption", "critic_checkpoint")
     cards: list[dict[str, str]] = []
     for raw_card in raw_cards:
         if not isinstance(raw_card, dict):
             raise ValueError("strategy_portfolio_seed_card_invalid")
+        if raw_card.get("review_decision") == "discard":
+            continue
         card = {field: str(raw_card.get(field) or "").strip() for field in fields}
         if any(not card[field] for field in fields):
             raise ValueError("strategy_portfolio_seed_card_invalid")

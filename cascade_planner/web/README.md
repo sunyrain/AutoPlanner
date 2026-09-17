@@ -3,6 +3,13 @@
 The V4 Web surface is a thin adapter over the same `CampaignGateway` used by
 the canonical CLI.
 
+New target runs default to `gpt-6-astra` with `medium` reasoning. The homepage
+displays and submits the model configuration supplied by
+`SYNTHEX_MATCHED_PROFILE_DEFAULTS`, which also supplies the HTTP/CLI defaults.
+Explicit model choices and historical run labels retain their original values.
+Changes to these Python defaults require restarting the service after active
+work has finished; a browser refresh alone does not reload the solver.
+
 ```bash
 python -m cascade_planner serve
 ```
@@ -20,8 +27,59 @@ same SSE stream. Active jobs use their own detail/SSE projection; the federated
 catalog refreshes at a lower cadence and never overlaps an unfinished refresh.
 Paused runs are non-executing snapshots: they render as paused, their SSE stream
 closes after the saved snapshot, and they are never presented as live model
-activity. Molecule depictions are fetched from the local RDKit endpoint,
-validated as SVG, and inserted inline rather than loaded as external images.
+activity. Molecule depictions use the local RDKit SVG endpoint inside bounded
+image elements. Routes open at 100% with the target in view; CSS zoom repaints
+structures and text at the requested size, up to 400%. Each structure can be
+opened in a large viewer and saved as SVG. Native offline route, graph, and
+replay exports inline the same display assets and molecule vectors. The PNG
+endpoint supplies 1920 × 1200 images for bitmap consumers.
+
+The live homepage's **路线语言 · 中文 / English** control switches saved
+strategy, reaction, condition and review text without modifying a job or calling
+a model. Chinese is the default; the browser remembers the selection. The
+presentation boundary also handles SSE updates and replay snapshots. Switching
+language retains pan/zoom, branch selection, replay position and open details.
+Untranslated content, activity IO and native downloads remain in their original
+language. If the dictionary cannot load, the route still works in the original
+language; clicking 中文 retries the load.
+
+Publish a completed, reviewed translation set to the existing local service
+without restarting it (this command does not call models):
+
+```bash
+python scripts/translate_route_exports.py publish-live --output results/discussion/route-zh-20260917
+```
+
+This generates `static/route_translations.zh-CN.json` from `catalog.json` and the
+reviewed `zh-CN.json`. Only the display-field whitelist and exact source/Chinese
+text pairs are published, not source run paths, model attempts or other raw IO.
+Refresh the page after updating the frontend. The initial set covers the eight
+2026-09-17 statin tasks, including revised strategies and alternative records.
+
+Critic availability is not a chemical verdict. The projection keeps a missing
+final binding (`unavailable`) distinct from an explicit step `pass`, `uncertain`
+or `reject`. A missing binding preserves an earlier assessment in
+`historical_critic`, with its original task identity and reasons; the details
+panel labels it as historical, not applicable final approval. Historical whole
+route reviews are read from the saved Director plan within the same strategy
+family. Blind `review_slot` values resolve only through the corresponding
+Critic task's saved slot-to-step mapping, never array position or another call.
+Replay exposes judgments only at their original output event, and attaches the
+final unbound-history notice only at the final snapshot. An overall viable
+review without a per-step verdict displays “整路已评审 · 未单列步骤判定”, not an
+invented pass. This is display recovery; it never modifies the canonical graph,
+relaxes final review binding, changes scientific acceptance or calls a model.
+
+Refresh existing native exports without replaying or changing their saved
+routes, reviews, selections, and event timelines:
+
+```bash
+python scripts/refresh_route_exports.py "results/discussion/absolute-config-*.html"
+```
+
+The command rewrites matching native files in place, using current templates
+and drawings; unrelated HTML files are skipped. Updating a saved replay
+collection also updates every embedded viewer and depiction library.
 
 The Web queue is a paginated federation of explicitly registered run indexes.
 It never scans `results/**`: ordinary Web/CLI runs use the main registry, while

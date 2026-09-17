@@ -22,6 +22,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping
 from rdkit import Chem
 
 from cascade_planner.agent.codex_worker import (
+    DEFAULT_CODEX_REASONING_EFFORT,
     WorkerBudget,
     WorkerTask,
     run_codex_worker,
@@ -275,7 +276,7 @@ class DirectorConfig:
     allow_editor_route_mutations: bool = False
     max_provider_requests: int = 3
     model: str = ""
-    reasoning_effort: str = "low"
+    reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT
     enable_web_search: bool = False
     enable_initial_web_search: bool = False
     use_coordinator: bool = False
@@ -342,8 +343,9 @@ class DirectorConfig:
             "autoplanner_strategy_v2",
         }:
             raise ValueError("director strategy portfolio mode is invalid")
-        if self.reviewed_strategy_portfolio:
-            if len(self.reviewed_strategy_portfolio) != self.strategy_branch_count:
+        if self.reviewed_strategy_portfolio or self.reviewed_strategy_portfolio_sha256:
+            if (not self.enable_strategy_portfolio_critic
+                    and len(self.reviewed_strategy_portfolio) != self.strategy_branch_count):
                 raise ValueError(
                     "reviewed strategy portfolio must match strategy branch count"
                 )
@@ -361,8 +363,6 @@ class DirectorConfig:
             digest = str(self.reviewed_strategy_portfolio_sha256 or "").strip().lower()
             if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
                 raise ValueError("reviewed strategy portfolio hash is invalid")
-        elif self.reviewed_strategy_portfolio_sha256:
-            raise ValueError("reviewed strategy portfolio is required for its hash")
         if self.strategy_branch_workers > self.strategy_branch_count:
             raise ValueError("director strategy branch workers exceed branch count")
         if self.enable_transactional_path_repair and self.allow_editor_route_mutations:
@@ -1197,7 +1197,14 @@ def validate_global_campaign_plan(
     # Portfolio cardinality is an acceptance measurement, not a structural
     # parsing boundary.  A useful family must survive even when sibling
     # families are missing; B1 remains false until the configured count is met.
-    if len(plan.multi_step_skeletons) > limits.max_skeletons:
+    # The enhanced sequential portfolio owns its variable strategy count.
+    # max_skeletons bounds a single global response (and fixed legacy portfolios),
+    # not the Host's accumulation of independently reviewed branches.
+    variable_sequential_portfolio = (
+        limits.planning_mode == "sequential_branches"
+        and limits.enable_strategy_portfolio_critic
+    )
+    if not variable_sequential_portfolio and len(plan.multi_step_skeletons) > limits.max_skeletons:
         reasons.append("skeleton_count_out_of_bounds")
     if not plan.portfolio_rationale.strip():
         reasons.append("portfolio_rationale_missing")
@@ -2420,6 +2427,8 @@ def normalize_director_usage(value: Mapping[str, Any] | None) -> dict[str, int |
             ),
         ),
         "visual_invocations": 0,
+        "cached_input_tokens": max(0, int(row.get("cached_input_tokens") or 0)),
+        "reasoning_output_tokens": max(0, int(row.get("reasoning_output_tokens") or 0)),
         "input_tokens": max(
             0,
             int(
@@ -2439,6 +2448,9 @@ def normalize_director_usage(value: Mapping[str, Any] | None) -> dict[str, int |
             ),
         ),
         "wall_time_s": wall,
+        **{key: max(0, int(row.get(key, row.get(f"budget_{key}", 0)) or 0))
+           for key in ("unknown_input_tokens_held", "unknown_output_tokens_held")
+           if key in row or f"budget_{key}" in row},
     }
 
 

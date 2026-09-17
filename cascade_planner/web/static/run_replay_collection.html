@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-src 'self' about:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>AutoPlanner · 路线重放合集</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f4f7f5;color:#153c32;font:14px/1.5 system-ui,"Microsoft YaHei",sans-serif}
+    .collection-head{padding:12px 22px;background:#fff;border-bottom:1px solid #cbd9d2}
+    .collection-title{display:flex;gap:18px;align-items:baseline;flex-wrap:wrap}h1{font-size:22px;margin:0}.collection-title span{color:#60766d}
+    .collection-controls{display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:wrap}label{display:flex;align-items:center;gap:7px;font-weight:600}
+    select,button{font:inherit;border:1px solid #adc6ba;border-radius:7px;background:#fff;color:#153c32;padding:6px 9px;min-height:34px}select{max-width:45vw}button{cursor:pointer}button:disabled{opacity:.4;cursor:default}
+    .collection-note{margin:7px 0 0;color:#536d61;font-size:12px}.collection-source{font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
+    #viewer{display:block;width:100%;height:calc(100vh - 148px);min-height:620px;border:0;background:#fff}
+    @media(max-width:800px){.collection-head{padding:10px}h1{font-size:19px}label{flex:1}select{max-width:70vw;width:100%}#viewer{height:calc(100vh - 200px)}}
+  </style>
+</head>
+<body>
+  <header class="collection-head">
+    <div class="collection-title"><h1 id="collectionTitle"></h1><span id="collectionCounts"></span></div>
+    <div class="collection-controls">
+      <label>运行<select id="runSelect" aria-label="选择来源运行"></select></label>
+      <label>路线<select id="routeSelect" aria-label="选择策略路线"></select></label>
+      <button id="previousRoute" type="button">上一条</button><button id="nextRoute" type="button">下一条</button>
+      <span id="routeStatus"></span>
+    </div>
+    <p class="collection-note">候选仍需进一步验证。重放包含草稿，以最终帧为准；点击反应查看条件与评审。<span id="collectionSource" class="collection-source"></span></p>
+  </header>
+  <iframe id="viewer" title="原生路线树重放" sandbox="allow-scripts allow-modals allow-downloads"></iframe>
+  <script id="collectionData" type="application/json">__AUTOPLANNER_COLLECTION_DATA__</script>
+  <script>
+    (()=>{
+      'use strict';
+      const data=JSON.parse(document.getElementById('collectionData').textContent),$=id=>document.getElementById(id),entries=data.entries||[];
+      const routes=entries.flatMap((entry,runIndex)=>entry.bundle.metadata.branch_indices.map(branchIndex=>({runIndex,branchIndex})));
+      const verdicts={uncertain:'待确认',viable:'模型评审可行',reject:'模型评审拒绝',unavailable:'评审不可用'};
+      let activeRun=0,activeBranch=data.initial_branch_index,renderedKey='';
+      function option(value,label){const item=document.createElement('option');item.value=String(value);item.textContent=label;return item;}
+      $('collectionTitle').textContent=data.title;$('collectionCounts').textContent=`${data.route_count} 条候选 · ${data.run_count} 次运行 · 离线重放`;
+      entries.forEach((entry,index)=>$('runSelect').appendChild(option(index,entry.label)));
+      function refreshRoutes(){
+        const entry=entries[activeRun];$('routeSelect').replaceChildren();
+        for(const index of entry.bundle.metadata.branch_indices){
+          const branch=(entry.bundle.projection.branches||[]).find(value=>Number(value.branch_index)===index)||{};
+          $('routeSelect').appendChild(option(index,`Strategy ${index} · ${(branch.steps||[]).length} 步 · ${verdicts[branch.chemical_critic_status]||branch.chemical_critic_status||'未记录评审'}`));
+        }
+        $('runSelect').value=String(activeRun);$('routeSelect').value=String(activeBranch);updateSummary();
+      }
+      function updateSummary(){
+        const entry=entries[activeRun],bundle=entry.bundle,branch=(bundle.projection.branches||[]).find(value=>Number(value.branch_index)===Number(activeBranch))||{};
+        $('routeStatus').textContent=branch.final_stock_closed===true?'原料库闭合':branch.final_stock_closed===false?'原料边界未闭合':'原料闭合状态未记录';
+        $('collectionSource').textContent=` 来源：${bundle.metadata.run_id}`;
+        const position=routes.findIndex(value=>value.runIndex===activeRun&&Number(value.branchIndex)===Number(activeBranch));
+        $('previousRoute').disabled=position<=0;$('nextRoute').disabled=position>=routes.length-1;
+      }
+      function showRoute(){
+        refreshRoutes();
+        const key=`${activeRun}:${activeBranch}`;if(renderedKey===key)return;renderedKey=key;
+        const source=entries[activeRun].bundle,bundle={...source,metadata:{...source.metadata,branch_index:Number(activeBranch)}};
+        const payload=JSON.stringify(bundle).replace(/<\//g,'<\\/');
+        $('viewer').srcdoc=data.viewer_template.replace('__AUTOPLANNER_SHOWCASE_DATA__',()=>payload);
+      }
+      $('runSelect').addEventListener('change',()=>{activeRun=Number($('runSelect').value);activeBranch=entries[activeRun].bundle.metadata.branch_indices[0];showRoute();});
+      $('routeSelect').addEventListener('change',()=>{activeBranch=Number($('routeSelect').value);showRoute();});
+      function adjacent(delta){const position=routes.findIndex(value=>value.runIndex===activeRun&&Number(value.branchIndex)===Number(activeBranch)),next=routes[position+delta];if(next){activeRun=next.runIndex;activeBranch=next.branchIndex;showRoute();}}
+      $('previousRoute').addEventListener('click',()=>adjacent(-1));$('nextRoute').addEventListener('click',()=>adjacent(1));
+      window.addEventListener('message',event=>{
+        if(event.source!==$('viewer').contentWindow||event.data?.type!=='autoplanner.replay.path_selected')return;
+        const branch=Number(event.data.branch_index);if(!entries[activeRun].bundle.metadata.branch_indices.includes(branch))return;
+        activeBranch=branch;renderedKey=`${activeRun}:${activeBranch}`;$('routeSelect').value=String(branch);updateSummary();
+      });
+      showRoute();document.title=`${data.title} · AutoPlanner`;
+    })();
+  </script>
+</body>
+</html>

@@ -1,10 +1,12 @@
-"""Single-purpose stdio MCP server for local mapped-SMILES inspection."""
+"""Narrow stdio tools for local structure facts and optional Host evidence queries."""
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 from typing import Any, Mapping
+from urllib.request import Request, build_opener, ProxyHandler
 
 from chemistry_inspection import inspect_mapped_smiles
 
@@ -12,6 +14,55 @@ from chemistry_inspection import inspect_mapped_smiles
 TOOL_NAME = "inspect_mapped_smiles"
 SERVER_NAME = "autoplanner-chemistry-inspection"
 SERVER_VERSION = "1.0.0"
+QUERY_NAME = "query_planning_evidence"
+
+
+def _query_operations() -> list[str]:
+    return json.loads(os.environ.get(
+        "AUTOPLANNER_EVIDENCE_OPERATIONS", '["stock", "compound", "search", "read", "list"]',
+    ))
+
+
+def _query_definition() -> dict[str, Any]:
+    operations = _query_operations()
+    properties = {"operation": {"type": "string", "enum": operations}}
+    if set(operations) & {"compound", "search"}:
+        properties["query"] = {"type": "string", "maxLength": 800}
+    if set(operations) & {"stock", "compound"}:
+        properties["smiles"] = {"type": "string", "maxLength": 6000}
+    if "read" in operations:
+        properties["source_id"] = {"type": "string", "maxLength": 800}
+    return {
+        "name": QUERY_NAME,
+        "description": "Read-only, Host-budgeted queries. Available operations: " + ", ".join(operations) + ". "
+                       "Use list to reuse discoveries. No reaction proof or route mutation.",
+        "inputSchema": {
+            "type": "object", "additionalProperties": False,
+            "properties": properties,
+            "required": ["operation"],
+        },
+    }
+
+
+def _query_tool(arguments: Any) -> dict[str, Any]:
+    endpoint = os.environ.get("AUTOPLANNER_EVIDENCE_ENDPOINT", "")
+    token = os.environ.get("AUTOPLANNER_EVIDENCE_TOKEN", "")
+    if isinstance(arguments, Mapping) and arguments.get("operation") not in _query_operations():
+        result = {"status": "operation_disabled"}
+    elif not endpoint or not token:
+        result = {"status": "unavailable"}
+    else:
+        request = Request(endpoint, data=json.dumps(arguments).encode("utf-8"),
+                          headers={"Authorization": "Bearer " + token,
+                                   "Content-Type": "application/json"})
+        try:
+            # Loopback capability must never travel through system proxies.
+            with build_opener(ProxyHandler({})).open(request, timeout=45) as response:
+                result = json.loads(response.read(250_000))
+        except (OSError, ValueError):
+            result = {"status": "unavailable", "reason": "host_query_transport"}
+    return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}],
+            "structuredContent": result, "isError": False}
 
 
 def _write(message: Mapping[str, Any]) -> None:
@@ -127,10 +178,17 @@ def _handle(message: Any) -> bool:
         _result(request_id, {})
         return True
     if method == "tools/list":
-        _result(request_id, {"tools": [_tool_definition()]})
+        definitions = [_tool_definition()]
+        if os.environ.get("AUTOPLANNER_EVIDENCE_ENDPOINT"):
+            definitions.append(_query_definition())
+        _result(request_id, {"tools": definitions})
         return True
     if method == "tools/call":
         params = message.get("params")
+        if (isinstance(params, Mapping) and params.get("name") == QUERY_NAME
+                and os.environ.get("AUTOPLANNER_EVIDENCE_ENDPOINT")):
+            _result(request_id, _query_tool(params.get("arguments")))
+            return True
         if not isinstance(params, Mapping) or str(params.get("name") or "") != TOOL_NAME:
             _error(request_id, -32601, "unknown tool")
             return True

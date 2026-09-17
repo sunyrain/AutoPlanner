@@ -93,13 +93,15 @@ def normalize_biocatalytic_step(
     product_smiles: str,
     precursor_smiles: Iterable[str],
     enzyme_label: str = "",
+    catalyst_label: str = "",
     step_id: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     """Bind a biological execution hypothesis to one exact host-owned edge.
 
-    Design deficits remain explicit annotations and never invalidate structural
-    ReactionJSON replay.  The specialized validation gate is deliberately
-    closed here because model output cannot validate its own enzyme claim.
+    Catalyst/conditions on the reaction remain the compact planning authority.
+    Preserve explicitly supplied structured hypotheses without manufacturing
+    empty copies or treating their absence as missing chemistry. The specialized
+    validation gate remains closed: a proposal cannot validate its own claim.
     """
 
     domain = normalize_step_execution_domain(
@@ -132,9 +134,12 @@ def normalize_biocatalytic_step(
         return {}, []
     mode = _mode(raw.get("mode"), domain)
     enzyme_classes = _strings(raw.get("enzyme_classes"))
-    label = str(enzyme_label or raw.get("enzyme_label") or "").strip()
-    if label and label not in enzyme_classes:
-        enzyme_classes.append(label)
+    # The compact Builder uses the same catalyst field for chemical and
+    # biological implementations. Only an explicit biological domain permits
+    # that label to enter this hypothesis; prose is never a classifier or proof.
+    label = str(enzyme_label or raw.get("enzyme_label") or (
+        catalyst_label if domain in BIOLOGICAL_EXECUTION_DOMAINS else ""
+    ) or "").strip()
     boundary_inputs = list(
         dict.fromkeys(str(value).strip() for value in precursor_smiles if str(value).strip())
     )
@@ -186,9 +191,17 @@ def normalize_biocatalytic_step(
             "route_step_savings_are_computed_only_by_program_span_substitution": True,
         },
     }
+    record["catalyst_hypothesis"] = {
+        key: value for key, value in record["catalyst_hypothesis"].items() if value
+    }
+    for key in ("selectivity_objective", "substrate_scope_basis", "precedent_refs", "validation_plan"):
+        if not record[key]:
+            record.pop(key)
+    if not any(raw.get(key) for key in (
+        "cofactor_assessment", "cofactor_requirements", "cofactor_regenerations", "cosubstrates",
+    )):
+        record.pop("cofactor_ledger")
     reasons = _step_reasons(record)
-    record["design_complete"] = not reasons
-    record["design_deficits"] = reasons
     record["content_sha256"] = _digest(record)
     return record, reasons
 
@@ -288,7 +301,8 @@ def _step_reasons(record: Mapping[str, Any]) -> list[str]:
     ):
         reasons.append("biocatalytic_step_exact_boundary_missing")
     has_enzyme = bool(
-        catalyst.get("enzyme_classes")
+        catalyst.get("enzyme_label")
+        or catalyst.get("enzyme_classes")
         or catalyst.get("ec_numbers")
         or catalyst.get("candidate_ids")
     )
@@ -297,15 +311,6 @@ def _step_reasons(record: Mapping[str, Any]) -> list[str]:
             reasons.append("biocatalytic_step_whole_cell_host_missing")
     elif not has_enzyme:
         reasons.append("biocatalytic_step_enzyme_hypothesis_missing")
-    if not str(record.get("selectivity_objective") or ""):
-        reasons.append("biocatalytic_step_selectivity_objective_missing")
-    if not str(record.get("substrate_scope_basis") or ""):
-        reasons.append("biocatalytic_step_substrate_scope_basis_missing")
-    ledger = dict(record.get("cofactor_ledger") or {})
-    if ledger.get("assessment") == "unresolved":
-        reasons.append("biocatalytic_step_cofactor_assessment_unresolved")
-    if not record.get("validation_plan"):
-        reasons.append("biocatalytic_step_validation_plan_missing")
     return sorted(set(reasons))
 
 

@@ -925,6 +925,12 @@ def test_benchmark_stock_worker_accepts_frozen_index_membership_proof(
     ethanol = result.payload["leaf_audits"][0]
     assert ethanol["accepted"] is True
     assert ethanol["semantics"]["immutable_content_addressed_catalog"] is True
+    assert (
+        result.payload["leaf_audits"][1]["semantics"][
+            "catalog_miss_does_not_imply_procurement_unavailable"
+        ]
+        is True
+    )
     binding = ethanol["provider_result"]["payload"]["catalog_bindings"][0]
     assert binding["membership_verified"] is True
     assert binding["membership_proof_sha256"] == "b" * 64

@@ -61,7 +61,16 @@ _NATIVE_SEARCH_RESOURCE_CLASSES = frozenset(
     {"native_search_target", "native_search_frontier"}
 )
 _TERMINAL_STATUSES = {"completed", "unresolved", "budget_exhausted", "cancelled", "failed"}
-_REOPENABLE_TERMINAL_STATUSES = {"completed", "unresolved", "budget_exhausted"}
+_REOPENABLE_TERMINAL_STATUSES = {
+    "completed",
+    "unresolved",
+    "budget_exhausted",
+    # Operator cancellation is a durable checkpoint boundary, not a demand to
+    # discard completed work.  Explicit --resume may reopen it while retaining
+    # every accepted expansion and measured resource record.
+    "cancelled",
+}
+_GRACEFUL_TERMINAL_STATUSES = {"completed", "unresolved", "budget_exhausted"}
 _STATUS_TRANSITIONS = {
     "created": {"running", "cancelled", "failed"},
     "running": _TERMINAL_STATUSES | {"paused"},
@@ -878,7 +887,7 @@ class RunKernel:
                 dict(settlement.get("model_usage") or {})
             )
             for key, value in usage.items():
-                model_usage[key] = model_usage[key] + value
+                model_usage[key] = model_usage.get(key, 0) + value
         native_search_units = {
             "target": sum(
                 int(row.get("resource_units") or 0)
@@ -1229,6 +1238,7 @@ class RunKernel:
             prompt_context_bytes=prompt_context_bytes,
             resource_class=normalized_resource_class,
             resource_units=normalized_resource_units,
+            metadata=resolved_metadata,
         )
         if resource_reservation:
             payload["resource_reservation"] = resource_reservation
@@ -1536,6 +1546,7 @@ class RunKernel:
                 prompt_context_bytes=int(payload.get("prompt_context_bytes") or 0),
                 resource_class=str(payload.get("resource_class") or ""),
                 resource_units=int(payload.get("resource_units") or 0),
+                metadata=dict(payload.get("metadata") or {}),
             )
             if dict(payload.get("resource_reservation") or {}) != resource_reservation:
                 raise RunKernelError("task_resource_reservation_invalid")
@@ -1599,7 +1610,7 @@ class RunKernel:
                 raise RunKernelError(
                     f"run_status_transition_invalid:{state.status}->{target}"
                 )
-            if target in _REOPENABLE_TERMINAL_STATUSES and state.in_flight_tasks:
+            if target in _GRACEFUL_TERMINAL_STATUSES and state.in_flight_tasks:
                 raise RunKernelError(
                     "graceful_terminal_transition_requires_settled_tasks"
                 )
@@ -1670,6 +1681,7 @@ class RunKernel:
         prompt_context_bytes: int = 0,
         resource_class: str = "",
         resource_units: int = 0,
+        metadata: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         reasons: list[str] = []
         pending_count = len(state.in_flight_tasks)
@@ -1702,6 +1714,27 @@ class RunKernel:
         ):
             reasons.append("run_accepted_expansion_budget_exhausted")
         if uses_model:
+            # Per-call estimates and the caller's mandatory closeout work are
+            # checked again under the event append lock. Only actual in-flight
+            # reservations are summed; protected future work is not a call.
+            model_metadata = dict(metadata or {})
+            estimate = dict(model_metadata.get("model_budget_reservation") or {})
+            protection = dict(model_metadata.get("model_budget_protection") or {})
+            for amounts in (estimate, protection):
+                for axis, value in amounts.items():
+                    if axis not in {"model_invocations", "input_tokens", "output_tokens"} or not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                        raise RunKernelBudgetError("model_budget_reservation_invalid")
+            for axis, cap in (
+                ("input_tokens", self.spec.limits.model.max_total_input_tokens),
+                ("output_tokens", self.spec.limits.model.max_total_output_tokens),
+            ):
+                pending_tokens = sum(
+                    int(dict(dict(row.get("metadata") or {}).get("model_budget_reservation") or {}).get(axis) or 0)
+                    for row in state.in_flight_tasks.values() if row.get("uses_model") is True
+                )
+                exposure = int(state.model_totals.get(axis) or 0) + int(state.model_totals.get(f"unknown_{axis}_held") or 0)
+                if exposure + pending_tokens + int(estimate.get(axis) or 0) + int(protection.get(axis) or 0) > cap:
+                    reasons.append(f"run_{axis.removesuffix('s')}_reservation_exhausted")
             pending_models = sum(
                 1
                 for row in state.in_flight_tasks.values()
@@ -1710,16 +1743,17 @@ class RunKernel:
             if (
                 int(state.model_totals.get("model_invocations") or 0)
                 + pending_models
+                + int(protection.get("model_invocations") or 0)
                 >= self.spec.limits.model.max_model_invocations
             ):
                 reasons.append("run_model_invocation_budget_exhausted")
             if (
-                int(state.model_totals.get("input_tokens") or 0)
+                (int(state.model_totals.get("input_tokens") or 0) + int(state.model_totals.get("unknown_input_tokens_held") or 0))
                 >= self.spec.limits.model.max_total_input_tokens
             ):
                 reasons.append("run_input_token_budget_exhausted")
             if (
-                int(state.model_totals.get("output_tokens") or 0)
+                (int(state.model_totals.get("output_tokens") or 0) + int(state.model_totals.get("unknown_output_tokens_held") or 0))
                 >= self.spec.limits.model.max_total_output_tokens
             ):
                 reasons.append("run_output_token_budget_exhausted")
@@ -1784,9 +1818,9 @@ class RunKernel:
                 reasons.append("run_accepted_expansion_budget_exhausted")
             if int(totals.get("model_invocations") or 0) >= budget.max_model_invocations:
                 reasons.append("run_model_invocation_budget_exhausted")
-            if int(totals.get("input_tokens") or 0) >= budget.max_total_input_tokens:
+            if int(totals.get("input_tokens") or 0) + int(totals.get("unknown_input_tokens_held") or 0) >= budget.max_total_input_tokens:
                 reasons.append("run_input_token_budget_exhausted")
-            if int(totals.get("output_tokens") or 0) >= budget.max_total_output_tokens:
+            if int(totals.get("output_tokens") or 0) + int(totals.get("unknown_output_tokens_held") or 0) >= budget.max_total_output_tokens:
                 reasons.append("run_output_token_budget_exhausted")
             if float(totals.get("wall_time_s") or 0.0) >= budget.max_total_wall_time_s:
                 reasons.append("run_model_wall_time_budget_exhausted")
@@ -2081,7 +2115,9 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
             "model_invocations": 0,
             "visual_invocations": 0,
             "input_tokens": 0,
+            "cached_input_tokens": 0,
             "output_tokens": 0,
+            "reasoning_output_tokens": 0,
             "wall_time_s": 0.0,
         },
         "native_search_totals": {
@@ -2164,8 +2200,15 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
                 if str(item).strip()
             )
             usage = dict(payload.get("model_usage") or {})
-            for key in ("model_invocations", "input_tokens", "output_tokens"):
+            for key in (
+                "model_invocations", "input_tokens", "cached_input_tokens",
+                "output_tokens", "reasoning_output_tokens",
+            ):
                 state["model_totals"][key] += int(usage.get(key) or 0)
+            for axis in ("input_tokens", "output_tokens"):
+                key = f"unknown_{axis}_held"
+                if usage.get(key):
+                    state["model_totals"][key] = int(state["model_totals"].get(key) or 0) + int(usage[key])
             state["model_totals"]["visual_invocations"] += int(
                 usage.get("visual_invocations") or 0
             )
@@ -2220,7 +2263,7 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
                 raise RunKernelCorruptionError(
                     f"replayed_status_transition_invalid:{state['status']}->{target}"
                 )
-            if target in _REOPENABLE_TERMINAL_STATUSES and state["in_flight_tasks"]:
+            if target in _GRACEFUL_TERMINAL_STATUSES and state["in_flight_tasks"]:
                 raise RunKernelCorruptionError(
                     "replayed_graceful_terminal_transition_has_unsettled_tasks"
                 )
@@ -2642,8 +2685,12 @@ def _normalized_model_usage(value: Mapping[str, Any] | None) -> dict[str, int | 
         "model_invocations": max(0, int(row.get("model_invocations") or 0)),
         "visual_invocations": max(0, int(row.get("visual_invocations") or 0)),
         "input_tokens": max(0, int(row.get("input_tokens") or 0)),
+        "cached_input_tokens": max(0, int(row.get("cached_input_tokens") or 0)),
         "output_tokens": max(0, int(row.get("output_tokens") or 0)),
+        "reasoning_output_tokens": max(0, int(row.get("reasoning_output_tokens") or 0)),
         "wall_time_s": wall_time_s,
+        **{key: max(0, int(row[key] or 0)) for key in
+           ("unknown_input_tokens_held", "unknown_output_tokens_held") if key in row},
     }
 
 

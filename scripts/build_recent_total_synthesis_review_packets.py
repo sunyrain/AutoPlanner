@@ -15,8 +15,12 @@ import html
 import json
 import os
 from pathlib import Path
+import sys
 from typing import Any, Iterable
 from urllib.parse import quote
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.recent_total_synthesis_route_inventory import route_graph_metrics, structured_counts
 
 
 SUBMISSION_SCHEMA = "recent_total_synthesis_review_submission.v1"
@@ -83,6 +87,13 @@ def write_json(path: Path, value: Any) -> None:
         json.dumps(value, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def write_submission_template(path: Path, value: dict[str, Any]) -> None:
+    """Refresh machine suggestions without overwriting a curator's work."""
+    write_json(path.with_name("submission-template.json"), value)
+    if not path.exists():
+        write_json(path, value)
 
 
 def sha256(path: Path) -> str:
@@ -285,7 +296,18 @@ def validate_structured_route_candidate(
     if not list(value.get("strategic_events") or []):
         raise RuntimeError(f"structured_route_strategic_events_missing:{target_id}")
 
+    metrics = route_graph_metrics(value)
+    summary = value.get("route_summary") or {}
+    for field, actual in [("linear_step_count", metrics["longest_linear_step_count"]), ("total_operation_count", metrics["total_operation_count"])]:
+        if field in summary and summary[field] != actual:
+            raise RuntimeError(f"structured_route_step_count_mismatch:{field}:{target_id}")
+    for measurement in value.get("yield_measurements") or []:
+        covered = measurement.get("step_ids") or []
+        if not covered or not set(covered) <= step_ids or not measurement.get("source_locator"):
+            raise RuntimeError(f"structured_route_yield_scope_invalid:{target_id}")
+
     normalized = dict(value)
+    normalized["graph_metrics"] = metrics
     normalized["candidate_path"] = candidate_path.relative_to(repo_root).as_posix()
     return normalized
 
@@ -430,6 +452,7 @@ def structured_route_record(candidate: dict[str, Any]) -> dict[str, Any]:
         "source_artifacts": list(candidate["source_artifacts"]),
         "steps": list(candidate["steps"]),
         "strategic_events": list(candidate["strategic_events"]),
+        **{key: candidate[key] for key in ("target_compound_id", "compounds", "route_summary", "yield_measurements") if key in candidate},
     }
 
 
@@ -471,7 +494,9 @@ def structured_route_html(
             '<section class="compound-card">'
             f'<strong>{html.escape(str(compound["label"]))}</strong>'
             f'<span class="tag">{html.escape(str(compound.get("role") or ""))}</span>'
-            f'{"".join(drawings)}</section>'
+            f'{"".join(drawings)}'
+            f'<p>{html.escape(str(compound.get("sample_note") or ""))}</p>'
+            f'<p>{html.escape(str(compound.get("stereochemistry_note") or ""))}</p></section>'
         )
 
     step_cards = []
@@ -492,6 +517,7 @@ def structured_route_html(
             f'<strong>Step {int(step["order"])} · {html.escape(precursors)} → '
             f'{html.escape(str(step["product_label"]))}</strong><br>'
             f'{html.escape(str(step["transformation_class"]))} · 收率 {html.escape(yield_text)}<br>'
+            f'<span>{html.escape(str(step.get("yield_note") or step.get("yield_basis") or ""))}</span><br>'
             f'<span>{html.escape(conditions)}</span><br>'
             f'<em>{html.escape(str(step["strategic_role"]))}</em><br>'
             f'<small>{html.escape(locator_text(step["source_locator"]))}</small>'
@@ -499,13 +525,16 @@ def structured_route_html(
         )
     candidate_path = repo_root / str(candidate["candidate_path"])
     summary = dict(candidate.get("route_summary") or {})
+    metrics = candidate.get("graph_metrics") or route_graph_metrics(candidate)
+    notes = html.escape(json.dumps({"route_summary": summary, "yield_measurements": candidate.get("yield_measurements") or []}, ensure_ascii=False, indent=2))
     return f"""
 <div class="notice warning"><strong>结构化路线候选，仍不具 admission 权限。</strong>
 已通过来源哈希、RDKit、目标一致性、步骤顺序和前体连续性检查；专家仍须逐图逐步确认。</div>
-<p><span class="tag">{len(candidate.get('steps') or [])} steps</span>
+<p><span class="tag">{metrics['total_operation_count']} 个操作</span><span class="tag">最长线性 {metrics['longest_linear_step_count']} 步</span>
 <span class="tag">{html.escape(str(summary.get('route_variant') or 'ordered route'))}</span>
 <a href="{href(candidate_path, page_dir=packet_dir)}">打开结构化候选 JSON</a></p>
 {''.join(step_cards)}
+<details><summary>路线边界、收率范围与来源差异</summary><pre>{notes}</pre></details>
 <h3>化合物结构候选</h3><div class="compound-grid">{''.join(compound_cards)}</div>
 """
 
@@ -620,7 +649,7 @@ def build_paper_packet(
     packet_dir.mkdir(parents=True, exist_ok=True)
     target_ids = sorted(str(row["target_slot_id"]) for row in targets)
     submission_path = packet_dir / "submission.json"
-    write_json(
+    write_submission_template(
         submission_path,
         paper_submission_template(
             paper=paper,
@@ -719,7 +748,7 @@ def build_target_packet(
     smiles = str(visual.get("visual_canonical_isomeric_smiles") or "")
     render_candidate_svg(smiles, packet_dir / "candidate.svg", str(target["target_name"]))
     submission_path = packet_dir / "submission.json"
-    write_json(
+    write_submission_template(
         submission_path,
         target_submission_template(
             target=target,
@@ -737,6 +766,12 @@ def build_target_packet(
         repo_root=repo_root,
     )
     passage_html = []
+    coverage = route.get("source_coverage") or {}
+    source_warning = (
+        '<div class="notice warning">一个标记为 SI 的附件与正文文字相同，已从独立 SI 证据中排除。'
+        + ('另有 SI 文本已读取，请核对其具体实验定位。' if coverage.get("si_text_inspected") else '请获取真正的实验支持材料。')
+        + '</div>' if coverage.get("si_duplicates_article") else ""
+    )
     for index, passage in enumerate(route.get("evidence_passages") or [], start=1):
         passage_source = verified_artifact(dict(passage), repo_root=repo_root)
         passage_html.append(
@@ -761,12 +796,14 @@ def build_target_packet(
 <h2>结构化有序路线</h2>
 {structured_route_html(structured_route, packet_dir=packet_dir, repo_root=repo_root)}
 <h2>自动抽取的路线线索</h2><p>这些段落只帮助定位。路线步骤、化合物身份和战略事件必须回到图式/SI 核验。</p>
+{source_warning}
 {''.join(passage_html)}
 <h2>全部来源附件</h2><table><thead><tr><th>类型</th><th>文件</th><th>SHA-256</th></tr></thead><tbody>
 {source_rows(receipt, repo_root=repo_root, page_dir=packet_dir)}</tbody></table>
 <h2>提交</h2><ol><li>只编辑 <a href="submission.json"><code>submission.json</code></a>；不改候选文件和人工总账。</li>
 <li>结构和路线可分开提交；未审部分保持 <code>not_reviewed</code>。</li>
 <li><code>accept</code> 时必须给出来源一致的结构/立体化学，或可复核的路线/关键步骤。</li></ol>
+<p>重新生成页面会保留已有提交。最新机器建议见 <a href="submission-template.json">submission-template.json</a>，可按需取用其中新增路线。</p>
 <pre>python scripts/validate_recent_total_synthesis_review_submission.py --submission "{submission_path.relative_to(repo_root).as_posix()}"</pre>
 """
     (packet_dir / "index.html").write_text(
@@ -828,7 +865,7 @@ def build_packets(*, repo_root: Path, dataset_dir: Path, output_root: Path) -> d
         if (
             visual.get("visual_status") in READY_VISUAL_STATUSES
             and (visual.get("rdkit_validation") or {}).get("status") == "roundtrip_valid"
-            and bool(route.get("evidence_passages"))
+            and (bool(route.get("evidence_passages")) or target_id in structured_route_by_target)
         ):
             ready_targets.append(target)
     ready_targets.sort(
@@ -885,6 +922,7 @@ def build_packets(*, repo_root: Path, dataset_dir: Path, output_root: Path) -> d
         "source_audit": audit,
         "packet_counts": dict(sorted(counts.items())),
         "structured_route_candidates": len(structured_route_by_target),
+        "route_counts": structured_counts(list(structured_route_by_target.values())),
         "packets": packets,
     }
     write_json(output_root / "packet-manifest.json", manifest)

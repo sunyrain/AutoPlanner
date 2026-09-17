@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 import json
 from pathlib import Path
 from threading import Barrier, Event
@@ -346,6 +347,50 @@ def test_action_cache_reuses_same_execution_across_scheduler_diagnostic_drift(
 
     assert replay["cache_hit"] is True
     assert calls == 1
+
+
+@pytest.mark.parametrize("legacy_reservation", [False, True])
+def test_in_flight_action_restores_original_cursor_and_rejects_semantic_drift(
+    tmp_path: Path, legacy_reservation: bool,
+) -> None:
+    kernel = _kernel(tmp_path)
+    decision = {**_decision(), "round_robin_cursor": 1}
+    original = bind_scheduled_action(decision, input_revision=0)
+    observed = []
+    runtime = CampaignActionRuntime(
+        kernel, {original.kind: lambda action: observed.append(action) or {"status": "completed"}},
+    )
+    if legacy_reservation:
+        kernel.reserve_task(
+            task_id=original.task_id, kind="other",
+            idempotency_key=f"{original.idempotency_key}:reserve", input_revision=0,
+            metadata={
+                "campaign_action_id": original.action_id,
+                "campaign_action_execution_id": original.execution_id,
+                "campaign_action_sha256": original.to_dict()["content_sha256"],
+                "campaign_action_kind": original.kind.value,
+                "delegated_resource_class": original.resource_class,
+                "producer": original.producer,
+            },
+        )
+    else:
+        runtime._reserve_action(original, decision=decision)
+    rebound = bind_scheduled_action({**decision, "round_robin_cursor": 0}, input_revision=0)
+    if not legacy_reservation:
+        rebound = replace(rebound, metadata={**rebound.metadata, "schedule_score": -1.0, "scheduler_policy": "changed-label"})
+    for invalid in (
+        replace(rebound, subject_ids=("unrelated-subject",)),
+        replace(rebound, metadata={**rebound.metadata, "frontier_smiles": "changed-input"}),
+        replace(rebound, expected_resources={}),
+    ):
+        with pytest.raises(CampaignActionRuntimeError, match="in_flight_binding_invalid"):
+            runtime.execute(invalid)
+    assert not observed
+    result = runtime.execute(rebound)
+    assert observed == [original]
+    assert result["action"]["content_sha256"] == original.to_dict()["content_sha256"]
+    assert len(kernel.task_reservation_history()) == 1
+    assert runtime.action_execution_history()[0]["settled"] is True
 
 
 def test_target_native_handler_checkpoint_resumes_without_second_provider_call(

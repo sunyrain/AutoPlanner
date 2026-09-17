@@ -1,0 +1,159 @@
+SynthAtlas
+BETA
+Routes
+Reactions
+Molecules
+Glossary
+About
+Sign in
+← All routes
+Traversiadiene
+NPA000656 · Cercospora traversiana (Fungus) · 4 steps · longest linear path 4 · Good
+↓ Download PDF
+3 routes to Traversiadiene:
+s2 · 4 steps · Good
++2 other routes
+
+The SynthEx AI agent suggested and critiqued this route.
+
+SYNTHEX'S STRATEGY
+Forming the 8-membered ring and its trisubstituted alkene through a Grob fragmentation of a rigid, stereodefined polycyclic precursor, followed by deoxygenation of the resulting ketone to yield the hydrocarbon scaffold.
+⤢
+FULL ROUTE
+4 steps · key intermediates highlighted · click a structure or step number to jump to that step
+start
+1
+2
+key intermediate
+3
+key intermediate
+4
+target
+ROUTE SUMMARY
+The route elegantly addresses the user constraint by employing a Grob fragmentation of a rigid linear tetraquinane diol precursor to generate the central 8-membered ring and its trisubstituted alkene. This is followed by a Wolff-Kishner deoxygenation to yield the final hydrocarbon scaffold. The complex tetraquinane core itself is assembled via a SmI2-mediated reductive ketyl-olefin radical cyclization, which forms the final cyclopentane ring from a tricyclic ketone-alkene precursor.
+ROUTE CRITIC
+This route is a strategically brilliant execution of the user's constraint, utilizing a SmI2 cyclization to build a rigid tetraquinane that is perfectly primed for a stereospecific Grob fragmentation to reveal the 8-membered ring. The step economy for this skeletal transformation is excellent. However, the feasibility is slightly tempered by the reliance on harsh Wolff-Kishner conditions at the very end, which threatens the integrity of the newly formed alkene, and the fact that the 'starting material' (Mol E) is itself a formidable synthetic target.
+Ratings & comments are shared with the team and attributed to your confirmed account.
+Rate this route:
+★
+★
+★
+★
+★
+Post comment
+Private
+sign in to comment
+No comments yet
+Step 1
+★
+★
+★
+★
+★
+⤢
+1M HCl (aq) or p-TsOH, acetone/H2O, rt.
+DESCRIPTION
+The reaction is classified as an acetal deprotection proceeding via an acid-catalyzed hydrolysis mechanism. The precursor shares the identical complex carbocyclic topology as the product, featuring a…
+CONDITIONS · ADEQUATE
+1M HCl (aq) or p-TsOH, acetone/H2O, rt.
+LITERATURE PRECEDENT
+>10 documents · close precedent in Reaxys →
+REACTION SMILES
+Step 2
+key step
+★
+★
+★
+★
+★
+⤢
+SmI2 (2.5 equiv), tBuOH or H2O (proton source), THF, rt. HMPA or LiBr may be required as additives to tune the reduction potential and stereoselectivity.
+DESCRIPTION
+The retrosynthetic strategy for this product involves a SmI2-mediated reductive ketyl-olefin radical cyclization to construct the final 5-membered ring of the linear tetraquinane (5-5-5-5) core. The…
+WHY IT'S CRITICAL
+It constructs the highly strained and rigid tetraquinane core while setting the crucial stereocenters required for the subsequent Grob fragmentation.
+MAIN RISK
+The stereochemical outcome of the radical cyclization is entirely substrate-dependent and may yield the wrong diastereomer, or suffer from over-reduction.
+CONDITIONS · ADEQUATE
+SmI2 (2.5 equiv), tBuOH or H2O (proton source), THF, rt. HMPA or LiBr may be required as additives to tune the reduction potential and stereoselectivity.
+LITERATURE PRECEDENT
+>10 documents · related report in Reaxys →
+REACTION SMILES
+Step 3
+key step
+★
+★
+★
+★
+★
+⤢
+MsCl (1.1 equiv), Et3N (3.0 equiv), CH2Cl2, 0 °C to rt.
+DESCRIPTION
+The reaction is a Grob fragmentation, initiated by a one-pot mesylation of a diol. The precursor topology is a rigid, stereodefined linear tetraquinane consisting of four sequentially fused…
+WHY IT'S CRITICAL
+This step executes the user constraint, forming the challenging 8-membered ring and setting the specific E/Z geometry of the trisubstituted alkene.
+MAIN RISK
+Competing simple elimination or substitution if the orbital alignment of the breaking bonds in the rigid tetraquinane is not perfectly antiperiplanar.
+CONDITIONS · ADEQUATE
+MsCl (1.1 equiv), Et3N (3.0 equiv), CH2Cl2, 0 °C to rt.
+REACTION SMILES
+Step 4
+★
+★
+★
+★
+★
+⤢
+Hydrazine hydrate, KOH, diethylene glycol, 180-200 °C.
+DESCRIPTION
+The reaction is classified as a reduction, specifically a deoxygenation of a ketone via a Wolff-Kishner or Barton-McCombie mechanism. The precursor is a complex tricyclic molecule featuring a 5-8-5…
+CONDITIONS · ADEQUATE
+Hydrazine hydrate, KOH, diethylene glycol, 180-200 °C.
+LITERATURE PRECEDENT
+>10 documents · related report in Reaxys →
+COMPATIBILITY NOTE
+The harsh basic conditions and high temperatures of the Wolff-Kishner reduction pose a significant risk of isomerizing the newly formed trisubstituted alkene. A Barton-McCombie deoxygenation (NaBH4 reduction to alcohol, conversion to xanthate, Bu3SnH/AIBN reduction) would be much safer.
+REACTION SMILES
+ROUTE SCORE I
+8
+OVERALL
+6
+GREEN
+7
+FEAS.
+
+High scores for strategic elegance and exact adherence to the constraint, but penalized slightly for the harsh late-stage deoxygenation conditions and the complexity of the required precursor.
+
+ROUTE INTELLIGENCE
+Total steps
+4
+Longest linear path
+4
+Stereo risk
+moderate
+Feasibility
+Good
+Redundant steps
+0
+BUILDING BLOCKS I
+Unavailable
+TOP RISKS
+#1 Alkene isomerization during the harsh Wolff-Kishner deoxygenation (Step 0).
+Switch to a milder, two-step Barton-McCombie deoxygenation sequence to preserve the kinetic alkene geometry. → jump to step 4
+#2 Failure of the Grob fragmentation (Step 1) due to imperfect antiperiplanar orbital alignment, leading to simple mesylate elimination.
+Perform extensive DFT conformational analysis on the tetraquinane intermediate prior to synthesis to ensure the required geometry is the global minimum. → jump to step 3
+#3 Poor diastereoselectivity or over-reduction in the SmI2-mediated ketyl-olefin cyclization (Step 2).
+Screen various additives (HMPA, DMPU, LiBr) and proton sources (tBuOH, H2O, MeOH) to optimize the transition state chelation and kinetics. → jump to step 2
+CASCADE OPPORTUNITIES
+Combining acetal deprotection (Step 3) and SmI2 cyclization (Step 2) into a single pot.
+In situ deprotection followed by cyclization is generally incompatible because SmI2 is highly sensitive to the acidic conditions required for acetal cleavage. A cascade is not recommended here.
+STEREOCHEMISTRY
+
+The route relies heavily on substrate-controlled stereoselectivity. While theoretically sound, rigid polycyclic systems can sometimes exhibit unexpected conformational preferences that derail the intended stereochemical outcome.
+
+SynthAtlas
+Agentic synthesis planning for natural products
+Schwaller Group and synthetic chemistry colleagues at EPFL, Arizona and Pittsburgh
+Suggest a target
+Preprint
+Privacy Policy

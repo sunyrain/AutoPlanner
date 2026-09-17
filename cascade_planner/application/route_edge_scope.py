@@ -17,6 +17,60 @@ _GUIDED_PROVIDER_KINDS = {"aizynthfinder", "chemenzy"}
 _GUIDED_GROUP = re.compile(r"^((?:aizynthfinder|chemenzy):guided-[^:]+)")
 
 
+def origin_condition_predictions(
+    edge: Mapping[str, Any], origin: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    """Read the chosen implementation, including an explicitly empty choice.
+
+    Shared edge annotations describe alternatives, not a branch's selection.
+    Old records can use them only when there is at most one origin; otherwise
+    missing attribution stays missing rather than borrowing a sibling's recipe.
+    """
+
+    if "condition_predictions" in origin:
+        values = origin["condition_predictions"]
+    elif len(edge.get("origin_records") or ()) <= 1:
+        values = edge.get("condition_predictions")
+    else:
+        values = ()
+    return [dict(value) for value in values or () if isinstance(value, Mapping)]
+
+
+def route_family_bound_origin_records(
+    edge: Mapping[str, Any],
+    *,
+    route_family_id: str,
+) -> tuple[dict[str, Any], ...]:
+    """Return origins explicitly bound to one route, without order guessing.
+
+    A sole origin is an unambiguous legacy fallback.  Multiple origins with no
+    explicit scalar or canonical-family binding remain unbound so callers can
+    fall back to the canonical edge identity.
+    """
+
+    origins = tuple(
+        dict(value)
+        for value in edge.get("origin_records") or ()
+        if isinstance(value, Mapping)
+    )
+    matches = tuple(
+        origin
+        for origin in origins
+        if route_family_id
+        and (
+            str(origin.get("route_family_id") or "") == route_family_id
+            or route_family_id
+            in {
+                str(value)
+                for value in origin.get("canonical_route_family_ids") or ()
+            }
+        )
+    )
+    if matches:
+        return matches
+    return origins if len(origins) == 1 else ()
+
+
 def guided_provider_group_ids(edge: Mapping[str, Any]) -> tuple[str, ...]:
     values: set[str] = set()
     for raw in edge.get("origin_records") or []:
@@ -76,4 +130,9 @@ def route_family_scoped_edge_ids(
     return allowed
 
 
-__all__ = ["guided_provider_group_ids", "route_family_scoped_edge_ids"]
+__all__ = [
+    "guided_provider_group_ids",
+    "origin_condition_predictions",
+    "route_family_bound_origin_records",
+    "route_family_scoped_edge_ids",
+]

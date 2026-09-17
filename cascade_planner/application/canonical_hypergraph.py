@@ -7,6 +7,7 @@ revision through :class:`RunKernel`.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -43,6 +44,8 @@ from cascade_planner.application.canonical_identity import (
     stock_observation_identity,
 )
 from cascade_planner.application.run_kernel import RunKernel
+from cascade_planner.application.reaction_inputs import reaction_input_smiles
+from cascade_planner.application.route_edge_scope import origin_condition_predictions
 from cascade_planner.application.proof_policy import (
     ProofPolicy,
     stitch_edge_proof,
@@ -212,7 +215,7 @@ class CanonicalHypergraphStore:
             row = dict(value)
             edge_id, _ = reaction_edge_identity(
                 row.get("product_smiles"),
-                row.get("precursor_smiles") or row.get("reactant_smiles") or [],
+                reaction_input_smiles(row),
             )
             if edge_id and edge_id in graph["edges"]:
                 continue
@@ -305,8 +308,16 @@ class CanonicalHypergraphStore:
                     {
                         "product_smiles": hypothesis["product_smiles"],
                         "precursor_smiles": hypothesis["precursor_smiles"],
-                        "condition_predictions": list(
-                            hypothesis.get("condition_predictions") or []
+                        "reaction_input_smiles": list(
+                            hypothesis.get("reaction_input_smiles")
+                            or hypothesis.get("precursor_smiles")
+                            or []
+                        ),
+                        "auxiliary_reagent_smiles": list(
+                            hypothesis.get("auxiliary_reagent_smiles") or []
+                        ),
+                        "reaction_component_ledger": dict(
+                            hypothesis.get("reaction_component_ledger") or {}
                         ),
                         "biocatalytic_steps": list(
                             hypothesis.get("biocatalytic_steps") or []
@@ -315,9 +326,12 @@ class CanonicalHypergraphStore:
                             hypothesis.get("route_innovations") or []
                         ),
                         **dict(origin),
+                        "condition_predictions": origin_condition_predictions(
+                            hypothesis, origin
+                        ),
                         # The hypothesis owns the normalized strategy and
-                        # ReactionJSON facts. Origin rows are provenance only
-                        # and cannot reconstruct those execution fields.
+                        # ReactionJSON facts. Origin rows retain the chosen
+                        # conditions, but cannot reconstruct structural edits.
                         # One canonical reaction hypothesis may be shared by
                         # several independently frozen route strategies. Keep
                         # the full OR-provenance collection across the worker
@@ -828,9 +842,25 @@ def _ingest_route_family(
         else existing_policy_budget
     )
     aliases = sorted({*existing.get("aliases", []), alias} - {""})
+    strategy_branch_ids: set[int] = set()
+    for value in (
+        *(existing.get("strategy_branch_ids") or ()),
+        *(row.get("strategy_branch_ids") or ()),
+        existing.get("strategy_branch_id"),
+        row.get("strategy_branch_id"),
+    ):
+        if isinstance(value, bool) or value in (None, ""):
+            continue
+        try:
+            branch_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if branch_id > 0:
+            strategy_branch_ids.add(branch_id)
     record = {
         "route_family_id": route_id,
         "aliases": aliases,
+        "strategy_branch_ids": sorted(strategy_branch_ids),
         "strategy": str(
             row.get("strategic_disconnection")
             or row.get("strategy")
@@ -870,6 +900,12 @@ def _ingest_route_family(
             existing.get("strategy_milestone_cards"),
             row.get("strategy_milestone_cards"),
             stable_keys=("strategy_digest",),
+        ),
+        # A Host-bound sourcing request pauses only further synthesis of its
+        # exact unresolved leaf. It does not alter stock or proof status.
+        # An explicit empty incoming value clears a superseded request.
+        "material_boundary_review": dict(
+            row.get("material_boundary_review", existing.get("material_boundary_review")) or {}
         ),
         "strategy_milestone_attempts": _merge_ordered_runtime_rows(
             existing.get("strategy_milestone_attempts"),
@@ -987,13 +1023,22 @@ def _ingest_hypothesis(
             }
         )
         return
-    precursors = row.get("precursor_smiles") or row.get("reactant_smiles") or []
+    route_precursors = (
+        row.get("precursor_smiles") or row.get("reactant_smiles") or []
+    )
+    replay_audit = dict(row.get("reactionjson_audit") or {})
+    reaction_inputs = (
+        row.get("reaction_input_smiles")
+        or replay_audit.get("reaction_input_smiles")
+        or replay_audit.get("precursor_smiles")
+        or route_precursors
+    )
     provider_reaction_metadata = dict(
         row.get("provider_reaction_metadata") or {}
     )
     hypothesis_id, audit = hypothesis_identity(
         row.get("product_smiles"),
-        precursors,
+        reaction_inputs,
         mapped_reaction_smiles=(
             row.get("mapped_reaction_smiles")
             or provider_reaction_metadata.get("mapped_reaction_smiles")
@@ -1013,11 +1058,26 @@ def _ingest_hypothesis(
         for item in audit.get("precursor_smiles_multiset") or []
         if str(item)
     ]
+    canonical_route_precursors = sorted(
+        canonical
+        for value in route_precursors or []
+        if (canonical := molecule_identity(value)[1])
+    )
+    component_roles_valid = _route_components_are_bound(
+        canonical_route_precursors,
+        canonical_precursors,
+    )
+    auxiliary_reagents = _remaining_reaction_components(
+        canonical_precursors,
+        canonical_route_precursors,
+    )
     identity_valid = bool(
         hypothesis_id
         and canonical_product
         and canonical_precursors
-        and len(canonical_precursors) == len(list(precursors or []))
+        and canonical_route_precursors
+        and component_roles_valid
+        and len(canonical_precursors) == len(list(reaction_inputs or []))
     )
     if not identity_valid:
         rejected.append(
@@ -1176,7 +1236,14 @@ def _ingest_hypothesis(
         "hypothesis_id": hypothesis_id,
         "edge_digest": audit["edge_digest"],
         "product_smiles": audit["product_smiles"],
-        "precursor_smiles": audit["precursor_smiles_multiset"],
+        "precursor_smiles": canonical_route_precursors,
+        "reaction_input_smiles": canonical_precursors,
+        "auxiliary_reagent_smiles": auxiliary_reagents,
+        "reaction_component_ledger": dict(
+            row.get("reaction_component_ledger")
+            or replay_audit.get("reaction_component_ledger")
+            or {}
+        ),
         "status": (
             "materialized"
             if edge_id in graph["edges"]
@@ -1187,7 +1254,7 @@ def _ingest_hypothesis(
         "admission_accepted": admission_accepted,
         "admission_reasons": admission_reasons,
         "admission_history": admission_history,
-        "origin_records": _merge_by_digest(existing.get("origin_records"), [origin]),
+        "origin_records": _merge_origin_records(existing.get("origin_records"), [origin]),
         "route_family_ids": sorted(
             {*(existing.get("route_family_ids") or []), *route_ids} - {""}
         ),
@@ -1226,7 +1293,12 @@ def _ingest_hypothesis(
         "admission_audit_sha256": _digest(audit),
     }
     graph["hypotheses"][hypothesis_id] = _with_digest(record)
-    _ensure_molecules_for_audit(graph, audit, dirty=dirty)
+    _ensure_molecules_for_audit(
+        graph,
+        audit,
+        route_precursor_smiles=canonical_route_precursors,
+        dirty=dirty,
+    )
     if not admission_accepted:
         # Keep a structurally identified but admission-rejected proposal as an
         # explicit L0 planning fact.  It must never be scheduled for
@@ -1244,7 +1316,7 @@ def _ingest_hypothesis(
         )
     if edge_id in graph["edges"]:
         edge = dict(graph["edges"][edge_id])
-        edge["origin_records"] = _merge_by_digest(
+        edge["origin_records"] = _merge_origin_records(
             edge.get("origin_records"),
             [origin],
         )
@@ -1317,15 +1389,23 @@ def _ingest_candidate(
         )
         return ""
     product = row.get("product_smiles")
-    precursors = row.get("precursor_smiles") or row.get("reactant_smiles") or []
+    route_precursors = (
+        row.get("precursor_smiles") or row.get("reactant_smiles") or []
+    )
     reactionjson_audit = (
         dict(row.get("reactionjson_audit") or {})
         if isinstance(row.get("reactionjson_audit"), Mapping)
         else {}
     )
+    reaction_inputs = (
+        row.get("reaction_input_smiles")
+        or reactionjson_audit.get("reaction_input_smiles")
+        or reactionjson_audit.get("precursor_smiles")
+        or route_precursors
+    )
     edge_id, audit = reaction_edge_identity(
         product,
-        precursors,
+        reaction_inputs,
         mapped_reaction_smiles=row.get("mapped_reaction_smiles") or "",
         mapped_product_smiles=reactionjson_audit.get("mapped_product_smiles"),
         reaction_operations=operations,
@@ -1340,6 +1420,34 @@ def _ingest_candidate(
             }
         )
         return ""
+    canonical_reaction_inputs = [
+        str(value)
+        for value in audit.get("precursor_smiles_multiset") or []
+        if str(value)
+    ]
+    canonical_route_precursors = sorted(
+        canonical
+        for value in route_precursors or []
+        if (canonical := molecule_identity(value)[1])
+    )
+    if not canonical_route_precursors or not _route_components_are_bound(
+        canonical_route_precursors,
+        canonical_reaction_inputs,
+    ):
+        rejected.append(
+            {
+                "kind": "reaction_edge",
+                "proposal_id": str(
+                    row.get("candidate_id") or row.get("step_id") or ""
+                ),
+                "reasons": ["route_component_binding_invalid"],
+            }
+        )
+        return ""
+    auxiliary_reagents = _remaining_reaction_components(
+        canonical_reaction_inputs,
+        canonical_route_precursors,
+    )
     if _edge_would_cycle(graph, audit):
         rejected.append(
             {
@@ -1355,17 +1463,18 @@ def _ingest_candidate(
         for value in row.get("proposal_refs") or row.get("origins") or []
         if isinstance(value, Mapping)
     ] or [row]
-    origins = [
-        _origin_record(origin, default_kind=default_origin_kind)
-        for origin in raw_origins
-    ]
     product_id, _ = molecule_identity(audit["product_smiles"])
-    precursor_ids = [molecule_identity(value)[0] for value in audit["precursor_smiles_multiset"]]
+    precursor_ids = [
+        molecule_identity(value)[0] for value in canonical_route_precursors
+    ]
     route_ids = set(existing.get("route_family_ids") or [])
     for origin in raw_origins:
         alias = str(origin.get("route_family_id") or "")
         if alias and route_aliases.get(alias):
-            route_ids.add(str(route_aliases[alias]))
+            origin["canonical_route_family_ids"] = sorted({
+                *(origin.get("canonical_route_family_ids") or []),
+                str(route_aliases[alias]),
+            })
         explicit_route_ids = {
             str(value)
             for value in origin.get("canonical_route_family_ids") or []
@@ -1384,6 +1493,10 @@ def _ingest_candidate(
             origin.get("strategy_anchor") is True for origin in raw_origins
         ),
     )
+    origins = [
+        _origin_record(origin, default_kind=default_origin_kind)
+        for origin in raw_origins
+    ]
     strategy_reasons = _strategy_collection_binding_reasons(
         graph,
         route_ids=route_ids,
@@ -1423,8 +1536,15 @@ def _ingest_candidate(
         "product_molecule_id": product_id,
         "precursor_molecule_ids": precursor_ids,
         "product_smiles": audit["product_smiles"],
-        "precursor_smiles": audit["precursor_smiles_multiset"],
-        "origin_records": _merge_by_digest(existing.get("origin_records"), origins),
+        "precursor_smiles": canonical_route_precursors,
+        "reaction_input_smiles": canonical_reaction_inputs,
+        "auxiliary_reagent_smiles": auxiliary_reagents,
+        "reaction_component_ledger": dict(
+            row.get("reaction_component_ledger")
+            or reactionjson_audit.get("reaction_component_ledger")
+            or {}
+        ),
+        "origin_records": _merge_origin_records(existing.get("origin_records"), origins),
         "route_family_ids": sorted(route_ids),
         "hypothesis_ids": sorted(
             {
@@ -1470,7 +1590,12 @@ def _ingest_candidate(
         "admission_audit_sha256": _digest(audit),
     }
     graph["edges"][edge_id] = _with_digest(record)
-    _ensure_molecules_for_audit(graph, audit, dirty=dirty)
+    _ensure_molecules_for_audit(
+        graph,
+        audit,
+        route_precursor_smiles=canonical_route_precursors,
+        dirty=dirty,
+    )
     product_record = dict(graph["molecules"][product_id])
     product_record["outgoing_edge_ids"] = sorted(
         {*product_record.get("outgoing_edge_ids", []), edge_id}
@@ -2377,14 +2502,54 @@ def _ensure_molecules_for_audit(
     graph: dict[str, Any],
     audit: Mapping[str, Any],
     *,
+    route_precursor_smiles: Iterable[Any] | None = None,
     dirty: set[str],
 ) -> None:
-    for smiles in [audit.get("product_smiles"), *(audit.get("precursor_smiles_multiset") or [])]:
+    route_precursors = (
+        list(route_precursor_smiles)
+        if route_precursor_smiles is not None
+        else list(audit.get("precursor_smiles_multiset") or [])
+    )
+    for smiles in [audit.get("product_smiles"), *route_precursors]:
         molecule_id, canonical = molecule_identity(smiles)
         if molecule_id and molecule_id not in graph["molecules"]:
             graph["molecules"][molecule_id] = _molecule_record(molecule_id, canonical)
         if molecule_id:
             dirty.add(molecule_id)
+
+
+def _route_components_are_bound(
+    route_precursors: Iterable[str],
+    reaction_inputs: Iterable[str],
+) -> bool:
+    """Require every route precursor occurrence to exist on the replayed side."""
+
+    remaining = Counter(str(value) for value in reaction_inputs if str(value))
+    for precursor in route_precursors:
+        canonical = str(precursor or "")
+        if not canonical or remaining[canonical] < 1:
+            return False
+        remaining[canonical] -= 1
+    return True
+
+
+def _remaining_reaction_components(
+    reaction_inputs: Iterable[str],
+    route_precursors: Iterable[str],
+) -> list[str]:
+    """Return the exact multiset excluded from target-rooted route topology."""
+
+    remaining = Counter(str(value) for value in route_precursors if str(value))
+    auxiliary: list[str] = []
+    for value in reaction_inputs:
+        canonical = str(value or "")
+        if not canonical:
+            continue
+        if remaining[canonical] > 0:
+            remaining[canonical] -= 1
+        else:
+            auxiliary.append(canonical)
+    return sorted(auxiliary)
 
 
 def _rebuild_all_adjacency(graph: dict[str, Any]) -> None:
@@ -2539,6 +2704,8 @@ def _origin_record(value: Mapping[str, Any], *, default_kind: str) -> dict[str, 
         ),
         "strategy_anchor": row.get("strategy_anchor") is True,
     }
+    if row.get("continuation_hint"):
+        record["continuation_hint"] = str(row["continuation_hint"])
     canonical_route_family_ids = sorted(
         {
             str(value)
@@ -2553,6 +2720,13 @@ def _origin_record(value: Mapping[str, Any], *, default_kind: str) -> dict[str, 
     )
     if canonical_route_family_ids:
         record["canonical_route_family_ids"] = canonical_route_family_ids
+    if "condition_predictions" in row:
+        record["condition_predictions"] = [
+            dict(value) for value in row.get("condition_predictions") or ()
+            if isinstance(value, Mapping)
+        ]
+    if "execution_domain" in row:
+        record["execution_domain"] = str(row.get("execution_domain") or "chemical")
     provider_metadata = row.get("provider_reaction_metadata")
     if isinstance(provider_metadata, Mapping):
         metadata = dict(provider_metadata)
@@ -2710,15 +2884,31 @@ def _valid_content_digest(value: Mapping[str, Any]) -> bool:
     return bool(supplied and supplied == _digest(row))
 
 
-def _merge_by_digest(existing: Any, incoming: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    rows = {
-        str(dict(value).get("origin_sha256") or _digest(value)): dict(value)
-        for value in existing or []
-        if isinstance(value, Mapping)
-    }
-    for value in incoming:
+def _merge_origin_records(existing: Any, incoming: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the current implementation of each proposal, not hash-sorted revisions.
+
+    Other branches remain independent. Anonymous origins retain content-based
+    identity because there is no proposal key by which to supersede them.
+    """
+
+    rows: dict[tuple[str, ...], dict[str, Any]] = {}
+    for value in [*(existing or []), *incoming]:
+        if not isinstance(value, Mapping):
+            continue
         row = dict(value)
-        rows[str(row.get("origin_sha256") or _digest(row))] = row
+        if row.get("proposal_id"):
+            key = (
+                "proposal",
+                str(row.get("origin_kind") or ""),
+                str(row.get("origin_ref") or ""),
+                str(row["proposal_id"]),
+                str(row.get("route_family_id") or "")
+                or json.dumps(sorted(row.get("canonical_route_family_ids") or [])),
+                str(row.get("skeleton_id") or ""),
+            )
+        else:
+            key = ("anonymous", str(row.get("origin_sha256") or _digest(row)))
+        rows[key] = row
     return [rows[key] for key in sorted(rows)]
 
 

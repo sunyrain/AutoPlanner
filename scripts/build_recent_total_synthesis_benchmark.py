@@ -22,10 +22,15 @@ import html
 import json
 from pathlib import Path
 import re
+import sys
 import time
 from typing import Any, Iterable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.recent_total_synthesis_route_inventory import write_inventory
+from scripts.project_recent_total_synthesis_visual_candidates import summarize_rows as summarize_visual_rows
 
 
 FREEZE_START = "2025-01-01"
@@ -1712,6 +1717,8 @@ def main() -> int:
     visual_candidate_path = output_dir / "visual_structure_candidates.jsonl"
     visual_candidates = read_jsonl(visual_candidate_path)
     visual_candidate_summary_path = output_dir / "visual_structure_candidates.summary.json"
+    if visual_candidate_path.exists():
+        write_json(visual_candidate_summary_path, summarize_visual_rows(visual_candidates))
     visual_candidate_summary = (
         json.loads(visual_candidate_summary_path.read_text(encoding="utf-8"))
         if visual_candidate_summary_path.exists()
@@ -2206,6 +2213,12 @@ def main() -> int:
             ],
         },
     )
+    route_inventory = write_inventory(output_dir)
+    structured_route_counts = {key: route_inventory[key] for key in (
+        "complete_ordered_route_candidates", "structured_route_papers",
+        "route_operation_instances", "unique_paper_bound_source_steps",
+    )}
+    quality["counts"].update(structured_route_counts)
     write_json(output_dir / "quality_report.json", quality)
 
     deprecated_queue = output_dir / "high_priority_review_queue.jsonl"
@@ -2248,7 +2261,10 @@ def main() -> int:
         row
         for row in visual_candidates
         if (row.get("rdkit_validation") or {}).get("status") == "roundtrip_valid"
-        and str(row.get("target_slot_id") or "") in p0_route_passage_target_ids
+        and (
+            str(row.get("target_slot_id") or "") in p0_route_passage_target_ids
+            or (output_dir / "curation_candidates" / "structured_routes" / f"{row.get('target_slot_id')}.json").exists()
+        )
     ]
     runnable_primary_targets = sum(
         1 for row in targets if row["slot_class"] == "primary" and row["runnable"]
@@ -2271,6 +2287,7 @@ it does not claim access to the unreleased row-level SynthEx literature-145 coho
 - Candidate-universe source packages acquired: {len((p0_candidate_paper_ids | p1_candidate_paper_ids) & acquired_candidate_paper_ids):,}/{len(p0_candidate_paper_ids | p1_candidate_paper_ids):,}
 - Combined Codex visual extraction (non-admitting): {sum((row.get("rdkit_validation") or {}).get("status") == "roundtrip_valid" for row in combined_visual_candidates):,} RDKit-valid; {sum(row.get("visual_status") == "exact_source_structure_candidate" for row in combined_visual_candidates):,} exact-source, {sum(row.get("visual_status") == "partial_stereo_candidate" for row in combined_visual_candidates):,} partial-stereochemistry, {sum(row.get("visual_status") == "unresolved" for row in combined_visual_candidates):,} unresolved
 - Combined route-evidence leads (non-admitting): {len(combined_route_candidates):,} rows; {sum(bool(row.get("evidence_passages")) for row in combined_route_candidates):,} with candidate passages
+- Complete ordered-route candidates (non-admitting): {route_inventory['complete_ordered_route_candidates']} routes / {route_inventory['structured_route_papers']} papers / {route_inventory['route_operation_instances']} operation instances / {route_inventory['unique_paper_bound_source_steps']} unique paper-bound source steps; pending dual expert review
 - P0 targets ready for dual human structure/route review (still non-admitting): {len(p0_dual_evidence_review_candidates):,}; {sum(row.get("visual_status") == "exact_source_structure_candidate" for row in p0_dual_evidence_review_candidates):,} exact-source and {sum(row.get("visual_status") == "partial_stereo_candidate" for row in p0_dual_evidence_review_candidates):,} partial-stereochemistry
 - Preferred DOI/title article families: {len(preferred):,}
 - Preferred records after the strict cutoff: {len(post_cutoff):,}
@@ -2323,6 +2340,10 @@ it does not claim access to the unreleased row-level SynthEx literature-145 coho
   explicitly non-admitting and never exposed to the planner.
 - `route_evidence_candidates.jsonl`: source-hashed target-linked article passages;
   these accelerate SI review but are not route truth.
+- `curation_candidates/structured_routes/`: source-bound ordered route candidates,
+  including intermediates, convergent branches, mixtures and yield scopes.
+- `ROUTE_EXTRACTION_STATUS.md`, `route_coverage.jsonl` and its summary: regenerated
+  P0/P1 coverage, complete routes, DAG step counts and explicit extraction gaps.
 - `curation_candidates/p1_scope/`: dual-AI metadata consensus, disagreements,
   candidate target slots, source/structure/route leads, and the P1 visual projection;
   none has admission authority.
@@ -2337,6 +2358,10 @@ editable `submission.json` per packet under
 `output/recent_total_synthesis_review_packets/`. Validate a returned file with
 `python scripts/validate_recent_total_synthesis_review_submission.py --submission
 <path>`; only the dataset administrator uses `--merge`.
+Rebuilding preserves existing submissions and writes current machine suggestions
+to `submission-template.json`. Route operation counts include convergent branches;
+longest linear sequences are computed separately. Combined yields retain their
+step scope and are not assigned to individual operations.
 
 ## Admission rule
 
@@ -2795,6 +2820,10 @@ create target slots or planner inputs.
         data_paths["visual_structure_candidates_summary"] = visual_candidate_summary_path
     if route_candidate_path.exists():
         data_paths["route_evidence_candidates"] = route_candidate_path
+    for name in ("route_coverage.jsonl", "route_coverage.summary.json", "ROUTE_EXTRACTION_STATUS.md"):
+        data_paths[name] = output_dir / name
+    for path in sorted((output_dir / "curation_candidates" / "structured_routes").glob("*.json")):
+        data_paths[f"structured_route_{path.stem}"] = path
     if p1_source_package_path.exists():
         data_paths["p1_source_package_receipts"] = p1_source_package_path
     if p1_authorized_fetch_batch_path.exists():
@@ -2836,6 +2865,7 @@ create target slots or planner inputs.
             "synthex_145_rows_publicly_recovered": False,
         },
         "counts": {
+            **structured_route_counts,
             "raw_provider_records": len(records),
             "deduplicated_paper_records": len(papers),
             "preferred_article_families": len(preferred),

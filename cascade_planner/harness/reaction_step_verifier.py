@@ -696,7 +696,9 @@ def _audit_mapped_reaction(
     formed = sorted(product_bonds - reactant_bonds)
     broken = sorted(reactant_bonds - product_bonds)
     bond_change_present = bool(formed or broken or departing_unmapped_bonds)
-    edit_count = len(formed) + len(broken) + len(departing_unmapped_bonds)
+    # A bond-order change edits one atom pair, even though the bond sets
+    # represent it once as broken and once as formed.
+    edit_count = len({(a, b) for a, b, _ in formed + broken}) + len(departing_unmapped_bonds)
     max_bond_edit_count = 12 if source_supported_tandem_shape else 8
     edit_budget_plausible = edit_count <= max_bond_edit_count
     bond_reasons = [] if bond_change_present else ["mapped_reaction_has_no_bond_change"]
@@ -857,12 +859,12 @@ def _audit_external_atom_source(
     return {
         "schema_version": "replayed_external_atom_source_audit.v1",
         "accepted": accepted,
-        "product_inventory_deficit": dict(sorted(deficit.items())),
-        "reactionjson_external_inventory": dict(
-            sorted(edited_external_inventory.items())
-        ),
-        "mapped_new_product_inventory": dict(sorted(mapped_new_inventory.items())),
-        "donor_inventory": dict(sorted(donor_inventory.items())),
+        # JSON object keys are strings. Normalize before hashing so numeric
+        # ordering (6, 14) cannot change to lexical ordering ("14", "6") on disk.
+        "product_inventory_deficit": {str(k): v for k, v in deficit.items()},
+        "reactionjson_external_inventory": {str(k): v for k, v in edited_external_inventory.items()},
+        "mapped_new_product_inventory": {str(k): v for k, v in mapped_new_inventory.items()},
+        "donor_inventory": {str(k): v for k, v in donor_inventory.items()},
         "donor_bindings": sorted(
             donor_bindings,
             key=lambda value: (value["source_smiles"], value["source_label"]),

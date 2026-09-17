@@ -66,35 +66,28 @@ def select_portfolio(
     maximum_count: int,
     require_distinct_edge_sets: bool,
 ) -> list[dict[str, Any]]:
+    # Display allocation, not a synthetic-quality ranking. Keep completed
+    # results first, then give each model-proposed family a slot before its
+    # additional variants. Canonical IDs only break display ties.
     remaining = sorted((dict(value) for value in candidates), key=_candidate_sort_key)
     selected: list[dict[str, Any]] = []
     while remaining and len(selected) < maximum_count:
-        scored: list[tuple[float, str, dict[str, Any]]] = []
+        eligible: list[dict[str, Any]] = []
         for row in remaining:
             if require_distinct_edge_sets and any(
                 set(row.get("edge_ids") or []) == set(value.get("edge_ids") or [])
                 for value in selected
             ):
                 continue
-            diversity = (
-                min(route_distance(row, value) for value in selected)
-                if selected
-                else 1.0
-            )
-            new_strategy = not any(
-                row.get("root_edge_ids") == value.get("root_edge_ids")
-                for value in selected
-            )
-            utility = (
-                _candidate_utility(row)
-                + 35.0 * diversity
-                + 8.0 * new_strategy
-                + 5.0 * (row.get("pareto_optimal") is True)
-            )
-            scored.append((-utility, str(row["route_id"]), row))
-        if not scored:
+            eligible.append(row)
+        if not eligible:
             break
-        chosen = min(scored)[2]
+        represented = {value.get("route_family_id") for value in selected}
+        chosen = min(eligible, key=lambda row: (
+            -(row.get("complete") is True),
+            row.get("route_family_id") in represented,
+            _candidate_sort_key(row),
+        ))
         selected.append(chosen)
         remaining = [row for row in remaining if row["route_id"] != chosen["route_id"]]
         if len(selected) >= minimum_count and not remaining:
@@ -259,26 +252,10 @@ def route_distance(left: Mapping[str, Any], right: Mapping[str, Any]) -> float:
     return 1.0 if not union else 1.0 - len(left_edges & right_edges) / len(union)
 
 
-def _candidate_utility(value: Mapping[str, Any]) -> float:
-    return (
-        74.0 * float(value.get("strategic_value_score") or 0.0)
-        + 105.0 * (value.get("complete") is True)
-        + 9.0 * float(value.get("evidence_maturity_score") or 0.0)
-        + 11.0 * int(value.get("minimum_edge_proof_level") or 0)
-        + 14.0 * float(value.get("stock_closure_rate") or 0.0)
-        + 3.0 * min(3, len(value.get("independent_source_groups") or []))
-        + 6.0 * float(value.get("convergence_score") or 0.0)
-        - 35.0 * float(value.get("risk_score") or 0.0)
-        - 1.5 * int(value.get("length") or 0)
-    )
-
-
 def _candidate_sort_key(value: Mapping[str, Any]) -> tuple[Any, ...]:
     return (
         -(value.get("complete") is True),
-        -_candidate_utility(value),
-        float(value.get("risk_score") or 0.0),
-        int(value.get("length") or 0),
+        str(value.get("route_family_id") or ""),
         str(value.get("route_id") or ""),
     )
 

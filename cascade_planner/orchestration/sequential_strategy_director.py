@@ -9,6 +9,7 @@ materialisation and chemistry gates remain unchanged.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from collections import deque
 from collections import Counter
 import copy
@@ -24,7 +25,77 @@ import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from rdkit import Chem
+from cascade_planner.application.planning_evidence import BoundedPlanningEvidence
+from cascade_planner.application.condition_predictions import normalize_condition_text
+from cascade_planner.orchestration.reaction_granularity import (
+    BUILDER_GRANULARITY_GUIDANCE,
+    CRITIC_GRANULARITY_GUIDANCE,
+    STAGE_GUIDANCE,
+    TRANSFORMATION_GUIDANCE,
+)
+from cascade_planner.orchestration.key_event_review import (
+    _bind_key_event_focus_assessment as _bind_key_event_focus_assessment,
+    _key_event_focus_assessment as _key_event_focus_assessment,
+    _key_event_obligation_id as _key_event_obligation_id,
+    _selected_path_strategy_checkpoint_state as _selected_path_strategy_checkpoint_state,
+    _strategy_milestone_index as _strategy_milestone_index,
+    key_event_review_update,
+    key_event_history_has_assessment,
+    pending_key_event_runtime_retry,
+)
+from cascade_planner.orchestration.model_call_budget import (
+    NodeCallBudget as _NodeCallBudget,
+    ModelCallReservation as _ModelCallReservation,
+    SharedModelCallLedger as _SharedModelCallLedger,
+    budget_exposure, call_token_reserve as _call_token_reserve,
+    saved_worker_records,
+)
+from cascade_planner.agent.worker_usage import text_size, search_policy_diagnostics
+from cascade_planner.orchestration.chemical_reasoning import (
+    STRATEGY_PRIORS, DEPENDENCY_CRITIC_GUIDANCE, EDITOR_INTENT_GUIDANCE,
+    CATALYSIS_PLANNING_GUIDANCE, STRATEGY_DIVERSITY_GUIDANCE,
+    CHEMICAL_REVIEW_SCOPE,
+    bind_chemical_dependencies,
+    repair_requirements_for_review,
+)
+from cascade_planner.application.material_boundary import (
+    MATERIAL_BOUNDARY_GUIDANCE, bind_material_boundary, current_material_boundary,
+)
+from cascade_planner.orchestration.repair_recovery import (
+    RECOVERY_GUIDANCE, previous_repair_feedback, recovery_request,
+)
+from cascade_planner.orchestration.repair_scope import (
+    _select_path_repair_blocker_scope as _select_path_repair_blocker_scope,
+    _path_repair_component_recritic_result as _path_repair_component_recritic_result,
+    minimum_connected_repair_indices,
+)
+from cascade_planner.orchestration.path_repair_boundary import (
+    _boundary_stereo_mismatch_atom_maps as _boundary_stereo_mismatch_atom_maps,
+    _boundary_stereo_mismatch_bond_maps as _boundary_stereo_mismatch_bond_maps,
+    _path_repair_boundary_stereo_conflict as _path_repair_boundary_stereo_conflict,
+    _deterministic_boundary_atom_map_translation as _deterministic_boundary_atom_map_translation,
+    _path_repair_boundary_leaf_indices as _path_repair_boundary_leaf_indices,
+    _path_repair_frontier_reaches_boundaries as _path_repair_frontier_reaches_boundaries,
+)
+from cascade_planner.application.reaction_inputs import (
+    reaction_input_context, reaction_input_smiles, mapped_reaction_input_smiles,
+)
+from cascade_planner.application.route_review_context import (
+    RevisionBoundRouteCriticContext as RevisionBoundRouteCriticContext,
+    _canonical_mapped_reactant_smiles as _canonical_mapped_reactant_smiles,
+    _canonical_mapped_smiles as _canonical_mapped_smiles,
+    _route_branch_index as _route_branch_index,
+    _route_critic_edge_mapped_boundaries as _route_critic_edge_mapped_boundaries,
+    _selected_strategy_lineage_from_materialized_steps as _selected_strategy_lineage_from_materialized_steps,
+    _strategy_card_digest as _strategy_card_digest,
+    _validated_edge_mapped_boundaries as _validated_edge_mapped_boundaries,
+    compile_revision_bound_route_critic_context as compile_revision_bound_route_critic_context,
+)
 from rdkit.Chem import rdMolDescriptors
+from cascade_planner.application.stereochemistry import (
+    STEREOCHEMISTRY_VERSION,
+    canonical_stereo_smiles as _canonical_smiles,
+)
 
 from cascade_planner.application.reactionjson_replay import (
     ReactionJsonReplayError,
@@ -42,6 +113,7 @@ from cascade_planner.application.routejson_compiler import (
     RouteJSONCompiler,
 )
 from cascade_planner.application.route_edge_scope import (
+    route_family_bound_origin_records,
     route_family_scoped_edge_ids,
 )
 from cascade_planner.application.biocatalytic_step_contract import (
@@ -69,6 +141,7 @@ from cascade_planner.interfaces.aizynthfinder_strategy_sidecar import (
 )
 
 from cascade_planner.agent.codex_worker import (
+    DEFAULT_CODEX_REASONING_EFFORT,
     WorkerBudget,
     WorkerRunRecord,
     WorkerTask,
@@ -185,29 +258,11 @@ _STRATEGY_CARD_FIELDS = (
 # compact prompt bytes.  Reserve a conservative per-critic allowance before
 # spending the expansion budget so the independent critic cannot be silently
 # starved after strategy generation.
-_CRITIC_INPUT_TOKEN_RESERVE = 24_000
-_CRITIC_OUTPUT_TOKEN_RESERVE = 16_000
-_EDITOR_INPUT_TOKEN_RESERVE = 20_000
-_EDITOR_OUTPUT_TOKEN_RESERVE = 20_000
-_BUILDER_INPUT_TOKEN_RESERVE = 24_000
-_BUILDER_OUTPUT_TOKEN_RESERVE = 16_000
 _CRITIC_EDITOR_WALL_FRACTION = 0.30
 _PAPER_CRITIC_EDITOR_WALL_FRACTION = 0.40
 _MAX_DEADLINE_SETTLEMENT_RESERVE_S = 1.0
 _STRATEGY_SEED_RETRY_LIMIT = 3
 _MATERIALIZATION_RETRY_LIMIT = 3
-_CONDITION_PLACEHOLDER_MARKERS = (
-    "to be determined",
-    "determine after",
-    "not specified",
-    "not applicable",
-    "n/a",
-    "tbd",
-    "screen",
-    "screening",
-    "as needed",
-)
-
 _STEP_ROLES = frozenset({"key", "enabling", "supporting"})
 _CHECKPOINT_RELATIONS = frozenset({"preparatory", "executes_checkpoint"})
 
@@ -216,6 +271,7 @@ _PATH_REPAIR_ROUTE_STATE_KEYS = (
     "open_leaves",
     "open_leaf_states",
     "deferred_builder_leaf_states",
+    "material_boundary_review",
     "expanded_products",
     "complete_in_bound_stock",
     "aizynthfinder_strategy_search",
@@ -249,8 +305,13 @@ class NodeExpansion:
     rationale: str
     step_role: str = ""
     checkpoint_relation: str = ""
+    continuation_hint: str = ""
     mapped_product_smiles: str = ""
     mapped_precursor_smiles: tuple[str, ...] = ()
+    reaction_input_smiles: tuple[str, ...] = ()
+    mapped_reaction_input_smiles: tuple[str, ...] = ()
+    auxiliary_reagent_smiles: tuple[str, ...] = ()
+    mapped_auxiliary_reagent_smiles: tuple[str, ...] = ()
     conditions: tuple[str, ...] = ()
     catalyst: str = ""
     enzyme: str = ""
@@ -282,19 +343,6 @@ class FrontierBuilderContext:
     path_repair: Mapping[str, Any] | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class RevisionBoundRouteCriticContext:
-    """One final, target-rooted route revision owned by the Route Critic."""
-
-    target_smiles: str
-    route_family_id: str
-    route_sha256: str
-    graph_revision: int
-    branch_index: int
-    edge_ids: tuple[str, ...]
-    steps: tuple[Mapping[str, Any], ...]
-    strategy_card: Mapping[str, Any]
-    strategy_milestone_cards: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,14 +364,6 @@ class _RouteLineageContext:
 
 
 @dataclass(frozen=True, slots=True)
-class _NodeCallBudget:
-    model_invocations: int
-    input_tokens: int
-    output_tokens: int
-    wall_time_s: float
-
-
-@dataclass(frozen=True, slots=True)
 class _KeyEventReviewDisposition:
     """Host decision produced by one selected-path follow-up Critic call."""
 
@@ -334,142 +374,6 @@ class _KeyEventReviewDisposition:
     @property
     def rejected(self) -> bool:
         return self.status == "rejected" and bool(self.rejected_path_step_ids)
-
-
-@dataclass(frozen=True, slots=True)
-class _ModelCallReservation:
-    input_tokens: int
-    output_tokens: int
-
-
-class _SharedModelCallLedger:
-    """Atomically share one Director model budget across branch workers.
-
-    Only calls that are actually about to run are reserved.  The ledger keeps
-    a small protected balance for mandatory final Critic calls, but it does
-    not pre-allocate hypothetical Editor rounds or private token pools to
-    branches.  Actual provider usage is settled immediately, so unused
-    capacity is visible to every branch.
-    """
-
-    def __init__(
-        self,
-        quota: _NodeCallBudget,
-        records: Iterable[WorkerRunRecord],
-        *,
-        protected_model_invocations: int = 0,
-        protected_input_tokens: int = 0,
-        protected_output_tokens: int = 0,
-    ) -> None:
-        usage = _aggregate_usage(records, elapsed_s=0.0)
-        self._quota = quota
-        self._protected_model_invocations = max(0, int(protected_model_invocations))
-        self._protected_input_tokens = max(0, int(protected_input_tokens))
-        self._protected_output_tokens = max(0, int(protected_output_tokens))
-        self._committed_model_invocations = int(usage["model_invocations"])
-        self._committed_input_tokens = int(usage["input_tokens"])
-        self._committed_output_tokens = int(usage["output_tokens"])
-        self._inflight_model_invocations = 0
-        self._inflight_input_tokens = 0
-        self._inflight_output_tokens = 0
-        self._lock = threading.Lock()
-
-    def reserve(
-        self,
-        *,
-        input_tokens: int,
-        output_tokens: int,
-    ) -> tuple[_ModelCallReservation | None, str]:
-        requested_input = max(0, int(input_tokens))
-        requested_output = max(0, int(output_tokens))
-        with self._lock:
-            if (
-                self._committed_model_invocations
-                + self._inflight_model_invocations
-                + self._protected_model_invocations
-                >= self._quota.model_invocations
-            ):
-                return None, "model_invocation_allocation_exhausted"
-            if (
-                self._committed_input_tokens
-                + self._inflight_input_tokens
-                + self._protected_input_tokens
-                + requested_input
-                > self._quota.input_tokens
-            ):
-                return None, "input_token_allocation_exhausted"
-            if (
-                self._committed_output_tokens
-                + self._inflight_output_tokens
-                + self._protected_output_tokens
-                + requested_output
-                > self._quota.output_tokens
-            ):
-                return None, "output_token_allocation_exhausted"
-            reservation = _ModelCallReservation(
-                input_tokens=requested_input,
-                output_tokens=requested_output,
-            )
-            self._inflight_model_invocations += 1
-            self._inflight_input_tokens += requested_input
-            self._inflight_output_tokens += requested_output
-            return reservation, ""
-
-    def settle(
-        self,
-        reservation: _ModelCallReservation,
-        record: WorkerRunRecord | None,
-    ) -> None:
-        completed_model_turn = bool(
-            record is not None and not worker_provider_failure_reason(record)
-        )
-        usage = dict(record.usage or {}) if record is not None else {}
-        actual_input = max(
-            0,
-            int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0),
-        )
-        actual_output = max(
-            0,
-            int(usage.get("output_tokens") or usage.get("completion_tokens") or 0),
-        )
-        with self._lock:
-            self._inflight_model_invocations -= 1
-            self._inflight_input_tokens -= reservation.input_tokens
-            self._inflight_output_tokens -= reservation.output_tokens
-            if completed_model_turn:
-                self._committed_model_invocations += 1
-                self._committed_input_tokens += actual_input
-                self._committed_output_tokens += actual_output
-
-    def snapshot(self) -> dict[str, Any]:
-        with self._lock:
-            return {
-                "quota": {
-                    "model_invocations": int(self._quota.model_invocations),
-                    "input_tokens": int(self._quota.input_tokens),
-                    "output_tokens": int(self._quota.output_tokens),
-                },
-                "committed": {
-                    "model_invocations": self._committed_model_invocations,
-                    "input_tokens": self._committed_input_tokens,
-                    "output_tokens": self._committed_output_tokens,
-                },
-                "inflight": {
-                    "model_invocations": self._inflight_model_invocations,
-                    "input_tokens": self._inflight_input_tokens,
-                    "output_tokens": self._inflight_output_tokens,
-                },
-                "protected_final_critics": {
-                    "model_invocations": self._protected_model_invocations,
-                    "input_tokens": self._protected_input_tokens,
-                    "output_tokens": self._protected_output_tokens,
-                },
-                "semantics": {
-                    "shared_across_branches": True,
-                    "settled_from_actual_usage": True,
-                    "hypothetical_editor_rounds_reserved": False,
-                },
-            }
 
 
 @dataclass(frozen=True, slots=True)
@@ -502,13 +406,6 @@ class _PathRepairSpan:
     reserved_atom_maps: tuple[int, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class _PathRepairBlockerScope:
-    """One topology- or chemistry-coupled component for a repair transaction."""
-
-    selected_step_ids: tuple[str, ...]
-    deferred_step_ids: tuple[str, ...]
-    component_step_ids: tuple[tuple[str, ...], ...]
 
 
 NodeExecutor = Callable[[WorkerTask], WorkerRunRecord]
@@ -528,6 +425,8 @@ class SequentialStrategyDirectorRunner:
         critic_executor: NodeExecutor | None = None,
         editor_executor: NodeExecutor | None = None,
         stock_membership: StockMembership | None = None,
+        planning_evidence: BoundedPlanningEvidence | None = None,
+        target_constraints: Mapping[str, Any] | None = None,
         aizynthfinder_strategy_python_executable: str = "",
         aizynthfinder_strategy_stock_index: str = "",
         aizynthfinder_strategy_inline_stock_smiles: tuple[str, ...] = (),
@@ -539,6 +438,8 @@ class SequentialStrategyDirectorRunner:
         self.critic_executor = critic_executor or self.node_executor
         self.editor_executor = editor_executor or self.node_executor
         self.stock_membership = stock_membership
+        self.planning_evidence = planning_evidence
+        self.target_constraints = dict(target_constraints or {})
         self.aizynthfinder_strategy_python_executable = str(
             aizynthfinder_strategy_python_executable or ""
         )
@@ -649,14 +550,20 @@ class SequentialStrategyDirectorRunner:
             node_index=max(0, int(context.attempt_index) - 1),
             model=str(spec.metadata.get("model") or config.model or ""),
             reasoning_effort=str(
-                spec.metadata.get("reasoning_effort") or config.reasoning_effort or "medium"
+                spec.metadata.get("reasoning_effort")
+                or config.reasoning_effort
+                or DEFAULT_CODEX_REASONING_EFFORT
             ),
             timeout_s=config.max_node_call_timeout_s,
             paper_matched=config.paper_matched_reach_profile,
             target_smiles=context.target_smiles,
             selected_product=context.selected_product_smiles,
         )
-        record = self._run_journaled_worker(self.node_executor, task)
+        reserve = dict(spec.metadata.get("model_budget_reservation") or {})
+        record = self._run_journaled_worker(
+            self.node_executor, task,
+            reservation=_ModelCallReservation(**reserve) if reserve else None,
+        )
         provider_failure_reason = worker_provider_failure_reason(record)
         if provider_failure_reason:
             return (
@@ -679,6 +586,14 @@ class SequentialStrategyDirectorRunner:
             compiler=self.routejson_compiler,
             max_candidates=1,
             reserved_atom_maps=context.reserved_atom_maps,
+            target_atom_maps=_route_root_atom_maps(
+                context.connected_steps,
+                fallback_mapped=(
+                    context.selected_product_mapped
+                    if not context.connected_steps
+                    else _mapped_smiles(context.target_smiles)
+                ),
+            ),
         )
         if not compiled:
             diagnostic = (
@@ -754,6 +669,7 @@ class SequentialStrategyDirectorRunner:
             target=context.target_smiles,
             branch_index=context.branch_index,
             strategy_card=context.strategy_card,
+            selected_strategy_lineage=context.selected_strategy_lineage,
             strategy_milestone_cards=context.strategy_milestone_cards,
             steps=context.steps,
             maximum_bytes=config.max_node_prompt_bytes,
@@ -800,7 +716,11 @@ class SequentialStrategyDirectorRunner:
             task_id_override=spec.agent_id,
             route_steps=context.steps,
         )
-        record = self._run_journaled_worker(self.critic_executor, task)
+        reserve = dict(spec.metadata.get("model_budget_reservation") or {})
+        record = self._run_journaled_worker(
+            self.critic_executor, task,
+            reservation=_ModelCallReservation(**reserve) if reserve else None,
+        )
         return (
             _critique_from_record(
                 record,
@@ -808,6 +728,110 @@ class SequentialStrategyDirectorRunner:
             ),
             record,
         )
+
+    def reusable_final_route_critique(
+        self, *, run_id: str, run_dir: Path,
+        context: RevisionBoundRouteCriticContext, config: DirectorConfig,
+    ) -> dict[str, Any] | None:
+        """Rebind a complete saved whole-route review on identical model input.
+
+        Search only this run's journal. Revalidate the stored output against
+        today's schema and bind review slots to today's Host step identities.
+        Key-event reviews, partial outputs and changed prompts cannot match.
+        """
+        # The paper contract binds every assessment through opaque review
+        # slots. Legacy free-form reviews do not have that complete binding.
+        if not config.paper_matched_reach_profile:
+            return None
+        prompt = self.final_route_critic_prompt_for(context, config)
+        if prompt is None:
+            return None
+        spec = AgentSpec.from_context(
+            run_id=run_id, agent_id="route-critic-reuse", role="route_critic",
+            objective=prompt, context={}, idempotency_key="route-critic-reuse",
+            metadata={"model": config.model, "reasoning_effort": config.reasoning_effort},
+        )
+        task = _critic_task(
+            spec, prompt=prompt, branch_index=context.branch_index, iteration=0,
+            timeout_s=config.critic_call_timeout_s,
+            paper_matched=config.paper_matched_reach_profile,
+            target_smiles=context.target_smiles, route_steps=context.steps,
+        )
+        task = self._with_target_constraints(task)
+        if self.planning_evidence is not None:
+            task = self.planning_evidence.decorate_task(task)
+        expected = _portable_model_input_sha256(task)
+        candidates = [(expected, "identical_whole_route_model_input", set(), {})]
+        # Canonical route closeout may only renumber local maps. Bind any
+        # reuse to the actual saved input and one consistent graph bijection.
+        from cascade_planner.application.route_review_context import equivalent_whole_route_review
+
+        journal = run_dir / ".autoplanner/director-workspace/model-io.jsonl"
+        if journal.is_file():
+            for line in reversed(journal.read_text(encoding="utf-8").split("\n")):
+                if not line.strip():
+                    continue
+                try:
+                    prior = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(prior, dict) or prior.get("event") != "model_input":
+                    continue
+                digest = _portable_model_input_sha256(prior)
+                if digest == expected or _portable_model_input_sha256(
+                    {**prior, "prompt": task.objective}
+                ) != expected:
+                    continue
+                equivalent = equivalent_whole_route_review(str(prior.get("prompt") or ""), task.objective)
+                if equivalent is not None:
+                    mapping, slots = equivalent
+                    changed = {value for a, b in mapping.items() if a != b for value in (a, b)}
+                    reason = ("equivalent_whole_route_step_order" if any(a != b for a, b in slots.items())
+                              else "equivalent_whole_route_atom_numbering")
+                    candidates.append((digest, reason, changed, slots))
+        for digest, reuse_reason, changed_maps, slots in candidates:
+            for record in reversed(saved_worker_records(run_dir, model_input_sha256=digest)):
+                critique = self._rebind_saved_route_critique(record, task, context, changed_maps, slots)
+                if critique is not None:
+                    return {**critique, "reused_from_task_id": record.task_id,
+                            "reuse_reason": reuse_reason,
+                            "reviewed_model_input_sha256": digest}
+        return None
+
+    def _rebind_saved_route_critique(
+        self, record: WorkerRunRecord, task: WorkerTask,
+        context: RevisionBoundRouteCriticContext, changed_maps: set[int],
+        review_slots: Mapping[str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        if changed_maps:
+            from cascade_planner.application.route_review_context import review_mentions_changed_maps
+
+            payload = dict(record.output_artifact or {}).get("payload") or {}
+            # Do not rewrite chemical prose by guessing which numbers are atom
+            # references. A potentially stale reference requires a new review.
+            if review_mentions_changed_maps(json.dumps(payload), changed_maps):
+                return None
+        evidence_unchanged = bool(
+                self.planning_evidence is not None
+                and dict(record.metadata.get("planning_evidence") or {}).get("snapshot_sha256")
+                == self.planning_evidence.summary()["snapshot_sha256"]
+        )
+        if not _seed_record_matches_task(record, task, allow_evidence_tools=evidence_unchanged):
+            return None
+        if review_slots and any(a != b for a, b in review_slots.items()):
+            # Translate opaque Host slots, including dependencies and prose,
+            # simultaneously; never replace chemical atom numbers in prose.
+            def translate(value: Any) -> Any:
+                if isinstance(value, dict):
+                    return {k: translate(v) for k, v in value.items()}
+                if isinstance(value, list):
+                    return [translate(v) for v in value]
+                if isinstance(value, str):
+                    return re.sub(r"\breview-\d+\b", lambda m: review_slots.get(m[0], m[0]), value)
+                return value
+            record = replace(record, output_artifact=translate(record.output_artifact))
+        critique = _critique_from_record(record, route_steps=context.steps)
+        return critique if critique.get("status") in {"viable", "uncertain", "reject"} else None
 
     def run_final_route_repair_once(
         self,
@@ -979,10 +1003,11 @@ class SequentialStrategyDirectorRunner:
             quota=quota,
             started=started,
             reserve_model_invocations=1,
-            reserve_input_tokens=_CRITIC_INPUT_TOKEN_RESERVE,
-            reserve_output_tokens=_CRITIC_OUTPUT_TOKEN_RESERVE,
+            reserve_input_tokens=_call_token_reserve(records, "critic", "input_tokens"),
+            reserve_output_tokens=_call_token_reserve(records, "critic", "output_tokens"),
             reserve_wall_time_s=config.critic_call_timeout_s,
             config=config,
+            completion_mode="cut_frontier",
         )
         if self._provider_runtime_failure_snapshot():
             return {
@@ -1103,6 +1128,9 @@ class SequentialStrategyDirectorRunner:
             provider_runtime_failure = self._provider_runtime_failure_snapshot()
         usage = _aggregate_usage(records, elapsed_s=time.monotonic() - started)
         usage["durable_worker_record_journal"] = bool(self._worker_record_journal_path is not None)
+        usage["material_boundary_pending_branch_count"] = sum(
+            bool(current_material_boundary(branch)) for branch in branches
+        )
         usage["replayed_worker_record_count"] = int(self._replayed_worker_record_count)
         usage["seeded_worker_record_count"] = int(self._seeded_worker_record_count)
         usage["worker_record_seed_used"] = bool(self._seeded_worker_record_count)
@@ -1381,7 +1409,9 @@ class SequentialStrategyDirectorRunner:
             context,
             mode=mode,
             branches=plan_branches,
-            requested_branch_count=config.strategy_branch_count,
+            requested_branch_count=(len(branches) if config.enable_strategy_portfolio_critic
+                                    and config.paper_matched_reach_profile
+                                    else config.strategy_branch_count),
         )
         if provider_runtime_failure:
             # A transient provider outage is an operational pause, not a
@@ -1447,7 +1477,7 @@ class SequentialStrategyDirectorRunner:
         if seeded:
             self._load_seed_model_input_journal(path.with_name("model-io.jsonl"))
         loaded = 0
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8").split("\n"):
             try:
                 row = json.loads(line)
                 record_row = dict(row.get("record") or {})
@@ -1467,6 +1497,14 @@ class SequentialStrategyDirectorRunner:
                 # history, but never replay the empty/cancelled record on a
                 # resume; the smallest interrupted worker call must run again.
                 if record.status == "cancelled" or worker_provider_failure_reason(record):
+                    continue
+                previous = self._worker_record_cache.get(key)
+                if (
+                    previous is not None
+                    and previous.status == "accepted_draft"
+                    and previous.output_validation.get("accepted") is not False
+                    and (record.status != "accepted_draft" or record.output_validation.get("accepted") is False)
+                ):
                     continue
                 self._worker_record_cache[key] = record
                 if seeded:
@@ -1512,7 +1550,7 @@ class SequentialStrategyDirectorRunner:
 
         if not path.is_file():
             return
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8").split("\n"):
             try:
                 row = json.loads(line)
                 if row.get("event") != "model_input":
@@ -1523,11 +1561,47 @@ class SequentialStrategyDirectorRunner:
             except (OSError, TypeError, ValueError, json.JSONDecodeError):
                 continue
 
+    def _with_target_constraints(self, task: WorkerTask) -> WorkerTask:
+        """Carry the canonical request to every role, before logging or reuse."""
+        from cascade_planner.application.unified_campaign_spec import TargetConstraints
+
+        defaults = TargetConstraints().to_dict()
+        constraints = {
+            key: value for key, value in self.target_constraints.items()
+            if key != "schema_version" and value != defaults.get(key)
+        }
+        if not constraints:
+            return task
+        prefix = (
+            "User task constraints apply to every Strategy, Builder, Critic and Editor call. "
+            "Treat process_brief priorities as process objectives, not claims of established "
+            "chemistry or inventory. When a process bottleneck is specified, direct the "
+            "Strategy and its checkpoint at the decisive process/selectivity event; a "
+            "credible simpler scaffold may be inherited with its supply burden stated. "
+            "Avoid shifting cryogenic, hazardous or isolation burdens into upstream steps. "
+            "For reaction proposals and edits, state substrate-specific control and "
+            "decision-relevant operating conditions in the existing reaction fields; "
+            "follow the shared condition guidance rather than reporting temperature alone. "
+            "The whole-route Critic must compare the "
+            "actual route with these objectives in its existing evaluation and risks, "
+            "distinguishing unmet process preferences from chemical rejection. "
+            "Do not add output fields or invent yields, selectivities or evidence.\n"
+            "UserTaskConstraints:\n"
+            + json.dumps(constraints, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            + "\n\n"
+        )
+        return replace(task, objective=prefix + task.objective)
+
     def _run_journaled_worker(
         self,
         executor: NodeExecutor,
         task: WorkerTask,
+        *,
+        reservation: _ModelCallReservation | None = None,
     ) -> WorkerRunRecord:
+        task = self._with_target_constraints(task)
+        if self.planning_evidence is not None:
+            task = self.planning_evidence.decorate_task(task)
         contract_sha256 = _worker_task_contract_sha256(task)
         key = (task.task_id, contract_sha256)
         with self._journal_lock:
@@ -1538,7 +1612,7 @@ class SequentialStrategyDirectorRunner:
             relocated_key: tuple[str, str] | None = None
             relocated_cached: WorkerRunRecord | None = None
             # A recovery run has a new operational cwd but the same prompt,
-            # model, schema, budget and task identity.  Director workers have
+            # model, schema, budget and task identity. Source-free workers have
             # no tools, so relocating only this non-scientific path cannot
             # alter participant-visible inputs.  Try the seed workspace digest
             # without weakening every journal contract globally.
@@ -1556,6 +1630,7 @@ class SequentialStrategyDirectorRunner:
             if (
                 relocated_cached is None
                 and self.worker_record_seed_recovery_mode == "exact_model_io_v1"
+                and self.planning_evidence is None
             ):
                 candidate = self._seed_worker_records_by_model_input.get(
                     _portable_model_input_sha256(task)
@@ -1588,11 +1663,16 @@ class SequentialStrategyDirectorRunner:
                 **common_io,
                 "event": "model_input",
                 "prompt": task.objective,
+                "prompt_size": text_size(task.objective),
                 "input_refs": list(task.input_refs),
             }
         )
         try:
-            record = executor(task)
+            if self.planning_evidence is None:
+                record = executor(task)
+            else:
+                with self.planning_evidence.worker_session(task) as executable_task:
+                    record = executor(executable_task)
         except Exception as exc:
             self._append_model_io_event(
                 {
@@ -1603,7 +1683,24 @@ class SequentialStrategyDirectorRunner:
                     "error": str(exc),
                 }
             )
-            raise
+            record = WorkerRunRecord(
+                run_id=f"{task.task_id}:run", task_id=task.task_id, case_id=task.case_id,
+                status="worker_error", backend="worker_executor",
+                stderr=f"{type(exc).__name__}: {exc}",
+                output_validation={"accepted": False, "reasons": ["worker_executor_exception"]},
+            )
+        record.metadata.update({"task_type": task.task_type, "model": task.model})
+        if self.planning_evidence is not None:
+            record.metadata["planning_evidence"] = self.planning_evidence.summary()
+        record.metadata["search_policy"] = search_policy_diagnostics(
+            record.command, record.tool_calls,
+            observation_complete=record.status not in {"timeout", "worker_error", "provider_error", "cancelled"},
+        )
+        if reservation is not None:
+            record.metadata["budget_reservation"] = {
+                "input_tokens": reservation.input_tokens,
+                "output_tokens": reservation.output_tokens,
+            }
         provider_failure_reason = worker_provider_failure_reason(record)
         if provider_failure_reason:
             self._record_provider_runtime_failure(
@@ -1628,6 +1725,15 @@ class SequentialStrategyDirectorRunner:
                 "stderr": record.stderr,
                 "output_artifact": record.output_artifact,
                 "usage": dict(record.usage or {}),
+                "budget_exposure": budget_exposure([record]),
+                "search_policy": record.metadata["search_policy"],
+                "planning_evidence": record.metadata.get("planning_evidence"),
+                "usage_diagnostics": dict(record.metadata.get("usage_diagnostics") or {}),
+                "tool_policy_stop": dict(record.metadata.get("tool_policy_stop") or {}),
+                "runtime": {
+                    key: record.metadata.get(key)
+                    for key in ("model", "model_reasoning_effort", "transport", "config_mode")
+                },
             }
         )
         path = self._worker_record_journal_path
@@ -1936,10 +2042,11 @@ class SequentialStrategyDirectorRunner:
                     quota=quota,
                     started=started,
                     reserve_model_invocations=remaining_final_critics,
-                    reserve_input_tokens=(remaining_final_critics * _CRITIC_INPUT_TOKEN_RESERVE),
-                    reserve_output_tokens=(remaining_final_critics * _CRITIC_OUTPUT_TOKEN_RESERVE),
+                    reserve_input_tokens=(remaining_final_critics * _call_token_reserve(records, "critic", "input_tokens")),
+                    reserve_output_tokens=(remaining_final_critics * _call_token_reserve(records, "critic", "output_tokens")),
                     reserve_wall_time_s=(remaining_final_critics * config.critic_call_timeout_s),
                     config=config,
+                    completion_mode="strategy_checkpoint",
                     repair_context_steps=[
                         dict(row)
                         for row in pending_online_repair.get("repair_context_steps") or []
@@ -2012,12 +2119,12 @@ class SequentialStrategyDirectorRunner:
                     )
                     reserve_calls_after_this_critic = reserve_critic_calls + reserve_editor_calls
                     reserve_input_after_this_critic = (
-                        reserve_critic_calls * _CRITIC_INPUT_TOKEN_RESERVE
-                        + reserve_editor_calls * _EDITOR_INPUT_TOKEN_RESERVE
+                        reserve_critic_calls * _call_token_reserve(records, "critic", "input_tokens")
+                        + reserve_editor_calls * _call_token_reserve(records, "editor", "input_tokens")
                     )
                     reserve_output_after_this_critic = (
-                        reserve_critic_calls * _CRITIC_OUTPUT_TOKEN_RESERVE
-                        + reserve_editor_calls * _EDITOR_OUTPUT_TOKEN_RESERVE
+                        reserve_critic_calls * _call_token_reserve(records, "critic", "output_tokens")
+                        + reserve_editor_calls * _call_token_reserve(records, "editor", "output_tokens")
                     )
                     remaining_wall = _remaining_node_wall_time(started, quota)
                     maximum_repair_call_wall = min(
@@ -2044,16 +2151,16 @@ class SequentialStrategyDirectorRunner:
                     future_pair_wall_reserve = future_families * family_wall
                     reserve_calls_after_this_critic = 2 + future_families * 2
                     reserve_input_after_this_critic = (
-                        _CRITIC_INPUT_TOKEN_RESERVE
-                        + _EDITOR_INPUT_TOKEN_RESERVE
+                        _call_token_reserve(records, "critic", "input_tokens")
+                        + _call_token_reserve(records, "editor", "input_tokens")
                         + future_families
-                        * (_CRITIC_INPUT_TOKEN_RESERVE + _EDITOR_INPUT_TOKEN_RESERVE)
+                        * (_call_token_reserve(records, "critic", "input_tokens") + _call_token_reserve(records, "editor", "input_tokens"))
                     )
                     reserve_output_after_this_critic = (
-                        _CRITIC_OUTPUT_TOKEN_RESERVE
-                        + _EDITOR_OUTPUT_TOKEN_RESERVE
+                        _call_token_reserve(records, "critic", "output_tokens")
+                        + _call_token_reserve(records, "editor", "output_tokens")
                         + future_families
-                        * (_CRITIC_OUTPUT_TOKEN_RESERVE + _EDITOR_OUTPUT_TOKEN_RESERVE)
+                        * (_call_token_reserve(records, "critic", "output_tokens") + _call_token_reserve(records, "editor", "output_tokens"))
                     )
                     reserve_wall_after_this_critic = (
                         current_editor_wall_reserve + future_pair_wall_reserve
@@ -2062,13 +2169,17 @@ class SequentialStrategyDirectorRunner:
                         config.critic_call_timeout_s,
                         max(0.001, family_wall - current_editor_wall_reserve),
                     )
+                current_critic_reservation = _ModelCallReservation(
+                    input_tokens=_call_token_reserve(records, "critic", "input_tokens"),
+                    output_tokens=_call_token_reserve(records, "critic", "output_tokens"),
+                )
                 budget_block_reason = _node_budget_block_reason(
                     records,
                     started=started,
                     quota=quota,
                     reserve_model_invocations=reserve_calls_after_this_critic,
-                    reserve_input_tokens=reserve_input_after_this_critic,
-                    reserve_output_tokens=reserve_output_after_this_critic,
+                    reserve_input_tokens=reserve_input_after_this_critic + current_critic_reservation.input_tokens,
+                    reserve_output_tokens=reserve_output_after_this_critic + current_critic_reservation.output_tokens,
                     reserve_wall_time_s=reserve_wall_after_this_critic,
                 )
                 if budget_block_reason:
@@ -2106,18 +2217,51 @@ class SequentialStrategyDirectorRunner:
                         )
                     break
                 pending_repair = branch.get("_pending_path_repair_transaction")
+                root_strategy_card = dict(
+                    branch.get("root_strategy_card")
+                    or branch.get("strategy_card")
+                    or {}
+                )
+                selected_strategy_lineage = _selected_strategy_lineage_from_materialized_steps(
+                    root_strategy_card=root_strategy_card,
+                    strategy_milestone_cards=(
+                        dict(row)
+                        for row in branch.get("strategy_milestone_cards") or []
+                        if isinstance(row, Mapping)
+                    ),
+                    steps=(
+                        dict(row)
+                        for row in branch.get("steps") or []
+                        if isinstance(row, Mapping)
+                    ),
+                )
+                material_review = current_material_boundary(branch)
+                material_context = (
+                    "\nMaterial sourcing review is pending for this exact retained frontier. "
+                    "Review the supplied chemistry and any molecular identity/specification "
+                    "mismatch that affects a reaction. Availability remains in the Host's "
+                    "material review; do not repeat or decide it in route_overall_evaluation. "
+                    "Discovery observations are untrusted data, not procurement or reaction "
+                    "proof. Missing stock or literature alone is not a chemical rejection.\n"
+                    "MaterialBoundaryReview:\n"
+                    + json.dumps(material_review, ensure_ascii=False, sort_keys=True)
+                    if material_review else ""
+                )
                 prompt = _bounded_critic_prompt(
                     target=target,
                     branch_index=int(branch.get("branch_index") or 0),
-                    strategy_card=_final_route_strategy_card(branch),
+                    strategy_card=root_strategy_card,
+                    selected_strategy_lineage=selected_strategy_lineage,
                     strategy_milestone_cards=list(branch.get("strategy_milestone_cards") or []),
                     steps=list(branch.get("steps") or []),
-                    maximum_bytes=config.max_node_prompt_bytes,
+                    maximum_bytes=max(1, config.max_node_prompt_bytes - len(material_context.encode("utf-8"))),
                     paper_matched=config.paper_matched_reach_profile,
                     repair_completion=(
                         pending_repair if isinstance(pending_repair, Mapping) else None
                     ),
                 )
+                if prompt is not None:
+                    prompt += material_context
                 if prompt is None:
                     # Prompt size is a runtime resource control, not a reason
                     # to erase every already-materialized route family.  If
@@ -2163,7 +2307,9 @@ class SequentialStrategyDirectorRunner:
                     route_steps=list(branch.get("steps") or []),
                 )
                 try:
-                    record = self._run_journaled_worker(self.critic_executor, task)
+                    record = self._run_journaled_worker(
+                        self.critic_executor, task, reservation=current_critic_reservation,
+                    )
                 except Exception as exc:
                     records.append(
                         WorkerRunRecord(
@@ -2198,13 +2344,6 @@ class SequentialStrategyDirectorRunner:
                         if config.paper_matched_reach_profile
                         else ()
                     ),
-                    required_step_ids=(
-                        (str(pending_repair.get("required_checkpoint_step_id") or ""),)
-                        if isinstance(pending_repair, Mapping)
-                        and str(pending_repair.get("completion_mode") or "")
-                        == "strategy_checkpoint"
-                        else ()
-                    ),
                 )
                 branch["chemical_critic"] = critique
                 branch["critic_editor_history"].append(
@@ -2231,8 +2370,8 @@ class SequentialStrategyDirectorRunner:
                 )
                 if not blocking_steps:
                     completion_failure = _path_repair_recritic_completion_failure(
+                        branch,
                         pending_repair,
-                        critique,
                     )
                     if completion_failure:
                         self._rollback_pending_path_repair(
@@ -2263,12 +2402,22 @@ class SequentialStrategyDirectorRunner:
                                 "path_repair_component_diagnostic": (component_diagnostic),
                             },
                         )
-                        break
+                        if int(branch.get("editor_attempt_count") or 0) >= max_rounds:
+                            break
+                        # The original route is again authoritative. Reuse its
+                        # blocker IDs, and let the next Editor read the failed
+                        # replacement's findings from the existing history.
+                        # No new Critic call is needed on an unchanged route.
+                        critique = dict(branch.get("chemical_critic") or {})
+                        blocking_steps = _blocking_critic_steps(critique, branch.get("steps") or [])
+                        if not blocking_steps:
+                            break
                     # Independent sibling blockers do not invalidate a
                     # successfully rebuilt component. Commit this atomic
                     # change, then repair the deferred component in a later
                     # round of the same Critic/Editor state machine.
-                    self._finalize_pending_path_repair(branch, critique)
+                    else:
+                        self._finalize_pending_path_repair(branch, critique)
                 if iteration >= max_rounds:
                     exhausted_critique = {
                         **critique,
@@ -2288,10 +2437,10 @@ class SequentialStrategyDirectorRunner:
                 # plus the first Critic for each untouched later route.
                 repair_critic_reserve_calls = 1 + future_families
                 repair_critic_reserve_input = (
-                    repair_critic_reserve_calls * _CRITIC_INPUT_TOKEN_RESERVE
+                    repair_critic_reserve_calls * _call_token_reserve(records, "critic", "input_tokens")
                 )
                 repair_critic_reserve_output = (
-                    repair_critic_reserve_calls * _CRITIC_OUTPUT_TOKEN_RESERVE
+                    repair_critic_reserve_calls * _call_token_reserve(records, "critic", "output_tokens")
                 )
                 remaining_repair_wall = _remaining_node_wall_time(started, quota)
                 repair_critic_reserve_wall = (
@@ -2391,7 +2540,25 @@ class SequentialStrategyDirectorRunner:
             )
         return branches
 
-    def _repair_branch_transactionally(
+    def _repair_branch_transactionally(self, spec: AgentSpec, **kwargs: Any) -> bool:
+        """Allow explicit scope escalation inside the existing shared repair budget."""
+        branch, config = kwargs["branch"], kwargs["config"]
+        remaining = max(0, int(config.max_route_local_repair_rounds)
+                        - int(branch.get("editor_attempt_count") or 0))
+        for attempt in range(remaining):
+            transaction_count = len(branch.get("path_repair_transactions") or [])
+            if self._repair_branch_once(spec, **kwargs, recovery_attempt=attempt):
+                return True
+            transactions = branch.get("path_repair_transactions") or []
+            if len(transactions) == transaction_count:
+                break
+            if dict(transactions[-1].get("recovery_request") or {}).get("action") != "expand_scope":
+                break
+            if self._provider_runtime_failure_snapshot() or self._cancelled():
+                break
+        return False
+
+    def _repair_branch_once(
         self,
         spec: AgentSpec,
         *,
@@ -2410,11 +2577,33 @@ class SequentialStrategyDirectorRunner:
         reserve_output_tokens: int,
         reserve_wall_time_s: float,
         config: DirectorConfig,
+        completion_mode: str,
         repair_context_steps: Iterable[Mapping[str, Any]] | None = None,
         checkpoint_feedback: Mapping[str, Any] | None = None,
         repair_strategy_card: Mapping[str, Any] | None = None,
+        recovery_attempt: int = 0,
     ) -> bool:
         """Execute one Editor -> Host rollback -> Builder transaction."""
+
+        if completion_mode not in {"cut_frontier", "strategy_checkpoint"}:
+            raise ValueError("path_repair_completion_mode_invalid")
+        if completion_mode == "strategy_checkpoint":
+            if repair_context_steps is None or not dict(repair_strategy_card or {}):
+                branch.setdefault("editor_rejection_diagnostics", []).append(
+                    {
+                        "reason": "strategy_checkpoint_repair_context_missing",
+                        "requires_exact_strategy_card": True,
+                    }
+                )
+                return False
+            transaction_strategy_card = dict(repair_strategy_card or {})
+        else:
+            if repair_context_steps is not None:
+                raise ValueError("cut_frontier_repair_cannot_use_checkpoint_context")
+            # A final-route repair is governed by the concrete blocker and
+            # exact Host cut boundary.  No single historical Strategy horizon
+            # has mutation or admission authority over this transaction.
+            transaction_strategy_card = {}
 
         authoritative_steps = [
             dict(row) for row in branch.get("steps") or [] if isinstance(row, Mapping)
@@ -2428,14 +2617,14 @@ class SequentialStrategyDirectorRunner:
             authoritative_identities = [
                 (
                     str(row.get("step_id") or ""),
-                    _key_event_fingerprint(row),
+                    _key_event_graph_fingerprint(row),
                 )
                 for row in authoritative_steps
             ]
             context_prefix_identities = [
                 (
                     str(row.get("step_id") or ""),
-                    _key_event_fingerprint(row),
+                    _key_event_graph_fingerprint(row),
                 )
                 for row in steps[: len(authoritative_steps)]
             ]
@@ -2492,15 +2681,21 @@ class SequentialStrategyDirectorRunner:
         failure_basin = dict(checkpoint_feedback.get("failure_basin") or {})
         if failure_basin:
             feedback["failure_basin"] = failure_basin
-        transaction_strategy_card = dict(repair_strategy_card or branch.get("strategy_card") or {})
         feedback["repair_transaction_scope"] = {
             "selected_blocker_step_ids": list(blocker_scope.selected_step_ids),
             "deferred_blocker_step_ids": list(blocker_scope.deferred_step_ids),
             "component_count": len(blocker_scope.component_step_ids),
         }
+        previous_repair = previous_repair_feedback(
+            branch.get("path_repair_transactions") or [],
+            critique_history=branch.get("critic_editor_history") or [],
+        )
+        if previous_repair:
+            feedback["previous_repair"] = previous_repair
         prompt = _path_repair_editor_prompt(
             target=target,
             strategy_card=transaction_strategy_card,
+            repair_mode=completion_mode,
             steps=steps,
             critic_feedback=feedback,
             provisional_rejected_step_ids=(
@@ -2521,15 +2716,27 @@ class SequentialStrategyDirectorRunner:
                 }
             )
             return False
-        if not _node_budget_allows(
+        budget_block_reason = _node_budget_block_reason(
             records,
             started=started,
             quota=quota,
             reserve_model_invocations=reserve_model_invocations,
-            reserve_input_tokens=reserve_input_tokens + _EDITOR_INPUT_TOKEN_RESERVE,
-            reserve_output_tokens=reserve_output_tokens + _EDITOR_OUTPUT_TOKEN_RESERVE,
+            reserve_input_tokens=reserve_input_tokens + _call_token_reserve(records, "editor", "input_tokens"),
+            reserve_output_tokens=reserve_output_tokens + _call_token_reserve(records, "editor", "output_tokens"),
             reserve_wall_time_s=reserve_wall_time_s,
-        ):
+        )
+        if budget_block_reason:
+            diagnostic = {
+                "reason": budget_block_reason,
+                "phase": "path_repair_editor",
+                "reserve_output_tokens": reserve_output_tokens + _call_token_reserve(records, "editor", "output_tokens"),
+                "reserve_input_tokens": reserve_input_tokens + _call_token_reserve(records, "editor", "input_tokens"),
+                "quota": {"output_tokens": quota.output_tokens, "input_tokens": quota.input_tokens,
+                          "model_invocations": quota.model_invocations, "wall_time_s": quota.wall_time_s},
+            }
+            branch.setdefault("editor_rejection_diagnostics", []).append(diagnostic)
+            self._append_model_io_event({"event": "model_skipped", "task_type": "path_repair_editor",
+                                         **diagnostic})
             return False
         task = _node_task(
             spec,
@@ -2570,6 +2777,8 @@ class SequentialStrategyDirectorRunner:
                 or ""
             ),
         )
+        if recovery_attempt:
+            task = replace(task, task_id=f"{task.task_id}:scope:{recovery_attempt}")
         try:
             record = self._run_journaled_worker(self.editor_executor, task)
         except Exception as exc:
@@ -2673,9 +2882,6 @@ class SequentialStrategyDirectorRunner:
             self._restore_path_repair_route_snapshot(branch, route_snapshot)
 
         branch["steps"] = [dict(row) for row in rollback.durable_steps]
-        completion_mode = (
-            "strategy_checkpoint" if repair_context_steps is not None else "cut_frontier"
-        )
         membership = self._stock_membership(
             (
                 *(
@@ -2711,7 +2917,7 @@ class SequentialStrategyDirectorRunner:
             for row in rollback.completion_boundaries
             if membership.get(_canonical_smiles(row.get("product_smiles"))) is not True
         )
-        branch["_path_repair_resume"] = {
+        path_repair_resume = {
             "rollback_start_step_id": rollback.rollback_start_step_id,
             "rebuild_through_step_id": rollback.rebuild_through_step_id,
             "repair_frontier_mapped_product_smiles": (
@@ -2739,17 +2945,17 @@ class SequentialStrategyDirectorRunner:
             ),
             "reserved_atom_maps": list(rollback.reserved_atom_maps),
             # Completion is the invariant that triggered this transaction.
-            # Final-route repairs must restore the complete Host-derived cut
-            # frontier; online Key-Critic repairs continue through enabling
+            # Final-route repairs must restore retained cut occurrences and
+            # bind any new terminal inputs to stock; online repairs use enabling
             # moves until the scheduled checkpoint candidate.
             "completion_mode": completion_mode,
-            # A route-span repair mutates the implementation of one rejected
-            # checkpoint, not the strategic question being tested.  Freeze the
-            # exact Strategy used by that Critic until the rebuilt checkpoint
-            # earns a fresh pass; rollback topology must not trigger a new
-            # receding-horizon Strategy inside the transaction.
-            "strategy_card": transaction_strategy_card,
         }
+        if completion_mode == "strategy_checkpoint":
+            # Online repair freezes the exact horizon that owned the rejected
+            # checkpoint.  Final cut-frontier repair deliberately carries no
+            # Strategy steering card.
+            path_repair_resume["strategy_card"] = transaction_strategy_card
+        branch["_path_repair_resume"] = path_repair_resume
         if completion_mode == "strategy_checkpoint":
             # The rejected checkpoint is no longer selected in the provisional
             # transaction.  A replacement must earn a fresh Key-Critic pass;
@@ -2837,12 +3043,32 @@ class SequentialStrategyDirectorRunner:
                         for row in pre_stitch_state.open_precursors
                     ),
                     reconnect_boundaries=rollback.completion_boundaries,
+                    stock_membership=self._stock_membership(
+                        row.product_smiles for row in pre_stitch_state.open_precursors
+                    ),
                 )
             )
         else:
+            checkpoint_state = _selected_path_strategy_checkpoint_state(
+                branch,
+                strategy_card=transaction_strategy_card,
+                steps=builder_steps,
+            )
+            checkpoint_focus_step_id = str(
+                dict(checkpoint_state.get("source_row") or {}).get("focus_step_id")
+                or ""
+            )
+            if checkpoint_focus_step_id:
+                required_checkpoint_step_id = checkpoint_focus_step_id
             completion_boundary_reached = _path_repair_completion_reached(
                 added_steps,
                 completion_mode=completion_mode,
+                selected_critic_executed_step_ids=(
+                    (checkpoint_focus_step_id,)
+                    if checkpoint_state["checkpoint_executed"]
+                    and checkpoint_focus_step_id
+                    else ()
+                ),
             )
         if rollback.preserved_suffix_steps and completion_boundary_reached:
             stitched_steps, stitch_diagnostic = _stitch_path_repair_suffix(
@@ -2856,6 +3082,12 @@ class SequentialStrategyDirectorRunner:
             if stitched_steps is not None:
                 rebuilt_steps = stitched_steps
                 branch["steps"] = [dict(row) for row in rebuilt_steps]
+                branch["strategy_milestone_cards"] = _ordered_strategy_cards_from_steps(
+                    root_strategy_card=dict(
+                        branch.get("root_strategy_card") or branch.get("strategy_card") or {}
+                    ),
+                    steps=rebuilt_steps,
+                )
                 stitched_state = self.routejson_compiler.compile_route_graph_state(
                     mapped_target_smiles=str(
                         branch.get("target_mapped_smiles") or _mapped_smiles(target)
@@ -2909,6 +3141,10 @@ class SequentialStrategyDirectorRunner:
                 )
             except ReactionJsonReplayError:
                 final_state = None
+            final_membership = (
+                self._stock_membership(row.product_smiles for row in final_state.open_precursors)
+                if final_state is not None else {}
+            )
             final_frontier_restored = bool(
                 final_state is not None
                 and _path_repair_frontier_reaches_boundaries(
@@ -2919,12 +3155,10 @@ class SequentialStrategyDirectorRunner:
                         row.mapped_product_smiles for row in final_state.open_precursors
                     ),
                     reconnect_boundaries=rollback.final_open_boundaries,
+                    stock_membership=final_membership,
                 )
             )
             if final_state is not None:
-                final_membership = self._stock_membership(
-                    row.product_smiles for row in final_state.open_precursors
-                )
                 branch["open_leaf_states"] = deque(
                     {
                         "smiles": row.product_smiles,
@@ -2954,6 +3188,8 @@ class SequentialStrategyDirectorRunner:
             "rollback_start_step_id": rollback.rollback_start_step_id,
             "rebuild_through_step_id": rollback.rebuild_through_step_id,
             "removed_step_ids": [str(row.get("step_id") or "") for row in rollback.removed_steps],
+            "requested_change_step_ids": list(directive.get("change_step_ids") or []),
+            "chemical_dependencies": list(critique.get("chemical_dependencies") or []),
             "durable_step_ids": durable_ids,
             "repair_goal": rollback.repair_goal,
             "active_constraints": list(rollback.active_constraints),
@@ -2983,6 +3219,8 @@ class SequentialStrategyDirectorRunner:
             ],
             "suffix_stitch": dict(stitch_diagnostic),
             "routejson_replay_validation": dict(replay_validation),
+            "recovery_request": dict(path_repair_resume.get("recovery_request") or {}),
+            "replay_failures": list(path_repair_resume.get("replay_failures") or []),
         }
         if not structural_rebuild_complete:
             transaction["status"] = "rolled_back_uncommitted"
@@ -3059,6 +3297,7 @@ class SequentialStrategyDirectorRunner:
             pending = {
                 "route_snapshot": copy.deepcopy(route_snapshot),
                 "original_critique": copy.deepcopy(dict(critique)),
+                "repair_goal": rollback.repair_goal,
                 "transaction_indices": [],
                 "editor_task_ids": [],
                 "selected_blocker_step_ids": list(effective_selected_step_ids),
@@ -3067,6 +3306,13 @@ class SequentialStrategyDirectorRunner:
                 "required_checkpoint_step_id": required_checkpoint_step_id,
                 "active_constraints": list(rollback.active_constraints),
             }
+            if completion_mode == "strategy_checkpoint":
+                pending["strategy_card"] = copy.deepcopy(
+                    transaction_strategy_card
+                )
+                pending["strategy_digest"] = _strategy_card_digest(
+                    transaction_strategy_card
+                )
             branch["_pending_path_repair_transaction"] = pending
         pending.setdefault("transaction_indices", []).append(len(transactions) - 1)
         pending.setdefault("editor_task_ids", []).append(task.task_id)
@@ -3137,6 +3383,7 @@ class SequentialStrategyDirectorRunner:
                 reserve_output_tokens=reserve_output_tokens,
                 reserve_wall_time_s=reserve_wall_time_s,
                 config=config,
+                completion_mode="cut_frontier",
             )
         blocking_step = concrete_blockers[0]
         # Surgical single-step replacement cannot preserve an AiZ dependency
@@ -3307,8 +3554,8 @@ class SequentialStrategyDirectorRunner:
                 started=started,
                 quota=quota,
                 reserve_model_invocations=reserve_model_invocations,
-                reserve_input_tokens=(reserve_input_tokens + _EDITOR_INPUT_TOKEN_RESERVE),
-                reserve_output_tokens=(reserve_output_tokens + _EDITOR_OUTPUT_TOKEN_RESERVE),
+                reserve_input_tokens=(reserve_input_tokens + _call_token_reserve(records, "editor", "input_tokens")),
+                reserve_output_tokens=(reserve_output_tokens + _call_token_reserve(records, "editor", "output_tokens")),
                 reserve_wall_time_s=reserve_wall_time_s,
             ):
                 return False
@@ -3766,7 +4013,10 @@ class SequentialStrategyDirectorRunner:
                 "pending_key_event_feedback": {},
                 "chemical_critic": {},
             }
-            for branch_index in range(config.strategy_branch_count)
+            for branch_index in range(
+                len(config.reviewed_strategy_portfolio)
+                if config.reviewed_strategy_portfolio_sha256 else config.strategy_branch_count
+            )
         ]
         records: list[WorkerRunRecord] = []
 
@@ -3776,7 +4026,7 @@ class SequentialStrategyDirectorRunner:
         # only the same compact StrategyCard fields it would have authored in
         # this run.  This path skips duplicate Strategy generation/review but
         # retains every Builder, key-event Critic, Editor and Host gate.
-        promoted_portfolio = bool(config.reviewed_strategy_portfolio)
+        promoted_portfolio = bool(config.reviewed_strategy_portfolio_sha256)
         if promoted_portfolio:
             accepted_cards: list[dict[str, Any]] = []
             for branch, raw_card in zip(
@@ -3833,8 +4083,8 @@ class SequentialStrategyDirectorRunner:
             if critic_reserve_slots
             else 0.0
         )
-        critic_input_reserve = critic_reserve_slots * _CRITIC_INPUT_TOKEN_RESERVE
-        critic_output_reserve = critic_reserve_slots * _CRITIC_OUTPUT_TOKEN_RESERVE
+        critic_input_reserve = critic_reserve_slots * _call_token_reserve(records, "critic", "input_tokens")
+        critic_output_reserve = critic_reserve_slots * _call_token_reserve(records, "critic", "output_tokens")
         route_quota = replace(
             quota,
             wall_time_s=max(
@@ -3847,7 +4097,7 @@ class SequentialStrategyDirectorRunner:
         # ask for precursor structures or ReactionJSON; those belong to the
         # Route Builder boundary below.  A graph-edit failure must therefore
         # never erase an already selected strategic hypothesis.
-        paper_portfolio_attempted = bool(config.paper_matched_reach_profile and len(branches) == 3)
+        paper_portfolio_attempted = bool(config.paper_matched_reach_profile and (config.enable_strategy_portfolio_critic or len(branches) == 3))
         if (
             paper_portfolio_attempted
             and not promoted_portfolio
@@ -3949,8 +4199,8 @@ class SequentialStrategyDirectorRunner:
         # Recompute the protected final-Critic balance from branches that were
         # actually seeded. Failed Strategy hypotheses do not strand quota.
         critic_editor_call_reserve = critic_slots
-        critic_input_reserve = critic_slots * _CRITIC_INPUT_TOKEN_RESERVE
-        critic_output_reserve = critic_slots * _CRITIC_OUTPUT_TOKEN_RESERVE
+        critic_input_reserve = critic_slots * _call_token_reserve(records, "critic", "input_tokens")
+        critic_output_reserve = critic_slots * _call_token_reserve(records, "critic", "output_tokens")
         if config.strategy_tree_engine == "aizynthfinder_mcts":
             records.extend(
                 self._expand_seeded_branches_aizynthfinder(
@@ -4060,13 +4310,12 @@ class SequentialStrategyDirectorRunner:
         # the serialization boundary and already emits public data only.
         return branches, records
 
-    def _review_selected_uncertain_key_event(
+    def _review_selected_pending_key_event(
         self,
         spec: AgentSpec,
         *,
         target: str,
         branch: dict[str, Any],
-        strategy_card: Mapping[str, Any],
         route_steps: Iterable[Mapping[str, Any]],
         records: list[WorkerRunRecord],
         shared_ledger: _SharedModelCallLedger,
@@ -4074,23 +4323,33 @@ class SequentialStrategyDirectorRunner:
         config: DirectorConfig,
         started: float,
     ) -> _KeyEventReviewDisposition:
-        """Revisit one uncertain checkpoint only after selected new evidence."""
+        """Recover a missing selected review, or revisit new precursor evidence."""
 
         steps = [dict(row) for row in route_steps if isinstance(row, Mapping)]
-        review = _pending_uncertain_key_event_evidence_review(
-            branch,
-            strategy_card=strategy_card,
-            steps=steps,
-        )
+        retry = pending_key_event_runtime_retry(branch, steps=steps)
+        # Local stock/identity lookups cannot answer a reaction-evidence gap.
+        evidence_remaining = self.planning_evidence.summary()["remaining"] if self.planning_evidence else {}
+        allow_evidence_query = any(evidence_remaining.get(operation, 0) > 0 for operation in ("search", "read"))
+        review = ({
+            "obligation_id": str(retry.get("review_of_obligation_id") or _key_event_obligation_id(retry)),
+            "focus_step_id": str(retry.get("focus_step_id") or ""),
+            "evidence_step_id": str(retry.get("review_evidence_step_id") or ""),
+            "lineage_root_mapped_smiles": str(retry.get("lineage_root_mapped_smiles") or ""),
+            "strategy_card": _strategy_card_for_key_event_history_row(branch, row=retry, steps=steps),
+        } if retry else _pending_uncertain_key_event_evidence_review(
+            branch, steps=steps, allow_evidence_query=allow_evidence_query))
         if not review:
             return _KeyEventReviewDisposition()
+        strategy_card = dict(review.get("strategy_card") or {})
+        if not strategy_card:
+            return _KeyEventReviewDisposition(status="strategy_context_unavailable")
         focus_step_id = str(review.get("focus_step_id") or "")
         evidence_step_id = str(review.get("evidence_step_id") or "")
         by_id = {
             str(row.get("step_id") or ""): row for row in steps if str(row.get("step_id") or "")
         }
         focus_step = by_id.get(focus_step_id)
-        evidence_step = by_id.get(evidence_step_id)
+        evidence_step = by_id.get(evidence_step_id) if evidence_step_id else focus_step
         if focus_step is None or evidence_step is None:
             return _KeyEventReviewDisposition(status="evidence_unavailable")
         evidence_mapped = str(evidence_step.get("mapped_product_smiles") or "")
@@ -4111,37 +4370,56 @@ class SequentialStrategyDirectorRunner:
             "obligation_id": str(review.get("obligation_id") or ""),
             "review_of_obligation_id": str(review.get("obligation_id") or ""),
             "review_evidence_step_id": evidence_step_id,
-            "required_selected_step_ids": [focus_step_id, evidence_step_id],
-            "review_kind": "selected_direct_precursor_evidence",
+            "required_selected_step_ids": list(dict.fromkeys(
+                [focus_step_id, *(retry.get("required_selected_step_ids") or
+                  [value for value in (focus_step_id, evidence_step_id) if value])]
+            )),
+            "review_kind": "runtime_recovery" if retry else str(review.get("review_kind") or "selected_direct_precursor_evidence"),
         }
+        if retry:
+            history_row["runtime_retry_of_task_id"] = str(retry["task_id"])
+        if _remaining_node_wall_time(started, route_quota) <= _deadline_settlement_reserve_s(route_quota):
+            history_row.update({"status": "budget_unavailable", "reason": "wall_time_allocation_exhausted"})
+            history = branch.setdefault("key_event_critic_history", [])
+            if not history or history[-1] != history_row:
+                history.append(history_row)
+            return _KeyEventReviewDisposition(status="budget_unavailable")
+        audit_kind = "key_event_followup" if evidence_step_id else "key_event"
+        # An old checkpoint can be retried after many unrelated upstream
+        # expansions. Preserve its target-side spine and the declared evidence
+        # scope instead of turning a single-focus retry into a whole-route call.
+        audit_steps = _connected_path_step_rows(
+            steps, str(focus_step.get("product_smiles") or ""),
+            str(focus_step.get("mapped_product_smiles") or ""),
+        )
+        audit_ids = {str(row.get("step_id") or "") for row in audit_steps}
+        for step_id in history_row["required_selected_step_ids"]:
+            if step_id not in audit_ids:
+                audit_steps.append(by_id[step_id])
+                audit_ids.add(step_id)
         prompt = _bounded_critic_prompt(
             target=target,
             branch_index=int(branch.get("branch_index") or 0),
             strategy_card=strategy_card,
-            steps=steps,
+            steps=audit_steps,
             maximum_bytes=config.max_node_prompt_bytes,
             paper_matched=True,
-            audit_kind="key_event_followup",
+            audit_kind=audit_kind,
             focus_step_id=focus_step_id,
             checkpoint_feedback=checkpoint_feedback,
         )
+        if prompt is not None and review.get("uncertainty_source"):
+            prompt += ("\nTargeted uncertainty follow-up: "
+                       + str(review["uncertainty_source"]) + ". "
+                       + ("Use the available bounded planning-evidence query for the stated substrate/selectivity question; if no relevant support is found, retain uncertain."
+                          if review["uncertainty_source"] == "evidence_missing" else
+                          "Reconcile the stated disagreement using the supplied mapped graph/stereochemistry and available inspection. Do not substitute unrelated upstream feasibility."))
         if prompt is None:
             history_row["status"] = "prompt_unavailable"
-            branch.setdefault("key_event_critic_history", []).append(history_row)
+            history = branch.setdefault("key_event_critic_history", [])
+            if not history or history[-1] != history_row:
+                history.append(history_row)
             return _KeyEventReviewDisposition(status="prompt_unavailable")
-        reservation, budget_reason = shared_ledger.reserve(
-            input_tokens=_CRITIC_INPUT_TOKEN_RESERVE,
-            output_tokens=_CRITIC_OUTPUT_TOKEN_RESERVE,
-        )
-        if reservation is None:
-            history_row.update(
-                {
-                    "status": "budget_unavailable",
-                    "reason": budget_reason,
-                }
-            )
-            branch.setdefault("key_event_critic_history", []).append(history_row)
-            return _KeyEventReviewDisposition(status="budget_unavailable")
         review_index = (
             int(branch.get("route_call_count") or 0)
             + int(branch.get("path_repair_builder_call_count") or 0)
@@ -4160,11 +4438,22 @@ class SequentialStrategyDirectorRunner:
             ),
             paper_matched=True,
             target_smiles=target,
-            audit_kind="key_event_followup",
+            audit_kind=audit_kind,
             focus_step_id=focus_step_id,
         )
+        if retry:
+            critic_task = replace(critic_task, task_id=f"{critic_task.task_id}:recovery:{retry['task_id']}")
+        reservation, budget_reason = shared_ledger.reserve(
+            task=critic_task,
+        )
+        if reservation is None:
+            history_row.update({"status": "budget_unavailable", "reason": budget_reason})
+            history = branch.setdefault("key_event_critic_history", [])
+            if not history or history[-1] != history_row:
+                history.append(history_row)
+            return _KeyEventReviewDisposition(status="budget_unavailable")
         try:
-            critic_record = self._run_journaled_worker(self.critic_executor, critic_task)
+            critic_record = self._run_journaled_worker(self.critic_executor, critic_task, reservation=reservation)
         except Exception as exc:
             critic_record = WorkerRunRecord(
                 run_id=f"{critic_task.task_id}:run",
@@ -4186,34 +4475,16 @@ class SequentialStrategyDirectorRunner:
         branch["key_event_critic_call_count"] = (
             int(branch.get("key_event_critic_call_count") or 0) + 1
         )
-        critique = _bind_key_event_focus_assessment(
-            _critique_from_record(critic_record),
-            focus_step_id,
-        )
-        focus_assessment = _key_event_focus_assessment(critique, focus_step_id)
-        checkpoint_match = critique.get("checkpoint_match") is True and focus_assessment is not None
-        checkpoint_verdict = str(dict(focus_assessment or {}).get("verdict") or "")
-        checkpoint_rejected = bool(
-            focus_assessment is not None
-            and (checkpoint_verdict == "reject" or focus_assessment.get("blocking") is True)
-        )
         history_row.update(
-            {
-                "task_id": critic_task.task_id,
-                "status": (
-                    "rejected"
-                    if checkpoint_rejected
-                    else (
-                        "completed"
-                        if checkpoint_match and checkpoint_verdict == "pass"
-                        else ("uncertain" if checkpoint_match else "not_checkpoint")
-                    )
-                ),
-                "critic_status": str(critique.get("status") or "unavailable"),
-                "checkpoint_match": checkpoint_match,
-                "assessment": dict(focus_assessment or {}),
-            }
+            key_event_review_update(
+                _critique_from_record(critic_record),
+                focus_step_id=focus_step_id,
+                task_id=critic_task.task_id,
+                worker_status=critic_record.status,
+            )
         )
+        focus_assessment = history_row["assessment"]
+        checkpoint_rejected = history_row["status"] == "rejected"
         branch.setdefault("key_event_critic_history", []).append(history_row)
         if checkpoint_rejected:
             assessment = dict(focus_assessment or {})
@@ -4227,7 +4498,7 @@ class SequentialStrategyDirectorRunner:
             )
             return _KeyEventReviewDisposition(
                 status="rejected",
-                rejected_path_step_ids=(focus_step_id, evidence_step_id),
+                rejected_path_step_ids=tuple(history_row["required_selected_step_ids"]),
                 rejection_reason=(rejection_reason or "key_event_followup_critic_reject"),
             )
         return _KeyEventReviewDisposition(status=str(history_row["status"]))
@@ -4270,7 +4541,10 @@ class SequentialStrategyDirectorRunner:
             local_records: list[WorkerRunRecord] = []
             route_records: list[WorkerRunRecord] = []
             branch_index = int(branch["branch_index"])
-            path_repair_resume = dict(branch.get("_path_repair_resume") or {})
+            # Share the transaction's live context with its caller: recovery
+            # requests must survive sidecar return and route snapshot restore.
+            resume_context = branch.get("_path_repair_resume")
+            path_repair_resume = resume_context if isinstance(resume_context, dict) else {}
             repair_phase = bool(path_repair_resume)
             builder_counter_key = (
                 "path_repair_builder_call_count" if repair_phase else "route_call_count"
@@ -4292,23 +4566,44 @@ class SequentialStrategyDirectorRunner:
                 if isinstance(row, Mapping)
             ]
             durable_seed_step_ids = [str(row.get("step_id") or "") for row in durable_seed_steps]
-            root_strategy_card = dict(
-                path_repair_resume.get("strategy_card")
-                or branch.get("root_strategy_card")
-                or branch.get("strategy_card")
-                or {}
+            repair_completion_mode = str(
+                path_repair_resume.get("completion_mode") or ""
             )
-            strategy_id = str(
-                root_strategy_card.get("strategy_id")
-                or root_strategy_card.get("strategy_digest")
-                or f"strategy-{branch_index + 1}"
-            )
-            strategy_text = json.dumps(
-                root_strategy_card,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
+            if repair_phase and repair_completion_mode == "cut_frontier":
+                # AiZ requires a stable search identity, but a final-route
+                # repair has no Strategy owner.  Do not let the branch root
+                # Strategy leak back in through sidecar metadata after the
+                # Editor and Builder contracts have deliberately removed its
+                # steering authority.
+                root_strategy_card = {}
+                strategy_id = f"cut-frontier-repair-{branch_index + 1}"
+                strategy_text = json.dumps(
+                    {
+                        "repair_mode": "cut_frontier",
+                        "strategy_authority": "none",
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            else:
+                root_strategy_card = dict(
+                    path_repair_resume.get("strategy_card")
+                    or branch.get("root_strategy_card")
+                    or branch.get("strategy_card")
+                    or {}
+                )
+                strategy_id = str(
+                    root_strategy_card.get("strategy_id")
+                    or root_strategy_card.get("strategy_digest")
+                    or f"strategy-{branch_index + 1}"
+                )
+                strategy_text = json.dumps(
+                    root_strategy_card,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
             # AiZ may revisit an empty MCTS node after a host-replayed
             # ReactionJSON action fails to instantiate an advancing child.
             # Keep only node-local negative memory: the latest no-progress
@@ -4334,15 +4629,13 @@ class SequentialStrategyDirectorRunner:
                 if not failures:
                     return
                 path_repair_resume["replay_failures"] = failures
-                branch_resume = branch.get("_path_repair_resume")
-                if isinstance(branch_resume, dict):
-                    branch_resume["replay_failures"] = copy.deepcopy(failures)
 
             def reject_selected_path(
                 disposition: _KeyEventReviewDisposition,
                 *,
                 prompt_steps: Sequence[Mapping[str, Any]],
                 model_call_consumed: bool,
+                recovery: bool = False,
             ) -> Mapping[str, Any]:
                 """Rollback the durable Host view and ask AiZ to prune one edge."""
 
@@ -4387,18 +4680,31 @@ class SequentialStrategyDirectorRunner:
                 branch["complete_in_bound_stock"] = False
                 _sync_open_leaf_projection(branch)
                 rejection_row = {
-                    "phase": "key_event_followup_critic",
-                    "reason": "selected_path_key_event_rejected",
+                    "phase": "repair_recovery" if recovery else "key_event_followup_critic",
+                    "reason": "provisional_choice_abandoned" if recovery else "selected_path_key_event_rejected",
                     "rejected_path_step_ids": list(rejected_ids),
                     "pruned_step_id": str(prompt_steps[rollback_index].get("step_id") or ""),
                     "rejection_reason": disposition.rejection_reason,
+                    "product_smiles": str(prompt_steps[rollback_index].get("product_smiles") or ""),
                     "retained_prefix_step_ids": [
                         str(row.get("step_id") or "") for row in retained_steps
                     ],
-                    "authority": "selected_path_key_event_critic",
+                    "authority": "builder_recovery_request" if recovery else "selected_path_key_event_critic",
                 }
                 branch.setdefault("rejections", []).append(rejection_row)
                 branch.setdefault("aiz_path_rejections", []).append(rejection_row)
+                if recovery:
+                    parent_step = prompt_steps[rollback_index]
+                    parent_lineage = _route_lineage_context(
+                        retained_steps,
+                        selected_product=str(parent_step.get("product_smiles") or ""),
+                        selected_product_mapped=str(parent_step.get("mapped_product_smiles") or ""),
+                    )
+                    parent_context_id = _aiz_policy_state_fingerprint(
+                        selected_leaf_mapped=str(parent_step.get("mapped_product_smiles") or ""),
+                        route_steps=parent_lineage.connected_steps,
+                    )
+                    pending_policy_feedback[parent_context_id] = rejection_row
                 path_rejection_pending.clear()
                 path_rejection_pending.update(
                     {
@@ -4433,9 +4739,6 @@ class SequentialStrategyDirectorRunner:
                         "stop_search": True,
                         "stop_reason": "host_cancelled",
                     }
-                repair_completion_mode = str(
-                    path_repair_resume.get("completion_mode") or ""
-                )
                 if (
                     path_repair_resume
                     and repair_completion_mode == "strategy_checkpoint"
@@ -4447,17 +4750,29 @@ class SequentialStrategyDirectorRunner:
                         if isinstance(row, Mapping)
                     ]
                     repair_added_steps = repair_prompt_steps[len(durable_seed_steps) :]
-                    selected_critic_pass_step_ids = {
-                        str(row.get("focus_step_id") or "")
-                        for row in branch.get("key_event_critic_history") or []
-                        if isinstance(row, Mapping)
-                        and str(row.get("status") or "") == "completed"
-                        and str(row.get("focus_step_id") or "")
-                    }
+                    checkpoint_state = _selected_path_strategy_checkpoint_state(
+                        branch,
+                        strategy_card=dict(
+                            path_repair_resume.get("strategy_card") or {}
+                        ),
+                        steps=repair_prompt_steps,
+                    )
+                    source_focus_step_id = str(
+                        dict(checkpoint_state.get("source_row") or {}).get(
+                            "focus_step_id"
+                        )
+                        or ""
+                    )
+                    executed_step_ids = (
+                        {source_focus_step_id}
+                        if checkpoint_state["checkpoint_executed"]
+                        and source_focus_step_id
+                        else set()
+                    )
                     if _path_repair_completion_reached(
                         repair_added_steps,
                         completion_mode=repair_completion_mode,
-                        selected_critic_pass_step_ids=selected_critic_pass_step_ids,
+                        selected_critic_executed_step_ids=executed_step_ids,
                     ):
                         return {
                             "candidates": [],
@@ -4566,7 +4881,7 @@ class SequentialStrategyDirectorRunner:
                                 ),
                                 "route_step": seed_step,
                                 "prior": 1.0,
-                                "candidate_key": _key_event_fingerprint(seed_step),
+                                "candidate_key": _key_event_graph_fingerprint(seed_step),
                             }
                         ],
                         "model_call_consumed": False,
@@ -4580,8 +4895,7 @@ class SequentialStrategyDirectorRunner:
                 completion_boundaries = [
                     dict(row)
                     for row in (
-                        path_repair_resume.get("search_completion_boundaries")
-                        or reconnect_boundaries
+                        path_repair_resume.get("search_completion_boundaries", reconnect_boundaries)
                     )
                     if isinstance(row, Mapping)
                 ]
@@ -4711,17 +5025,62 @@ class SequentialStrategyDirectorRunner:
                 selected_mapped = (
                     mapped_values[selected_index] if selected_index < len(mapped_values) else ""
                 ) or _mapped_smiles(selected)
+                # AiZ may return a terminal projection containing actions
+                # that are not on the selected molecular occurrence's
+                # target-rooted spine.  Those rows must not manufacture a new
+                # policy state: the model is still being asked to expand the
+                # same mapped leaf.  Bind no-progress memory to the same
+                # Host-derived lineage that is shown in the Builder prompt.
+                policy_lineage = _route_lineage_context(
+                    prompt_steps,
+                    selected_product=selected,
+                    selected_product_mapped=selected_mapped,
+                )
                 policy_context_id = _aiz_policy_state_fingerprint(
                     selected_leaf_mapped=selected_mapped,
-                    route_steps=prompt_steps,
+                    route_steps=policy_lineage.connected_steps,
                 )
                 prior_policy_feedback = pending_policy_feedback.pop(
                     policy_context_id,
                     None,
                 )
-                if prior_policy_feedback:
+                if prior_policy_feedback and prior_policy_feedback.get("phase") != "proposal_clarification":
                     branch.setdefault("rejections", []).append(dict(prior_policy_feedback))
                 rejected = list(branch.get("rejections") or [])
+                if config.enable_key_event_critic and not path_repair_resume:
+                    # Resolve evidence debt before spending a call on the next
+                    # Strategy horizon.  The review restores the Strategy that
+                    # owned the original uncertain checkpoint from history.
+                    review_disposition = self._review_selected_pending_key_event(
+                        spec,
+                        target=target,
+                        branch=branch,
+                        route_steps=prompt_steps,
+                        records=local_records,
+                        shared_ledger=shared_ledger,
+                        route_quota=route_quota,
+                        config=config,
+                        started=started,
+                    )
+                    if review_disposition.status == "runtime_unavailable":
+                        provider_failure = self._provider_runtime_failure_snapshot()
+                        return {
+                            "candidates": [],
+                            "model_call_consumed": False,
+                            "runtime_unavailable": True,
+                            "runtime_pause": True,
+                            "stop_search": True,
+                            "stop_reason": str(
+                                provider_failure.get("reason")
+                                or "provider_unavailable"
+                            ),
+                        }
+                    if review_disposition.rejected:
+                        return reject_selected_path(
+                            review_disposition,
+                            prompt_steps=prompt_steps,
+                            model_call_consumed=False,
+                        )
                 active_strategy_card, refresh_strategy = _strategy_horizon_for_leaf(
                     config=config,
                     branch=branch,
@@ -4736,11 +5095,11 @@ class SequentialStrategyDirectorRunner:
                     selected_product_mapped=selected_mapped,
                 )
                 if path_repair_resume:
-                    # The Editor transaction owns a rejected checkpoint under
-                    # its original Strategy.  Do not replace that Strategy or
-                    # pre-complete its re-Critic obligation merely because the
-                    # rollback frontier resembles a normal horizon boundary.
-                    active_strategy_card = root_strategy_card
+                    # A checkpoint repair freezes its exact local horizon; a
+                    # final cut-frontier repair has no Strategy steering owner.
+                    active_strategy_card = dict(
+                        path_repair_resume.get("strategy_card") or {}
+                    )
                     refresh_strategy = False
                     rejected_strategy_horizon = {}
                 else:
@@ -4793,6 +5152,13 @@ class SequentialStrategyDirectorRunner:
                                 provider_failure.get("reason") or "provider_unavailable"
                             ),
                         }
+                    if branch.get("_material_boundary_steps") is not None:
+                        # This stops expansion, never resolves a molecule in
+                        # AiZ stock. The ordinary final Critic still runs.
+                        return {
+                            "candidates": [], "model_call_consumed": False,
+                            "stop_search": True, "stop_reason": "material_boundary_review_pending",
+                        }
                     if generated is not None:
                         active_strategy_card = generated
                     elif rejected_strategy_horizon:
@@ -4809,54 +5175,35 @@ class SequentialStrategyDirectorRunner:
                         "stop_search": True,
                         "stop_reason": "strategy_horizon_budget_exhausted",
                     }
-                if config.enable_key_event_critic and not path_repair_resume:
-                    review_disposition = self._review_selected_uncertain_key_event(
-                        spec,
-                        target=target,
-                        branch=branch,
+                lineage_checkpoint_feedback = (
+                    _pending_key_event_feedback_for_leaf(
+                        branch,
                         strategy_card=active_strategy_card,
-                        route_steps=prompt_steps,
-                        records=local_records,
-                        shared_ledger=shared_ledger,
-                        route_quota=route_quota,
-                        config=config,
-                        started=started,
+                        steps=prompt_steps,
+                        selected_product_mapped=selected_mapped,
                     )
-                    if review_disposition.status == "runtime_unavailable":
-                        provider_failure = self._provider_runtime_failure_snapshot()
-                        return {
-                            "candidates": [],
-                            "model_call_consumed": False,
-                            "runtime_unavailable": True,
-                            "runtime_pause": True,
-                            "stop_search": True,
-                            "stop_reason": str(
-                                provider_failure.get("reason") or "provider_unavailable"
-                            ),
-                        }
-                    if review_disposition.rejected:
-                        return reject_selected_path(
-                            review_disposition,
-                            prompt_steps=prompt_steps,
-                            model_call_consumed=False,
-                        )
-                lineage_checkpoint_feedback = _pending_key_event_feedback_for_leaf(
-                    branch,
-                    strategy_card=active_strategy_card,
-                    steps=prompt_steps,
-                    selected_product_mapped=selected_mapped,
+                    if active_strategy_card
+                    else {}
                 )
                 pending_checkpoint_feedback = (
                     _merge_key_event_feedback(
-                        _path_repair_checkpoint_feedback(
-                            path_repair_resume,
-                            strategy_card=active_strategy_card,
+                        (
+                            _path_repair_checkpoint_feedback(
+                                path_repair_resume,
+                                strategy_card=active_strategy_card,
+                            )
+                            if str(path_repair_resume.get("completion_mode") or "")
+                            == "strategy_checkpoint"
+                            else {}
                         ),
                         lineage_checkpoint_feedback,
                     )
                     if path_repair_resume
                     else lineage_checkpoint_feedback
                 )
+                if prior_policy_feedback and prior_policy_feedback.get("phase") == "proposal_clarification":
+                    pending_checkpoint_feedback = {**pending_checkpoint_feedback,
+                                                   "proposal_clarification": prior_policy_feedback}
                 # Diagnostic projection only. The append-only Critic history
                 # is the authority and the next Builder context is derived
                 # from it for the selected Strategy/leaf lineage.
@@ -4868,6 +5215,10 @@ class SequentialStrategyDirectorRunner:
                     + int(branch.get("path_repair_builder_call_count") or 0)
                     + 1
                 )
+                if path_repair_resume:
+                    path_repair_resume["reversible_step_ids"] = [
+                        str(row.get("step_id") or "") for row in prompt_steps[len(durable_seed_steps):]
+                    ]
                 prompt = _node_prompt(
                     target=target,
                     branch_index=branch_index,
@@ -4894,6 +5245,8 @@ class SequentialStrategyDirectorRunner:
                                 "reconnect_boundaries",
                                 "repair_reference_span",
                                 "replay_failures",
+                                "completion_mode",
+                                "reversible_step_ids",
                             }
                         },
                     },
@@ -4929,6 +5282,8 @@ class SequentialStrategyDirectorRunner:
                                     "reconnect_boundaries",
                                     "repair_reference_span",
                                     "replay_failures",
+                                    "completion_mode",
+                                    "reversible_step_ids",
                                 }
                             },
                         },
@@ -4947,7 +5302,10 @@ class SequentialStrategyDirectorRunner:
                     # already one-based, so normalize it at this boundary.
                     node_index=call_index - 1,
                     model=str(spec.metadata.get("model") or ""),
-                    reasoning_effort=str(spec.metadata.get("reasoning_effort") or "medium"),
+                    reasoning_effort=str(
+                        spec.metadata.get("reasoning_effort")
+                        or DEFAULT_CODEX_REASONING_EFFORT
+                    ),
                     timeout_s=_node_call_timeout_s(
                         started,
                         route_quota,
@@ -4956,10 +5314,11 @@ class SequentialStrategyDirectorRunner:
                     paper_matched=config.paper_matched_reach_profile,
                     target_smiles=target,
                     selected_product=selected,
+                    allow_repair_recovery=bool(path_repair_resume),
                 )
                 reservation, budget_reason = shared_ledger.reserve(
-                    input_tokens=_BUILDER_INPUT_TOKEN_RESERVE,
-                    output_tokens=_BUILDER_OUTPUT_TOKEN_RESERVE,
+
+                    task=task,
                 )
                 if reservation is None:
                     return {
@@ -4969,7 +5328,7 @@ class SequentialStrategyDirectorRunner:
                         "stop_reason": f"route_builder_{budget_reason}",
                     }
                 try:
-                    record = self._run_journaled_worker(self.node_executor, task)
+                    record = self._run_journaled_worker(self.node_executor, task, reservation=reservation)
                 except Exception:
                     shared_ledger.settle(reservation, None)
                     raise
@@ -4988,6 +5347,37 @@ class SequentialStrategyDirectorRunner:
                 branch["call_count"] = int(branch.get("call_count") or 0) + 1
                 local_records.append(record)
                 route_records.append(record)
+                if path_repair_resume:
+                    payload = dict(dict(record.output_artifact or {}).get("payload") or {})
+                    candidates = payload.get("candidates") or []
+                    raw_recovery = (candidates[0].get("recovery")
+                                    if len(candidates) == 1 and isinstance(candidates[0], Mapping) else None)
+                    recovery, recovery_error = recovery_request(
+                        raw_recovery,
+                        reversible_step_ids=[str(row.get("step_id") or "")
+                                             for row in prompt_steps[len(durable_seed_steps):]],
+                    )
+                    if recovery and (candidates[0].get("reaction_operations") or candidates[0].get("conditions")):
+                        recovery, recovery_error = None, "repair_recovery_must_not_include_reaction"
+                    if recovery_error:
+                        rejection = {"phase": "repair_recovery", "reason": recovery_error,
+                                     "product_smiles": selected}
+                        branch.setdefault("rejections", []).append(rejection)
+                        pending_policy_feedback[policy_context_id] = rejection
+                        return {"candidates": [], "model_call_consumed": True}
+                    if recovery:
+                        self._append_model_io_event({"event": "repair_recovery", **recovery,
+                                                     "task_id": task.task_id})
+                        if recovery["action"] == "backtrack":
+                            return reject_selected_path(
+                                _KeyEventReviewDisposition(
+                                    status="rejected", rejected_path_step_ids=(recovery["step_id"],),
+                                    rejection_reason=recovery["reason"],
+                                ), prompt_steps=prompt_steps, model_call_consumed=True, recovery=True,
+                            )
+                        path_repair_resume["recovery_request"] = recovery
+                        return {"candidates": [], "model_call_consumed": True,
+                                "stop_search": True, "stop_reason": "path_repair_scope_expansion_requested"}
                 compiled, candidate_rejections = _reactionjson_candidates_from_record(
                     record,
                     expected_product=selected,
@@ -5004,6 +5394,9 @@ class SequentialStrategyDirectorRunner:
                             for value in path_repair_resume.get("reserved_atom_maps") or []
                             if int(value) > 0
                         }
+                    ),
+                    target_atom_maps=_mapped_atom_maps(
+                        branch.get("target_mapped_smiles") or _mapped_smiles(target)
                     ),
                 )
                 branch.setdefault("reactionjson_candidate_batches", []).append(
@@ -5085,15 +5478,23 @@ class SequentialStrategyDirectorRunner:
                         policy_context_id,
                         {},
                     )
-                    candidate_identity = str(
-                        item.candidate_key
-                        or _key_event_fingerprint(
-                            {
-                                "mapped_product_smiles": (expansion.mapped_product_smiles),
-                                "mapped_precursor_smiles": list(expansion.mapped_precursor_smiles),
-                                "reaction_operations": list(expansion.reaction_operations),
-                            }
-                        )
+                    # MCTS actions are molecular graph transitions.  A new
+                    # catalyst or wording of the conditions cannot turn the
+                    # same product -> precursor edit into a new child.  A
+                    # focus-edge Critic repair remains possible because a
+                    # rejected checkpoint is never admitted into this table;
+                    # once admitted, however, graph identity is the correct
+                    # no-progress boundary.
+                    candidate_identity = _key_event_graph_fingerprint(
+                        {
+                            "mapped_product_smiles": expansion.mapped_product_smiles,
+                            "mapped_precursor_smiles": list(
+                                expansion.mapped_precursor_smiles
+                            ),
+                            "reaction_operations": list(
+                                expansion.reaction_operations
+                            ),
+                        }
                     )
                     if candidate_identity in prior_moves:
                         repeated = dict(prior_moves[candidate_identity])
@@ -5156,6 +5557,15 @@ class SequentialStrategyDirectorRunner:
                             branch, active_strategy_card
                         ),
                     )
+                    if (
+                        path_repair_resume
+                        and str(path_repair_resume.get("completion_mode") or "")
+                        == "cut_frontier"
+                    ):
+                        # Final repair has no Strategy checkpoint owner.  Keep
+                        # this scheduling label inert even if the model emits
+                        # an executes_checkpoint value.
+                        step["checkpoint_relation"] = "preparatory"
                     extension_validation = _route_steps_host_replay_validation(
                         [*prompt_steps, step],
                         mapped_target_smiles=str(
@@ -5188,73 +5598,66 @@ class SequentialStrategyDirectorRunner:
                         pending_policy_feedback[policy_context_id] = rejection
                         remember_path_repair_replay_failure(rejection)
                         continue
-                    if path_repair_resume:
-                        boundary_stereo_conflict = _path_repair_boundary_stereo_conflict(
-                            mapped_precursor_smiles=(expansion.mapped_precursor_smiles),
-                            reconnect_boundaries=(
-                                path_repair_resume.get("reconnect_boundaries") or ()
-                            ),
+                    if config.enable_key_event_critic and not path_repair_resume:
+                        rejection_conflict = _key_event_rejection_memory_conflict(
+                            branch,
+                            strategy_card=active_strategy_card,
+                            steps=prompt_steps,
+                            selected_product_mapped=selected_mapped,
+                            candidate_step=step,
                         )
-                        if boundary_stereo_conflict is not None:
-                            attempted_net_edits = [
-                                dict(operation)
-                                for operation in normalize_reaction_operations(
-                                    expansion.reaction_operations
-                                )
-                            ]
+                        if rejection_conflict:
                             rejection = {
-                                "phase": "path_repair_boundary",
+                                "phase": "key_event_rejection_memory",
                                 "node": call_index,
                                 "product_smiles": selected,
                                 "candidate_id": item.candidate_id,
-                                **boundary_stereo_conflict,
-                                "attempted_net_edits": attempted_net_edits,
-                                "authority": "host_suffix_boundary",
+                                "mcts_state_fingerprint": policy_context_id,
+                                "attempted_net_edits": [
+                                    dict(operation)
+                                    for operation in normalize_reaction_operations(
+                                        expansion.reaction_operations
+                                    )
+                                ],
+                                "authority": "host_key_event_rejection_memory",
+                                **rejection_conflict,
                             }
                             branch.setdefault("rejections", []).append(rejection)
-                            branch.setdefault("materialization_diagnostics", []).append(rejection)
-                            prior_moves[candidate_identity] = {
-                                "candidate_id": item.candidate_id,
-                                "attempted_net_edits": attempted_net_edits,
-                            }
+                            branch.setdefault("materialization_diagnostics", []).append(
+                                rejection
+                            )
                             pending_policy_feedback[policy_context_id] = rejection
-                            # This candidate can never reach the preserved
-                            # suffix: every upstream child would still synthesize
-                            # the same wrong-stereo leaf.  Leave the current AiZ
-                            # action set empty so it revisits this parent for a
-                            # corrected Builder sibling.
                             continue
-                        boundary_progress_failure = _path_repair_boundary_progress_failure(
-                            selected_leaf_mapped=selected_mapped,
-                            mapped_precursor_smiles=(expansion.mapped_precursor_smiles),
-                            reconnect_boundaries=(
-                                path_repair_resume.get("reconnect_boundaries") or ()
-                            ),
+                        # A new edge may be the missing direct-precursor
+                        # evidence for an older uncertain checkpoint.  Settle
+                        # that obligation before auditing the same edge as a
+                        # checkpoint under a newer Strategy.
+                        review_disposition = self._review_selected_pending_key_event(
+                            spec,
+                            target=target,
+                            branch=branch,
+                            route_steps=[*prompt_steps, step],
+                            records=local_records,
+                            shared_ledger=shared_ledger,
+                            route_quota=route_quota,
+                            config=config,
+                            started=started,
                         )
-                        if boundary_progress_failure is not None:
-                            attempted_net_edits = [
-                                dict(operation)
-                                for operation in normalize_reaction_operations(
-                                    expansion.reaction_operations
-                                )
-                            ]
-                            rejection = {
-                                "phase": "path_repair_boundary",
-                                "node": call_index,
-                                "product_smiles": selected,
-                                "candidate_id": item.candidate_id,
-                                **boundary_progress_failure,
-                                "attempted_net_edits": attempted_net_edits,
-                                "authority": "host_suffix_boundary",
+                        if review_disposition.status == "runtime_unavailable":
+                            return {
+                                "candidates": [],
+                                "model_call_consumed": True,
+                                "runtime_unavailable": True,
+                                "runtime_pause": True,
+                                "stop_search": True,
+                                "stop_reason": "provider_unavailable",
                             }
-                            branch.setdefault("rejections", []).append(rejection)
-                            branch.setdefault("materialization_diagnostics", []).append(rejection)
-                            prior_moves[candidate_identity] = {
-                                "candidate_id": item.candidate_id,
-                                "attempted_net_edits": attempted_net_edits,
-                            }
-                            pending_policy_feedback[policy_context_id] = rejection
-                            continue
+                        if review_disposition.rejected:
+                            return reject_selected_path(
+                                review_disposition,
+                                prompt_steps=[*prompt_steps, step],
+                                model_call_consumed=True,
+                            )
                     if (
                         config.enable_key_event_critic
                         and (
@@ -5262,11 +5665,18 @@ class SequentialStrategyDirectorRunner:
                             or str(path_repair_resume.get("completion_mode") or "")
                             == "strategy_checkpoint"
                         )
-                        and not bool(branch.get("key_event_critic_completed"))
+                        and not _selected_path_executed_strategy_checkpoint(
+                            branch,
+                            strategy_card=active_strategy_card,
+                            steps=prompt_steps,
+                        )
                         and _step_claims_strategy_key_event(step, active_strategy_card)
                     ):
                         focus_step_id = str(step.get("step_id") or "")
-                        fingerprint = _key_event_fingerprint(step)
+                        graph_fingerprint = _key_event_graph_fingerprint(step)
+                        implementation_fingerprint = (
+                            _key_event_implementation_fingerprint(step)
+                        )
                         audit_steps = [*prompt_steps, step]
                         critic_prompt = _bounded_critic_prompt(
                             target=target,
@@ -5283,7 +5693,8 @@ class SequentialStrategyDirectorRunner:
                             "focus_step_id": focus_step_id,
                             "product_smiles": selected,
                             "candidate_id": item.candidate_id,
-                            "fingerprint": fingerprint,
+                            "graph_fingerprint": graph_fingerprint,
+                            "implementation_fingerprint": implementation_fingerprint,
                             "strategy_id": str(active_strategy_card.get("strategy_id") or ""),
                             "strategy_digest": _strategy_card_digest(active_strategy_card),
                             "strategy_milestone_index": (
@@ -5313,8 +5724,8 @@ class SequentialStrategyDirectorRunner:
                                 focus_step_id=focus_step_id,
                             )
                             critic_reservation, critic_budget_reason = shared_ledger.reserve(
-                                input_tokens=_CRITIC_INPUT_TOKEN_RESERVE,
-                                output_tokens=_CRITIC_OUTPUT_TOKEN_RESERVE,
+
+                                task=critic_task,
                             )
                             if critic_reservation is None:
                                 history_row.update(
@@ -5336,8 +5747,7 @@ class SequentialStrategyDirectorRunner:
                                 continue
                             try:
                                 critic_record = self._run_journaled_worker(
-                                    self.critic_executor, critic_task
-                                )
+                                    self.critic_executor, critic_task, reservation=critic_reservation)
                             except Exception as exc:
                                 critic_record = WorkerRunRecord(
                                     run_id=f"{critic_task.task_id}:run",
@@ -5369,43 +5779,31 @@ class SequentialStrategyDirectorRunner:
                                 int(branch.get("key_event_critic_call_count") or 0) + 1
                             )
                             critique = _bind_key_event_focus_assessment(
-                                _critique_from_record(critic_record),
-                                focus_step_id,
-                            )
-                            focus_assessment = _key_event_focus_assessment(critique, focus_step_id)
-                            checkpoint_match = (
-                                critique.get("checkpoint_match") is True
-                                and focus_assessment is not None
-                            )
-                            checkpoint_verdict = str(
-                                dict(focus_assessment or {}).get("verdict") or ""
-                            )
-                            checkpoint_rejected = focus_assessment is not None and (
-                                checkpoint_verdict == "reject"
-                                or focus_assessment.get("blocking") is True
+                                _critique_from_record(critic_record), focus_step_id
                             )
                             history_row.update(
-                                {
-                                    "task_id": critic_task.task_id,
-                                    "status": (
-                                        "rejected"
-                                        if checkpoint_rejected
-                                        else (
-                                            "completed"
-                                            if checkpoint_match and checkpoint_verdict == "pass"
-                                            else (
-                                                "uncertain"
-                                                if checkpoint_match
-                                                else "not_checkpoint"
-                                            )
-                                        )
-                                    ),
-                                    "critic_status": str(critique.get("status") or "unavailable"),
-                                    "checkpoint_match": checkpoint_match,
-                                    "assessment": dict(focus_assessment or {}),
-                                }
+                                key_event_review_update(
+                                    critique,
+                                    focus_step_id=focus_step_id,
+                                    task_id=critic_task.task_id,
+                                    worker_status=critic_record.status,
+                                )
                             )
+                            focus_assessment = history_row["assessment"]
+                            checkpoint_match = history_row["checkpoint_match"]
+                            checkpoint_verdict = str(focus_assessment.get("verdict") or "")
+                            checkpoint_rejected = history_row["status"] == "rejected"
+                            previous_reviews = list(branch.get("key_event_critic_history") or [])
                             branch.setdefault("key_event_critic_history", []).append(history_row)
+                            if _needs_proposal_clarification(history_row, previous_reviews):
+                                # The candidate is still provisional. One ordinary Builder slot
+                                # can supply the missing detail; accepted route rows are untouched.
+                                pending_policy_feedback[policy_context_id] = {
+                                    "phase": "proposal_clarification",
+                                    "assessment": dict(focus_assessment),
+                                    "proposal": _compact_route_spec(step),
+                                }
+                                continue
                             if not path_repair_resume:
                                 branch["pending_key_event_feedback"] = (
                                     _pending_key_event_feedback_for_leaf(
@@ -5415,7 +5813,7 @@ class SequentialStrategyDirectorRunner:
                                         selected_product_mapped=selected_mapped,
                                     )
                                 )
-                            if not checkpoint_match:
+                            if checkpoint_match is False:
                                 # A benign scheduling mismatch remains a
                                 # preparatory action.  A false substitute may
                                 # still be locally rejected below by the
@@ -5524,25 +5922,6 @@ class SequentialStrategyDirectorRunner:
                                 # focus_edge is the only rejection scope a
                                 # same-parent Builder can actually change.
                                 continue
-                    if config.enable_key_event_critic and not path_repair_resume:
-                        review_disposition = self._review_selected_uncertain_key_event(
-                            spec,
-                            target=target,
-                            branch=branch,
-                            strategy_card=active_strategy_card,
-                            route_steps=[*prompt_steps, step],
-                            records=local_records,
-                            shared_ledger=shared_ledger,
-                            route_quota=route_quota,
-                            config=config,
-                            started=started,
-                        )
-                        if review_disposition.rejected:
-                            return reject_selected_path(
-                                review_disposition,
-                                prompt_steps=[*prompt_steps, step],
-                                model_call_consumed=True,
-                            )
                     admit_candidate(
                         item,
                         expansion,
@@ -5611,6 +5990,12 @@ class SequentialStrategyDirectorRunner:
                 dict(row) for row in result.get("route_steps") or [] if isinstance(row, Mapping)
             ]
             search_diagnostics = dict(result.get("diagnostics") or {})
+            material_boundary_steps = branch.pop("_material_boundary_steps", None)
+            if material_boundary_steps is not None:
+                # A search stop may otherwise select another sibling. Retain
+                # the exact Host-replayed prefix on which the request arose.
+                projected_steps = [dict(row) for row in material_boundary_steps]
+                search_diagnostics["host_stop_reason"] = "material_boundary_review_pending"
             pending_online_repair = branch.get("_pending_online_path_repair")
             if isinstance(pending_online_repair, Mapping):
                 # The stop was requested before the rejected checkpoint edge
@@ -5639,11 +6024,10 @@ class SequentialStrategyDirectorRunner:
             )
             branch["strategy_milestone_cards"] = selected_cards
             if config.enable_key_event_critic and selected_cards and not repair_phase:
-                final_review_disposition = self._review_selected_uncertain_key_event(
+                final_review_disposition = self._review_selected_pending_key_event(
                     spec,
                     target=target,
                     branch=branch,
-                    strategy_card=selected_cards[-1],
                     route_steps=branch["steps"],
                     records=local_records,
                     shared_ledger=shared_ledger,
@@ -5681,10 +6065,12 @@ class SequentialStrategyDirectorRunner:
                         }
                     )
             if config.enable_key_event_critic and selected_cards:
-                branch["key_event_critic_completed"] = _selected_path_passed_strategy_checkpoint(
+                branch["key_event_critic_completed"] = (
+                    _selected_path_executed_strategy_checkpoint(
                     branch,
                     strategy_card=selected_cards[-1],
                     steps=branch["steps"],
+                )
                 )
                 if branch["key_event_critic_completed"]:
                     branch["pending_key_event_feedback"] = {}
@@ -5835,7 +6221,7 @@ class SequentialStrategyDirectorRunner:
         call already possible in the serial implementation.
         """
 
-        usage = _aggregate_usage(existing_records, elapsed_s=0.0)
+        usage = budget_exposure(existing_records)
         branch_count = len(seeded)
         available_calls = max(
             0,
@@ -6004,7 +6390,10 @@ class SequentialStrategyDirectorRunner:
                 branch_index=repair_index,
                 node_index=0,
                 model=str(spec.metadata.get("model") or ""),
-                reasoning_effort=str(spec.metadata.get("reasoning_effort") or "medium"),
+                reasoning_effort=str(
+                    spec.metadata.get("reasoning_effort")
+                    or DEFAULT_CODEX_REASONING_EFFORT
+                ),
                 timeout_s=_node_call_timeout_s(
                     started,
                     quota,
@@ -6149,7 +6538,7 @@ class SequentialStrategyDirectorRunner:
         started: float,
         enhanced_strategy: bool = True,
     ) -> None:
-        """Generate the paper's three competing strategies in one model call."""
+        """Generate competing strategies in one model call."""
 
         prompt = _paper_strategy_portfolio_prompt(
             target=target,
@@ -6171,6 +6560,7 @@ class SequentialStrategyDirectorRunner:
                 maximum=max_node_call_timeout_s,
             ),
             target_smiles=target,
+            fixed_strategy_count=not enhanced_strategy,
         )
         record = self._run_journaled_worker(self.node_executor, task)
         records.append(record)
@@ -6183,7 +6573,7 @@ class SequentialStrategyDirectorRunner:
         for branch in branches:
             branch["strategy_call_count"] = 1
             branch["call_count"] = int(branch.get("call_count") or 0) + 1
-        if cards is None or len(cards) != len(branches):
+        if cards is None or (not enhanced_strategy and len(cards) != len(branches)):
             for branch in branches:
                 branch["rejections"].append(
                     {
@@ -6193,6 +6583,11 @@ class SequentialStrategyDirectorRunner:
                     }
                 )
             return
+        if enhanced_strategy:
+            template = deepcopy(branches[0])
+            branches[:] = [deepcopy(template) for _ in cards]
+            for index, branch in enumerate(branches):
+                branch["branch_index"] = index
         for branch, card in zip(branches, cards, strict=True):
             branch["strategy_card"] = card
             branch["root_strategy_card"] = dict(card)
@@ -6212,7 +6607,7 @@ class SequentialStrategyDirectorRunner:
         quota: _NodeCallBudget,
         started: float,
     ) -> None:
-        """Review the three self-correcting hypotheses once before paid search.
+        """Review the generated hypotheses once before paid search.
 
         The reviewer returns the same compact portfolio contract, so this is
         one refinement boundary rather than a second strategy authority.  An
@@ -6220,7 +6615,7 @@ class SequentialStrategyDirectorRunner:
         """
 
         original_cards = [dict(branch.get("strategy_card") or {}) for branch in branches]
-        if len(original_cards) != 3 or not all(original_cards):
+        if not original_cards or not all(original_cards):
             return
         prompt = _paper_strategy_portfolio_critic_prompt(
             target=target,
@@ -6266,7 +6661,7 @@ class SequentialStrategyDirectorRunner:
             record,
             expected_target=target,
         )
-        applied = reviewed_cards is not None and len(reviewed_cards) == 3
+        applied = reviewed_cards is not None and len(reviewed_cards) == len(original_cards)
         for index, branch in enumerate(branches):
             branch["strategy_critic_call_count"] = 1
             branch["strategy_critic"] = {
@@ -6278,11 +6673,19 @@ class SequentialStrategyDirectorRunner:
             if not applied:
                 continue
             card = dict(reviewed_cards[index])
+            branch["strategy_critic"]["review"] = dict(
+                card.get("strategy_review") or {}
+            )
             branch["strategy_card"] = card
             branch["root_strategy_card"] = dict(card)
             branch["strategy_milestone_cards"] = [dict(card)]
             branch["strategy_seed"] = _strategy_title_from_card(card)
             branch["lens"] = "Critic-reviewed strategy - " + str(branch["strategy_seed"])
+        if applied:
+            branches[:] = [branch for branch in branches if
+                           branch["strategy_critic"]["review"].get("review_decision") != "discard"]
+            for index, branch in enumerate(branches):
+                branch["branch_index"] = index
 
     def _generate_upstream_strategy_milestone(
         self,
@@ -6308,11 +6711,11 @@ class SequentialStrategyDirectorRunner:
         guessed at the target: a new StrategyCard is requested after AiZ has
         selected a non-stock leaf with no applicable active horizon.  That can
         happen after a passed checkpoint or when selection moves to a sibling.
-        Only checkpoints passed by the Key Critic on this leaf's exact
-        target-to-leaf spine are reported as completed facts.  An unfinished
-        sibling horizon remains branch state and is restored when AiZ returns
-        to that lineage.  Strategy calls are accounted separately from Route
-        Builder policy calls.
+        Checkpoints executed on this leaf's exact target-to-leaf spine are
+        reported with their independent pass/uncertain chemical confidence.
+        An unfinished sibling horizon remains branch state and is restored
+        when AiZ returns to that lineage.  Strategy calls are accounted
+        separately from Route Builder policy calls.
         """
 
         branch_index = int(branch.get("branch_index") or 0)
@@ -6331,15 +6734,22 @@ class SequentialStrategyDirectorRunner:
             ),
             steps=selected_path_steps,
         )
-        completed_cards = [
-            card
-            for card in path_cards
-            if _selected_path_passed_strategy_checkpoint(
+        completed_cards: list[dict[str, Any]] = []
+        for card in path_cards:
+            checkpoint_state = _selected_path_strategy_checkpoint_state(
                 branch,
                 strategy_card=card,
                 steps=selected_path_steps,
             )
-        ]
+            if checkpoint_state["checkpoint_executed"]:
+                completed_cards.append(
+                    {
+                        **dict(card),
+                        "checkpoint_chemical_confidence": checkpoint_state[
+                            "chemical_confidence"
+                        ],
+                    }
+                )
         prompt = _milestone_strategy_prompt(
             campaign_target=campaign_target,
             selected_product=selected_product,
@@ -6350,6 +6760,7 @@ class SequentialStrategyDirectorRunner:
             completed_strategy_cards=completed_cards,
             route_steps=route_step_rows,
             retired_strategy_feedback=retired_strategy_feedback,
+            allow_material_boundary=bool(paper_matched and self.planning_evidence is not None),
         )
         _assert_node_prompt_size(prompt, max_prompt_bytes)
         task = _strategy_task(
@@ -6358,7 +6769,10 @@ class SequentialStrategyDirectorRunner:
             branch_index=branch_index,
             attempt_index=next_strategy_call,
             model=str(spec.metadata.get("model") or ""),
-            reasoning_effort=str(spec.metadata.get("reasoning_effort") or "medium"),
+            reasoning_effort=str(
+                spec.metadata.get("reasoning_effort")
+                or DEFAULT_CODEX_REASONING_EFFORT
+            ),
             timeout_s=_node_call_timeout_s(
                 started,
                 quota,
@@ -6367,9 +6781,11 @@ class SequentialStrategyDirectorRunner:
             paper_matched=paper_matched,
             target_smiles=selected_product,
         )
+        if paper_matched and self.planning_evidence is not None:
+            task.host_context["allow_material_boundary"] = True
         reservation, budget_reason = budget_ledger.reserve(
-            input_tokens=_CRITIC_INPUT_TOKEN_RESERVE,
-            output_tokens=_CRITIC_OUTPUT_TOKEN_RESERVE,
+
+            task=task,
         )
         if reservation is None:
             branch.setdefault("strategy_milestone_attempts", []).append(
@@ -6383,7 +6799,7 @@ class SequentialStrategyDirectorRunner:
             )
             return None
         try:
-            record = self._run_journaled_worker(self.node_executor, task)
+            record = self._run_journaled_worker(self.node_executor, task, reservation=reservation)
         except Exception:
             budget_ledger.settle(reservation, None)
             raise
@@ -6394,6 +6810,35 @@ class SequentialStrategyDirectorRunner:
         branch["strategy_call_count"] = next_strategy_call
         branch["strategy_milestone_generation_count"] = next_generation_count
         branch["call_count"] = int(branch.get("call_count") or 0) + 1
+        payload = dict((record.output_artifact or {}).get("payload") or {})
+        material_request = dict(payload.get("strategy_card") or {}).get("material_boundary")
+        if material_request is not None and task.host_context.get("allow_material_boundary"):
+            try:
+                if record.status != "accepted_draft" or not isinstance(material_request, Mapping):
+                    raise ValueError("material_boundary_output_invalid")
+                boundary = bind_material_boundary(
+                    material_request,
+                    references=self.planning_evidence.observed_references(
+                        list(material_request.get("reference_ids") or []),
+                    ),
+                    selected_smiles=selected_product, selected_mapped_smiles=selected_product_mapped,
+                    steps=route_step_rows, task_id=task.task_id,
+                )
+            except ValueError as exc:
+                branch.setdefault("strategy_milestone_attempts", []).append({
+                    "task_id": task.task_id, "accepted": False, "reason": str(exc),
+                    "milestone_index": milestone_index,
+                })
+                return None
+            branch["material_boundary_review"] = boundary
+            branch["_material_boundary_steps"] = [dict(row) for row in route_step_rows]
+            self._append_model_io_event({
+                "event": "material_boundary_review_requested", "task_id": task.task_id,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "branch_index": branch_index + 1, "material_boundary_review": boundary,
+                "retained_route_steps": route_step_rows,
+            })
+            return None
         card = _strategy_card_from_record(
             record,
             expected_target=selected_product,
@@ -6464,15 +6909,15 @@ class SequentialStrategyDirectorRunner:
             target_smiles=selected_product,
         )
         critic_reservation, critic_budget_reason = budget_ledger.reserve(
-            input_tokens=_CRITIC_INPUT_TOKEN_RESERVE,
-            output_tokens=_CRITIC_OUTPUT_TOKEN_RESERVE,
+
+            task=critic_task,
         )
         if critic_reservation is None:
             attempt["reason"] = f"strategy_critic_shared_model_budget:{critic_budget_reason}"
             branch.setdefault("strategy_milestone_attempts", []).append(attempt)
             return None
         try:
-            critic_record = self._run_journaled_worker(self.critic_executor, critic_task)
+            critic_record = self._run_journaled_worker(self.critic_executor, critic_task, reservation=critic_reservation)
         except Exception as exc:
             critic_record = WorkerRunRecord(
                 run_id=f"{critic_task.task_id}:run",
@@ -6505,6 +6950,10 @@ class SequentialStrategyDirectorRunner:
             "task_id": critic_task.task_id,
             "accepted": reviewed_card is not None,
         }
+        if reviewed_card is not None:
+            critic_history["review"] = dict(
+                reviewed_card.get("strategy_review") or {}
+            )
         branch.setdefault("strategy_milestone_critic_history", []).append(critic_history)
         if reviewed_card is None:
             attempt["critic_task_id"] = critic_task.task_id
@@ -6673,7 +7122,10 @@ class SequentialStrategyDirectorRunner:
             # conversion to the one-based id shown in logs and model I/O.
             node_index=call_index - 1,
             model=str(spec.metadata.get("model") or ""),
-            reasoning_effort=str(spec.metadata.get("reasoning_effort") or "medium"),
+            reasoning_effort=str(
+                spec.metadata.get("reasoning_effort")
+                or DEFAULT_CODEX_REASONING_EFFORT
+            ),
             timeout_s=_node_call_timeout_s(
                 started,
                 quota,
@@ -6709,6 +7161,9 @@ class SequentialStrategyDirectorRunner:
             require_complete_route_json=prompt_complete_route,
             minimum_route_depth=1,
             single_step_only=compiler_first,
+            target_atom_maps=_mapped_atom_maps(
+                branch.get("target_mapped_smiles") or _mapped_smiles(target)
+            ),
         )
         diagnostic: dict[str, Any] | None = None
         materialization_editor_attempted = False
@@ -6883,6 +7338,9 @@ class SequentialStrategyDirectorRunner:
             require_reaction_operations=True,
             compiler=self.routejson_compiler,
             max_candidates=max_candidates,
+            target_atom_maps=_mapped_atom_maps(
+                branch.get("target_mapped_smiles") or ""
+            ),
         )
         branch.setdefault("reactionjson_candidate_batches", []).append(
             {
@@ -7352,34 +7810,12 @@ def _node_budget_block_reason(
     """Return the single owning resource boundary blocking another call."""
 
     rows = list(records)
-    completed_rows = [row for row in rows if not worker_provider_failure_reason(row)]
-    if len(completed_rows) + max(0, int(reserve_model_invocations)) >= quota.model_invocations:
+    exposure = budget_exposure(rows)
+    if exposure["model_invocations"] + max(0, int(reserve_model_invocations)) >= quota.model_invocations:
         return "model_invocation_allocation_exhausted"
-    input_tokens = sum(
-        max(
-            0,
-            int(
-                dict(row.usage or {}).get("input_tokens")
-                or dict(row.usage or {}).get("prompt_tokens")
-                or 0
-            ),
-        )
-        for row in completed_rows
-    )
-    output_tokens = sum(
-        max(
-            0,
-            int(
-                dict(row.usage or {}).get("output_tokens")
-                or dict(row.usage or {}).get("completion_tokens")
-                or 0
-            ),
-        )
-        for row in completed_rows
-    )
-    if input_tokens + max(0, int(reserve_input_tokens)) >= quota.input_tokens:
+    if exposure["input_tokens"] + max(0, int(reserve_input_tokens)) >= quota.input_tokens:
         return "input_token_allocation_exhausted"
-    if output_tokens + max(0, int(reserve_output_tokens)) >= quota.output_tokens:
+    if exposure["output_tokens"] + max(0, int(reserve_output_tokens)) >= quota.output_tokens:
         return "output_token_allocation_exhausted"
     if _remaining_node_wall_time(started, quota) <= (
         max(0.0, float(reserve_wall_time_s)) + _deadline_settlement_reserve_s(quota)
@@ -7432,6 +7868,7 @@ def _public_branch(branch: Mapping[str, Any]) -> dict[str, Any]:
             if isinstance(row, Mapping)
         ],
         "strategic_milestone_count": int(branch.get("strategic_milestone_count") or 0),
+        "material_boundary_review": current_material_boundary(branch),
         "steps": [dict(row) for row in branch.get("steps") or []],
         "open_leaves": list(branch.get("open_leaves") or []),
         "open_leaf_states": [
@@ -7753,27 +8190,24 @@ def _structure_profile(smiles: str) -> dict[str, Any]:
 def _target_topology_profile(smiles: str) -> dict[str, Any]:
     """Return graph-derived topology aids without inventing scaffold names.
 
-    RDKit exposes a cycle basis, not the ordered ring-system notation used by
-    synthetic chemists.  Keep the basis explicitly unordered and report only
-    actual ring junctions so Strategy workers cannot turn a sorted size list
-    into a false ``A/B/C/D`` scaffold assignment.
+    RDKit's symmetry-preserving ring set can contain dependent cycles. Compute
+    independent cycle ranks from edges and vertices, and label perceived ring
+    sizes separately; neither supplies a chemist's ordered scaffold notation.
     """
 
     molecule = Chem.MolFromSmiles(smiles)
     if molecule is None:
         return {}
-    rings = [set(ring) for ring in molecule.GetRingInfo().AtomRings()]
+    rings = [set(ring) for ring in Chem.GetSymmSSSR(molecule)]
+    ring_bonds = [set(ring) for ring in molecule.GetRingInfo().BondRings()]
     junction_counts: Counter[tuple[tuple[int, int], int]] = Counter()
-    for left_index, left in enumerate(rings):
-        for right in rings[left_index + 1 :]:
-            shared_atom_count = len(left & right)
-            if shared_atom_count:
-                cycle_basis_sizes = tuple(sorted((len(left), len(right))))
-                junction_counts[(cycle_basis_sizes, shared_atom_count)] += 1
     ring_neighbors: dict[int, set[int]] = {index: set() for index in range(len(rings))}
     for left_index, left in enumerate(rings):
         for right_index in range(left_index + 1, len(rings)):
-            if left & rings[right_index]:
+            shared_atom_count = len(left & rings[right_index])
+            if shared_atom_count:
+                ring_sizes = tuple(sorted((len(left), len(rings[right_index]))))
+                junction_counts[(ring_sizes, shared_atom_count)] += 1
                 ring_neighbors[left_index].add(right_index)
                 ring_neighbors[right_index].add(left_index)
     ring_systems: list[dict[str, Any]] = []
@@ -7789,40 +8223,35 @@ def _target_topology_profile(smiles: str) -> dict[str, Any]:
             pending.extend(ring_neighbors[index] - component)
         unseen -= component
         system_rings = [rings[index] for index in sorted(component)]
-        overlaps = [
-            len(system_rings[left_index] & system_rings[right_index])
-            for left_index in range(len(system_rings))
-            for right_index in range(left_index + 1, len(system_rings))
-            if system_rings[left_index] & system_rings[right_index]
-        ]
+        system_atoms = set().union(*system_rings)
+        system_bonds = set().union(*(ring_bonds[index] for index in component))
         ring_systems.append(
             {
-                "cycle_rank": len(system_rings),
-                "cycle_basis_sizes_unordered": sorted(len(ring) for ring in system_rings),
-                "atom_count": len(set().union(*system_rings)),
-                "fused_pair_count": sum(value == 2 for value in overlaps),
-                "spiro_pair_count": sum(value == 1 for value in overlaps),
-                "bridged_overlap_pair_count": sum(value > 2 for value in overlaps),
+                "cycle_rank": len(system_bonds) - len(system_atoms) + 1,
+                "perceived_ring_sizes_unordered": sorted(len(ring) for ring in system_rings),
+                "atom_count": len(system_atoms),
             }
         )
     ring_systems.sort(
         key=lambda row: (
             -int(row["cycle_rank"]),
             -int(row["atom_count"]),
-            tuple(row["cycle_basis_sizes_unordered"]),
+            tuple(row["perceived_ring_sizes_unordered"]),
         )
     )
     return {
-        "cycle_rank": len(rings),
-        "cycle_basis_sizes_unordered": sorted(len(ring) for ring in rings),
+        "cycle_rank": (
+            molecule.GetNumBonds() - molecule.GetNumAtoms() + len(Chem.GetMolFrags(molecule))
+        ),
+        "perceived_ring_sizes_unordered": sorted(len(ring) for ring in rings),
         "ring_systems": ring_systems,
         "ring_junction_topology": [
             {
-                "cycle_basis_sizes_unordered": list(cycle_basis_sizes),
+                "perceived_ring_sizes_unordered": list(ring_sizes),
                 "shared_atom_count": shared_atom_count,
                 "pair_count": pair_count,
             }
-            for (cycle_basis_sizes, shared_atom_count), pair_count in sorted(
+            for (ring_sizes, shared_atom_count), pair_count in sorted(
                 junction_counts.items()
             )
         ],
@@ -7838,6 +8267,34 @@ def _mapped_smiles(smiles: str) -> str:
     return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 
+def _mapped_atom_maps(mapped_smiles: Any) -> set[int]:
+    molecule = Chem.MolFromSmiles(str(mapped_smiles or ""))
+    if molecule is None:
+        return set()
+    return {
+        int(atom.GetAtomMapNum())
+        for atom in molecule.GetAtoms()
+        if int(atom.GetAtomMapNum()) > 0
+    }
+
+
+def _route_root_atom_maps(
+    steps: Iterable[Mapping[str, Any]],
+    *,
+    fallback_mapped: str,
+) -> set[int]:
+    """Return the immutable campaign-target atom lineage for one route path."""
+
+    for step in steps:
+        if not isinstance(step, Mapping):
+            continue
+        mapped = str(step.get("mapped_product_smiles") or "").strip()
+        maps = _mapped_atom_maps(mapped)
+        if maps:
+            return maps
+    return _mapped_atom_maps(fallback_mapped)
+
+
 def _route_atom_map_namespace(
     steps: Iterable[Mapping[str, Any]],
     *extra_mapped_smiles: str,
@@ -7849,7 +8306,10 @@ def _route_atom_map_namespace(
         if not isinstance(step, Mapping):
             continue
         values.append(str(step.get("mapped_product_smiles") or ""))
-        values.extend(str(value) for value in step.get("mapped_precursor_smiles") or [])
+        # Auxiliary inputs are outside the synthesis frontier, but their maps
+        # remain reserved by complete-route replay. Allocate from that same
+        # participant namespace, including legacy rows backed by replay audit.
+        values.extend(mapped_reaction_input_smiles(step))
     namespace: set[int] = set()
     for value in values:
         molecule = Chem.MolFromSmiles(value)
@@ -7904,8 +8364,7 @@ def _path_repair_focus_atom_maps(path_repair: Mapping[str, Any]) -> frozenset[in
     rejected_rows = [
         row
         for row in reference_rows
-        if str(dict(row.get("prior_key_critic") or {}).get("status") or "") == "rejected"
-        or str(dict(row.get("prior_key_critic") or {}).get("verdict") or "") == "reject"
+        if str(dict(row.get("prior_key_critic") or {}).get("verdict") or "") == "reject"
     ]
     focus_rows = rejected_rows or reference_rows
     return frozenset(
@@ -7977,13 +8436,14 @@ def _paper_strategy_portfolio_prompt(*, target: str, enhanced: bool = True) -> s
         "phase": "strategy_generator",
         "campaign_target": target,
         "target_topology_profile": topology_profile,
-        "strategy_count": 3,
+        **({"strategy_count": 3} if not enhanced else {}),
     }
     if not enhanced:
         return "\n".join(
             [
-                "Act as the paper-matched Strategy Generator and create exactly three independent high-level strategies in this single call.",
-                "Internally generate more than three possibilities, compare and attack their weakest chemical assumptions across the paper's four dimensions: scaffold/backbone, one or two key forward reactions, functional-group/protection compatibility, and stereochemical construction or control. Return only the three survivors; do not expose the internal debate.",
+                "Act as the AutoPlanner Strategy Generator and create exactly three independent high-level strategies in this single call.",
+                STRATEGY_PRIORS,
+                "Internally generate more than three possibilities, compare and attack their weakest chemical assumptions across four chemical dimensions: scaffold/backbone, one or two key forward reactions, functional-group/protection compatibility, and stereochemical construction or control. Return only the three survivors; do not expose the internal debate.",
                 "For each card, output one strategy_query sentence, one critical_assumption sentence, and one critic_checkpoint sentence. strategy_query identifies the high-level construction, the reactive-handle motif that enables it, and the main stereochemical or functional-group control. critical_assumption names the make-or-break chemical claim. critic_checkpoint is the earliest non-substitutable graph transformation that directly tests that assumption; a downstream event that could succeed while the assumption remains false, or a preparatory handle installation/unmasking, is not a valid checkpoint.",
                 "The three strategy_query values must differ materially in skeletal construction or reorganization and key transformation logic, not merely in reagents or labels.",
                 "Routine FGI is strategic only when it directly enables the key construction. Do not output atom-map pairs, precursor structures, conditions, rationales, limitations, tables, or mechanistic essays.",
@@ -7999,12 +8459,13 @@ def _paper_strategy_portfolio_prompt(*, target: str, enhanced: bool = True) -> s
         )
     return "\n".join(
         [
-            "Act as the paper-matched Strategy Generator and create exactly three independent high-level strategies in this single call.",
-            "Internally generate more than three possibilities, compare and attack their weakest chemical assumptions across the paper's four dimensions: scaffold/backbone, one or two key forward reactions, functional-group/protection compatibility, and stereochemical construction or control. Return only the three survivors; do not expose the internal debate.",
-            "Use target_topology_profile.ring_systems only as a graph-derived aid for identifying the principal connected ring system. cycle_basis_sizes_unordered is an unordered, non-unique cycle basis, not a chemist's ordered A/B/C/D ring assignment; never rewrite that sorted list as an ordered x/y/z scaffold name. Infer the actual scaffold from campaign_target. For a fused, bridged, spiro, or otherwise complex polycyclic target, every surviving card must say how that principal scaffold/backbone is constructed, reorganized, or inherited from a specifically simpler scaffold. Installing only a side chain or peripheral ring while silently assuming the same complex core is already available is a late-stage tactic, not a complete Strategy card.",
-            "For each card, output one strategy_query sentence, one critical_assumption sentence, and one critic_checkpoint sentence. strategy_query identifies the current route horizon: the high-level principal-scaffold construction logic, the reactive-handle motif that enables its first decisive event, and the main stereochemical or functional-group control. It need not enumerate the complete route or every ring closure. critical_assumption names the make-or-break chemical claim. critic_checkpoint is the earliest non-substitutable graph transformation that directly tests that assumption; a downstream event that could succeed while the assumption remains false, or a preparatory handle installation/unmasking, is not a valid checkpoint.",
+            "Act as the AutoPlanner Strategy Generator and generate the promising, materially distinct high-level strategies in this single call; let chemical merit determine the number. Return an empty strategy_cards list when none is promising.",
+            STRATEGY_PRIORS,
+            "Compare plausible possibilities and challenge their weakest chemical assumptions across four chemical dimensions: scaffold/backbone, one or two key forward reactions, functional-group/protection compatibility, and stereochemical construction or control. Return only promising survivors; do not fill a quota; do not expose the internal debate.",
+            "Use target_topology_profile.ring_systems only as a graph-derived aid for identifying the principal connected ring system. cycle_rank counts independent cycles; perceived_ring_sizes_unordered describes RDKit's possibly dependent perceived rings, not a chemist's ordered A/B/C/D ring assignment; never rewrite that sorted list as an ordered x/y/z scaffold name. Infer the actual scaffold from campaign_target. For de novo synthesis of a complex polycycle, account for construction or reorganization of the principal backbone from a simpler scaffold. For a process-focused task, the decisive event may be side-chain construction or selectivity control; state the inherited core's construction or credible supply burden without making its reconstruction the mandatory checkpoint.",
+            "For each card, output one strategy_query sentence, one critical_assumption sentence, and one critic_checkpoint sentence. strategy_query identifies the current route horizon: the scaffold construction or task-defining process/selectivity logic, the reactive-handle motif that enables its first decisive event, and the main stereochemical or functional-group control. It need not enumerate the complete route or every ring closure. critical_assumption names the make-or-break chemical claim. critic_checkpoint is the earliest non-substitutable graph transformation that directly tests that assumption; a downstream event that could succeed while the assumption remains false, or a preparatory handle installation/unmasking, is not a valid checkpoint.",
             "Keep each horizon operational: any proposed multi-bond construction must name a consumable reactive-handle motif and a credible source of regio-, termination-, and stereochemical control. Do not hide several unsupported C-H bond formations or independent reactions inside one named cascade.",
-            "The three strategy_query values must differ materially in the principal scaffold's skeletal construction or reorganization and key transformation logic, not merely in a peripheral appendage, reagents, or labels. Do not let all three cards inherit the same unexplained complex core.",
+            STRATEGY_DIVERSITY_GUIDANCE,
             "A chemical, chiral-pool, or chemoenzymatic horizon is eligible. Use a biological transformation only when the exact substrate-to-product change and its selectivity advantage are chemically credible; natural biosynthetic origin alone is not evidence that one callable enzyme can build the target core.",
             "Routine FGI is strategic only when it directly enables the key construction. Do not output atom-map pairs, precursor structures, conditions, rationales, limitations, tables, or mechanistic essays.",
             "Return only the compact StrategyPortfolioReport. Do not build routes, write ReactionJSON, browse, inspect stock, or add evidence or enzyme fields.",
@@ -8046,13 +8507,15 @@ def _paper_strategy_portfolio_critic_prompt(
     }
     return "\n".join(
         [
-            "Act as the independent Strategy Critic for one three-card portfolio before Route Builder search begins.",
-            "Use target_topology_profile only as a graph-derived topology aid. ring_junction_topology reports actual shared-atom junctions and ring_systems identifies connected ring systems. cycle_basis_sizes_unordered is an unordered, non-unique cycle basis, not a chemist's ordered A/B/C/D ring assignment; never rewrite the sorted values as an ordered x/y/z scaffold name or infer fused/spiro relationships from them alone. Infer the actual scaffold from campaign_target. Challenge whether each named key construction can plausibly account for the target's backbone and stereochemical burden, whether the stated reactive-handle motif is sufficient at a high level, and whether critical_assumption identifies the real make-or-break claim. Require critic_checkpoint to be the earliest non-substitutable graph transformation that directly tests that claim; reject a downstream event that could occur even if the critical assumption or an earlier required key construction never occurred.",
+            "Act as the Strategy Critic for the supplied portfolio before Route Builder search begins; reassess the supplied chemistry rather than adopting earlier judgments.",
+            CATALYSIS_PLANNING_GUIDANCE,
+            "Use target_topology_profile only as a graph-derived topology aid. ring_junction_topology reports overlaps between perceived rings, not unique physical junction counts and ring_systems identifies connected ring systems. cycle_rank counts independent cycles; perceived_ring_sizes_unordered describes RDKit's possibly dependent perceived rings, not a chemist's ordered A/B/C/D ring assignment; never rewrite the sorted values as an ordered x/y/z scaffold name or infer fused/spiro relationships from them alone. Infer the actual scaffold from campaign_target. Challenge whether each named key construction can plausibly account for the target's backbone and stereochemical burden, whether the stated reactive-handle motif is sufficient at a high level, and whether critical_assumption identifies the real make-or-break claim. Require critic_checkpoint to be the earliest non-substitutable graph transformation that directly tests that claim; reject a downstream event that could occur even if the critical assumption or an earlier required key construction never occurred.",
             "Reject or minimally revise a horizon whose claimed multi-bond event lacks consumable reactive handles, whose regio-, termination-, or stereochemical control is only an adjective, or which hides several unsupported C-H bond formations or independent reactions inside one cascade label.",
-            "Review the three cards as a portfolio. For a complex polycyclic target, three cards that install different peripheral groups but all assume the same unexplained principal core are one redundant strategy family and must be replaced with materially different core-construction or core-reorganization logics. Keep useful directions, but do not turn a strategy into a complete route or a required-map checklist.",
-            "Copy every acceptable card verbatim when it is chemically and portfolio-level acceptable. A specific chemical contradiction, a non-testing checkpoint, peripheral-only scope, or a shared unexplained complex core is sufficient reason to revise or replace a card; preserve every unchallenged reactive-handle identity, protection or masking requirement, tether or precursor geometry clause, stereochemical-control clause, and sequencing constraint; never paraphrase merely for brevity or style.",
+            STRATEGY_DIVERSITY_GUIDANCE,
+            "Review the cards as a portfolio. Require explicit construction or credible supply of an inherited complex core. Keep each checkpoint to one earliest graph transformation; assess handoff design in the relevant reaction conditions and process objectives in the whole-route review.",
+            "Copy every acceptable card verbatim when it is chemically and portfolio-level acceptable. A specific chemical contradiction, a non-testing checkpoint, failure to address the task's decisive bottleneck, or an unexplained complex core is sufficient reason to revise or replace a card; preserve every unchallenged reactive-handle identity, protection or masking requirement, tether or precursor geometry clause, stereochemical-control clause, and sequencing constraint; never paraphrase merely for brevity or style.",
             "Do not make an acceptable card more specific by adding a named downstream reaction, reactive pair, catalyst, ligand, reagent, or mechanism that the Strategy Generator did not propose. Added detail is not criticism. When one concrete defect requires revision, change only the contradicted clause; replace the whole card only when its principal scaffold logic is itself unusable, and keep any replacement at the same high-level Strategy granularity.",
-            "Return exactly three reviewed cards. Each card contains only strategy_query, critical_assumption, and critic_checkpoint, one concise sentence each. Do not expose the critique, score cards, write ReactionJSON, propose precursor structures or conditions, browse, inspect stock, or claim admission, validation, or solved status.",
+            "Return one reviewed card per input card in the same order. Use discard for an unpromising or redundant direction when no sound minimal revision is available; preserve its three original sentences so the discarded proposal remains reviewable. Do not invent replacements to fill a quota. Each card contains the three concise Strategy sentences plus review_decision=keep|revise|replace|discard and one concise decisive_risk. These two review fields are observation metadata, not admission. Do not expose a longer critique, score cards, write ReactionJSON, propose precursor structures or conditions, browse, inspect stock, or claim validation or solved status.",
             "StrategyPortfolioCriticInput:",
             json.dumps(
                 context,
@@ -8082,7 +8545,8 @@ def _strategy_prompt(
         }
         return "\n".join(
             [
-                "Act as the paper-matched Strategy Generator and select one high-level strategy after internally assessing scaffold/backbone, one or two key forward reactions, functional-group/protection compatibility, and stereochemical construction or control.",
+                "Act as the AutoPlanner Strategy Generator and select one high-level strategy after internally assessing scaffold/backbone, one or two key forward reactions, functional-group/protection compatibility, and stereochemical construction or control.",
+                STRATEGY_PRIORS,
                 "Output only one strategy_query sentence, one critical_assumption sentence, and one critic_checkpoint sentence. The strategy identifies the key forward event and its control logic; critic_checkpoint identifies the single actual graph transformation that should trigger a later sparse audit, not a preparatory handle installation or route stage.",
                 "Keep the event operational: name its consumable reactive-handle motif and the actual source of regio-, termination-, and stereochemical control; do not hide unsupported C-H bond formations or independent reactions inside one cascade label.",
                 "Routine FGI is strategic only when it directly enables the key construction. Do not output atom-map pairs, precursor structures, conditions, alternatives, rationales, limitations, tables, or mechanistic essays.",
@@ -8137,7 +8601,7 @@ def _strategy_prompt(
         ]
     else:
         instructions = [
-            "Act only as the Strategy Generator for one blind retrosynthesis branch.",
+            "Act only as the AutoPlanner Strategy Generator for one retrosynthesis branch.",
             "Do not build a route, propose precursor SMILES, write ReactionJSON, predict conditions, search literature, or use stock availability.",
             "Compare at least three materially distinct strategies on scaffold/ring topology, the key forward construction, functional-group and protection conflicts, stereochemical construction, convergence, and expected decomplexification.",
             "Select one strategy satisfying strategy_lens. It must be anchored on a route-defining one-to-two-step construction rather than a cosmetic FGI, protection, redox, nitration, halogenation, or methylation.",
@@ -8170,14 +8634,14 @@ def _compact_retired_strategy_feedback(
     if not card and not assessment:
         return {}
     return {
-        "strategy_query": str(card.get("strategy_query") or "")[:500],
-        "critical_assumption": str(card.get("critical_assumption") or "")[:420],
-        "critic_checkpoint": str(card.get("critic_checkpoint") or "")[:420],
+        "strategy_query": str(card.get("strategy_query") or ""),
+        "critical_assumption": str(card.get("critical_assumption") or ""),
+        "critic_checkpoint": str(card.get("critic_checkpoint") or ""),
         "blocking_type": str(assessment.get("blocking_type") or "none"),
         "reasons": [
-            str(reason)[:260] for reason in assessment.get("reasons") or [] if str(reason).strip()
+            str(reason) for reason in assessment.get("reasons") or [] if str(reason).strip()
         ][:2],
-        "suggested_revision": str(assessment.get("suggested_revision") or "")[:420],
+        "suggested_revision": str(assessment.get("suggested_revision") or ""),
     }
 
 
@@ -8192,6 +8656,7 @@ def _milestone_strategy_prompt(
     completed_strategy_cards: Iterable[Mapping[str, Any]],
     route_steps: Iterable[Mapping[str, Any]],
     retired_strategy_feedback: Mapping[str, Any] | None = None,
+    allow_material_boundary: bool = False,
 ) -> str:
     context = _strategy_horizon_context(
         campaign_target=campaign_target,
@@ -8210,12 +8675,18 @@ def _milestone_strategy_prompt(
     return "\n".join(
         [
             "Act only as the Strategy Generator for the next route horizon inside an existing retrosynthesis branch.",
-            "The exact selected_upstream_leaf_mapped, connected_path_reactions, completed_milestones, and current_split_context are one Host-derived leaf-lineage projection. Preserve that target-rooted reaction spine, but plan only for the selected molecular occurrence; a co-precursor marked expanded belongs to a sibling lineage and is context, not this leaf's reaction history.",
+            STRATEGY_PRIORS,
+            "continuation_hint, when present, is the immediate parent Builder occurrence's unexecuted local hypothesis. Use it to preserve useful continuity but reassess it for this selected leaf; it is not evidence or a fixed Strategy.",
+            "The exact selected_upstream_leaf_mapped, connected_path_reactions, executed_milestones, and current_split_context are one Host-derived leaf-lineage projection. Preserve that target-rooted reaction spine, but plan only for the selected molecular occurrence; a co-precursor marked expanded belongs to a sibling lineage and is context, not this leaf's reaction history.",
             "When retired_strategy is present, the Key Critic has rejected that horizon at this exact leaf because its checkpoint or critical assumption is not locally repairable. Replace its route-defining graph transformation; do not relabel the same checkpoint or merely swap reagents.",
-            "Internally compare plausible leaf-local directions and choose the strongest next route-defining construction, scaffold reorganization, stereochemical relay, or convergent simplification. If the leaf still contains a complex principal ring system, explain its next meaningful decomplexification; a peripheral FGI or appendage edit is not the new Strategy unless the principal scaffold is already simple.",
+            *([MATERIAL_BOUNDARY_GUIDANCE] if allow_material_boundary else []),
+            ("If choosing continued synthesis: " if allow_material_boundary else "")
+            + "Internally compare plausible leaf-local directions and choose the strongest next route-defining construction, scaffold reorganization, stereochemical relay, or convergent simplification. If the leaf still contains a complex principal ring system, explain its next meaningful decomplexification; a peripheral FGI or appendage edit is not the new Strategy unless the principal scaffold is already simple.",
             "The chosen horizon must be operational at Strategy granularity: name the consumable reactive-handle motif and the source of regio-, termination-, and stereochemical control, without hiding unsupported C-H bond formations or independent reactions inside one cascade label.",
-            "Return only one concise strategy_query, one critical_assumption, and one critic_checkpoint. The query states the new horizon and enabling motif, not a complete route. The checkpoint is the earliest actual graph transformation that tests the assumption, not preparatory handle installation.",
-            "Do not repeat a completed milestone, propose precursor SMILES, write ReactionJSON, predict conditions, search literature, or use stock availability. Route Builder will execute the selected horizon one reaction at a time.",
+            ("For continued synthesis, set material_boundary=null and return " if allow_material_boundary
+             else "Return only ")
+            + "one concise strategy_query, one critical_assumption, and one critic_checkpoint. The query states the new horizon and enabling motif, not a complete route. The checkpoint is the earliest actual graph transformation that tests the assumption, not preparatory handle installation.",
+            "Do not repeat an executed milestone. A milestone with chemical_confidence=uncertain was structurally executed but remains a route risk; account for that risk without replanning the same event. Do not propose precursor SMILES, write ReactionJSON, predict conditions, search literature, or use stock availability. Route Builder will execute the selected horizon one reaction at a time.",
             "A biological step is optional and must name a credible substrate-to-product transformation and selectivity advantage in the same compact query; otherwise retain a chemical or chiral-pool direction.",
             "Return one compact StrategyCardReport whose target_smiles is exactly selected_upstream_leaf. The card is a hypothesis and grants no route, reaction, evidence, stock, or solved authority.",
             "BlindUpstreamStrategyMilestoneInput:",
@@ -8262,15 +8733,16 @@ def _upstream_strategy_critic_prompt(
     return "\n".join(
         [
             "Act as the Strategy Critic for one newly proposed upstream horizon.",
+            STRATEGY_PRIORS,
             "If retired_strategy is present, reject any generated_card that repeats or paraphrases its route-defining checkpoint or preserves the same disproven critical assumption; a reagent rename is not a new Strategy.",
-            "The selected leaf, connected reaction spine, completed milestones, and current split are one Host-derived molecular-occurrence lineage. Audit whether the generated horizon can synthesize the exact selected_upstream_leaf while remaining chemically and sequentially compatible with that downstream spine. A co-precursor marked expanded belongs to a sibling lineage; use it for split compatibility but never treat its upstream reactions as this leaf's history.",
+            "The selected leaf, connected reaction spine, executed milestones, and current split are one Host-derived molecular-occurrence lineage. Audit whether the generated horizon can synthesize the exact selected_upstream_leaf while remaining chemically and sequentially compatible with that downstream spine. An uncertain executed milestone remains a route risk but must not be proposed again. A co-precursor marked expanded belongs to a sibling lineage; use it for split compatibility but never treat its upstream reactions as this leaf's history.",
             "selected_upstream_leaf_stereo, when present, is the Host's compact RDKit observation of stereochemistry already encoded in the selected leaf. Use it to distinguish a center or alkene geometry that the proposed checkpoint can actually create or alter from one that already exists and is untouched by that event; it is not selectivity evidence.",
             "Copy the three generated sentences verbatim unless a concrete chemical contradiction, conflict with the accepted prefix, repeated milestone, or non-atomic checkpoint requires correction. Do not invent a more specific named reaction merely to make the card sound detailed, and preserve every unchallenged handle, protection, geometry, stereochemical-control, and sequencing clause.",
             "A Strategy horizon is not required to be the next Builder reaction. The Builder may first perform separate protection, redox, unmasking, or reactive-handle installation steps; audit their compatibility and ordering without replacing the route-defining horizon or its checkpoint with one of those preparatory reactions.",
             "While the selected leaf still has a complex principal scaffold, every revision or replacement must retain route-defining scaffold construction, reorganization, stereochemical relay, or convergent-simplification granularity. A peripheral functional-group adjustment is not a Strategy checkpoint unless the principal scaffold is already simple and no route-defining scaffold problem remains.",
             "The checkpoint must name the earliest fact observable immediately after one reaction. Retain every make-or-break structural or stereochemical outcome created in that same event when critical_assumption depends on it; do not weaken such a checkpoint to bond formation alone. Conversely, do not require a stereocenter, bond, or oxidation state created only by a genuinely later reaction.",
             "Reject or minimally revise a horizon whose multi-bond construction lacks consumable reactive handles, whose regio-, termination-, or stereochemical control is only an adjective, or which hides unsupported C-H bond formations or independent reactions inside one cascade label.",
-            "Return only one compact StrategyCardReport for the exact selected_upstream_leaf, containing strategy_query, critical_assumption, and critic_checkpoint. Do not expose critique, alternatives, scores, precursor structures, ReactionJSON, conditions, evidence, or a route.",
+            "Return only one compact StrategyCardReport for the exact selected_upstream_leaf, containing the three Strategy sentences plus review_decision=keep|revise|replace and one concise decisive_risk. The review fields are observation metadata, not admission. Do not expose a longer critique, alternatives, scores, precursor structures, ReactionJSON, conditions, evidence, or a route.",
             "UpstreamStrategyCheckpointReviewInput:",
             json.dumps(
                 context,
@@ -8362,6 +8834,7 @@ def _strategy_portfolio_task(
     reasoning_effort: str,
     timeout_s: float,
     target_smiles: str = "",
+    fixed_strategy_count: bool = False,
 ) -> WorkerTask:
     return WorkerTask(
         task_id=f"{spec.agent_id}:strategy-portfolio:1",
@@ -8382,7 +8855,8 @@ def _strategy_portfolio_task(
         agent_mode="single",
         codex_auth_mode="ambient_codex_cli",
         model=model,
-        host_context={"target_smiles": str(target_smiles or "")},
+        host_context={"target_smiles": str(target_smiles or ""),
+                      **({"strategy_count": 3} if fixed_strategy_count else {})},
     )
 
 
@@ -8427,6 +8901,7 @@ def _strategy_card_from_record(
     ):
         return None
     raw_card = dict(payload.get("strategy_card") or {})
+    strategy_review = _strategy_review_metadata(raw_card)
     if paper_matched:
         raw_card = _paper_matched_strategy_card_payload(raw_card)
     card = normalize_strategy_card(raw_card)
@@ -8438,6 +8913,8 @@ def _strategy_card_from_record(
         mapped_target_smiles=expected_mapped_target,
     ):
         return None
+    if strategy_review:
+        card["strategy_review"] = strategy_review
     return card
 
 
@@ -8455,8 +8932,8 @@ def _strategy_cards_from_portfolio_record(
         or _canonical_smiles(payload.get("target_smiles")) != expected_target
     ):
         return None
-    raw_cards = payload.get("strategy_cards") or []
-    if not isinstance(raw_cards, list) or len(raw_cards) != 3:
+    raw_cards = payload.get("strategy_cards")
+    if not isinstance(raw_cards, list):
         return None
     cards: list[dict[str, Any]] = []
     for raw_card in raw_cards:
@@ -8468,10 +8945,34 @@ def _strategy_cards_from_portfolio_record(
             target_smiles=expected_target,
         ):
             return None
-        if _strategy_conflicts(card, cards):
+        strategy_review = _strategy_review_metadata(raw_card)
+        if (strategy_review.get("review_decision") != "discard" and _strategy_conflicts(
+                card, [prior for prior in cards if
+                       dict(prior.get("strategy_review") or {}).get("review_decision") != "discard"])):
             return None
+        if strategy_review:
+            card["strategy_review"] = strategy_review
         cards.append(card)
     return cards
+
+
+def _strategy_review_metadata(
+    value: Mapping[str, Any] | None,
+) -> dict[str, str]:
+    """Keep Critic observation outside canonical Strategy identity."""
+
+    raw = dict(value or {})
+    decision = str(raw.get("review_decision") or "").strip().lower()
+    decisive_risk = " ".join(
+        str(raw.get("decisive_risk") or "").split()
+    ).strip()
+    if decision not in {"keep", "revise", "replace", "discard"} or not decisive_risk:
+        return {}
+    return {
+        "review_decision": decision,
+        "decisive_risk": decisive_risk,
+        "authority": "strategy_critic_observation_only",
+    }
 
 
 def _paper_matched_strategy_card_payload(
@@ -8586,12 +9087,13 @@ def _compact_builder_rejection(value: Mapping[str, Any]) -> dict[str, Any]:
         "allowed_orders",
         "invalidated_bond_stereo",
         "required_repair",
+        "colliding_atom_map",
+        "fresh_atom_map_start",
         "boundary_step_id",
         "boundary_product_smiles",
         "precursor_index",
         "actual_mapped_precursor_smiles",
-        "selected_boundary_distance",
-        "candidate_boundary_distance",
+        "rejection_reason",
         "stereo_mismatch_atom_maps",
         "stereo_mismatch_bond_maps",
     ):
@@ -8610,13 +9112,13 @@ def _compact_builder_rejection(value: Mapping[str, Any]) -> dict[str, Any]:
         compact["replay_diagnostic"] = diagnostic
     if is_chemical:
         reasons = [
-            str(value)[:260]
+            str(value)
             for value in raw_chemical.get("reasons") or row.get("reasons") or []
             if str(value).strip()
         ][:2]
         suggested_revision = str(
             raw_chemical.get("suggested_revision") or row.get("suggested_revision") or ""
-        ).strip()[:420]
+        ).strip()
         compact["chemical_rejection"] = {
             "focus_step_id": str(
                 raw_chemical.get("focus_step_id") or row.get("focus_step_id") or ""
@@ -8689,6 +9191,8 @@ def _merge_path_repair_replay_failure(
             "allowed_orders",
             "invalidated_bond_stereo",
             "required_repair",
+            "colliding_atom_map",
+            "fresh_atom_map_start",
         ):
             value = row.get(key)
             if value not in (None, "", [], {}):
@@ -8748,7 +9252,9 @@ def _step_claims_strategy_key_event(
     )
 
 
-def _key_event_fingerprint(step: Mapping[str, Any]) -> str:
+def _key_event_graph_fingerprint(step: Mapping[str, Any]) -> str:
+    """Identify the mapped reaction graph independently of implementation."""
+
     payload = {
         "mapped_product_smiles": str(step.get("mapped_product_smiles") or ""),
         "mapped_precursor_smiles": list(step.get("mapped_precursor_smiles") or []),
@@ -8767,48 +9273,123 @@ def _key_event_fingerprint(step: Mapping[str, Any]) -> str:
     ).hexdigest()[:20]
 
 
-def _bind_key_event_focus_assessment(
-    critique: Mapping[str, Any], focus_step_id: str
-) -> dict[str, Any]:
-    """Bind the one key-event assessment to the Host-owned focus identity.
+def _key_event_implementation_fingerprint(step: Mapping[str, Any]) -> str:
+    """Identify one graph plus its normalized catalyst/condition hypothesis."""
 
-    The compact provider wire does not author opaque route step identifiers;
-    the Host already owns that identity when it dispatches the single-focus
-    audit.  Bind only one otherwise-unidentified assessment.  A conflicting
-    identity or multiple assessments is an invalid/ambiguous response and is
-    deliberately left unchanged for the normal unavailable path.
+    condition_rows: list[str] = []
+
+    def add(value: Any) -> None:
+        text = " ".join(str(value or "").split()).strip().casefold()
+        if text:
+            condition_rows.append(text)
+
+    for value in step.get("conditions") or ():
+        add(value)
+    add(step.get("catalyst"))
+    add(step.get("enzyme"))
+    add(step.get("execution_domain"))
+    for raw in step.get("condition_predictions") or ():
+        if not isinstance(raw, Mapping):
+            continue
+        for value in raw.get("reagents") or raw.get("conditions") or ():
+            add(value)
+        add(raw.get("catalyst"))
+        add(raw.get("enzyme"))
+    payload = {
+        "graph_fingerprint": _key_event_graph_fingerprint(step),
+        "implementation_conditions": sorted(set(condition_rows)),
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()[:20]
+
+
+def _key_event_rejection_memory_conflict(
+    branch: Mapping[str, Any],
+    *,
+    strategy_card: Mapping[str, Any],
+    steps: Iterable[Mapping[str, Any]],
+    selected_product_mapped: str,
+    candidate_step: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Reject only retries that violate the Critic's requested change kind.
+
+    A conditions-or-catalyst rejection permits the same molecular graph with
+    a materially different implementation.  A precursor-state or topology
+    rejection requires a different graph, regardless of renamed conditions.
+    The append-only, lineage-scoped Critic history remains the authority; this
+    helper only enforces its already-active constraint before another paid
+    Critic call.
     """
 
-    bound = dict(critique)
-    raw_assessments = list(critique.get("step_assessments") or [])
-    assessments = [
-        dict(value) if isinstance(value, Mapping) else value for value in raw_assessments
-    ]
-    bound["step_assessments"] = assessments
-    focus_id = str(focus_step_id or "")
-    if not focus_id:
-        return bound
-    rows = [value for value in assessments if isinstance(value, Mapping)]
-    if any(str(row.get("step_id") or "") == focus_id for row in rows):
-        return bound
-    if len(rows) != 1 or len(assessments) != 1:
-        return bound
-    if str(rows[0].get("step_id") or ""):
-        return bound
-    rows[0]["step_id"] = focus_id
-    return bound
+    feedback = _pending_key_event_feedback_for_leaf(
+        branch,
+        strategy_card=strategy_card,
+        steps=steps,
+        selected_product_mapped=selected_product_mapped,
+    )
+    active_obligation_ids = {
+        str(row.get("obligation_id") or "")
+        for row in feedback.get("active_constraints") or ()
+        if isinstance(row, Mapping) and str(row.get("obligation_id") or "")
+    }
+    if not active_obligation_ids:
+        return {}
 
-
-def _key_event_focus_assessment(
-    critique: Mapping[str, Any], focus_step_id: str
-) -> dict[str, Any] | None:
-    for value in critique.get("step_assessments") or []:
-        if not isinstance(value, Mapping):
+    candidate_graph = _key_event_graph_fingerprint(candidate_step)
+    candidate_implementation = _key_event_implementation_fingerprint(candidate_step)
+    for raw in reversed(list(branch.get("key_event_critic_history") or ())):
+        if not isinstance(raw, Mapping):
             continue
-        assessment = dict(value)
-        if str(assessment.get("step_id") or "") == str(focus_step_id):
-            return assessment
-    return None
+        row = dict(raw)
+        if _key_event_obligation_id(row) not in active_obligation_ids:
+            continue
+        assessment = dict(row.get("assessment") or {})
+        if str(assessment.get("verdict") or "") != "reject":
+            continue
+        rejected_graph = str(
+            row.get("graph_fingerprint") or row.get("fingerprint") or ""
+        )
+        if not rejected_graph or rejected_graph != candidate_graph:
+            continue
+        required_change_kind = str(
+            assessment.get("required_change_kind") or "none"
+        )
+        rejected_implementation = str(
+            row.get("implementation_fingerprint") or row.get("fingerprint") or ""
+        )
+        if required_change_kind == "conditions_or_catalyst":
+            if (
+                rejected_implementation
+                and rejected_implementation != candidate_implementation
+            ):
+                continue
+            reason = "candidate_repeats_rejected_key_event_implementation"
+        elif required_change_kind in {
+            "precursor_covalent_state",
+            "reaction_topology",
+            "strategy_horizon",
+        }:
+            reason = "candidate_repeats_structurally_rejected_key_event_graph"
+        else:
+            # Old/invalid Critic rows did not express a deterministic mutation
+            # boundary.  Preserve the fail-open compatibility behavior and
+            # let the Critic reassess the new candidate.
+            continue
+        return {
+            "reason": reason,
+            "required_change_kind": required_change_kind,
+            "rejected_focus_step_id": str(row.get("focus_step_id") or ""),
+            "rejected_graph_fingerprint": rejected_graph,
+            "candidate_graph_fingerprint": candidate_graph,
+            "candidate_implementation_fingerprint": candidate_implementation,
+        }
+    return {}
 
 
 def _connected_path_ancestor_smiles(
@@ -8840,7 +9421,7 @@ def _compact_replayed_edit_summary(step: Mapping[str, Any]) -> str:
         if op in {"break_bond", "add_bond", "change_bond_order"}:
             pair = f"maps {operation.get('map_a')}-{operation.get('map_b')}"
             if op == "add_bond":
-                labels.append(f"add bond {pair} order {operation.get('order')}")
+                labels.append(f"add bond {pair} order 1")
             elif op == "change_bond_order":
                 labels.append(f"change bond {pair} by {operation.get('delta')}")
             else:
@@ -8964,21 +9545,26 @@ def _parent_step_for_boundary(
 
 def _compact_path_reaction_rows(
     steps: Iterable[Mapping[str, Any]],
-) -> list[dict[str, str]]:
-    """Project replayed reaction facts without copying molecular structures."""
+) -> list[dict[str, Any]]:
+    """Keep compact history plus the immediate consumer's implementation."""
 
-    return [
+    source = [row for row in steps if isinstance(row, Mapping)]
+    rows = [
         {
             "step_id": str(row.get("step_id") or ""),
             "reaction_family": str(
                 row.get("reaction_family") or row.get("transformation_hypothesis") or ""
-            )[:160],
+            ),
             "checkpoint_relation": _normalize_checkpoint_relation(row.get("checkpoint_relation")),
             "edit_summary": _compact_replayed_edit_summary(row),
         }
-        for row in steps
-        if isinstance(row, Mapping)
+        for row in source
     ]
+    if rows:
+        consumer = _paper_critic_step_row(source[-1], compact_level=0)
+        rows[-1].update({key: consumer[key] for key in
+                        ("conditions", "catalyst", "execution_domain") if key in consumer})
+    return rows
 
 
 def _current_split_context(
@@ -9101,7 +9687,7 @@ def _strategy_horizon_context(
         selected_product_mapped=selected_product_mapped,
     )
     context: dict[str, Any] = {
-        "schema_version": "strategy_horizon_context.v1",
+        "schema_version": "strategy_horizon_context.v2",
         "phase": str(phase),
         "campaign_target": campaign_target,
         "selected_upstream_leaf": selected_product,
@@ -9110,17 +9696,22 @@ def _strategy_horizon_context(
         "selected_upstream_leaf_topology_profile": _target_topology_profile(selected_product),
         "branch_id": branch_index + 1,
         "milestone_index": max(2, int(milestone_index)),
-        "completed_milestones": [
+        "executed_milestones": [
             {
-                "strategy_query": str(card.get("strategy_query") or "")[:500],
-                "critical_assumption": str(card.get("critical_assumption") or "")[:300],
-                "critic_checkpoint": str(card.get("critic_checkpoint") or "")[:300],
+                "strategy_query": str(card.get("strategy_query") or ""),
+                "critical_assumption": str(card.get("critical_assumption") or ""),
+                "critic_checkpoint": str(card.get("critic_checkpoint") or ""),
+                "chemical_confidence": str(
+                    card.get("checkpoint_chemical_confidence") or "pass"
+                ),
             }
             for card in completed_strategy_cards
             if isinstance(card, Mapping)
         ],
         "connected_path_reactions": [dict(row) for row in lineage.reaction_spine],
     }
+    if lineage.connected_steps and lineage.connected_steps[-1].get("continuation_hint"):
+        context["continuation_hint"] = str(lineage.connected_steps[-1]["continuation_hint"])
     stereo = _compact_mapped_stereo_context(selected_product_mapped)
     if stereo:
         context["selected_upstream_leaf_stereo"] = stereo
@@ -9133,6 +9724,7 @@ def _path_repair_editor_prompt(
     *,
     target: str,
     strategy_card: Mapping[str, Any],
+    repair_mode: str,
     steps: Iterable[Mapping[str, Any]],
     critic_feedback: Mapping[str, Any],
     provisional_rejected_step_ids: Iterable[str] = (),
@@ -9143,9 +9735,14 @@ def _path_repair_editor_prompt(
         str(value).strip() for value in provisional_rejected_step_ids if str(value).strip()
     ]
     context = {
-        "schema_version": "path_repair_editor_context.v2",
+        "schema_version": "path_repair_editor_context.v4",
         "campaign_target": target,
-        "strategy": {
+        "repair_mode": repair_mode,
+        "route_json": _minimal_editor_prompt_route_rows(steps),
+        "critic_annotations": dict(critic_feedback),
+    }
+    if repair_mode == "strategy_checkpoint":
+        context["strategy"] = {
             key: value
             for key, value in dict(strategy_card).items()
             if key
@@ -9155,19 +9752,29 @@ def _path_repair_editor_prompt(
                 "critical_assumption",
                 "critic_checkpoint",
             }
-        },
-        "route_json": _minimal_editor_prompt_route_rows(steps),
-        "critic_annotations": dict(critic_feedback),
-    }
+        }
     if provisional_ids:
         context["provisional_rejected_step_ids"] = provisional_ids
     prompt_rows = [
         "Act as the route-level chemistry Editor. Read the complete current RouteJSON and the Critic's concrete blockers. RouteJSON is target-rooted: earlier rows are target-side and later rows are farther upstream.",
+        (
+            "This is an online strategy_checkpoint repair. Preserve the exact supplied Strategy while choosing the smallest local span that can execute its checkpoint and resolve the Critic findings."
+            if repair_mode == "strategy_checkpoint"
+            else "This is a final cut_frontier repair. No individual Strategy horizon is a repair constraint: preserve viable target-side chemistry and choose the smallest span that resolves the concrete blockers while reconnecting the Host's retained molecular boundaries."
+        ),
         "repair_transaction_scope already joins blockers connected by Host topology or the Critic's explicit chemical dependency. Deferred blockers are independent under the current evidence. If a deferred blocker nevertheless shares an inseparable protecting-group, reactive-state, or sequence dependency that makes separate repair chemically impossible, list only that blocker in additional_coupled_blocker_step_ids; otherwise return an empty list.",
-        "Return only rollback_start_step_id, rebuild_through_step_id, additional_coupled_blocker_step_ids, preserved_suffix_compatible, one concise chemical repair_goal, and at most five active_constraints. rollback_start_step_id is the earliest target-side row that must change; rebuild_through_step_id is the last upstream row that must be regenerated. Include every selected or additionally coupled blocker affected by reaction reordering. Do not write revised steps, ReactionJSON operations, atom maps, precursor structures, stock claims, alternatives, or an explanation.",
-        "The Host removes the dependency-closed start-through region, preserves the target-side durable prefix and unrelated branches, and treats later dependent rows as an exact old suffix. Before setting preserved_suffix_compatible=true, verify that the repair goal and every active constraint can still produce each retained suffix product with the same functional-group, protection, and stereochemical state. If not, extend rebuild_through_step_id through the incompatible row; return false only when no valid exact boundary can be retained, so the Host can stop before spending Builder calls.",
+        "Return only change_step_ids, additional_coupled_blocker_step_ids, preserved_suffix_compatible, one concise chemical repair_goal, and at most five active_constraints. change_step_ids names the existing reaction occurrences whose chemistry or supplied molecular state must be reconsidered. Include every selected or additionally coupled blocker and any necessary preparations, even when they pass locally. Do not calculate array intervals, write revised steps, ReactionJSON operations, atom maps, precursor structures, stock claims, alternatives, or an explanation.",
+        "The Host computes the smallest connected subtree containing change_step_ids and preserves every unselected branch. Before setting preserved_suffix_compatible=true, verify that the repair goal can meet each retained branch's molecular state with its existing functional groups, protection, isotopes and stereochemistry. Include incompatible preparations or consumers and every step of obsolete supply branches in change_step_ids. Return false only when no valid retained boundary can be met.",
+        EDITOR_INTENT_GUIDANCE,
+        CHEMICAL_REVIEW_SCOPE,
+        TRANSFORMATION_GUIDANCE,
+        STAGE_GUIDANCE,
         "Use repair_goal to state the structural or mechanistic correction the rebuilt local pathway must achieve. Do not prescribe database edits or restate the whole route. active_constraints should contain only route-level chemistry that cannot be inferred from the molecular frontier, such as a Strategy-defining construction or an essential sequence/compatibility requirement.",
-        "critic_annotations.active_checkpoint_constraints, when present, are unresolved Host-derived findings from earlier checkpoint candidates on this exact Strategy and mapped lineage. They remain binding across this route-span transaction. Do not reinterpret or omit them; use the directive's active_constraints only for additional span-level requirements, because the Host will carry a compact checkpoint summary forward automatically.",
+        (
+            "critic_annotations.active_checkpoint_constraints are unresolved Host-derived findings on this exact Strategy and mapped lineage. They remain binding across this transaction. Use active_constraints only for additional span-level requirements; the Host carries the checkpoint findings forward."
+            if repair_mode == "strategy_checkpoint"
+            else "Use active_constraints only for dependencies the rebuilt local span cannot infer from its molecular frontier. Do not reintroduce a Strategy as a surrogate repair requirement."
+        ),
         "A repair directive is not a deletion request and grants no admission: ordinary Builder calls must add a Host-replayable local path, reconnect the preserved suffix when one exists, and then survive complete-route replay and re-Critic. The old route remains authoritative until that transaction commits.",
         "PathRepairEditorContext:",
         json.dumps(
@@ -9190,7 +9797,7 @@ def _path_repair_checkpoint_constraint_summary(
 ) -> str:
     """Compact existing Key-Critic memory into one repair constraint.
 
-    The append-only history remains the authority.  One bounded derived string
+    The append-only history remains the authority. One derived string
     lets the existing ``path_repair.active_constraints`` channel preserve the
     latest distinct chemical facts without adding another state field or
     allowing the Editor to silently retire prior checkpoint findings.
@@ -9207,10 +9814,10 @@ def _path_repair_checkpoint_constraint_summary(
     for row in rows[-6:]:
         blocking_type = str(row.get("blocking_type") or "chemical").strip()
         reasons = [
-            str(value).strip()[:260] for value in row.get("reasons") or [] if str(value).strip()
+            str(value).strip() for value in row.get("reasons") or [] if str(value).strip()
         ]
-        suggested_revision = str(row.get("suggested_revision") or "").strip()[:420]
-        detail = reasons[0] if reasons else "unresolved checkpoint contradiction"
+        suggested_revision = str(row.get("suggested_revision") or "").strip()
+        detail = " ".join(reasons) if reasons else "unresolved checkpoint contradiction"
         if suggested_revision:
             detail += f" Required correction: {suggested_revision}"
         rendered = f"{blocking_type}: {detail}"
@@ -9230,13 +9837,13 @@ def _path_repair_checkpoint_feedback(
 
     repair = dict(path_repair or {})
     constraints = [
-        str(value).strip()[:520]
+        str(value).strip()
         for value in repair.get("active_constraints") or []
         if str(value).strip()
     ][:5]
     if not constraints:
         return {}
-    repair_goal = str(repair.get("repair_goal") or "").strip()[:420]
+    repair_goal = str(repair.get("repair_goal") or "").strip()
     return {
         "strategy_digest": _strategy_card_digest(strategy_card),
         "active_constraints": [
@@ -9438,9 +10045,14 @@ def _node_prompt(
     }
     if paper_matched and not editor_route_mutations and not complete_route_json:
         selected_canonical = _canonical_smiles(selected_product)
+        lineage_context = _route_lineage_context(
+            step_rows,
+            selected_product=selected_product,
+            selected_product_mapped=selected_product_mapped,
+        )
         current_mcts_state_fingerprint = _aiz_policy_state_fingerprint(
             selected_leaf_mapped=str(selected_product_mapped or _mapped_smiles(selected_product)),
-            route_steps=step_rows,
+            route_steps=lineage_context.connected_steps,
         )
         leaf_rejections = [
             _compact_builder_rejection(row)
@@ -9456,11 +10068,6 @@ def _node_prompt(
                 or str(row.get("mcts_state_fingerprint") or "") == current_mcts_state_fingerprint
             )
         ]
-        lineage_context = _route_lineage_context(
-            step_rows,
-            selected_product=selected_product,
-            selected_product_mapped=selected_product_mapped,
-        )
         pending_checkpoint_feedback = dict(
             host_failure_feedback.get("pending_checkpoint_feedback") or {}
         )
@@ -9480,20 +10087,30 @@ def _node_prompt(
             "schema_version": "sequential_route_builder_context.v1",
             "phase": "route_local_repair" if repair else "route_builder_node",
             "target_smiles": target,
-            "strategy": {
-                key: value
-                for key, value in dict(strategy_card).items()
-                if key
-                in {
-                    "strategy_query",
-                    "critical_assumption",
-                    "critic_checkpoint",
-                }
-            },
             "selected_leaf_mapped": str(
                 selected_product_mapped or _mapped_smiles(selected_product)
             ),
         }
+        compact_strategy = {
+            key: value
+            for key, value in dict(strategy_card).items()
+            if key
+            in {
+                "strategy_query",
+                "critical_assumption",
+                "critic_checkpoint",
+            }
+        }
+        decisive_risk = str(
+            dict(dict(strategy_card).get("strategy_review") or {}).get(
+                "decisive_risk"
+            )
+            or ""
+        ).strip()
+        if decisive_risk:
+            compact_strategy["decisive_risk"] = decisive_risk
+        if compact_strategy:
+            memory["strategy"] = compact_strategy
         stereo_inspection = inspect_mapped_smiles(memory["selected_leaf_mapped"])
         stereo_context = _compact_mapped_stereo_context(
             memory["selected_leaf_mapped"],
@@ -9507,6 +10124,10 @@ def _node_prompt(
         )
         if selected_leaf_topology.get("ring_paths"):
             memory["selected_leaf_topology"] = selected_leaf_topology
+        parent_hint = (str(lineage_context.connected_steps[-1].get("continuation_hint") or "")
+                       if lineage_context.connected_steps else "")
+        if parent_hint:
+            memory["continuation_hint"] = parent_hint
         for key, value in (
             (
                 "connected_path_reactions",
@@ -9524,10 +10145,14 @@ def _node_prompt(
             if value:
                 memory[key] = value
     if paper_matched and not editor_route_mutations and not complete_route_json:
-        context_guidance: list[str] = []
+        context_guidance: list[str] = [
+            "continuation_hint is the parent Builder's revisable advice for this leaf; reassess it after a split.",
+            "When pending_checkpoint_feedback.proposal_clarification is supplied, this is a request to specify missing chemistry in an unaccepted candidate, not a rejection. Address its concrete question with one executable ReactionJSON move; do not invent evidence or change unrelated chemistry.",
+            "Return continuation_hint as one or two sentences about the resulting precursor's next useful disconnection or unresolved dependency. Identify the relevant precursor after a split. Omit repeated Strategy, conditions, disclaimers and generic comparator commentary.",
+        ]
         if memory.get("connected_path_reactions"):
             context_guidance.append(
-                "connected_path_reactions is the complete compact Host-replayed reaction history on this target-to-leaf path. Use its reaction families and edit summaries to avoid undoing, repeating, or falsely claiming chemistry that has not occurred."
+                "connected_path_reactions contains the replayed history; its last row also supplies the direct downstream consumer's conditions. Preserve a compatible feed, catalyst-removal and solvent handoff into that implementation."
             )
         if memory.get("current_split_context"):
             context_guidance.append(
@@ -9558,15 +10183,25 @@ def _node_prompt(
             )
             if memory["pending_checkpoint_feedback"].get("failure_basin"):
                 context_guidance.append(
-                    "pending_checkpoint_feedback.failure_basin is a diagnostic summary of distinct rejected checkpoint candidates on this same Strategy and mapped leaf lineage. When it shows a recurrent failure across structurally different candidates, do not merely rename reagents or draw another cosmetic checkpoint variant: choose a preparatory move that materially changes the reactive topology, required handle, or control element, or a genuinely different executable graph construction. It does not itself reject the Strategy; the independent Critic decides whether the horizon must change."
+                    "pending_checkpoint_feedback.failure_basin separates graph failures from catalyst/condition implementations. If required_change_kind is conditions_or_catalyst, a materially new implementation of the same graph is allowed. If it is precursor_covalent_state or reaction_topology, change that structure rather than rename reagents. This diagnostic never rejects the Strategy; the Critic owns that decision."
                 )
         if memory.get("path_repair"):
+            context_guidance.append(RECOVERY_GUIDANCE)
+            boundary_observation = _path_repair_boundary_stereo_conflict(
+                mapped_precursor_smiles=[memory["selected_leaf_mapped"]],
+                reconnect_boundaries=path_repair_context.get("reconnect_boundaries") or [],
+            )
+            if boundary_observation:
+                memory["boundary_observation"] = {
+                    **boundary_observation, "direct_reconnection_allowed": False,
+                    "further_transformation_allowed": True,
+                }
             context_guidance.append(
                 "path_repair gives the Critic-derived local repair goal and any exact old suffix boundary that the Host can reattach. Do not reproduce the preserved suffix or invent atom maps solely to force a match."
             )
             if memory["path_repair"].get("reconnect_boundaries"):
                 context_guidance.append(
-                    "When path_repair.reconnect_boundaries is present, this is a bounded replacement transaction, not a new stock search: choose the shortest local sequence to an exact mapped boundary, and make every returned precursor strictly closer to at least one boundary. Do not continue upstream toward stock or rebuild the preserved suffix; the Host detects and attaches the boundary."
+                    "When path_repair.reconnect_boundaries is present, this is a bounded replacement transaction, not a new stock search: reconnect every retained suffix in its exact molecular state. The Host translates isomorphic atom-map labels consistently through the suffix; retain atoms according to the chemistry, never replace an oxygen just to match an old label. removed_terminal_open_precursor boundaries are optional inputs of deleted reactions; do not synthesize an obsolete reagent merely to restore them. New co-precursors need Host-confirmed stock or explicit upstream preparation. A chemically necessary temporary graph-distance detour is allowed; exact identity, stereochemistry, Host replay, and final suffix attachment remain mandatory. Do not rebuild a preserved suffix."
                 )
             if memory["path_repair"].get("replay_failures"):
                 context_guidance.append(
@@ -9576,35 +10211,51 @@ def _node_prompt(
                 context_guidance.append(
                     "path_repair.repair_reference_span is the compact Host-replayed mutable span removed by this transaction. It is reference, not accepted history or an instruction to copy a rejected edge. Reuse its exact mapped atoms, coherent endpoints, and sound operations when useful, but correct every active Critic constraint; prior_key_critic distinguishes previously passed anchors from rejected attempts."
                 )
+        repair_completion_mode = str(path_repair_context.get("completion_mode") or "")
         checkpoint_instruction = (
-            "During route-local repair, path_repair.repair_goal guides the replacement chemistry. checkpoint_relation retains its normal Strategy meaning and never signals repair completion. The Host replays the provisional route and the route Critic alone decides whether the repair goal is resolved."
+            "During this strategy_checkpoint repair, checkpoint_relation keeps its normal Strategy meaning. Use executes_checkpoint only for the candidate whose ordered operations realize strategy.critic_checkpoint; the Key-event Critic, not the label, decides execution."
+            if repair and repair_completion_mode == "strategy_checkpoint"
+            else "During this cut_frontier repair, return checkpoint_relation=preparatory. No Strategy checkpoint governs repair completion; the Host uses exact boundary replay and the final Route Critic audits chemistry."
             if repair
             else "Set checkpoint_relation=executes_checkpoint only when this candidate's ordered operations themselves realize strategy.critic_checkpoint. Set checkpoint_relation=preparatory for handle installation, unmasking, functional-group adjustment, or any other step that merely enables or mentions the checkpoint. This label is scheduling metadata, not proof or admission."
         )
         private_path_instruction = (
-            "Privately plan the shortest chemically coherent local replacement from selected_leaf_mapped to an exact path_repair.reconnect_boundaries molecular occurrence. Return only the single best next ReactionJSON move; omit alternatives and the comparison process."
+            "Privately plan the shortest chemically coherent local replacement from selected_leaf_mapped to the required retained molecular boundaries in path_repair.reconnect_boundaries; optional inputs of deleted reactions need not reappear. Return only the single best next ReactionJSON move; omit alternatives and the comparison process."
             if repair and path_repair_context.get("reconnect_boundaries")
+            else "Privately work out the shortest chemically coherent local pathway that resolves path_repair.repair_goal while preserving the accepted target-side path and exact Host frontier. Return only the single best current ReactionJSON move; omit alternatives and the comparison process."
+            if repair
             else "Privately work out a complete chemically coherent pathway from selected_leaf_mapped through the Strategy's named construction toward accessible precursors, and compare plausible disconnections in that route context. Return only the single best current ReactionJSON move for selected_leaf_mapped. The one-object output boundary does not limit route-level reasoning; omit alternatives and the comparison process."
+        )
+        opening = (
+            "Act as the Route Builder's next-step expansion policy for an online strategy_checkpoint repair. Keep the accepted target-side path and exact supplied Strategy, address path_repair, and return one ordinary executable reaction at a time."
+            if repair and repair_completion_mode == "strategy_checkpoint"
+            else "Act as the Route Builder's next-step expansion policy for a final cut_frontier repair. Keep the accepted target-side path, address path_repair, and return one ordinary executable reaction at a time; no individual Strategy horizon constrains this local rebuild."
+            if repair
+            else "Act as the Route Builder's next-step expansion policy for one selected MCTS node. strategy.strategy_query is the steering hypothesis and guides the whole pathway; strategy.critic_checkpoint names the one actual graph transformation reserved for the sparse key-event audit."
+        )
+        strategy_check = (
+            "Check the Strategy against the actual net graph edit, not the reaction name. When the named construction consumes or creates specific reactive handles, those mapped atoms and bonds must participate in the defining operations. When stereochemical control is part of the named construction, the relevant stereochemistry or geometry must be represented or deliberately transformed in the replayable structures and operations. reaction_intent, catalysts, and conditions cannot substitute for missing topology or stereochemical information."
+            if memory.get("strategy")
+            else "Check the proposed reaction against its actual net graph edit, not its name. Reactive handles and any claimed stereochemical control must be present in the replayable structures and operations; reaction_intent, catalysts, and conditions cannot substitute for missing topology."
         )
         return "\n".join(
             [
-                (
-                    "Act as the Route Builder's next-step expansion policy for one selected MCTS node under a route-local repair. Keep the accepted target-side path and Strategy, and directly address path_repair; return one ordinary executable reaction at a time."
-                    if repair
-                    else "Act as the Route Builder's next-step expansion policy for one selected MCTS node. strategy.strategy_query is the steering hypothesis and guides the whole pathway; strategy.critic_checkpoint names the one actual graph transformation reserved for the sparse key-event audit."
-                ),
+                opening,
                 private_path_instruction,
-                "One candidate must represent one executable reaction. A concerted or genuinely inseparable cascade may contain several graph edits, and its operations must encode the complete connected bond-change pattern; but an independent protection/deprotection, activation, redox change, workup transformation, or second reagent stage is a separate reaction edge even when it could be performed without isolating the intermediate. Do not telescope independent events to satisfy Critic feedback, and do not split one mechanistic event into fictitious intermediates. Privately challenge the chosen move, then compile and mentally replay it against selected_leaf_mapped before answering; use only maps present there because the Host derives both endpoints.",
-                "Check the Strategy against the actual net graph edit, not the reaction name. When the named construction consumes or creates specific reactive handles, those mapped atoms and bonds must participate in the defining operations. When stereochemical control is part of the named construction, the relevant stereochemistry or geometry must be represented or deliberately transformed in the replayable structures and operations. reaction_intent, catalysts, and conditions cannot substitute for missing topology or stereochemical information.",
+                BUILDER_GRANULARITY_GUIDANCE,
+                strategy_check,
                 checkpoint_instruction,
+                "Stereo operation semantics: invert_stereocenter reverses the current RDKit neighbor-order tag at that point in the ordered edit program. It does not mean invert the product's R/S label after ligand replacement. add_group/remove_group can change neighbor order and CIP priorities. When final absolute intent matters after such edits, use set_tetrahedral_stereo to specify the final edited graph's R/S, then inspect the replayed endpoints. An R/S letter change alone is not proof of physical inversion or retention; neither operation establishes a reaction mechanism or selectivity.",
                 "ReactionJSON primitive syntax is exact: change_bond_order uses signed delta; change_atom changes formal_charge or isotope only; atom installation/removal uses add_group/remove_group. add_bond always creates a single bond and has no order field; to create a new double or triple bond, follow add_bond with change_bond_order delta 1 or 2. add_group fragment_smiles contains exactly one [*] attachment atom and encodes its attachment bond directly, for example [*]O, [*]=O, or [*]#N; do not output order. For set_bond_stereo provide only map_a, map_b, and E/Z/CIS/TRANS/NONE/ANY intent; the Host derives RDKit stereo reference neighbours. To assign a newly created or unspecified tetrahedral center, use set_tetrahedral_stereo with map_idx and configuration R/S; the Host verifies actual CIP.",
-                "Conditions describe the forward reaction environment for the Host-replayed precursor set -> selected_leaf_mapped product. They must be chemically compatible with that forward transformation even though ReactionJSON operations are written retrosynthetically from product to precursors. Protection/deprotection, tether or reactive-handle installation/removal, activation, and every other covalent state change that defines a precursor must be encoded by ReactionJSON in its own executable step, never claimed only in conditions.",
-                "Express the reaction family and purpose together as one concise reaction_intent sentence. Keep conditions concise and include any catalyst there; they are hypotheses, not proof or a Critic verdict.",
-                "Check functional-group compatibility within the replayed precursor set, including incompatible protic/basic, organometallic, redox, or catalyst-sensitive handles. If compatibility requires a covalent change, make that change an explicit step rather than a condition note.",
+                "For add_group, leave fresh atoms unmapped when no later operation needs to reference them, e.g. [*]O; the Host allocates route-global fresh maps and returns the resolved fragment. Do not guess max(selected_leaf_mapped)+1: removed atoms and other branches may already own it. If later operations need a new atom ID, use a distinct unused map for each new atom and follow any Host fresh_atom_map_start diagnostic; never change existing atom identities to avoid a collision.",
+                "Express reaction family and purpose in one reaction_intent sentence. Keep conditions specific to the forward implementation; state each material screening dependency once. Omit generic 'not proof/not established' preambles and repeated route comparisons.",
+                "Set execution_domain for this step: chemical, enzymatic, whole_cell, or hybrid. In catalyst name the proposed catalyst/ligand, enzyme candidate/class or whole-cell system; use an empty string for none. Identify a screening/development dependency once in conditions without inventing a working variant.",
                 "Prefer a move that advances the steering hypothesis. Necessary enabling reactions may be performed one at a time when the current leaf lacks the required handles; once selected_leaf_mapped contains the needed reactive topology, prefer executing the named key construction instead of accumulating unrelated enabling or supporting transformations.",
                 *context_guidance,
-                "The Host/MCTS alone decides termination, budget exhaustion, stock and solved status. The Builder has no handoff, fail, stop, or solved action; always return the best available ReactionJSON expansion.",
-                "Return only checkpoint_relation, reaction_intent, ordered reaction_operations, and concise conditions. Return no complete RouteJSON, route skeleton, evidence, source, enzyme, validation, stock claim, or long explanation.",
+                ("The Host/MCTS alone decides termination, budget exhaustion, stock and solved status. During repair, recovery requests change only provisional search or ask Editor to reconsider scope."
+                 if repair else "The Host/MCTS alone decides termination, budget exhaustion, stock and solved status. The Builder has no handoff, fail, stop, or solved action; always return the best available ReactionJSON expansion."),
+                ("Return recovery plus checkpoint_relation, reaction_intent, execution_domain, catalyst, reaction_operations, conditions and continuation_hint."
+                 if repair else "Return only checkpoint_relation, reaction_intent, execution_domain, catalyst, ordered reaction_operations, concise conditions, and continuation_hint. Return no complete RouteJSON, route skeleton, evidence, source, enzyme, validation, stock claim, or long explanation."),
                 "PaperMatchedRouteBuilderContext:",
                 json.dumps(memory, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
             ]
@@ -9629,6 +10280,8 @@ def _node_prompt(
                 "allowed_orders",
                 "invalidated_bond_stereo",
                 "required_repair",
+                "colliding_atom_map",
+                "fresh_atom_map_start",
                 "host_replayed_prefix_step_count",
                 "host_open_precursors",
                 "mapped_open_precursor_authority",
@@ -9675,7 +10328,7 @@ def _node_prompt(
         }
         return "\n".join(
             [
-                "Act as the paper-style RouteJSON Editor. You receive the complete Host-replayed route plus Critic annotations, but return only the smallest dependency-closed replace_span that resolves every blocker. remove_step_ids names the old rows to replace; revised_steps contains the complete replacement chemistry. The Host preserves every unlisted row, merges the span, and replays the full route.",
+                "Act as the AutoPlanner RouteJSON Editor. You receive the complete Host-replayed route plus Critic annotations, but return only the smallest dependency-closed replace_span that resolves every blocker. remove_step_ids names the old rows to replace; revised_steps contains the complete replacement chemistry. The Host preserves every unlisted row, merges the span, and replays the full route.",
                 "Smallest means chemically sufficient, not fewest rows. Preserve unrelated viable chemistry, but enlarge the span through every affected dependency when a boundary changes; the span may cover one row, several rows, or the whole route.",
                 "Choose the target-side steps you intend to preserve first and treat each exact Host-derived precursor they consume as a retained boundary. Revised upstream chemistry must directly generate every retained boundary it reconnects to. If no chemically coherent direct connection exists, include the incompatible retained step in remove_step_ids and revise a larger span.",
                 "Do not invent an unsupported intermediate transformation merely to bridge independently designed endpoints. A net graph edit listed in rejected_net_edit_signatures remains rejected even if its reaction name, catalyst, or conditions change.",
@@ -9685,7 +10338,9 @@ def _node_prompt(
                 "ReactionJSON primitive syntax is exact: change_bond_order uses signed delta; change_atom changes formal_charge or isotope only; atom installation/removal uses add_group/remove_group. add_bond always creates a single bond and has no order field; to create a new double or triple bond, follow add_bond with change_bond_order delta 1 or 2. add_group fragment_smiles contains exactly one [*] attachment atom and encodes its attachment bond directly, for example [*]O, [*]=O, or [*]#N; do not output order. For set_bond_stereo provide only map_a, map_b, and stereo intent; the Host derives RDKit reference neighbours. To assign a newly created or unspecified tetrahedral center, use set_tetrahedral_stereo with map_idx and configuration R/S; the Host verifies actual CIP.",
                 "Atom maps are Host graph-replay identities. Use entry maps visible in route_json; introduce or remove atoms explicitly through add_group/remove_group, and give newly introduced atoms stable explicit maps when a later revised step must reference them. Do not output mapped_product_smiles or any precursor list; the Host derives both.",
                 "Never invent stock availability, truncate an unresolved dependency, or promote an unavailable advanced intermediate to claim closure. New structures are allowed only when introduced through explicit, chemically meaningful, replayable ReactionJSON steps.",
-                "Return one brief repair_summary and one replace_span. Each revised step needs only step_id, product_smiles, reaction_family, concise conditions/catalyst, and ordered reaction_operations. Do not output alternatives, tables, long explanations, evidence, validation, stock, or solved claims.",
+                TRANSFORMATION_GUIDANCE,
+                STAGE_GUIDANCE,
+                "Return one brief repair_summary and one replace_span. Each revised step needs only step_id, product_smiles, reaction_family, execution_domain (chemical, enzymatic, whole_cell, or hybrid for this step), catalyst (the proposed system or an empty string), conditions retaining the decisive operating details, and ordered reaction_operations. Do not output alternatives, tables, long explanations, evidence, validation, stock, or solved claims.",
                 "PaperMatchedRouteEditorContext:",
                 json.dumps(
                     editor_context,
@@ -9728,7 +10383,7 @@ def _node_prompt(
         )
     if editor_route_mutations:
         phase_instructions = [
-            "Act as the paper-style RouteJSON Editor. Return a complete revised candidate.route_json by default. Use candidate.route_patch only for a conditions-only edit or a genuinely isolated single-step mutation whose product boundary and every dependency remain unchanged. Preserve the campaign target and the overall Strategy intent; the frozen route rows are editable input, not immutable topology.",
+            "Act as the AutoPlanner RouteJSON Editor. Return a complete revised candidate.route_json by default. Use candidate.route_patch only for a conditions-only edit or a genuinely isolated single-step mutation whose product boundary and every dependency remain unchanged. Preserve the campaign target and the overall Strategy intent; the frozen route rows are editable input, not immutable topology.",
             "The document must remain in target-rooted retrosynthetic storage order: the target-producing disconnection is first and each later product is an exact precursor emitted by an earlier step. Do not reorder it into laboratory forward-execution order; forward executability is checked by reversing the dependency traversal, not by reversing RouteJSON storage.",
             "Repair all Critic-identified blockers as one coordinated route document. You may reorder, insert, delete, or replace steps; alter conditions; add or remove functional groups and reaction handles through ReactionJSON; and change route length or terminal precursor identities when chemistry and dependency continuity require it. Preserve a non-blocking row only when it remains compatible with the coordinated repair.",
             "A rejected disconnection may be replaced when it is not chemically repairable as serialized. Retain the Strategy's overall synthetic intent and key construction when defensible, but do not preserve an impossible named mechanism or exact bond cut merely because it appeared in the initial StrategyCard.",
@@ -9797,6 +10452,8 @@ def _node_prompt(
                 else "Route state is isolated from other branches; compact prior StrategyCards are supplied only to enforce portfolio orthogonality."
             ),
             *phase_instructions,
+            TRANSFORMATION_GUIDANCE,
+            STAGE_GUIDANCE,
             (
                 "When a candidate is returned, its product_smiles must equal selected_open_leaf exactly after canonicalization."
                 if paper_matched and not editor_route_mutations
@@ -9849,6 +10506,7 @@ def _node_task(
     paper_matched: bool = False,
     target_smiles: str = "",
     selected_product: str = "",
+    allow_repair_recovery: bool = False,
 ) -> WorkerTask:
     effective_task_type = task_type
     if paper_matched and task_type == "route_step_materialization":
@@ -9895,6 +10553,7 @@ def _node_task(
         host_context={
             "target_smiles": str(target_smiles or ""),
             "selected_product": str(selected_product or ""),
+            **({"allow_repair_recovery": True} if allow_repair_recovery else {}),
         },
     )
 
@@ -9940,6 +10599,7 @@ def _critic_prompt(
     branch_index: int,
     strategy_card: Mapping[str, Any],
     steps: Iterable[Mapping[str, Any]],
+    selected_strategy_lineage: Iterable[Mapping[str, Any]] = (),
     strategy_milestone_cards: Iterable[Mapping[str, Any]] = (),
     compact_level: int = 0,
     paper_matched: bool = False,
@@ -9965,6 +10625,21 @@ def _critic_prompt(
             }
             and value not in (None, "", [], {})
         }
+    critic_lineage = [
+        {
+            key: value
+            for key, value in dict(card).items()
+            if key
+            in {
+                "strategy_query",
+                "critical_assumption",
+                "critic_checkpoint",
+            }
+            and value not in (None, "", [], {})
+        }
+        for card in selected_strategy_lineage
+        if isinstance(card, Mapping)
+    ]
     source_steps = [dict(step) for step in steps if isinstance(step, Mapping)]
     route_review_bindings = (
         _route_critic_review_bindings(source_steps)
@@ -9997,10 +10672,10 @@ def _critic_prompt(
         ),
         "campaign_target": target,
         "branch_id": branch_index + 1,
-        "strategy_card": critic_strategy,
         "steps": critic_steps,
     }
     if audit_kind in {"key_event", "key_event_followup"}:
+        route["strategy_card"] = critic_strategy
         route["focus_step_id"] = str(focus_step_id)
         focus_topology = _critic_focus_step_topology(critic_steps, str(focus_step_id))
         if focus_topology:
@@ -10015,7 +10690,16 @@ def _critic_prompt(
         failure_basin = dict(dict(checkpoint_feedback or {}).get("failure_basin") or {})
         if failure_basin:
             route["failure_basin"] = failure_basin
+    elif paper_matched:
+        route["root_strategy_card"] = critic_strategy
+        route["selected_strategy_lineage"] = critic_lineage
+    else:
+        route["strategy_card"] = critic_strategy
     repair_completion = dict(repair_completion or {})
+    if audit_kind == "final_route" and repair_completion:
+        requirements = repair_requirements_for_review(repair_completion)
+        if requirements:
+            route["repair_requirements_to_reassess"] = requirements
     if (
         audit_kind == "final_route"
         and str(repair_completion.get("completion_mode") or "") == "strategy_checkpoint"
@@ -10050,26 +10734,29 @@ def _critic_prompt(
     if paper_matched:
         if audit_kind in {"key_event", "key_event_followup"}:
             opening = (
-                "Act as the independent key-event Critic. The Host has now selected a new immediate upstream step after an earlier uncertain audit. Re-audit only the unchanged focus_step_id against strategy_card.critic_checkpoint and the newly available local sequence evidence."
+                "Act as the key-event Critic. The Host has now selected a new immediate upstream step after an earlier uncertain audit. Re-audit only the unchanged focus_step_id against strategy_card.critic_checkpoint and the newly available local sequence evidence."
                 if audit_kind == "key_event_followup"
-                else "Act as the independent key-event Critic. The Host has replayed one new Builder candidate marked executes_checkpoint; audit only focus_step_id against strategy_card.critic_checkpoint."
+                else "Act as the key-event Critic. The Host has replayed one new Builder candidate marked executes_checkpoint; audit only focus_step_id against strategy_card.critic_checkpoint."
             )
             return "\n".join(
                 [
                     opening,
+                    CHEMICAL_REVIEW_SCOPE,
                     "The preceding steps are immutable root-to-leaf context. Do not reject them, demand a complete route, require stock closure, or penalize a key event merely because later upstream synthesis is absent.",
+                    "Audit the focus edge and its interface with the first direct target-side consumer, when present, for reactive-state, protection, stereochemical, and sequence compatibility. Do not expand this into a whole-route audit.",
                     "Before passing the focus step, inspect every chemically compatible reactive handle and site in its actual mapped substrate; compare plausible intramolecular pairings, ring sizes, and competing chemo- or regioselective outcomes. Use uncertain only when no concrete contradiction is established.",
                     "focus_step_topology is the Host's compact RDKit ring-path projection for the mapped focus product and precursors. Use it to count the actual rings retained, created, or removed by the proposed event; it is deterministic graph context, not feasibility or selectivity evidence.",
                     "active_checkpoint_constraints, when present, are unresolved findings from earlier checkpoint attempts on this same Strategy and mapped leaf lineage. Re-evaluate every one against the new Host-replayed candidate. Return pass only if all are resolved; a new defect does not erase an older unresolved constraint.",
-                    "failure_basin, when present, is a diagnostic projection of distinct earlier rejected checkpoint candidates on this same Strategy and mapped leaf lineage. One failed implementation may still warrant repair_scope=focus_edge. But when structurally different candidates repeatedly expose the same mechanistic, reactive-handle, selectivity, or control contradiction in the critical assumption itself, do not mechanically request another focus edge: use the existing repair_scope=strategy_horizon. Make that decision from the chemical evidence, not from a fixed attempt count; a genuinely new locally repairable defect remains focus_edge or route_span as appropriate.",
+                    "failure_basin distinguishes reaction graph from catalyst/condition implementation. An identical implementation is already suppressed by the Host. conditions_or_catalyst permits a new implementation of the same graph; precursor_covalent_state or reaction_topology means a condition-only variant has not made the required change. Use repair_scope=strategy_horizon only when distinct graphs expose a contradiction in the Strategy assumption itself, based on chemistry rather than an attempt count.",
                     "The focus step's mapped product and every preceding row are immutable in a same-parent retry. Set repair_scope=focus_edge only when one replacement reaction edge can correct the unadmitted focus edge while keeping that mapped product unchanged. Set repair_scope=route_span when the correction requires inserting, reordering, or rebuilding multiple adjacent reactions, or changing the focus mapped product or any preceding row; the Host and Editor will rebuild that local span transactionally. Set repair_scope=strategy_horizon only when the checkpoint or critical assumption itself must be replaced because no credible edge or local-span repair can preserve it. Do not abandon a Strategy for one failed implementation. Use repair_scope=none for pass/uncertain; missing evidence that can arise only from extending a chemically coherent precursor farther upstream is uncertain, not a rejected rewrite.",
+                    "For every uncertain step set uncertainty_source to its primary cause: proposal_underspecified when a material implementation detail is absent (suggested_revision names the precise missing detail); evidence_missing when a specified plausible proposal lacks substrate or selectivity support; assessment_unresolved when supplied facts or interpretation remain unresolved. Use null for pass/reject. Reasons may mention secondary causes. Missing evidence alone is not a contradiction. Use available bounded evidence or structure inspection for a question it can actually resolve; do not claim tool evidence you did not obtain.",
                     "First decide checkpoint_match from the Host-derived mapped product, mapped precursors, and ordered graph edits. reaction_family and checkpoint_relation are scheduling claims, not evidence. checkpoint_match=true only when the actual edit instantiates critic_checkpoint and directly tests critical_assumption; exposing, preparing, unmasking, or executing a downstream event that leaves the critical assumption untested is false.",
                     "Forward-simulate the focus edge from its exact mapped precursors to product. Check mechanism, net structural/H/charge/redox plausibility, mapped-atom provenance, and whether the stated conditions supply every required hydrogen transfer, redox, or workup event.",
                     "Serialized product stereochemistry states the intended outcome; it is not evidence that the substrate, catalyst, or conditions select that outcome. Judge stereochemical control from the actual precursor geometry, directing elements, catalyst, and conditions.",
                     "Do not invent a hidden required stereoisomer at a center or bond that the immutable Host product and campaign target leave unspecified. Still judge any claimed stereochemical control from the actual chemistry, but the missing product assignment alone is never a focus_edge or route_span Builder obligation; use uncertain when it only limits what can be proved, or strategy_horizon when the Strategy's specific stereochemical claim itself must be replaced.",
-                    "When critical_assumption itself is a stereochemical, chemo-, regio-, or site-selectivity claim, a focus step that supplies no credible substrate, catalyst, ligand, auxiliary, or mechanistic control for that intended outcome is not executable as written: reject it. More generally, if suggested_revision would change the focus step's operations, covalent precursor state, catalyst, ligand, conditions, or order, return reject so the same parent leaf can produce a corrected edge. Reserve uncertain for missing evidence that can be supplied upstream without modifying the focus edge.",
-                    "Reject a focus edge that telescopes independent reactions into one graph program. A concerted or genuinely inseparable cascade is one event; a separate protection/deprotection, activation, redox, workup transformation, or changed reagent stage with its own covalent change must be an adjacent edge. The smallest suggested revision should request that split rather than hiding both events in one operation.",
-                    f"Return only checkpoint_match, verdict, blocking_type, repair_scope, at most two reasons, and one smallest suggested_revision. repair_scope must be one of {', '.join(KEY_EVENT_REPAIR_SCOPES)} and identifies the mutation owner independently of blocking_type. When checkpoint_match=false because the action is a benign mislabeled preparatory move that preserves the Strategy topology, use verdict=uncertain, blocking_type=none, repair_scope=none so the Host can retain it. When it substitutes for, consumes, or irreversibly cuts required topology, reject it and choose repair_scope from the actual mutable boundary. When checkpoint_match=true, pass means coherent execution, uncertain means plausible but unresolved, and reject requires a specific topology, handle, mechanism, atom-provenance, stereochemical, compatibility, or Strategy contradiction.",
+                    "Use the same verdict boundary as the final Route Critic: pass means the structure, mechanism, and stated control factors coherently support the intended product; uncertain means the transformation is plausible but scope, selectivity, or condition sufficiency still needs validation and no concrete contradiction is known; reject means execution requires changing the structure, reaction type, current catalyst/conditions, or step order. Merely underspecified conditions are uncertain. A specific incompatibility or competing process under the stated conditions is reject.",
+                    CRITIC_GRANULARITY_GUIDANCE,
+                    f"Return only checkpoint_match, verdict, uncertainty_source, blocking_type, repair_scope, required_change_kind, competing_site_maps, at most two reasons, and one smallest suggested_revision. repair_scope must be one of {', '.join(KEY_EVENT_REPAIR_SCOPES)}. For reject, required_change_kind must be conditions_or_catalyst, precursor_covalent_state, reaction_topology, or strategy_horizon; otherwise use none. competing_site_maps contains only mapped atoms that instantiate the concrete selectivity conflict, or an empty list. When checkpoint_match=false because the action is a benign mislabeled preparatory move that preserves the Strategy topology, use verdict=uncertain, blocking_type=none, repair_scope=none, required_change_kind=none. When it substitutes for, consumes, or irreversibly cuts required topology, reject it and choose repair_scope and required_change_kind from the actual mutable boundary.",
                     "Missing literature, route incompleteness, later upstream synthesis, and stock metadata are never blockers. Return no route rewrite or long analysis.",
                     "KeyEventCriticInput:",
                     json.dumps(
@@ -10080,24 +10767,29 @@ def _critic_prompt(
                     ),
                 ]
             )
-        strategy_audit = "Independently compare strategy_card.strategy_query, critical_assumption, and critic_checkpoint with the actual reaction families, structures, and bond edits. No Builder checkpoint_relation, role label, or host anchor claim is evidence. strategy_adherence=true only when at least one supplied step itself executes critic_checkpoint; a step that merely exposes or prepares a later event does not satisfy it."
+        strategy_audit = "Independently compare root_strategy_card with the actual reaction families, structures, and bond edits. selected_strategy_lineage records the successive leaf-local steering hypotheses actually bound to this route and is context for coherence and risk, not an admission contract. No Builder checkpoint_relation, role label, or host anchor claim is evidence. strategy_adherence evaluates only root_strategy_card and is observation metadata: set it true only when at least one supplied step itself executes the root critic_checkpoint; a step that merely exposes or prepares a later event does not satisfy it."
         if route.get("repair_checkpoint_focus"):
-            strategy_audit += " repair_checkpoint_focus binds the one Host-replayed step whose pending transaction must restore that checkpoint. Audit its mapped graph and compact ring topology against every active constraint; for this re-Critic, strategy_adherence=true only when this exact step executes critic_checkpoint. Return exactly one step_assessment with this review_slot."
+            strategy_audit += " repair_checkpoint_focus identifies the rebuilt local step that needs particular attention against its active constraints. Its checkpoint execution was already owned by the Key-event Critic; do not change the root-only meaning of strategy_adherence. Still assess every supplied route step exactly once."
         return "\n".join(
             [
-                "Act as an independent Route Critic. Forward-simulate every supplied reaction from the current frontier toward the target while leaving the target-rooted RouteJSON storage order unchanged.",
+                "Act as the Route Critic. Forward-simulate every supplied reaction from the current frontier toward the target while leaving the target-rooted RouteJSON storage order unchanged.",
+                CHEMICAL_REVIEW_SCOPE,
                 "Use the exact host-derived mapped products, mapped precursors, ReactionJSON operations, and proposed conditions. Check mechanism, net structural/H/charge/redox plausibility, reactive handles, functional-group and stereochemical compatibility, selectivity, and sequence dependencies.",
+                "For every uncertain step set uncertainty_source to its primary cause: proposal_underspecified when a material implementation detail is absent (suggested_revision names the precise missing detail); evidence_missing when a specified plausible proposal lacks substrate or selectivity support; assessment_unresolved when supplied facts or interpretation remain unresolved. Use null for pass/reject. Reasons may mention secondary causes. Missing evidence alone is not a contradiction. Use available bounded evidence or structure inspection for a question it can actually resolve; do not claim tool evidence you did not obtain.",
                 strategy_audit,
-                "Atom maps are host graph-replay identities and preserve mapped element identity. Routine reagents and coproducts may be omitted, but atom installation/removal must be explicit through add_group/remove_group; change_atom may change formal charge or isotope only. Reject an element transmutation or unexplained mapped-atom provenance break, not the mere omission of non-route reagents.",
-                "For each step: pass means executable as written; uncertain means plausible but unresolved; reject and blocking=true require a specific chemical contradiction in the serialized route. Missing literature and stock metadata are not blockers; merely underspecified conditions are not blockers; Strategy non-adherence alone is not a blocker.",
+                "Atom maps preserve element identity. Solvents, catalysts and coproducts may be omitted from the graph, but reagents donating product heavy atoms must be explicit reaction inputs. change_atom changes only formal charge or isotope. Check atom-source completeness separately from chemical feasibility.",
+                "For each step use the same boundary as the Key-event Critic: pass means the structure, mechanism, and stated control factors coherently support the intended product; uncertain means plausible but unresolved scope, selectivity, or condition sufficiency without a concrete contradiction; reject requires a specific structural, mechanistic, compatibility, selectivity, condition, or sequence contradiction. The Host derives blocking and the route-level verdict from these step verdicts. Missing literature and stock metadata are not blockers; merely underspecified conditions are uncertain; Strategy non-adherence alone is not a blocker.",
                 "Serialized product stereochemistry states the intended outcome; it is not evidence that the substrate, catalyst, or conditions select that outcome. Judge stereochemical control from the serialized precursor state and reaction environment.",
+                DEPENDENCY_CRITIC_GUIDANCE,
+                CRITIC_GRANULARITY_GUIDANCE,
+                "repair_requirements_to_reassess, when present, contains prior concerns and the intended repair, not established chemistry or inherited verdicts. Independently assess whether the current structures and conditions resolve each concern, including effects on retained consumer steps. Changed step identities or exact boundary reconnection alone cannot resolve a chemical concern. Express unresolved issues through the ordinary current-step assessments; do not add a separate repair score.",
                 "Do not invent a hidden required stereoisomer at a center or bond that the immutable Host product and campaign target leave unspecified. Still judge claimed selectivity from the chemistry, but product omission alone is not a chemical blocker or an Editor repair obligation.",
                 "Each input row has a Host-issued review_slot. Return every review_slot exactly once; do not invent step IDs or machine digests. The Host restores the canonical step identity and authoritative reaction-edit digest after schema validation. Keep each assessment concise: at most two concrete reasons, a short condition assessment, and the smallest structure-local suggested revision. Do not output a long mechanistic analysis or repeat the route description.",
-                "Write route_overall_evaluation as one concise 2-4 sentence whole-route judgment: state the route's strategic coherence, strongest feature, decisive unresolved risk or blocker, and experimental maturity. Synthesize rather than enumerate the step assessments, and do not use a table.",
+                "Write route_overall_evaluation as one concise 2-4 sentence chemical judgment of strategic coherence and the decisive unresolved chemical risk or blocker. State what the available evidence supports. Leave stock and search-completion statements to the Host; do not repeat the step assessments or use a table.",
                 "coupled_blocker_groups is a compact route-level list of review-slot groups. Include a group only when two or more rejected steps require one coordinated replacement because they share an inseparable reactive-state, protecting-group, stereochemical, or sequence dependency; otherwise return an empty list. It groups repair scope only and does not admit chemistry.",
-                "If the complete supplied route never performs the Strategy's named key construction, set strategy_adherence=false as observation metadata only. Assess every serialized step on its own chemistry; do not reject a chemically coherent route, create a blocking step, or invoke Editor merely to force the steering Strategy into an opportunistic route such as a stock-closed short path. A falsely named reaction may still be rejected when its actual graph edit or chemistry is contradictory. overall_assessment reports chemical route validity only: reject if any step has a concrete chemical blocker, uncertain if none block and at least one is uncertain, otherwise viable.",
+                "If the complete supplied route never performs root_strategy_card's named key construction, set strategy_adherence=false as observation metadata only. Assess every serialized step on its own chemistry; do not reject a chemically coherent route or invoke Editor merely to force a steering Strategy into an opportunistic route such as a stock-closed short path. A falsely named reaction may still be rejected when its actual graph edit or chemistry is contradictory.",
                 "For any fragment union without complementary handles, require explicit handle installation/use or a chemically explicit replacement topology. A changed label, catalyst, or condition cannot repair a missing structural handle.",
-                "Repair actions must preserve unrelated viable chemistry and the supplied target-to-current-frontier boundary; never improve the score by truncating a supplied suffix or claiming an advanced frontier intermediate is stock.",
+                "Repair actions must preserve unrelated viable chemistry and the supplied target-to-current-frontier boundary. A replacement may retire a reagent-supply branch that it no longer consumes; explicitly include that obsolete branch in the repair scope. Do not truncate a still-required preparation or claim an advanced frontier intermediate is stock.",
                 "Return only the compact critique defined by the schema.",
                 "PaperMatchedRouteCriticInput:",
                 json.dumps(route, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
@@ -10107,10 +10799,12 @@ def _critic_prompt(
     return "\n".join(
         [
             "Act as an independent senior synthetic chemist and forward-simulate every reaction in this frozen route.",
+            CHEMICAL_REVIEW_SCOPE,
             "RouteJSON is stored in target-rooted retrosynthetic order: the first step consumes the final target, and every later step consumes a precursor emitted by an earlier step. Do not reject or reorder the document merely because this storage order is opposite to laboratory execution. Forward-simulate chemistry by traversing dependencies from terminal precursors back toward the target while preserving target-rooted RouteJSON order.",
             "This also applies to a route-local repair: audit the replacement neighborhood while preserving the frozen route strategy.",
             "You did not design the route. Do not preserve it out of politeness and do not replace its StrategyCard silently.",
             audit_scope,
+            CRITIC_GRANULARITY_GUIDANCE,
             "A missing paper is not a chemical rejection. Do not browse or use target-name knowledge; judge only the supplied structures and route contract.",
             "Classify each supplied step independently: pass means the serialized transformation is chemically coherent as written; uncertain means conditions, precedent, substrate scope, or selectivity remain unresolved without a concrete contradiction; reject means a specific mechanistic, atom-provenance, functional-group, chemoselectivity, stereochemical, or dependency contradiction makes that step non-executable as written.",
             "Do not invent a hidden required stereoisomer at a center or bond that the immutable Host product and campaign target leave unspecified. Still judge claimed selectivity from the chemistry, but product omission alone is not a chemical blocker or a repair obligation.",
@@ -10130,6 +10824,7 @@ def _bounded_critic_prompt(
     branch_index: int,
     strategy_card: Mapping[str, Any],
     steps: Iterable[Mapping[str, Any]],
+    selected_strategy_lineage: Iterable[Mapping[str, Any]] = (),
     strategy_milestone_cards: Iterable[Mapping[str, Any]] = (),
     maximum_bytes: int,
     paper_matched: bool = False,
@@ -10148,12 +10843,16 @@ def _bounded_critic_prompt(
     """
 
     route_steps = [dict(step) for step in steps if isinstance(step, Mapping)]
+    selected_lineage = [
+        dict(card) for card in selected_strategy_lineage if isinstance(card, Mapping)
+    ]
     milestone_cards = [dict(card) for card in strategy_milestone_cards if isinstance(card, Mapping)]
     for compact_level in range(3):
         prompt = _critic_prompt(
             target=target,
             branch_index=branch_index,
             strategy_card=strategy_card,
+            selected_strategy_lineage=selected_lineage,
             strategy_milestone_cards=milestone_cards,
             steps=route_steps,
             compact_level=compact_level,
@@ -10211,6 +10910,26 @@ def _critic_strategy_card(
     return compact
 
 
+def _compact_biocatalytic_hypothesis(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Retain implementation hypotheses, not Host validation/status metadata."""
+    fields = {
+        "mode", "selectivity_objective", "substrate_scope_basis",
+        "catalyst_hypothesis", "cofactor_ledger",
+        # Historical unnormalized contracts use flat catalyst/cofactor fields.
+        "enzyme_label", "enzyme_classes", "ec_numbers", "candidate_ids", "sequence_refs", "whole_cell_hosts",
+        "cofactor_assessment", "cofactor_requirements", "cofactor_regenerations",
+        "cosubstrates",
+    }
+    compact = {key: value[key] for key in sorted(fields)
+               if value.get(key) not in (None, "", [], {})}
+    # Compact Builder already supplies domain, catalyst and conditions. A
+    # second copy of just the catalyst label adds no implementation fact.
+    if (set(compact) <= {"mode", "catalyst_hypothesis"}
+            and set(dict(compact.get("catalyst_hypothesis") or {})) <= {"enzyme_label"}):
+        return {}
+    return compact
+
+
 def _critic_step_row(
     step: Mapping[str, Any],
     *,
@@ -10222,6 +10941,7 @@ def _critic_step_row(
         "precursor_smiles": list(step.get("precursor_smiles") or []),
         "mapped_product_smiles": str(step.get("mapped_product_smiles") or ""),
         "mapped_precursor_smiles": list(step.get("mapped_precursor_smiles") or []),
+        **reaction_input_context(step, mapped_only=False),
         "reaction_operations": [
             dict(value)
             for value in step.get("reaction_operations") or []
@@ -10241,8 +10961,9 @@ def _critic_step_row(
     ]
     if compact_level == 0:
         row["condition_predictions"] = predictions
-        row["biocatalytic_step"] = dict(step.get("biocatalytic_step") or {})
-        row["biocatalytic_design_deficits"] = list(step.get("biocatalytic_design_deficits") or [])
+        bio = _compact_biocatalytic_hypothesis(dict(step.get("biocatalytic_step") or {}))
+        if bio:
+            row["biocatalytic_step"] = bio
     elif compact_level == 1:
         if predictions:
             prediction = predictions[0]
@@ -10250,6 +10971,7 @@ def _critic_step_row(
                 "conditions",
                 "reagents",
                 "catalyst",
+                "enzyme",
                 "solvent",
                 "temperature",
                 "time",
@@ -10259,31 +10981,21 @@ def _critic_step_row(
                 for key in allowed
                 if prediction.get(key) not in (None, "", [], {})
             }
-        bio = dict(step.get("biocatalytic_step") or {})
-        if bio:
-            allowed_bio = {
-                "mode",
-                "enzyme_classes",
-                "ec_numbers",
-                "candidate_ids",
-                "whole_cell_hosts",
-                "cofactor_assessment",
-                "selectivity_objective",
-            }
-            row["biocatalytic_step"] = {
-                key: bio.get(key) for key in allowed_bio if bio.get(key) not in (None, "", [], {})
-            }
     elif predictions:
         # Structural maps and minimal conditions are both execution inputs;
         # even the strongest prompt compaction must not turn them into an
         # information-free uncertainty verdict.
         row["conditions"] = [
-            str(reagent)[:240]
+            str(reagent)
             for prediction in predictions[:1]
             for reagent in prediction.get("reagents") or prediction.get("conditions") or []
             if str(reagent)
-        ][:8]
-        row["catalyst"] = str(predictions[0].get("catalyst") or "")[:160]
+        ]
+        row["catalyst"] = str(predictions[0].get("catalyst") or predictions[0].get("enzyme") or "")
+    if compact_level > 0:
+        bio = _compact_biocatalytic_hypothesis(dict(step.get("biocatalytic_step") or {}))
+        if bio:
+            row["biocatalytic_step"] = bio
     return row
 
 
@@ -10302,7 +11014,7 @@ def _paper_critic_step_row(
         if isinstance(value, Mapping)
     ]
     conditions = [
-        str(value)[:240]
+        str(value)
         for value in (
             step.get("conditions")
             or [
@@ -10312,10 +11024,11 @@ def _paper_critic_step_row(
             ]
         )
         if str(value)
-    ][: (4 if compact_level == 0 else 2)]
+    ]
     row = {
         "mapped_product_smiles": str(step.get("mapped_product_smiles") or ""),
         "mapped_precursor_smiles": list(step.get("mapped_precursor_smiles") or []),
+        **reaction_input_context(step, mapped_only=True),
         "reaction_operations": [
             dict(value)
             for value in step.get("reaction_operations") or []
@@ -10323,7 +11036,7 @@ def _paper_critic_step_row(
         ],
         "reaction_family": str(
             step.get("reaction_family") or step.get("transformation_hypothesis") or ""
-        )[:160],
+        ),
     }
     if include_step_id:
         row["step_id"] = str(step.get("step_id") or "")
@@ -10333,18 +11046,26 @@ def _paper_critic_step_row(
     # checkpoint_relation is a Builder scheduling claim, not chemical
     # evidence.  The Host already selects focus_step_id for the sparse audit;
     # hiding the label prevents it from biasing either Critic.  Optional
-    # condition fields are serialized only when they carry information.
+    # condition fields are serialized only when they carry information. Keep
+    # each full condition even in compact prompts: truncating a trailing
+    # qualification or dropping the third reagent can change the chemistry.
     if conditions:
         row["conditions"] = conditions
     catalyst = str(
         step.get("catalyst")
+        or step.get("enzyme")
         or next(
-            (prediction.get("catalyst") or "" for prediction in predictions),
+            (prediction.get("catalyst") or prediction.get("enzyme") or "" for prediction in predictions),
             "",
         )
-    )[:160]
+    )
     if catalyst:
         row["catalyst"] = catalyst
+    if step.get("execution_domain"):
+        row["execution_domain"] = str(step["execution_domain"])
+    bio = _compact_biocatalytic_hypothesis(dict(step.get("biocatalytic_step") or {}))
+    if bio:
+        row["biocatalytic_step"] = bio
     return row
 
 
@@ -10452,7 +11173,9 @@ def _preflight_paper_matched_worker_schemas(
     """
 
     model = str(spec.metadata.get("model") or "")
-    default_effort = str(spec.metadata.get("reasoning_effort") or "medium")
+    default_effort = str(
+        spec.metadata.get("reasoning_effort") or DEFAULT_CODEX_REASONING_EFFORT
+    )
     tasks = [
         _strategy_portfolio_task(
             spec,
@@ -10689,20 +11412,19 @@ def _compact_critic_feedback(
     *,
     paper_matched: bool = False,
 ) -> dict[str, Any]:
-    """Project a large Critic artifact into an Editor-sized repair brief."""
+    """Select relevant Critic findings without cutting chemical statements."""
 
     blocking_rows = [dict(value) for value in blocking_steps if isinstance(value, Mapping)]
 
-    def clip(value: Any, limit: int) -> str:
-        return str(value or "").strip()[: max(1, int(limit))]
+    def text(value: Any) -> str:
+        return str(value or "").strip()
 
-    def clip_list(
+    def text_list(
         values: Iterable[Any],
         *,
         count: int,
-        limit: int,
     ) -> list[str]:
-        return [text for text in (clip(value, limit) for value in values) if text][
+        return [value for value in (text(value) for value in values) if value][
             : max(0, int(count))
         ]
 
@@ -10730,19 +11452,18 @@ def _compact_critic_feedback(
             "enzyme_assessment",
         ):
             if assessment.get(key) not in (None, "", [], {}):
-                keep_assessment[key] = clip(assessment.get(key), 480)
+                keep_assessment[key] = text(assessment.get(key))
         coupled_step_ids = [
-            clip(value, 160)
+            text(value)
             for value in assessment.get("coupled_step_ids") or ()
-            if clip(value, 160)
+            if text(value)
         ][:6]
         if coupled_step_ids:
             keep_assessment["coupled_step_ids"] = coupled_step_ids
         if assessment.get("reasons"):
-            keep_assessment["reasons"] = clip_list(
+            keep_assessment["reasons"] = text_list(
                 assessment.get("reasons") or (),
                 count=2,
-                limit=320,
             )
         compact_step = {
             key: blocking_step.get(key)
@@ -10760,14 +11481,12 @@ def _compact_critic_feedback(
             if blocking_step.get(key) not in (None, "", [], {})
         }
         if compact_step.get("transformation_hypothesis"):
-            compact_step["transformation_hypothesis"] = clip(
+            compact_step["transformation_hypothesis"] = text(
                 compact_step["transformation_hypothesis"],
-                240,
             )
-        reasons = clip_list(
+        reasons = text_list(
             blocking_step.get("reasons") or (),
             count=2,
-            limit=320,
         )
         all_failure_reasons.extend(reasons)
         compact_blockers.append(
@@ -10789,8 +11508,8 @@ def _compact_critic_feedback(
             if not isinstance(raw_assessment, Mapping):
                 continue
             assessment = dict(raw_assessment)
-            step_id = clip(assessment.get("step_id"), 160)
-            verdict = clip(assessment.get("verdict"), 40)
+            step_id = text(assessment.get("step_id"))
+            verdict = text(assessment.get("verdict"))
             # The complete RouteJSON already carries every route row, while
             # blocking_steps below carries each full blocking assessment.
             # Repeating those rows and assessments here consumed a large
@@ -10803,20 +11522,16 @@ def _compact_critic_feedback(
                 "verdict": verdict,
                 "blocking": assessment.get("blocking") is True,
             }
-            reasons = clip_list(
+            reasons = text_list(
                 assessment.get("reasons") or (),
                 count=2,
-                limit=320,
             )
             if reasons:
                 annotation["reasons"] = reasons
-            for key, limit in (
-                ("condition_assessment", 320),
-                ("suggested_revision", 400),
-            ):
-                text = clip(assessment.get(key), limit)
-                if text:
-                    annotation[key] = text
+            for key in ("condition_assessment", "suggested_revision"):
+                detail = text(assessment.get(key))
+                if detail:
+                    annotation[key] = detail
             step_annotations.append(annotation)
         paper_blockers = [
             {
@@ -10830,21 +11545,20 @@ def _compact_critic_feedback(
             for value in compact_blockers
         ]
         return {
-            "overall_assessment": clip(
+            "overall_assessment": text(
                 critique.get("overall_assessment"),
-                320,
             ),
             "strategy_adherence": critique.get("strategy_adherence"),
             "step_annotations": step_annotations,
+            "chemical_dependencies": list(critique.get("chemical_dependencies") or []),
             "blocking_steps": paper_blockers,
             "rejected_net_edit_signatures": _rejected_net_edit_signatures(
                 blocking_rows,
                 limit=2,
             ),
-            "route_level_risks": clip_list(
+            "route_level_risks": text_list(
                 route_level_risks,
                 count=4,
-                limit=400,
             ),
         }
     primary = compact_blockers[0] if compact_blockers else {}
@@ -10859,20 +11573,17 @@ def _compact_critic_feedback(
         "step_assessment": dict(primary.get("assessment") or {}),
         "blocking_steps": compact_blockers,
         "failure_reasons": list(dict.fromkeys(all_failure_reasons)),
-        "repair_actions": clip_list(
+        "repair_actions": text_list(
             repair_actions,
             count=4,
-            limit=500,
         ),
-        "route_level_risks": clip_list(
+        "route_level_risks": text_list(
             route_level_risks,
             count=4,
-            limit=400,
         ),
-        "experimental_variables": clip_list(
+        "experimental_variables": text_list(
             experimental_variables,
             count=4,
-            limit=320,
         ),
     }
 
@@ -10972,6 +11683,12 @@ def _critique_from_record(
             list(raw_groups) if isinstance(raw_groups, list) else []
         )
         payload["coupled_blocker_groups"] = bound_groups
+        dependencies, dependency_diagnostics = bind_chemical_dependencies(
+            payload.get("chemical_dependencies"), bindings,
+        )
+        payload["chemical_dependencies"] = dependencies
+        if dependency_diagnostics:
+            payload["chemical_dependency_diagnostics"] = dependency_diagnostics
     assessment = str(payload.get("overall_assessment") or "uncertain")
     return {
         **payload,
@@ -10979,7 +11696,7 @@ def _critique_from_record(
         "critic_model": str(record.metadata.get("model") or ""),
         "critic_task_id": record.task_id,
         "semantics": {
-            "independent_codex_critic": True,
+            "independent_codex_critic": record.metadata.get("session_mode") not in {"shared", "shared_experiment"},
             "runs_before_evidence_acquisition": True,
             "grants_no_reaction_proof": True,
             "grants_no_source_authority": True,
@@ -10999,6 +11716,7 @@ def _expansions_from_record(
     single_step_only: bool = False,
     compiler: RouteJSONCompiler | None = None,
     reserved_atom_maps: Iterable[int] = (),
+    target_atom_maps: Iterable[int] = (),
 ) -> list[NodeExpansion] | None:
     # A worker can produce a structurally safe RouteJSON draft while the
     # generic worker envelope is rejected for metadata/runtime reasons (for
@@ -11094,6 +11812,7 @@ def _expansions_from_record(
                     operations=operations,
                     expected_product_smiles=product,
                     reserved_atom_maps=reserved_atom_maps,
+                    target_atom_maps=target_atom_maps,
                 )
             except ReactionJsonReplayError:
                 return None
@@ -11112,10 +11831,19 @@ def _expansions_from_record(
         else:
             precursors = declared_precursors
             mapped_precursors = tuple(_mapped_smiles(value) for value in precursors)
-        atom_provenance_deficit = _has_atom_provenance_deficit(product, precursors)
-        unexplained_atom_provenance_deficit = atom_provenance_deficit and not (
-            reactionjson_audit.get("external_atom_source_required") is True
-            and reactionjson_audit.get("external_atom_source_grants_reaction_proof") is False
+        # Route precursors are only the target-atom-bearing components that
+        # remain on the search frontier.  Zero-target-map components are
+        # retained separately as auxiliary reaction inputs.  Atom provenance
+        # must therefore be checked against the complete forward input set,
+        # otherwise a valid reagent preparation such as CH3Br + Mg ->
+        # CH3MgBr is rejected merely because Mg correctly does not become a
+        # route node.
+        provenance_inputs = tuple(
+            materialized.reaction_input_smiles if operations else precursors
+        )
+        atom_provenance_deficit = _has_atom_provenance_deficit(
+            product,
+            provenance_inputs,
         )
         if (
             not product
@@ -11123,7 +11851,7 @@ def _expansions_from_record(
             or len(precursors) > 4
             or product in precursors
             or any(precursor in prior_products for precursor in precursors)
-            or unexplained_atom_provenance_deficit
+            or atom_provenance_deficit
         ):
             return None
         if require_reaction_operations and not operations:
@@ -11149,8 +11877,12 @@ def _expansions_from_record(
             product_smiles=product,
             precursor_smiles=precursors,
             enzyme_label=enzyme_label,
+            catalyst_label=str(_route_field(step, row, "catalyst") or ""),
             step_id=str(step.get("step_id") or ""),
         )
+        enzyme_label = str(dict(biocatalytic_step.get("catalyst_hypothesis") or {}).get(
+            "enzyme_label"
+        ) or enzyme_label)
         expansions.append(
             NodeExpansion(
                 product_smiles=product,
@@ -11163,11 +11895,30 @@ def _expansions_from_record(
                     or "model-proposed local disconnection"
                 ),
                 step_role=_normalize_step_role(_route_field(step, row, "step_role")),
+                continuation_hint=str(_route_field(step, row, "continuation_hint") or ""),
                 checkpoint_relation=_normalize_checkpoint_relation(
                     _route_field(step, row, "checkpoint_relation")
                 ),
                 mapped_product_smiles=(str(mapped_product_for_step or _mapped_smiles(product))),
                 mapped_precursor_smiles=mapped_precursors,
+                reaction_input_smiles=tuple(
+                    materialized.reaction_input_smiles
+                    if operations
+                    else precursors
+                ),
+                mapped_reaction_input_smiles=tuple(
+                    materialized.mapped_reaction_input_smiles
+                    if operations
+                    else mapped_precursors
+                ),
+                auxiliary_reagent_smiles=tuple(
+                    materialized.auxiliary_reagent_smiles if operations else ()
+                ),
+                mapped_auxiliary_reagent_smiles=tuple(
+                    materialized.mapped_auxiliary_reagent_smiles
+                    if operations
+                    else ()
+                ),
                 conditions=tuple(
                     str(value)
                     for value in (_route_field(step, row, "conditions") or [])
@@ -11204,6 +11955,7 @@ def _reactionjson_candidates_from_record(
     compiler: RouteJSONCompiler | None = None,
     max_candidates: int = 3,
     reserved_atom_maps: Iterable[int] = (),
+    target_atom_maps: Iterable[int] = (),
 ) -> tuple[list[_CompiledReactionJsonCandidate], list[dict[str, Any]]]:
     """Compile local candidates independently so one invalid edit loses only itself."""
 
@@ -11238,12 +11990,24 @@ def _reactionjson_candidates_from_record(
             single_step_only=True,
             compiler=compiler,
             reserved_atom_maps=reserved_atom_maps,
+            target_atom_maps=target_atom_maps,
         )
         if expansions is None or len(expansions) != 1:
+            attempted_net_edits = [
+                dict(operation)
+                for operation in normalize_reaction_operations(
+                    candidate.get("reaction_operations") or ()
+                )
+            ]
             rejected.append(
                 {
                     "candidate_index": candidate_index,
                     "candidate_id": candidate_id,
+                    **(
+                        {"attempted_net_edits": attempted_net_edits}
+                        if attempted_net_edits
+                        else {}
+                    ),
                     **_expansion_rejection_diagnostic(
                         single_record,
                         expected_product=expected_product,
@@ -11354,8 +12118,13 @@ def _route_json_candidate(record: WorkerRunRecord) -> dict[str, Any] | None:
         )
         or (
             isinstance(candidate.get("repair_directive"), Mapping)
-            and bool(dict(candidate["repair_directive"]).get("rollback_start_step_id"))
-            and bool(dict(candidate["repair_directive"]).get("rebuild_through_step_id"))
+            and (
+                bool(dict(candidate["repair_directive"]).get("change_step_ids"))
+                or (
+                    bool(dict(candidate["repair_directive"]).get("rollback_start_step_id"))
+                    and bool(dict(candidate["repair_directive"]).get("rebuild_through_step_id"))
+                )
+            )
             and bool(dict(candidate["repair_directive"]).get("repair_goal"))
         )
     )
@@ -11452,8 +12221,12 @@ def _expansion_from_materialized(
         product_smiles=materialized.product_smiles,
         precursor_smiles=materialized.precursor_smiles,
         enzyme_label=enzyme_label,
+        catalyst_label=str(row.get("catalyst") or ""),
         step_id=str(row.get("step_id") or ""),
     )
+    enzyme_label = str(dict(biocatalytic_step.get("catalyst_hypothesis") or {}).get(
+        "enzyme_label"
+    ) or enzyme_label)
     return NodeExpansion(
         product_smiles=materialized.product_smiles,
         precursor_smiles=materialized.precursor_smiles,
@@ -11469,8 +12242,20 @@ def _expansion_from_materialized(
         ),
         step_role=_normalize_step_role(row.get("step_role")),
         checkpoint_relation=_normalize_checkpoint_relation(row.get("checkpoint_relation")),
+        continuation_hint=str(row.get("continuation_hint") or ""),
         mapped_product_smiles=materialized.mapped_product_smiles,
         mapped_precursor_smiles=materialized.mapped_precursor_smiles,
+        reaction_input_smiles=(
+            materialized.reaction_input_smiles or materialized.precursor_smiles
+        ),
+        mapped_reaction_input_smiles=(
+            materialized.mapped_reaction_input_smiles
+            or materialized.mapped_precursor_smiles
+        ),
+        auxiliary_reagent_smiles=materialized.auxiliary_reagent_smiles,
+        mapped_auxiliary_reagent_smiles=(
+            materialized.mapped_auxiliary_reagent_smiles
+        ),
         conditions=tuple(
             str(value)
             for value in (
@@ -11805,6 +12590,9 @@ def _path_repair_directive_from_record(
     if not isinstance(raw, Mapping):
         return None, {"reason": "path_repair_directive_missing"}
     directive = {
+        "change_step_ids": list(dict.fromkeys(
+            str(value).strip() for value in raw.get("change_step_ids") or [] if str(value).strip()
+        )),
         "rollback_start_step_id": str(raw.get("rollback_start_step_id") or "").strip(),
         "rebuild_through_step_id": str(raw.get("rebuild_through_step_id") or "").strip(),
         "additional_coupled_blocker_step_ids": list(
@@ -11822,158 +12610,17 @@ def _path_repair_directive_from_record(
             if str(value).strip()
         ][:5],
     }
-    if not directive["rollback_start_step_id"]:
+    if not directive["change_step_ids"] and not directive["rollback_start_step_id"]:
         return None, {"reason": "path_repair_rollback_start_step_id_missing"}
-    if not directive["rebuild_through_step_id"]:
+    if not directive["change_step_ids"] and not directive["rebuild_through_step_id"]:
         return None, {"reason": "path_repair_rebuild_through_step_id_missing"}
     if not directive["repair_goal"]:
         return None, {"reason": "path_repair_goal_missing"}
     return directive, {}
 
 
-def _select_path_repair_blocker_scope(
-    *,
-    current_steps: Iterable[Mapping[str, Any]],
-    mapped_target_smiles: str,
-    blocking_steps: Iterable[Mapping[str, Any]],
-) -> tuple[_PathRepairBlockerScope | None, dict[str, Any]]:
-    """Select one chemically coherent blocker component for one transaction.
-
-    Host dependency ancestry and the Critic's explicit ``coupled_step_ids``
-    are the only grouping authorities.  The latter joins topological siblings
-    only when their remedies share an inseparable functional-state or sequence
-    dependency; prose keywords never grant repair scope.
-    """
-
-    rows = [dict(row) for row in current_steps if isinstance(row, Mapping)]
-    if not rows:
-        return None, {"reason": "path_repair_current_route_empty"}
-    compiler = RouteJSONCompiler()
-    try:
-        state = compiler.compile_route_graph_state(
-            mapped_target_smiles=str(mapped_target_smiles or ""),
-            steps=rows,
-            minimum_depth=1,
-        )
-    except ReactionJsonReplayError as exc:
-        return None, {
-            "reason": "path_repair_current_route_not_replayable",
-            "compiler_error": str(exc),
-        }
-    host_rows = compiler.assemble_route(state.reactions, metadata=rows)
-    step_ids = [str(row.get("step_id") or "") for row in host_rows]
-    if any(not value for value in step_ids) or len(set(step_ids)) != len(step_ids):
-        return None, {"reason": "path_repair_current_step_ids_invalid"}
-    requested_ids = list(
-        dict.fromkeys(
-            str(row.get("step_id") or "").strip()
-            for row in blocking_steps
-            if isinstance(row, Mapping) and str(row.get("step_id") or "").strip()
-        )
-    )
-    if not requested_ids:
-        return None, {"reason": "path_repair_blocking_step_ids_missing"}
-    missing_ids = sorted(set(requested_ids) - set(step_ids))
-    if missing_ids:
-        return None, {
-            "reason": "path_repair_blocking_step_not_found",
-            "blocking_step_ids": missing_ids,
-        }
-
-    parent_indices = tuple(state.parent_step_indices)
-
-    def descends_from(index: int, ancestor: int) -> bool:
-        cursor: int | None = index
-        while cursor is not None:
-            if cursor == ancestor:
-                return True
-            cursor = parent_indices[cursor]
-        return False
-
-    blocker_indices = {step_ids.index(step_id) for step_id in requested_ids}
-    adjacency = {index: set() for index in blocker_indices}
-    for left in blocker_indices:
-        for right in blocker_indices:
-            if left >= right:
-                continue
-            if descends_from(left, right) or descends_from(right, left):
-                adjacency[left].add(right)
-                adjacency[right].add(left)
-    requested_set = set(requested_ids)
-    for raw in blocking_steps:
-        if not isinstance(raw, Mapping):
-            continue
-        source_id = str(raw.get("step_id") or "").strip()
-        if source_id not in requested_set:
-            continue
-        assessment = dict(raw.get("critic_assessment") or {})
-        coupled_ids = {
-            str(value).strip()
-            for value in assessment.get("coupled_step_ids") or raw.get("coupled_step_ids") or ()
-            if str(value).strip() in requested_set
-        }
-        source_index = step_ids.index(source_id)
-        for coupled_id in coupled_ids:
-            coupled_index = step_ids.index(coupled_id)
-            if coupled_index == source_index:
-                continue
-            adjacency[source_index].add(coupled_index)
-            adjacency[coupled_index].add(source_index)
-
-    unassigned = set(blocker_indices)
-    components: list[tuple[int, ...]] = []
-    while unassigned:
-        component: set[int] = set()
-        frontier = [min(unassigned)]
-        while frontier:
-            current = frontier.pop()
-            if current in component:
-                continue
-            component.add(current)
-            frontier.extend(adjacency[current] - component)
-        unassigned -= component
-        components.append(tuple(sorted(component)))
-    components.sort(key=lambda value: value[0])
-    component_step_ids = tuple(
-        tuple(step_ids[index] for index in component) for component in components
-    )
-    selected_step_ids = component_step_ids[0]
-    selected_set = set(selected_step_ids)
-    deferred_step_ids = tuple(step_id for step_id in requested_ids if step_id not in selected_set)
-    return (
-        _PathRepairBlockerScope(
-            selected_step_ids=selected_step_ids,
-            deferred_step_ids=deferred_step_ids,
-            component_step_ids=component_step_ids,
-        ),
-        {},
-    )
 
 
-def _path_repair_component_recritic_result(
-    pending: Mapping[str, Any],
-    blocking_steps: Iterable[Mapping[str, Any]],
-) -> tuple[bool, dict[str, Any]]:
-    """Accept a rebuilt component only when all remaining blockers were deferred."""
-
-    current_ids = {
-        str(row.get("step_id") or "").strip() for row in blocking_steps if isinstance(row, Mapping)
-    }
-    deferred_ids = {
-        str(value).strip()
-        for value in pending.get("deferred_blocker_step_ids") or ()
-        if str(value).strip()
-    }
-    unexpected_ids = sorted(current_ids - deferred_ids)
-    diagnostic = {
-        "selected_blocker_step_ids": [
-            str(value) for value in pending.get("selected_blocker_step_ids") or () if str(value)
-        ],
-        "deferred_blocker_step_ids": sorted(deferred_ids),
-        "current_blocker_step_ids": sorted(current_ids),
-        "unexpected_blocker_step_ids": unexpected_ids,
-    }
-    return not unexpected_ids, diagnostic
 
 
 def _path_repair_boundary_preflight(
@@ -12014,10 +12661,10 @@ def _prepare_path_repair_span(
 ) -> tuple[_PathRepairSpan | None, dict[str, Any]]:
     """Compute one Host-owned, target-rooted repair span.
 
-    The Editor names the inclusive ordered span whose chemistry must be
-    revisited; it never chooses atom maps, open precursors, or rows to
-    preserve.  Those facts come exclusively from a successful replay of the
-    current target-rooted RouteJSON DAG.
+    The Editor names reaction occurrences to reconsider; the Host connects
+    them through the compiled occurrence tree. Historical interval directives
+    remain replayable. Atom maps, open precursors, and retained rows come
+    exclusively from replay of the current target-rooted RouteJSON DAG.
     """
 
     rows = [dict(row) for row in current_steps if isinstance(row, Mapping)]
@@ -12041,6 +12688,20 @@ def _prepare_path_repair_span(
         return None, {"reason": "path_repair_current_step_ids_invalid"}
     rollback_start_step_id = str(directive.get("rollback_start_step_id") or "").strip()
     rebuild_through_step_id = str(directive.get("rebuild_through_step_id") or "").strip()
+    parent_indices = tuple(state.parent_step_indices)
+    requested_changes = tuple(str(value) for value in directive.get("change_step_ids") or [])
+    connected_indices = None
+    if requested_changes:
+        try:
+            connected_indices = minimum_connected_repair_indices(
+                step_ids, parent_indices, requested_changes,
+            )
+        except ValueError as exc:
+            return None, {"reason": str(exc), "change_step_ids": list(requested_changes)}
+        # These endpoints are derived legacy display fields. The selected
+        # graph region below is exact and is never reconstructed by slicing.
+        rollback_start_step_id = step_ids[min(connected_indices)]
+        rebuild_through_step_id = step_ids[max(connected_indices)]
     if rollback_start_step_id not in step_ids:
         return None, {
             "reason": "path_repair_rollback_start_step_not_found",
@@ -12053,7 +12714,6 @@ def _prepare_path_repair_span(
         }
     rollback_start_index = step_ids.index(rollback_start_step_id)
     rebuild_through_index = step_ids.index(rebuild_through_step_id)
-    parent_indices = tuple(state.parent_step_indices)
     requested_blocker_ids = {str(item).strip() for item in blocking_step_ids if str(item).strip()}
     deferred_blocker_ids = {
         str(item).strip() for item in deferred_blocking_step_ids if str(item).strip()
@@ -12089,13 +12749,10 @@ def _prepare_path_repair_span(
             "rollback_start_step_id": rollback_start_step_id,
             "rebuild_through_step_id": rebuild_through_step_id,
         }
-    # RouteJSON rows are topologically ordered, but independent sibling
-    # branches may be interleaved in that order.  Array slicing would either
-    # delete the sibling or reject an otherwise valid repair directive.  The
-    # Host therefore owns the exact dependency closure: remove only rows that
-    # descend from the declared start and have been reached by the declared
-    # inclusive end boundary.
-    removed_indices = {
+    # New actions select the exact connected subtree, independent of sibling
+    # array order. Only historical interval directives use the inclusive end
+    # boundary to select descendants of the declared start.
+    removed_indices = set(connected_indices) if connected_indices is not None else {
         index
         for index in range(rebuild_through_index + 1)
         if descends_from(index, rollback_start_index)
@@ -12172,7 +12829,11 @@ def _prepare_path_repair_span(
     final_open_boundaries = tuple(
         {
             "boundary_id": f"final-open:{step_ids[producer_index]}:{occurrence_index}",
-            "boundary_kind": "final_open_precursor",
+            "boundary_kind": (
+                "removed_terminal_open_precursor"
+                if producer_index in removed_indices
+                else "final_open_precursor"
+            ),
             "producer_step_id": step_ids[producer_index],
             "product_smiles": occurrence.product_smiles,
             "mapped_product_smiles": occurrence.mapped_product_smiles,
@@ -12331,384 +12992,15 @@ def _prepare_path_repair_span(
     )
 
 
-def _path_repair_boundary_leaf_indices(
-    *,
-    product_smiles: Iterable[str],
-    mapped_product_smiles: Iterable[str],
-    reconnect_boundaries: Iterable[Mapping[str, Any]],
-) -> frozenset[int]:
-    """Bind the largest stereo-aware multiset of boundary occurrences."""
-
-    products = [_canonical_smiles(value) for value in product_smiles]
-    mapped = [str(value or "").strip() for value in mapped_product_smiles]
-    boundaries = [dict(row) for row in reconnect_boundaries if isinstance(row, Mapping)]
-    candidates_by_boundary: dict[int, list[int]] = {}
-    for boundary_index, boundary in enumerate(boundaries):
-        expected_product = _canonical_smiles(boundary.get("product_smiles"))
-        expected_mapped = str(boundary.get("mapped_product_smiles") or "").strip()
-        candidates: list[tuple[int, int]] = []
-        for index, product in enumerate(products):
-            if (
-                not product
-                or product != expected_product
-                or index >= len(mapped)
-                or not mapped[index]
-            ):
-                continue
-            exact = (
-                _canonical_mapped_smiles(mapped[index])
-                == _canonical_mapped_smiles(expected_mapped)
-            )
-            if exact:
-                candidates.append((0, index))
-                continue
-            if (
-                _deterministic_boundary_atom_map_translation(
-                    expected_mapped,
-                    mapped[index],
-                )
-                is not None
-            ):
-                candidates.append((1, index))
-        candidates_by_boundary[boundary_index] = [
-            index
-            for _distance, index in sorted(candidates)
-        ]
-
-    matched_boundary_by_leaf: dict[int, int] = {}
-
-    def assign(boundary_index: int, visited_leaves: set[int]) -> bool:
-        for leaf_index in candidates_by_boundary.get(boundary_index, ()):
-            if leaf_index in visited_leaves:
-                continue
-            visited_leaves.add(leaf_index)
-            prior_boundary = matched_boundary_by_leaf.get(leaf_index)
-            if prior_boundary is None or assign(prior_boundary, visited_leaves):
-                matched_boundary_by_leaf[leaf_index] = boundary_index
-                return True
-        return False
-
-    for boundary_index in sorted(
-        candidates_by_boundary,
-        key=lambda value: (len(candidates_by_boundary[value]), value),
-    ):
-        assign(boundary_index, set())
-    return frozenset(matched_boundary_by_leaf)
 
 
-def _path_repair_frontier_reaches_boundaries(
-    *,
-    product_smiles: Iterable[str],
-    mapped_product_smiles: Iterable[str],
-    reconnect_boundaries: Iterable[Mapping[str, Any]],
-) -> bool:
-    """Return true when the frontier is exactly the required occurrence multiset."""
-
-    products = [_canonical_smiles(value) for value in product_smiles]
-    mapped = [str(value or "").strip() for value in mapped_product_smiles]
-    boundaries = [dict(row) for row in reconnect_boundaries if isinstance(row, Mapping)]
-    if len(products) != len(mapped) or len(products) != len(boundaries):
-        return False
-    if any(not value for value in products) or any(not value for value in mapped):
-        return False
-    return len(
-        _path_repair_boundary_leaf_indices(
-            product_smiles=products,
-            mapped_product_smiles=mapped,
-            reconnect_boundaries=boundaries,
-        )
-    ) == len(boundaries)
-
-
-def _counter_distance(left: Counter[Any], right: Counter[Any]) -> int:
-    return sum(abs(int(left[key]) - int(right[key])) for key in left.keys() | right.keys())
-
-
-def _bond_distance_signature(bond: Chem.Bond) -> tuple[int, bool, str]:
-    return (
-        int(round(10 * float(bond.GetBondTypeAsDouble()))),
-        bool(bond.GetIsAromatic()),
-        str(bond.GetStereo()),
-    )
-
-
-def _external_branch_signatures(
-    molecule: Chem.Mol,
-    *,
-    anchor_index: int,
-    shared_indices: frozenset[int],
-) -> Counter[Any]:
-    """Describe remappable substituent branches around one durable atom map."""
-
-    signatures: Counter[Any] = Counter()
-    anchor = molecule.GetAtomWithIdx(anchor_index)
-    for neighbor in anchor.GetNeighbors():
-        neighbor_index = int(neighbor.GetIdx())
-        if neighbor_index in shared_indices:
-            continue
-        pending = [neighbor_index]
-        component: set[int] = set()
-        while pending:
-            atom_index = pending.pop()
-            if atom_index in component or atom_index in shared_indices:
-                continue
-            component.add(atom_index)
-            atom = molecule.GetAtomWithIdx(atom_index)
-            pending.extend(int(item.GetIdx()) for item in atom.GetNeighbors())
-        element_counts = Counter(
-            (
-                int(molecule.GetAtomWithIdx(index).GetAtomicNum()),
-                int(molecule.GetAtomWithIdx(index).GetFormalCharge()),
-                bool(molecule.GetAtomWithIdx(index).GetIsAromatic()),
-            )
-            for index in component
-        )
-        internal_bonds = Counter(
-            _bond_distance_signature(bond)[:2]
-            for bond in molecule.GetBonds()
-            if int(bond.GetBeginAtomIdx()) in component and int(bond.GetEndAtomIdx()) in component
-        )
-        attachment = molecule.GetBondBetweenAtoms(anchor_index, neighbor_index)
-        if attachment is None:
-            continue
-        signatures[
-            (
-                _bond_distance_signature(attachment),
-                int(neighbor.GetAtomicNum()),
-                len(component),
-                tuple(sorted(element_counts.items())),
-                tuple(sorted(internal_bonds.items())),
-            )
-        ] += 1
-    return signatures
-
-
-def _mapped_boundary_distance(
-    mapped_smiles: Any,
-    boundary_mapped_smiles: Any,
-) -> int | None:
-    """Return a deterministic, provenance-aware suffix-boundary mismatch.
-
-    Zero means stereo-aware molecular identity even when fresh atom-map numbers
-    differ. Nonzero values compare durable mapped atoms and bonds, substituent
-    components attached to that durable core, and global graph composition.
-    This is a repair-transaction progress invariant, not a chemistry score.
-    """
-
-    actual_text = str(mapped_smiles or "").strip()
-    boundary_text = str(boundary_mapped_smiles or "").strip()
-    actual = Chem.MolFromSmiles(actual_text)
-    boundary = Chem.MolFromSmiles(boundary_text)
-    if actual is None or boundary is None:
-        return None
-    actual_maps = {
-        int(atom.GetAtomMapNum()): int(atom.GetIdx())
-        for atom in actual.GetAtoms()
-        if int(atom.GetAtomMapNum()) > 0
-    }
-    boundary_maps = {
-        int(atom.GetAtomMapNum()): int(atom.GetIdx())
-        for atom in boundary.GetAtoms()
-        if int(atom.GetAtomMapNum()) > 0
-    }
-    if (
-        not actual_maps
-        or not boundary_maps
-        or len(actual_maps) != sum(int(atom.GetAtomMapNum()) > 0 for atom in actual.GetAtoms())
-        or len(boundary_maps) != sum(int(atom.GetAtomMapNum()) > 0 for atom in boundary.GetAtoms())
-    ):
-        return None
-    if (
-        _deterministic_boundary_atom_map_translation(
-            boundary_text,
-            actual_text,
-            use_chirality=True,
-        )
-        is not None
-    ):
-        return 0
-    shared_maps = frozenset(actual_maps.keys() & boundary_maps.keys())
-    if not shared_maps:
-        return None
-
-    Chem.AssignStereochemistry(actual, cleanIt=True, force=True)
-    Chem.AssignStereochemistry(boundary, cleanIt=True, force=True)
-    score = 0
-    actual_shared_indices = frozenset(actual_maps[value] for value in shared_maps)
-    boundary_shared_indices = frozenset(boundary_maps[value] for value in shared_maps)
-    for map_number in shared_maps:
-        actual_atom = actual.GetAtomWithIdx(actual_maps[map_number])
-        boundary_atom = boundary.GetAtomWithIdx(boundary_maps[map_number])
-        actual_atom_signature = (
-            int(actual_atom.GetAtomicNum()),
-            int(actual_atom.GetFormalCharge()),
-            int(actual_atom.GetIsotope()),
-            bool(actual_atom.GetIsAromatic()),
-            int(actual_atom.GetTotalNumHs()),
-            str(actual_atom.GetProp("_CIPCode")) if actual_atom.HasProp("_CIPCode") else "",
-        )
-        boundary_atom_signature = (
-            int(boundary_atom.GetAtomicNum()),
-            int(boundary_atom.GetFormalCharge()),
-            int(boundary_atom.GetIsotope()),
-            bool(boundary_atom.GetIsAromatic()),
-            int(boundary_atom.GetTotalNumHs()),
-            (str(boundary_atom.GetProp("_CIPCode")) if boundary_atom.HasProp("_CIPCode") else ""),
-        )
-        if actual_atom_signature != boundary_atom_signature:
-            score += 20
-        score += 8 * _counter_distance(
-            _external_branch_signatures(
-                actual,
-                anchor_index=actual_maps[map_number],
-                shared_indices=actual_shared_indices,
-            ),
-            _external_branch_signatures(
-                boundary,
-                anchor_index=boundary_maps[map_number],
-                shared_indices=boundary_shared_indices,
-            ),
-        )
-
-    for left in shared_maps:
-        for right in shared_maps:
-            if left >= right:
-                continue
-            actual_bond = actual.GetBondBetweenAtoms(actual_maps[left], actual_maps[right])
-            boundary_bond = boundary.GetBondBetweenAtoms(boundary_maps[left], boundary_maps[right])
-            actual_signature = (
-                _bond_distance_signature(actual_bond) if actual_bond is not None else None
-            )
-            boundary_signature = (
-                _bond_distance_signature(boundary_bond) if boundary_bond is not None else None
-            )
-            if actual_signature != boundary_signature:
-                score += 16
-
-    actual_elements = Counter(
-        (int(atom.GetAtomicNum()), int(atom.GetFormalCharge())) for atom in actual.GetAtoms()
-    )
-    boundary_elements = Counter(
-        (int(atom.GetAtomicNum()), int(atom.GetFormalCharge())) for atom in boundary.GetAtoms()
-    )
-    actual_bonds = Counter(_bond_distance_signature(bond)[:2] for bond in actual.GetBonds())
-    boundary_bonds = Counter(_bond_distance_signature(bond)[:2] for bond in boundary.GetBonds())
-    score += 4 * _counter_distance(actual_elements, boundary_elements)
-    score += 2 * abs(int(actual.GetNumHeavyAtoms()) - int(boundary.GetNumHeavyAtoms()))
-    score += 2 * _counter_distance(actual_bonds, boundary_bonds)
-    score += 6 * abs(int(actual.GetRingInfo().NumRings()) - int(boundary.GetRingInfo().NumRings()))
-    score += 6 * abs(len(Chem.GetMolFrags(actual)) - len(Chem.GetMolFrags(boundary)))
-
-    connectivity_translation = _deterministic_boundary_atom_map_translation(
-        boundary_text,
-        actual_text,
-        use_chirality=False,
-    )
-    if connectivity_translation is not None:
-        score += 20 * len(
-            _boundary_stereo_mismatch_atom_maps(
-                boundary_text,
-                actual_text,
-                connectivity_translation,
-            )
-        )
-        score += 20 * len(
-            _boundary_stereo_mismatch_bond_maps(
-                boundary_text,
-                actual_text,
-                connectivity_translation,
-            )
-        )
-    return max(1, score)
-
-
-def _path_repair_boundary_progress_failure(
-    *,
-    selected_leaf_mapped: str,
-    mapped_precursor_smiles: Iterable[str],
-    reconnect_boundaries: Iterable[Mapping[str, Any]],
-) -> dict[str, Any] | None:
-    """Require one focus-bearing precursor to approach an exact suffix cut."""
-
-    boundaries = [
-        dict(row)
-        for row in reconnect_boundaries
-        if isinstance(row, Mapping) and str(row.get("mapped_product_smiles") or "").strip()
-    ]
-    if not boundaries:
-        return None
-    selected = Chem.MolFromSmiles(str(selected_leaf_mapped or "").strip())
-    precursors = [str(value or "").strip() for value in mapped_precursor_smiles]
-    if selected is None or not precursors:
-        return {
-            "reason": "path_repair_candidate_not_toward_reconnect_boundary",
-            "detail": "mapped_boundary_distance_unavailable",
-        }
-    selected_maps = {
-        int(atom.GetAtomMapNum()) for atom in selected.GetAtoms() if int(atom.GetAtomMapNum()) > 0
-    }
-    focus_precursors: list[tuple[int, str]] = []
-    for index, value in enumerate(precursors):
-        molecule = Chem.MolFromSmiles(value)
-        if molecule is None:
-            continue
-        precursor_maps = {
-            int(atom.GetAtomMapNum())
-            for atom in molecule.GetAtoms()
-            if int(atom.GetAtomMapNum()) > 0
-        }
-        if selected_maps & precursor_maps:
-            focus_precursors.append((index, value))
-    if not focus_precursors:
-        return {
-            "reason": "path_repair_candidate_not_toward_reconnect_boundary",
-            "detail": "focus_bearing_mapped_precursor_missing",
-        }
-
-    best_observation: dict[str, Any] | None = None
-    for boundary in boundaries:
-        boundary_mapped = str(boundary.get("mapped_product_smiles") or "")
-        selected_distance = _mapped_boundary_distance(
-            selected_leaf_mapped,
-            boundary_mapped,
-        )
-        for precursor_index, precursor in focus_precursors:
-            candidate_distance = _mapped_boundary_distance(precursor, boundary_mapped)
-            if candidate_distance is None:
-                continue
-            if candidate_distance == 0 and selected_distance != 0:
-                return None
-            if selected_distance is None:
-                continue
-            observation = {
-                "boundary_step_id": str(boundary.get("step_id") or ""),
-                "boundary_product_smiles": _canonical_smiles(boundary.get("product_smiles")),
-                "precursor_index": precursor_index,
-                "selected_boundary_distance": selected_distance,
-                "candidate_boundary_distance": candidate_distance,
-            }
-            if candidate_distance < selected_distance:
-                return None
-            if best_observation is None or (
-                candidate_distance - selected_distance,
-                candidate_distance,
-            ) < (
-                int(best_observation["candidate_boundary_distance"])
-                - int(best_observation["selected_boundary_distance"]),
-                int(best_observation["candidate_boundary_distance"]),
-            ):
-                best_observation = observation
-    return {
-        "reason": "path_repair_candidate_not_toward_reconnect_boundary",
-        **(best_observation or {"detail": "mapped_boundary_distance_unavailable"}),
-    }
 
 
 def _path_repair_completion_reached(
     added_steps: Iterable[Mapping[str, Any]],
     *,
     completion_mode: str,
-    selected_critic_pass_step_ids: Iterable[str] | None = None,
+    selected_critic_executed_step_ids: Iterable[str] | None = None,
 ) -> bool:
     """Decide when a no-suffix repair has rebuilt its declared invariant.
 
@@ -12721,268 +13013,60 @@ def _path_repair_completion_reached(
     if not rows:
         return False
     if completion_mode == "strategy_checkpoint":
-        passed = (
-            {str(value) for value in selected_critic_pass_step_ids if str(value)}
-            if selected_critic_pass_step_ids is not None
+        executed = (
+            {
+                str(value)
+                for value in selected_critic_executed_step_ids
+                if str(value)
+            }
+            if selected_critic_executed_step_ids is not None
             else None
         )
         return any(
             str(row.get("checkpoint_relation") or "") == "executes_checkpoint"
-            and (passed is None or str(row.get("step_id") or "") in passed)
+            and (executed is None or str(row.get("step_id") or "") in executed)
             for row in rows
         )
     return False
 
 
 def _path_repair_recritic_completion_failure(
+    branch: Mapping[str, Any],
     pending_repair: Any,
-    critique: Mapping[str, Any],
 ) -> str:
-    """Return the unmet repair invariant reported by the existing re-Critic."""
+    """Return an unmet online checkpoint invariant from its true owner."""
 
     if not isinstance(pending_repair, Mapping):
         return ""
     if str(pending_repair.get("completion_mode") or "") != "strategy_checkpoint":
         return ""
-    if critique.get("strategy_adherence") is not True:
+    strategy_card = dict(pending_repair.get("strategy_card") or {})
+    checkpoint_state = _selected_path_strategy_checkpoint_state(
+        branch,
+        strategy_card=strategy_card,
+        steps=(
+            dict(row)
+            for row in branch.get("steps") or ()
+            if isinstance(row, Mapping)
+        ),
+    )
+    if not checkpoint_state["checkpoint_executed"]:
         return "path_repair_recritic_strategy_checkpoint_missing"
     focus_step_id = str(pending_repair.get("required_checkpoint_step_id") or "")
-    focus_assessments = [
-        dict(row)
-        for row in critique.get("step_assessments") or []
-        if isinstance(row, Mapping) and str(row.get("step_id") or "") == focus_step_id
-    ]
-    if not focus_step_id or len(focus_assessments) != 1:
+    source_focus_step_id = str(
+        dict(checkpoint_state.get("source_row") or {}).get("focus_step_id") or ""
+    )
+    if not focus_step_id or source_focus_step_id != focus_step_id:
         return "path_repair_recritic_checkpoint_assessment_missing"
     return ""
 
 
-def _deterministic_boundary_atom_map_translation(
-    old_mapped_smiles: str,
-    new_mapped_smiles: str,
-    *,
-    use_chirality: bool = True,
-) -> dict[int, int] | None:
-    """Choose one stable provenance-preserving boundary isomorphism.
-
-    Atom-map numbers already present on both boundaries are durable Host
-    identities and must remain fixed.  Anchoring those atoms before graph
-    matching distinguishes real provenance from harmless automorphisms.  When
-    several translations differ only by symmetry in phenyl, tert-butyl, silyl,
-    or similar groups, choose the lexicographically smallest translation.  The
-    stitched route still has to pass the full RouteJSON compiler, so this
-    deterministic tie break cannot admit a connectivity or stereo mismatch.
-    """
-
-    old = Chem.MolFromSmiles(str(old_mapped_smiles or "").strip())
-    new = Chem.MolFromSmiles(str(new_mapped_smiles or "").strip())
-    if old is None or new is None or old.GetNumAtoms() != new.GetNumAtoms():
-        return None
-    old_maps = [int(atom.GetAtomMapNum()) for atom in old.GetAtoms()]
-    new_maps = [int(atom.GetAtomMapNum()) for atom in new.GetAtoms()]
-    if (
-        any(value <= 0 for value in old_maps)
-        or any(value <= 0 for value in new_maps)
-        or len(old_maps) != len(set(old_maps))
-        or len(new_maps) != len(set(new_maps))
-    ):
-        return None
-    old_query = Chem.Mol(old)
-    new_query = Chem.Mol(new)
-    old_atoms_by_map = {int(atom.GetAtomMapNum()): atom for atom in old_query.GetAtoms()}
-    new_atoms_by_map = {int(atom.GetAtomMapNum()): atom for atom in new_query.GetAtoms()}
-    shared_maps = sorted(set(old_maps) & set(new_maps))
-    used_isotopes = {
-        int(atom.GetIsotope())
-        for molecule in (old_query, new_query)
-        for atom in molecule.GetAtoms()
-        if int(atom.GetIsotope()) > 0
-    }
-    next_anchor_isotope = 65_535
-    for map_number in shared_maps:
-        old_atom = old_atoms_by_map[map_number]
-        new_atom = new_atoms_by_map[map_number]
-        if int(old_atom.GetIsotope()) != int(new_atom.GetIsotope()):
-            return None
-        while next_anchor_isotope in used_isotopes:
-            next_anchor_isotope -= 1
-        if next_anchor_isotope <= 0:
-            return None
-        old_atom.SetIsotope(next_anchor_isotope)
-        new_atom.SetIsotope(next_anchor_isotope)
-        used_isotopes.add(next_anchor_isotope)
-        next_anchor_isotope -= 1
-    for atom in old_query.GetAtoms():
-        atom.SetAtomMapNum(0)
-    for atom in new_query.GetAtoms():
-        atom.SetAtomMapNum(0)
-    matches = old_query.GetSubstructMatches(
-        new_query,
-        uniquify=False,
-        useChirality=bool(use_chirality),
-        maxMatches=100_000,
-    )
-    translations = {
-        tuple(
-            sorted(
-                (old_maps[old_index], new_maps[new_index])
-                for new_index, old_index in enumerate(match)
-            )
-        )
-        for match in matches
-        if len(match) == old.GetNumAtoms()
-    }
-    if not translations:
-        return None
-    return dict(min(translations))
 
 
-def _boundary_stereo_mismatch_atom_maps(
-    old_mapped_smiles: str,
-    new_mapped_smiles: str,
-    translation: Mapping[int, int],
-) -> tuple[int, ...]:
-    """Report old-boundary atom maps whose assigned tetrahedral stereo differs."""
-
-    old = Chem.MolFromSmiles(str(old_mapped_smiles or "").strip())
-    new = Chem.MolFromSmiles(str(new_mapped_smiles or "").strip())
-    if old is None or new is None:
-        return ()
-    Chem.AssignStereochemistry(old, cleanIt=True, force=True)
-    Chem.AssignStereochemistry(new, cleanIt=True, force=True)
-    old_centers = {
-        int(old.GetAtomWithIdx(index).GetAtomMapNum()): str(label)
-        for index, label in Chem.FindMolChiralCenters(
-            old,
-            includeUnassigned=True,
-            includeCIP=True,
-        )
-        if int(old.GetAtomWithIdx(index).GetAtomMapNum()) > 0
-    }
-    new_centers = {
-        int(new.GetAtomWithIdx(index).GetAtomMapNum()): str(label)
-        for index, label in Chem.FindMolChiralCenters(
-            new,
-            includeUnassigned=True,
-            includeCIP=True,
-        )
-        if int(new.GetAtomWithIdx(index).GetAtomMapNum()) > 0
-    }
-    return tuple(
-        sorted(
-            old_map
-            for old_map, new_map in translation.items()
-            if old_centers.get(old_map) != new_centers.get(new_map)
-            and (old_map in old_centers or new_map in new_centers)
-        )
-    )
 
 
-def _boundary_stereo_mismatch_bond_maps(
-    old_mapped_smiles: str,
-    new_mapped_smiles: str,
-    translation: Mapping[int, int],
-) -> tuple[tuple[int, int], ...]:
-    """Report old-boundary mapped bonds whose E/Z assignment differs."""
-
-    old = Chem.MolFromSmiles(str(old_mapped_smiles or "").strip())
-    new = Chem.MolFromSmiles(str(new_mapped_smiles or "").strip())
-    if old is None or new is None:
-        return ()
-    Chem.AssignStereochemistry(old, cleanIt=True, force=True)
-    Chem.AssignStereochemistry(new, cleanIt=True, force=True)
-    new_atoms = {
-        int(atom.GetAtomMapNum()): int(atom.GetIdx())
-        for atom in new.GetAtoms()
-        if int(atom.GetAtomMapNum()) > 0
-    }
-    mismatches: list[tuple[int, int]] = []
-    for bond in old.GetBonds():
-        old_a = int(bond.GetBeginAtom().GetAtomMapNum())
-        old_b = int(bond.GetEndAtom().GetAtomMapNum())
-        new_a = int(translation.get(old_a, 0))
-        new_b = int(translation.get(old_b, 0))
-        if new_a not in new_atoms or new_b not in new_atoms:
-            continue
-        new_bond = new.GetBondBetweenAtoms(new_atoms[new_a], new_atoms[new_b])
-        if new_bond is None:
-            continue
-        old_stereo = str(bond.GetStereo())
-        new_stereo = str(new_bond.GetStereo())
-        if old_stereo != new_stereo and (old_stereo != "STEREONONE" or new_stereo != "STEREONONE"):
-            mismatches.append(tuple(sorted((old_a, old_b))))
-    return tuple(sorted(set(mismatches)))
 
 
-def _path_repair_boundary_stereo_conflict(
-    *,
-    mapped_precursor_smiles: Iterable[str],
-    reconnect_boundaries: Iterable[Mapping[str, Any]],
-) -> dict[str, Any] | None:
-    """Find a precursor that has the required graph but the wrong stereo.
-
-    A later retrosynthetic expansion cannot change the product identity of the
-    step that created this leaf.  Rejecting that step here lets AiZ revisit its
-    parent and ask Builder for a corrected sibling instead of spending the
-    remaining repair budget upstream of a suffix that can never reconnect.
-    """
-
-    boundaries = [dict(row) for row in reconnect_boundaries if isinstance(row, Mapping)]
-    for precursor_index, raw_precursor in enumerate(mapped_precursor_smiles):
-        precursor = str(raw_precursor or "").strip()
-        if not precursor:
-            continue
-        connectivity_matches: list[tuple[dict[str, Any], dict[int, int]]] = []
-        stereo_match = False
-        for boundary in boundaries:
-            expected = str(boundary.get("mapped_product_smiles") or "").strip()
-            if not expected:
-                continue
-            connectivity = _deterministic_boundary_atom_map_translation(
-                expected,
-                precursor,
-                use_chirality=False,
-            )
-            if connectivity is None:
-                continue
-            connectivity_matches.append((boundary, connectivity))
-            if (
-                _deterministic_boundary_atom_map_translation(
-                    expected,
-                    precursor,
-                    use_chirality=True,
-                )
-                is not None
-            ):
-                stereo_match = True
-                break
-        if stereo_match or not connectivity_matches:
-            continue
-        boundary, connectivity = connectivity_matches[0]
-        expected = str(boundary.get("mapped_product_smiles") or "").strip()
-        return {
-            "reason": "path_repair_reconnect_boundary_stereo_mismatch",
-            "boundary_step_id": str(boundary.get("step_id") or ""),
-            "boundary_product_smiles": _canonical_smiles(boundary.get("product_smiles")),
-            "precursor_index": precursor_index,
-            "actual_mapped_precursor_smiles": precursor,
-            "stereo_mismatch_atom_maps": list(
-                _boundary_stereo_mismatch_atom_maps(
-                    expected,
-                    precursor,
-                    connectivity,
-                )
-            ),
-            "stereo_mismatch_bond_maps": [
-                list(pair)
-                for pair in _boundary_stereo_mismatch_bond_maps(
-                    expected,
-                    precursor,
-                    connectivity,
-                )
-            ],
-        }
-    return None
 
 
 def _remap_mapped_smiles(
@@ -13387,11 +13471,13 @@ def _compact_route_spec(value: Mapping[str, Any]) -> dict[str, Any]:
         "mapped_product_smiles": str(row.get("mapped_product_smiles") or ""),
         "precursor_smiles": list(row.get("precursor_smiles") or []),
         "mapped_precursor_smiles": list(row.get("mapped_precursor_smiles") or []),
+        **reaction_input_context(row, mapped_only=False),
         "reaction_family": str(
             row.get("reaction_family") or row.get("transformation_hypothesis") or ""
         ),
         "step_role": _normalize_step_role(row.get("step_role")),
         "checkpoint_relation": _normalize_checkpoint_relation(row.get("checkpoint_relation")),
+        "continuation_hint": str(row.get("continuation_hint") or ""),
         "product_retron_type": str(row.get("product_retron_type") or ""),
         "transformation_rationale": str(
             row.get("transformation_rationale") or row.get("strategic_role") or ""
@@ -13845,15 +13931,15 @@ def _path_repair_reference_rows(
     ``connected_path_reactions`` remains the accepted-history authority.  These
     rows preserve the exact Host-replayed structures and graph programs that an
     Editor selected for revision, so a local repair does not have to rediscover
-    valid atom provenance from an abstract directive.  Latest Key-Critic status
-    is attached without copying its prose; active feedback carries the reasons.
+    valid atom provenance from an abstract directive.  The latest Key-Critic
+    facts are attached without copying prose; active feedback carries reasons.
     """
 
     source_rows = [dict(row) for row in steps if isinstance(row, Mapping)]
     compact = _minimal_editor_prompt_route_rows(source_rows)
     latest_critic_by_step: dict[str, Mapping[str, Any]] = {}
     for raw in key_event_critic_history:
-        if not isinstance(raw, Mapping):
+        if not isinstance(raw, Mapping) or not key_event_history_has_assessment(raw):
             continue
         focus_step_id = str(raw.get("focus_step_id") or "")
         if focus_step_id:
@@ -13867,7 +13953,6 @@ def _path_repair_reference_rows(
             continue
         assessment = dict(critic_row.get("assessment") or {})
         critic_summary: dict[str, Any] = {
-            "status": str(critic_row.get("status") or ""),
             "checkpoint_match": critic_row.get("checkpoint_match") is True,
         }
         verdict = str(assessment.get("verdict") or "")
@@ -13886,7 +13971,7 @@ def _minimal_editor_prompt_route_rows(
     """Keep topology and replay authority while omitting non-structural prose.
 
     Paper-matched routes can contain 25 fully materialized rows. These rows
-    retain every dependency identity, exact mapped boundary, concise condition
+    retain every dependency identity, exact mapped boundary, complete condition
     hypothesis and ReactionJSON program; only non-executable prose and bulky
     derived audit metadata are compacted away.
     """
@@ -13901,6 +13986,7 @@ def _minimal_editor_prompt_route_rows(
             "mapped_product_smiles": str(row.get("mapped_product_smiles") or ""),
             "precursor_smiles": list(row.get("precursor_smiles") or []),
             "mapped_precursor_smiles": list(row.get("mapped_precursor_smiles") or []),
+        **reaction_input_context(row, mapped_only=False),
             "reaction_operations": [
                 dict(operation)
                 for operation in row.get("reaction_operations") or []
@@ -13911,14 +13997,14 @@ def _minimal_editor_prompt_route_rows(
             row.get("reaction_family") or row.get("transformation_hypothesis") or ""
         ).strip()
         if reaction_family:
-            item["reaction_family"] = reaction_family[:160]
+            item["reaction_family"] = reaction_family
         predictions = [
             dict(value)
             for value in row.get("condition_predictions") or []
             if isinstance(value, Mapping)
         ]
         item["conditions"] = [
-            str(reagent)[:240]
+            str(reagent)
             for reagent in (
                 row.get("conditions")
                 or [
@@ -13928,14 +14014,20 @@ def _minimal_editor_prompt_route_rows(
                 ]
             )
             if str(reagent)
-        ][:4]
+        ]
         item["catalyst"] = str(
             row.get("catalyst")
+            or row.get("enzyme")
             or next(
-                (prediction.get("catalyst") or "" for prediction in predictions),
+                (prediction.get("catalyst") or prediction.get("enzyme") or "" for prediction in predictions),
                 "",
             )
-        )[:160]
+        )
+        if row.get("execution_domain"):
+            item["execution_domain"] = str(row["execution_domain"])
+        bio = _compact_biocatalytic_hypothesis(dict(row.get("biocatalytic_step") or {}))
+        if bio:
+            item["biocatalytic_step"] = bio
         item.update(dependency_links[index - 1])
         compact.append(item)
     return compact
@@ -14170,11 +14262,30 @@ def _expansion_rejection_diagnostic(
                         "allowed_orders",
                         "invalidated_bond_stereo",
                         "required_repair",
+                        "colliding_atom_map",
+                        "fresh_atom_map_start",
                     )
                     if key in replay
                 },
                 "declared_precursor_smiles": list(replay.get("declared_precursor_smiles") or []),
                 "replayed_precursor_smiles": [],
+            }
+        inputs = list(replay.get("replayed_precursor_smiles") or [])
+        if _has_atom_provenance_deficit(expected_product, inputs):
+            available: Counter[int] = Counter()
+            for precursor in inputs:
+                available.update(_heavy_atom_inventory(precursor))
+            missing = _heavy_atom_inventory(expected_product) - available
+            return {
+                "reason": "product_atom_donor_missing",
+                "missing_elements": {Chem.GetPeriodicTable().GetElementSymbol(n): count
+                                     for n, count in sorted(missing.items())},
+                "replayed_precursor_smiles": inputs,
+                "required_repair": (
+                    "Retain the product atoms in an explicit donor input: disconnect and complete "
+                    "that donor in ReactionJSON instead of remove_group plus a conditions-only reagent. "
+                    "Auxiliary reaction inputs count; no new route strategy or whole-route repair is needed."
+                ),
             }
         return {
             "reason": "invalid_expansion_contract",
@@ -14329,11 +14440,6 @@ def _strategy_key_bond_pairs(
     return frozenset(pairs)
 
 
-def _strategy_card_digest(strategy_card: Mapping[str, Any] | None) -> str:
-    card = dict(strategy_card or {})
-    return str(
-        card.get("strategy_digest") or card.get("content_sha256") or card.get("strategy_id") or ""
-    )
 
 
 def _mapped_bond_pairs(mapped_smiles: str) -> frozenset[tuple[int, int]]:
@@ -14412,47 +14518,41 @@ def _strategy_card_applies_to_leaf(
     )
 
 
-def _key_event_obligation_id(row: Mapping[str, Any]) -> str:
-    explicit = str(row.get("obligation_id") or "").strip()
-    if explicit:
-        return explicit
-    payload = {
-        "strategy_digest": str(row.get("strategy_digest") or ""),
-        "strategy_milestone_index": int(row.get("strategy_milestone_index") or 1),
-        "focus_step_id": str(row.get("focus_step_id") or ""),
-        "lineage_root_mapped_smiles": str(row.get("lineage_root_mapped_smiles") or ""),
-    }
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()[:20]
+def _needs_proposal_clarification(
+    row: Mapping[str, Any], history: Iterable[Mapping[str, Any]],
+) -> bool:
+    """One clarification per provisional graph/leaf, charged to ordinary Builder budget."""
+    assessment = dict(row.get("assessment") or {})
+    if (assessment.get("verdict") != "uncertain"
+            or assessment.get("uncertainty_source") != "proposal_underspecified"):
+        return False
+    return not any(
+        dict(previous.get("assessment") or {}).get("uncertainty_source") == "proposal_underspecified"
+        and previous.get("graph_fingerprint") == row.get("graph_fingerprint")
+        and previous.get("lineage_root_mapped_smiles") == row.get("lineage_root_mapped_smiles")
+        and previous.get("strategy_digest") == row.get("strategy_digest")
+        for previous in history
+    )
 
 
 def _pending_uncertain_key_event_evidence_review(
     branch: Mapping[str, Any],
     *,
-    strategy_card: Mapping[str, Any],
     steps: Iterable[Mapping[str, Any]],
+    allow_evidence_query: bool = False,
 ) -> dict[str, Any]:
     """Select one newly materialized direct-precursor review, if any.
 
-    An uncertain key event is reviewed only after AiZ has selected a new step
-    that synthesizes one of that event's direct mapped precursors.  Each such
-    evidence step is reviewed once, avoiding both the old never-revisit gap
-    and a per-Builder-call Critic loop.
+    Typed uncertainty gets one cause-specific opportunity per obligation.
+    Historical untyped records retain direct-precursor review semantics.
     """
 
-    active_digest = _strategy_card_digest(strategy_card)
-    active_milestone = _strategy_milestone_index(branch, strategy_card)
     step_rows = [dict(row) for row in steps if isinstance(row, Mapping)]
     by_id = {
         str(row.get("step_id") or ""): row for row in step_rows if str(row.get("step_id") or "")
     }
-    reviewed_pairs = {
+    selected_step_ids = set(by_id)
+    attempted_pairs = {
         (
             str(row.get("review_of_obligation_id") or ""),
             str(row.get("review_evidence_step_id") or ""),
@@ -14460,24 +14560,74 @@ def _pending_uncertain_key_event_evidence_review(
         for row in branch.get("key_event_critic_history") or ()
         if isinstance(row, Mapping)
         and str(row.get("review_of_obligation_id") or "")
-        and str(row.get("review_evidence_step_id") or "")
+        and str(row.get("task_id") or "")
+    }
+    resolved_obligations = {
+        str(row.get("review_of_obligation_id") or "")
+        for row in branch.get("key_event_critic_history") or ()
+        if isinstance(row, Mapping)
+        and key_event_history_has_assessment(row)
+        and str(row.get("review_of_obligation_id") or "")
+        and row.get("checkpoint_match") is True
+        and str(dict(row.get("assessment") or {}).get("verdict") or "")
+        == "pass"
+        and str(row.get("focus_step_id") or "") in selected_step_ids
+        and {
+            str(value)
+            for value in row.get("required_selected_step_ids")
+            or (str(row.get("focus_step_id") or ""),)
+            if str(value)
+        }.issubset(selected_step_ids)
     }
     for raw in branch.get("key_event_critic_history") or ():
-        if not isinstance(raw, Mapping) or str(raw.get("status") or "") != ("uncertain"):
+        if not isinstance(raw, Mapping):
             continue
         row = dict(raw)
-        if row.get("review_of_obligation_id"):
+        assessment = dict(row.get("assessment") or {})
+        if (
+            not key_event_history_has_assessment(row)
+            or row.get("checkpoint_match") is not True
+            or str(assessment.get("verdict") or "") != "uncertain"
+        ):
             continue
-        row_digest = str(row.get("strategy_digest") or "")
-        if row_digest:
-            if not active_digest or row_digest != active_digest:
-                continue
-        elif int(row.get("strategy_milestone_index") or 1) != active_milestone:
+        if row.get("review_of_obligation_id") and row.get("review_evidence_step_id"):
+            continue
+        source_strategy_card = _strategy_card_for_key_event_history_row(
+            branch,
+            row=row,
+            steps=step_rows,
+        )
+        if not source_strategy_card:
             continue
         focus_step_id = str(row.get("focus_step_id") or "")
         focus_step = by_id.get(focus_step_id)
         if focus_step is None:
             continue
+        source = assessment.get("uncertainty_source")
+        obligation_id = _key_event_obligation_id(row)
+        if obligation_id in resolved_obligations:
+            continue
+        if source:
+            if source == "proposal_underspecified":
+                continue  # Clarify provisional candidates at their Builder boundary.
+            if (source == "evidence_missing"
+                    and focus_step.get("execution_domain") in BIOLOGICAL_EXECUTION_DOMAINS):
+                # Route design does not dispatch enzyme discovery. Preserve the
+                # uncertainty; do not spend another Critic call seeking assays.
+                continue
+            if source == "evidence_missing" and not allow_evidence_query:
+                continue  # Keep the hypothesis; unavailable evidence is not a rejection.
+            if any(pair[0] == obligation_id for pair in attempted_pairs):
+                continue
+            if source not in {"evidence_missing", "assessment_unresolved"}:
+                continue
+            return {
+                "obligation_id": obligation_id, "focus_step_id": focus_step_id,
+                "evidence_step_id": "", "uncertainty_source": source,
+                "review_kind": source,
+                "lineage_root_mapped_smiles": str(row.get("lineage_root_mapped_smiles") or ""),
+                "source_history_row": row, "strategy_card": source_strategy_card,
+            }
         direct_precursors = {
             _canonical_mapped_smiles(value)
             for value in focus_step.get("mapped_precursor_smiles") or ()
@@ -14486,6 +14636,8 @@ def _pending_uncertain_key_event_evidence_review(
         if not direct_precursors:
             continue
         obligation_id = _key_event_obligation_id(row)
+        if obligation_id in resolved_obligations:
+            continue
         for evidence_step in step_rows:
             evidence_step_id = str(evidence_step.get("step_id") or "")
             if not evidence_step_id or evidence_step_id == focus_step_id:
@@ -14495,7 +14647,10 @@ def _pending_uncertain_key_event_evidence_review(
                 not in direct_precursors
             ):
                 continue
-            if (obligation_id, evidence_step_id) in reviewed_pairs:
+            # A dispatched attempt consumes this evidence opportunity. A
+            # missing output has one separate bounded recovery; prompt/budget
+            # deferrals have not dispatched a worker and do not consume it.
+            if (obligation_id, evidence_step_id) in attempted_pairs:
                 continue
             return {
                 "obligation_id": obligation_id,
@@ -14503,7 +14658,52 @@ def _pending_uncertain_key_event_evidence_review(
                 "evidence_step_id": evidence_step_id,
                 "lineage_root_mapped_smiles": str(row.get("lineage_root_mapped_smiles") or ""),
                 "source_history_row": row,
+                "strategy_card": source_strategy_card,
             }
+    return {}
+
+
+def _strategy_card_for_key_event_history_row(
+    branch: Mapping[str, Any],
+    *,
+    row: Mapping[str, Any],
+    steps: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Resolve the exact Strategy that owned an append-only Critic row."""
+
+    candidates: list[dict[str, Any]] = []
+    for value in (
+        branch.get("root_strategy_card"),
+        branch.get("strategy_card"),
+        *(branch.get("strategy_milestone_cards") or ()),
+        *(
+            dict(step).get("strategy_card")
+            for step in steps
+            if isinstance(step, Mapping)
+        ),
+    ):
+        if isinstance(value, Mapping) and value:
+            candidates.append(dict(value))
+    row_digest = str(row.get("strategy_digest") or "")
+    if row_digest:
+        return next(
+            (
+                card
+                for card in candidates
+                if _strategy_card_digest(card) == row_digest
+            ),
+            {},
+        )
+    # Legacy rows without a digest may use the milestone index.  Never apply
+    # this fallback when an explicit but unresolved digest was supplied.
+    milestone_index = max(1, int(row.get("strategy_milestone_index") or 1))
+    milestone_cards = [
+        dict(value)
+        for value in branch.get("strategy_milestone_cards") or ()
+        if isinstance(value, Mapping)
+    ]
+    if milestone_index <= len(milestone_cards):
+        return milestone_cards[milestone_index - 1]
     return {}
 
 
@@ -14533,6 +14733,7 @@ def _pending_key_event_feedback_for_leaf(
     }
     constraints: dict[str, dict[str, Any]] = {}
     rejected_attempts: dict[str, dict[str, Any]] = {}
+    rejected_graph_fingerprints: set[str] = set()
     for raw in branch.get("key_event_critic_history") or []:
         if not isinstance(raw, Mapping):
             continue
@@ -14550,8 +14751,12 @@ def _pending_key_event_feedback_for_leaf(
             selected_product_mapped=selected_product_mapped,
         ):
             continue
-        status = str(row.get("status") or "")
-        if status == "completed":
+        if not key_event_history_has_assessment(row):
+            continue
+        assessment = dict(row.get("assessment") or {})
+        checkpoint_match = row.get("checkpoint_match") is True
+        verdict = str(assessment.get("verdict") or "")
+        if checkpoint_match and verdict == "pass":
             required_selected_step_ids = {
                 str(value)
                 for value in row.get("required_selected_step_ids")
@@ -14564,16 +14769,25 @@ def _pending_key_event_feedback_for_leaf(
                 constraints.clear()
                 rejected_attempts.clear()
             continue
-        if status == "uncertain" and include_uncertain:
+        if verdict == "uncertain" and include_uncertain:
             pass
-        elif status != "rejected":
+        elif verdict != "reject":
             continue
-        assessment = dict(row.get("assessment") or {})
         reasons = [
-            str(value)[:260] for value in assessment.get("reasons") or [] if str(value).strip()
+            str(value) for value in assessment.get("reasons") or [] if str(value).strip()
         ][:2]
-        suggested_revision = str(assessment.get("suggested_revision") or "")[:420]
+        suggested_revision = str(assessment.get("suggested_revision") or "")
         blocking_type = str(assessment.get("blocking_type") or "none")
+        required_change_kind = str(
+            assessment.get("required_change_kind") or "none"
+        )
+        competing_site_maps = sorted(
+            {
+                int(value)
+                for value in assessment.get("competing_site_maps") or ()
+                if int(value) > 0
+            }
+        )[:8]
         if not reasons and not suggested_revision:
             continue
         review_evidence_step_id = str(row.get("review_evidence_step_id") or "")
@@ -14584,26 +14798,41 @@ def _pending_key_event_feedback_for_leaf(
         # Non-rejected reviews remain path-local: they must not affect a
         # sibling path that did not select their evidence step.
         if (
-            status != "rejected"
+            verdict != "reject"
             and review_evidence_step_id
             and review_evidence_step_id not in selected_step_ids
         ):
             continue
         obligation_id = str(row.get("review_of_obligation_id") or _key_event_obligation_id(row))
-        fingerprint = str(row.get("fingerprint") or obligation_id)
-        rejected_attempts[fingerprint] = {
+        graph_fingerprint = str(
+            row.get("graph_fingerprint")
+            or row.get("fingerprint")
+            or obligation_id
+        )
+        implementation_fingerprint = str(
+            row.get("implementation_fingerprint")
+            or row.get("fingerprint")
+            or obligation_id
+        )
+        rejected_graph_fingerprints.add(graph_fingerprint)
+        rejected_attempts[implementation_fingerprint] = {
             "blocking_type": blocking_type,
             "checkpoint_match": row.get("checkpoint_match") is True,
+            "graph_fingerprint": graph_fingerprint,
+            "required_change_kind": required_change_kind,
+            "competing_site_maps": competing_site_maps,
         }
         constraints[obligation_id] = {
             "obligation_id": obligation_id,
             "severity": (
                 "blocking"
-                if status == "rejected" or assessment.get("blocking") is True
+                if verdict == "reject"
                 else "warning"
             ),
             "checkpoint_match": row.get("checkpoint_match") is True,
             "blocking_type": blocking_type,
+            "required_change_kind": required_change_kind,
+            "competing_site_maps": competing_site_maps,
             "reasons": reasons,
             "suggested_revision": suggested_revision,
             "source_focus_step_id": str(row.get("focus_step_id") or ""),
@@ -14625,15 +14854,36 @@ def _pending_key_event_feedback_for_leaf(
         recurring = sorted(
             key for key, count in blocking_counts.items() if key != "none" and count >= 2
         )
+        required_change_counts = Counter(
+            str(row.get("required_change_kind") or "none")
+            for row in rejected_attempts.values()
+        )
+        competing_maps = sorted(
+            {
+                int(value)
+                for row in rejected_attempts.values()
+                for value in row.get("competing_site_maps") or ()
+                if int(value) > 0
+            }
+        )[:12]
         feedback["failure_basin"] = {
-            "distinct_rejected_attempt_count": len(rejected_attempts),
+            "distinct_rejected_implementation_count": len(rejected_attempts),
+            "distinct_rejected_graph_count": len(rejected_graph_fingerprints),
             "blocking_type_counts": dict(sorted(blocking_counts.items())),
             "recurring_blocking_types": recurring,
-            "distinct_candidate_fingerprints": sorted(rejected_attempts),
+            "required_change_kind_counts": dict(
+                sorted(required_change_counts.items())
+            ),
+            "graph_fingerprints": sorted(rejected_graph_fingerprints),
+            "implementation_fingerprints": sorted(rejected_attempts),
+            "same_graph_multiple_implementations": (
+                len(rejected_attempts) > len(rejected_graph_fingerprints)
+            ),
+            "competing_site_maps": competing_maps,
             "checkpoint_match_count": sum(
                 1 for row in rejected_attempts.values() if row.get("checkpoint_match") is True
             ),
-            "recurrent_across_distinct_candidates": bool(recurring),
+            "recurrent_across_distinct_implementations": bool(recurring),
             "authority": "derived_diagnostic_only",
         }
     return feedback
@@ -14728,22 +14978,6 @@ def _ordered_strategy_cards_from_steps(
     return cards
 
 
-def _final_route_strategy_card(branch: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the last Strategy horizon actually bound to the selected route."""
-
-    root = dict(branch.get("root_strategy_card") or branch.get("strategy_card") or {})
-    selected = _ordered_strategy_cards_from_steps(
-        root_strategy_card=root,
-        steps=(dict(row) for row in branch.get("steps") or [] if isinstance(row, Mapping)),
-    )
-    if selected:
-        return dict(selected[-1])
-    milestones = [
-        dict(row)
-        for row in branch.get("strategy_milestone_cards") or []
-        if isinstance(row, Mapping)
-    ]
-    return dict(milestones[-1] if milestones else root)
 
 
 def _active_strategy_card_for_leaf(
@@ -14788,10 +15022,12 @@ def _rejected_strategy_horizon_for_leaf(
     milestone_index = _strategy_milestone_index(branch, strategy_card)
     rows = [dict(row) for row in steps if isinstance(row, Mapping)]
     for raw in reversed(list(branch.get("key_event_critic_history") or [])):
-        if not isinstance(raw, Mapping) or str(raw.get("status") or "") != "rejected":
+        if not isinstance(raw, Mapping):
             continue
         row = dict(raw)
         assessment = dict(row.get("assessment") or {})
+        if str(assessment.get("verdict") or "") != "reject":
+            continue
         if str(assessment.get("repair_scope") or "") != "strategy_horizon":
             continue
         row_digest = str(row.get("strategy_digest") or "")
@@ -14845,7 +15081,7 @@ def _strategy_horizon_for_leaf(
             return (
                 active,
                 bool(
-                    _selected_path_passed_strategy_checkpoint(
+                    _selected_path_executed_strategy_checkpoint(
                         branch,
                         strategy_card=active,
                         steps=rows,
@@ -14858,7 +15094,7 @@ def _strategy_horizon_for_leaf(
                     )
                 ),
             )
-        root_retired = _selected_path_passed_strategy_checkpoint(
+        root_retired = _selected_path_executed_strategy_checkpoint(
             branch,
             strategy_card=root_strategy_card,
             steps=rows,
@@ -14889,48 +15125,20 @@ def _strategy_horizon_for_leaf(
     )
 
 
-def _strategy_milestone_index(branch: Mapping[str, Any], strategy_card: Mapping[str, Any]) -> int:
-    digest = _strategy_card_digest(strategy_card)
-    cards = [
-        dict(row)
-        for row in branch.get("strategy_milestone_cards") or []
-        if isinstance(row, Mapping)
-    ]
-    for index, card in enumerate(cards, start=1):
-        if digest and _strategy_card_digest(card) == digest:
-            return index
-    return 1
-
-
-def _selected_path_passed_strategy_checkpoint(
+def _selected_path_executed_strategy_checkpoint(
     branch: Mapping[str, Any],
     *,
     strategy_card: Mapping[str, Any],
     steps: Iterable[Mapping[str, Any]],
 ) -> bool:
-    """Return whether AiZ selected a Critic-passed checkpoint proposal."""
+    """Return whether a selected step executed this Strategy checkpoint."""
 
-    digest = _strategy_card_digest(strategy_card)
-    milestone_index = _strategy_milestone_index(branch, strategy_card)
-    selected_step_ids = {
-        str(row.get("step_id") or "")
-        for row in steps
-        if isinstance(row, Mapping) and str(row.get("step_id") or "")
-    }
-    if not selected_step_ids:
-        return False
-    return any(
-        isinstance(row, Mapping)
-        and str(row.get("status") or "") == "completed"
-        and str(row.get("focus_step_id") or "") in selected_step_ids
-        and (
-            (digest and str(row.get("strategy_digest") or "") == digest)
-            or (
-                not str(row.get("strategy_digest") or "")
-                and int(row.get("strategy_milestone_index") or 1) == milestone_index
-            )
-        )
-        for row in branch.get("key_event_critic_history") or []
+    return bool(
+        _selected_path_strategy_checkpoint_state(
+            branch,
+            strategy_card=strategy_card,
+            steps=steps,
+        ).get("checkpoint_executed")
     )
 
 
@@ -14948,20 +15156,37 @@ def _strategy_milestone_progress(
     if not use_key_event_critic:
         return progress
     mapped_edit_overlap = progress.get("fulfilled") is True
-    critic_confirmed = _selected_path_passed_strategy_checkpoint(
+    checkpoint_state = _selected_path_strategy_checkpoint_state(
         branch,
         strategy_card=strategy_card,
         steps=rows,
     )
+    checkpoint_executed = checkpoint_state["checkpoint_executed"]
+    checkpoint_passed = checkpoint_state["checkpoint_critic_passed"]
     return {
         **progress,
-        "fulfilled": critic_confirmed,
+        "fulfilled": checkpoint_executed,
         "mapped_edit_overlap": mapped_edit_overlap,
-        "checkpoint_critic_confirmed": critic_confirmed,
+        "checkpoint_executed": checkpoint_executed,
+        "checkpoint_critic_passed": checkpoint_passed,
+        "chemical_confidence": checkpoint_state["chemical_confidence"],
+        "review_pending": checkpoint_state["review_pending"],
+        "pending_reviews": [
+            {
+                key: row.get(key)
+                for key in (
+                    "task_id", "focus_step_id", "review_evidence_step_id",
+                    "required_selected_step_ids", "critic_status", "reason",
+                )
+            }
+            for row in checkpoint_state["pending_review_rows"]
+        ],
         "authority": "selected_path_key_event_critic",
-        "grants_strategy_completion": critic_confirmed,
+        "grants_strategy_completion": checkpoint_executed,
         "grants_route_admission": False,
-        "completion_semantics": ("host_replayed_selected_step_with_key_event_critic_pass"),
+        "completion_semantics": (
+            "host_replayed_selected_checkpoint_with_nonreject_key_event_audit"
+        ),
     }
 
 
@@ -15037,7 +15262,16 @@ def _step_row(
     # folding them into the card would give every step in one branch a
     # different strategy digest and make the host reject its own frozen card.
     raw_strategy_card = dict(expansion.strategy_card or {})
-    strategy_card = normalize_strategy_policy_card(raw_strategy_card)
+    strategy_card = (
+        normalize_strategy_policy_card(raw_strategy_card)
+        if raw_strategy_card
+        else {}
+    )
+    strategy_review = dict(raw_strategy_card.get("strategy_review") or {})
+    if strategy_review:
+        # Critic metadata must survive lineage projection without changing the
+        # canonical Strategy digest.
+        strategy_card["strategy_review"] = strategy_review
     host_lineage = raw_strategy_card.get("host_lineage")
     if isinstance(host_lineage, Mapping):
         lineage_root = str(host_lineage.get("root_mapped_smiles") or "").strip()
@@ -15050,28 +15284,39 @@ def _step_row(
             }
     edit_digest = reaction_edit_digest(expansion.reaction_operations)
     conditions = tuple(
-        value for raw in expansion.conditions if (value := _clean_condition_text(raw))
+        value for raw in expansion.conditions if (value := normalize_condition_text(raw))
     )
-    catalyst = _clean_condition_text(expansion.catalyst)
-    enzyme = _clean_condition_text(expansion.enzyme)
+    catalyst = normalize_condition_text(expansion.catalyst)
+    enzyme = normalize_condition_text(expansion.enzyme)
     execution_domain = normalize_step_execution_domain(
         expansion.execution_domain,
         enzyme_label=enzyme,
         biocatalytic_step=expansion.biocatalytic_step,
     )
-    biocatalytic_step, biocatalytic_reasons = normalize_biocatalytic_step(
+    biocatalytic_step, _ = normalize_biocatalytic_step(
         expansion.biocatalytic_step,
         execution_domain=execution_domain,
         product_smiles=expansion.product_smiles,
         precursor_smiles=expansion.precursor_smiles,
         enzyme_label=enzyme,
+        catalyst_label=catalyst,
         step_id=step_id,
     )
+    enzyme = str(dict(biocatalytic_step.get("catalyst_hypothesis") or {}).get(
+        "enzyme_label"
+    ) or enzyme)
     condition_predictions: list[dict[str, Any]] = []
-    if conditions or catalyst or enzyme:
+    if conditions or catalyst or enzyme or expansion.auxiliary_reagent_smiles:
         condition_predictions.append(
             {
-                "reagents": list(conditions),
+                "reagents": list(
+                    dict.fromkeys(
+                        [*conditions, *expansion.auxiliary_reagent_smiles]
+                    )
+                ),
+                "structural_reagent_smiles": list(
+                    expansion.auxiliary_reagent_smiles
+                ),
                 "catalyst": catalyst,
                 "enzyme": enzyme,
                 "authority_scope": "model_predicted_condition",
@@ -15085,12 +15330,30 @@ def _step_row(
         "step_id": step_id,
         "product_smiles": expansion.product_smiles,
         "precursor_smiles": list(expansion.precursor_smiles),
+        "reaction_input_smiles": list(
+            expansion.reaction_input_smiles or expansion.precursor_smiles
+        ),
+        "auxiliary_reagent_smiles": list(expansion.auxiliary_reagent_smiles),
         "mapped_product_smiles": expansion.mapped_product_smiles,
         "mapped_precursor_smiles": list(expansion.mapped_precursor_smiles),
+        "mapped_reaction_input_smiles": list(
+            expansion.mapped_reaction_input_smiles
+            or expansion.mapped_precursor_smiles
+        ),
+        "mapped_auxiliary_reagent_smiles": list(
+            expansion.mapped_auxiliary_reagent_smiles
+        ),
+        "reaction_component_ledger": dict(
+            dict(expansion.reactionjson_audit or {}).get(
+                "reaction_component_ledger"
+            )
+            or {}
+        ),
         "transformation_hypothesis": expansion.reaction_family,
         "strategic_role": expansion.rationale,
         "step_role": _normalize_step_role(expansion.step_role),
         "checkpoint_relation": _normalize_checkpoint_relation(expansion.checkpoint_relation),
+        "continuation_hint": expansion.continuation_hint,
         "source_hints": [],
         "required_validation": required_validation,
         "hypothesis_only": True,
@@ -15109,27 +15372,9 @@ def _step_row(
         ),
         "execution_domain": execution_domain,
         "biocatalytic_step": biocatalytic_step,
-        "biocatalytic_design_deficits": biocatalytic_reasons,
         "strategy_anchor": bool(strategy_anchor),
         "strategy_milestone_index": max(1, int(strategy_milestone_index)),
     }
-
-
-def _clean_condition_text(value: Any) -> str:
-    """Keep concrete hypotheses but drop model-generated placeholders.
-
-    A missing condition is an explicit gap.  Phrases such as ``screen`` or
-    ``to be determined`` are not operational conditions and must not leak into
-    route rows where downstream projections could mistake them for evidence.
-    """
-
-    text = " ".join(str(value or "").split()).strip()
-    if not text:
-        return ""
-    lowered = text.casefold()
-    if any(marker in lowered for marker in _CONDITION_PLACEHOLDER_MARKERS):
-        return ""
-    return text
 
 
 def _host_route_json_from_steps(
@@ -15184,6 +15429,7 @@ def _host_route_json_from_steps(
             {
                 "step_id": str(value.get("step_id") or ""),
                 "reaction_family": str(value.get("transformation_hypothesis") or ""),
+                "continuation_hint": str(value.get("continuation_hint") or ""),
                 "transformation_rationale": str(value.get("strategic_role") or ""),
                 "step_role": _normalize_step_role(value.get("step_role")),
                 "checkpoint_relation": _normalize_checkpoint_relation(
@@ -15218,9 +15464,6 @@ def _host_route_json_from_steps(
                 "step_kind": str(value.get("step_kind") or "chemical_reaction"),
                 "execution_domain": str(value.get("execution_domain") or "chemical"),
                 "biocatalytic_step": dict(value.get("biocatalytic_step") or {}),
-                "biocatalytic_design_deficits": list(
-                    value.get("biocatalytic_design_deficits") or []
-                ),
                 "required_validation": list(value.get("required_validation") or []),
                 "limitations": list(value.get("limitations") or []),
             }
@@ -15240,6 +15483,11 @@ def _step_has_bound_replay_audit(step: Mapping[str, Any]) -> bool:
     ):
         return False
     operations = normalize_reaction_operations(row.get("reaction_operations") or ())
+    if (
+        any(op.get("op") in {"set_tetrahedral_stereo", "set_bond_stereo"} for op in operations)
+        and audit.get("stereochemistry_version") != STEREOCHEMISTRY_VERSION
+    ):
+        return False
     try:
         operation_count = int(audit.get("operation_count") or 0)
     except (TypeError, ValueError):
@@ -15259,7 +15507,11 @@ def _step_has_bound_replay_audit(step: Mapping[str, Any]) -> bool:
     )
     audited_precursors = sorted(
         _canonical_smiles(value)
-        for value in audit.get("precursor_smiles") or []
+        for value in (
+            audit.get("route_precursor_smiles")
+            or audit.get("precursor_smiles")
+            or []
+        )
         if _canonical_smiles(value)
     )
     mapped_precursors = sorted(
@@ -15269,7 +15521,11 @@ def _step_has_bound_replay_audit(step: Mapping[str, Any]) -> bool:
     )
     audited_mapped_precursors = sorted(
         _canonical_atom_mapped_smiles(value)
-        for value in audit.get("mapped_precursor_smiles") or []
+        for value in (
+            audit.get("mapped_route_precursor_smiles")
+            or audit.get("mapped_precursor_smiles")
+            or []
+        )
         if _canonical_atom_mapped_smiles(value)
     )
     return bool(
@@ -15305,6 +15561,44 @@ def _materialized_reaction_from_bound_step(
             for value in normalize_reaction_operations(row.get("reaction_operations") or ())
         ),
         audit=audit,
+        reaction_input_smiles=tuple(
+            _canonical_smiles(value)
+            for value in (
+                row.get("reaction_input_smiles")
+                or audit.get("reaction_input_smiles")
+                or row.get("precursor_smiles")
+                or []
+            )
+            if _canonical_smiles(value)
+        ),
+        mapped_reaction_input_smiles=tuple(
+            str(value)
+            for value in (
+                row.get("mapped_reaction_input_smiles")
+                or audit.get("mapped_reaction_input_smiles")
+                or row.get("mapped_precursor_smiles")
+                or []
+            )
+            if str(value)
+        ),
+        auxiliary_reagent_smiles=tuple(
+            _canonical_smiles(value)
+            for value in (
+                row.get("auxiliary_reagent_smiles")
+                or audit.get("auxiliary_reagent_smiles")
+                or []
+            )
+            if _canonical_smiles(value)
+        ),
+        mapped_auxiliary_reagent_smiles=tuple(
+            str(value)
+            for value in (
+                row.get("mapped_auxiliary_reagent_smiles")
+                or audit.get("mapped_auxiliary_reagent_smiles")
+                or []
+            )
+            if str(value)
+        ),
     )
 
 
@@ -15542,6 +15836,11 @@ def _compile_plan(
         families.append(
             {
                 "route_family_id": family_id,
+                # The canonical Host may replace ``route_family_id`` with a
+                # content hash or merge aliases.  Persist the UI/Strategy
+                # lineage as data instead of requiring later consumers to
+                # recover it from an identifier spelling.
+                "strategy_branch_ids": [ordinal],
                 "title": f"Sequential strategy {ordinal}",
                 "strategy": lens,
                 "target_smiles": target,
@@ -15564,6 +15863,7 @@ def _compile_plan(
                     if isinstance(row, Mapping)
                 ],
                 "strategic_milestone_count": int(branch.get("strategic_milestone_count") or 0),
+                "material_boundary_review": current_material_boundary(branch),
                 "strategy_id": str(strategy_card.get("strategy_id") or ""),
                 "strategy_digest": str(strategy_card.get("strategy_digest") or ""),
                 "execution_domain": str(strategy_card.get("execution_domain") or "chemical"),
@@ -15942,7 +16242,7 @@ def _aggregate_usage(
         "provider_failure_count": provider_failure_count,
         "wall_time_s": max(0.0, float(elapsed_s)),
     }
-    for record in completed_rows:
+    for record in rows:
         usage = dict(record.usage or {})
         for key in (
             "input_tokens",
@@ -15951,6 +16251,7 @@ def _aggregate_usage(
             "reasoning_output_tokens",
         ):
             result[key] = int(result[key]) + max(0, int(usage.get(key) or 0))
+    result.update({f"budget_{key}": value for key, value in budget_exposure(rows).items()})
     return result
 
 
@@ -15999,159 +16300,14 @@ def _agent_result(
     )
 
 
-def _canonical_smiles(value: Any) -> str:
-    molecule = Chem.MolFromSmiles(str(value or "").strip())
-    if molecule is None:
-        return ""
-    # Atom maps belong to the separate ReactionJSON edit contract.  Route
-    # identity and precursor comparisons must remain map-invariant; replay
-    # receives a freshly mapped product through ``_mapped_smiles``.
-    for atom in molecule.GetAtoms():
-        atom.SetAtomMapNum(0)
-    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 
-def _canonical_mapped_smiles(value: Any) -> str:
-    """Canonicalize a mapped boundary without changing its map namespace."""
-
-    molecule = Chem.MolFromSmiles(str(value or "").strip())
-    if molecule is None or any(atom.GetAtomMapNum() <= 0 for atom in molecule.GetAtoms()):
-        return ""
-    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 
-def _canonical_mapped_reactant_smiles(value: Any) -> str:
-    """Canonicalize a mapped reactant while allowing an unmapped leaving atom.
-
-    The Host reaction verifier deliberately permits bounded, unmapped departing
-    atoms (for example chloride in a silylation).  A Route Critic may inspect
-    that verified mapping without treating it as reaction proof.  Builder
-    replay still uses :func:`_canonical_mapped_smiles`, which requires every
-    atom in its mutable product boundary to be mapped.
-    """
-
-    molecule = Chem.MolFromSmiles(str(value or "").strip())
-    if molecule is None or not any(atom.GetAtomMapNum() > 0 for atom in molecule.GetAtoms()):
-        return ""
-    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 
-def _validated_edge_mapped_boundaries(
-    edge: Mapping[str, Any],
-) -> tuple[str, list[str]]:
-    """Read mapped boundaries from the current Host reaction proof.
-
-    Ordinary route hypotheses are atom-mapped by the Host validator after
-    materialization, so they do not necessarily carry a ReactionJSON replay
-    audit. The proof already binds one complete mapping to the exact canonical
-    product/reactant multiset; consume that authority directly instead of
-    copying a second mapped representation onto the edge.
-    """
-
-    expected_product = _canonical_smiles(edge.get("product_smiles"))
-    expected_precursors = sorted(
-        _canonical_smiles(value) for value in edge.get("precursor_smiles") or ()
-    )
-    required_checks = (
-        "mapped_reaction_present",
-        "mapped_product_matches",
-        "mapped_reactants_match",
-        "atom_maps_complete",
-        "product_atom_maps_complete",
-        "atom_maps_unique",
-    )
-    for proof in reversed(active_reaction_proofs(edge.get("reaction_proofs") or ())):
-        checks = dict(proof.get("checks") or {})
-        if proof.get("accepted") is not True or any(
-            checks.get(name) is not True for name in required_checks
-        ):
-            continue
-        parts = str(proof.get("mapped_reaction") or "").split(">")
-        if len(parts) != 3:
-            continue
-        mapped_precursors = [
-            value for item in parts[0].split(".") if (value := _canonical_mapped_smiles(item))
-        ]
-        mapped_products = [
-            value for item in parts[2].split(".") if (value := _canonical_mapped_smiles(item))
-        ]
-        if (
-            len(mapped_products) != 1
-            or _canonical_smiles(mapped_products[0]) != expected_product
-            or len(mapped_precursors) != len(expected_precursors)
-            or sorted(_canonical_smiles(value) for value in mapped_precursors)
-            != expected_precursors
-        ):
-            continue
-        return mapped_products[0], mapped_precursors
-    return "", []
 
 
-def _route_critic_edge_mapped_boundaries(
-    edge: Mapping[str, Any],
-) -> tuple[str, list[str]]:
-    """Read a Host-bound mapping for Critic inspection, not route admission.
-
-    ``ReactionStepProof.accepted`` means that the reaction itself reached a
-    validated-transform or precedent tier.  It is intentionally false for a
-    structurally consistent ``L2_mapping_consistent`` edge.  Final route review
-    needs the latter mapping as input, while the proof tier and its rejection
-    reasons remain unchanged.  Product identity must be fully mapped; bounded
-    unmapped leaving atoms are allowed only on precursor components.
-    """
-
-    expected_product = _canonical_smiles(edge.get("product_smiles"))
-    expected_precursors = sorted(
-        _canonical_smiles(value) for value in edge.get("precursor_smiles") or ()
-    )
-    # These checks establish that the serialized mapping names the canonical
-    # edge and that every product atom has an unambiguous provenance identity.
-    # Other verifier checks (departure budget, transform registry, precedent,
-    # conditions) remain chemical-proof axes and must not gate Critic input.
-    required_checks = (
-        "structures_materialized",
-        "mapped_reaction_present",
-        "mapped_product_matches",
-        "mapped_reactants_match",
-        "product_atom_maps_complete",
-        "atom_maps_unique",
-        "mapped_elements_preserved",
-        "stereochemical_product_matches",
-    )
-
-    for proof in reversed(active_reaction_proofs(edge.get("reaction_proofs") or ())):
-        checks = dict(proof.get("checks") or {})
-        if any(checks.get(name) is not True for name in required_checks) or not (
-            checks.get("product_atoms_have_reactant_provenance") is True
-            or checks.get("external_atom_source_replayed") is True
-        ):
-            continue
-        parts = str(proof.get("mapped_reaction") or "").split(">")
-        if len(parts) != 3:
-            continue
-        # Host proofs are normally forward (precursors >> product), but bind
-        # direction from canonical identities so imported mapped reactions
-        # cannot silently invert the route.
-        for precursor_text, product_text in ((parts[0], parts[2]), (parts[2], parts[0])):
-            mapped_precursors = [
-                value
-                for item in precursor_text.split(".")
-                if (value := _canonical_mapped_reactant_smiles(item))
-            ]
-            mapped_products = [
-                value
-                for item in product_text.split(".")
-                if (value := _canonical_mapped_smiles(item))
-            ]
-            if (
-                len(mapped_products) == 1
-                and _canonical_smiles(mapped_products[0]) == expected_product
-                and len(mapped_precursors) == len(expected_precursors)
-                and sorted(_canonical_smiles(value) for value in mapped_precursors)
-                == expected_precursors
-            ):
-                return mapped_products[0], mapped_precursors
-    return "", []
 
 
 def _canonical_smiles_nonisomeric(value: Any) -> str:
@@ -16212,8 +16368,12 @@ def _portable_model_input_sha256(
 def _seed_record_matches_task(
     record: WorkerRunRecord,
     task: WorkerTask,
+    *, allow_evidence_tools: bool = False,
 ) -> bool:
-    if task.allowed_tools:
+    if task.allowed_tools and not (
+        allow_evidence_tools
+        and set(task.allowed_tools) <= {"query_planning_evidence", "inspect_mapped_smiles"}
+    ):
         return False
     artifact = dict(record.output_artifact or {})
     metadata = dict(record.metadata or {})
@@ -16355,6 +16515,109 @@ def _frontier_unresolved_path_repair(
     return {}
 
 
+def _frontier_rejected_hypothesis_feedback(
+    graph: Mapping[str, Any],
+    *,
+    route_family_id: str,
+    product_smiles: str,
+) -> tuple[dict[str, Any], ...]:
+    """Recover route-local graph rejection memory for one open leaf.
+
+    The sequential Director and the outer frontier write through the same
+    canonical hypothesis collection.  A rejected hypothesis therefore remains
+    the authoritative negative-memory record even when an older attempt signal
+    did not copy its ReactionJSON edits.  Reading that record here prevents the
+    continuation Builder from proposing the same product-to-precursor graph
+    again under a different reaction name.
+    """
+
+    route_id = str(route_family_id or "")
+    canonical_product = _canonical_smiles(product_smiles)
+    route = dict(dict(graph.get("route_families") or {}).get(route_id) or {})
+    route_ids = {
+        route_id,
+        *(str(value) for value in route.get("aliases") or () if str(value)),
+    }
+    ranked: list[tuple[int, str, dict[str, Any]]] = []
+    for raw_hypothesis_id, raw_hypothesis in dict(
+        graph.get("hypotheses") or {}
+    ).items():
+        if not isinstance(raw_hypothesis, Mapping):
+            continue
+        hypothesis = dict(raw_hypothesis)
+        if hypothesis.get("admission_accepted") is True:
+            continue
+        if _canonical_smiles(hypothesis.get("product_smiles")) != canonical_product:
+            continue
+        origins = [
+            dict(value)
+            for value in hypothesis.get("origin_records") or ()
+            if isinstance(value, Mapping)
+        ]
+        bound_origins = [
+            origin
+            for origin in origins
+            if str(origin.get("route_family_id") or "") in route_ids
+            or bool(
+                route_ids
+                & {
+                    str(value)
+                    for value in origin.get("canonical_route_family_ids") or ()
+                    if str(value)
+                }
+            )
+        ]
+        if not bound_origins:
+            continue
+        attempted_net_edits = [
+            dict(operation)
+            for operation in normalize_reaction_operations(
+                hypothesis.get("reaction_operations") or ()
+            )
+        ]
+        if not attempted_net_edits:
+            continue
+        admission_reasons = [
+            str(value)
+            for value in hypothesis.get("admission_reasons") or ()
+            if str(value)
+        ]
+        attempt_indices = [
+            int(match.group(1))
+            for origin in bound_origins
+            if (
+                match := re.search(
+                    r":attempt:(\d+)(?:$|:)",
+                    str(origin.get("origin_ref") or ""),
+                )
+            )
+        ]
+        hypothesis_id = str(
+            hypothesis.get("hypothesis_id") or raw_hypothesis_id or ""
+        )
+        ranked.append(
+            (
+                max(attempt_indices, default=0),
+                hypothesis_id,
+                {
+                    "phase": "frontier_builder_host_admission",
+                    "reason": (
+                        admission_reasons[0]
+                        if admission_reasons
+                        else "frontier_builder_host_admission_rejected"
+                    ),
+                    "product_smiles": canonical_product,
+                    "hypothesis_id": hypothesis_id,
+                    "admission_reasons": admission_reasons,
+                    "attempted_net_edits": attempted_net_edits,
+                    "authority": "canonical_hypergraph_admission",
+                },
+            )
+        )
+    ranked.sort(key=lambda value: (value[0], value[1]))
+    return tuple(row for _attempt, _identity, row in ranked)
+
+
 def compile_frontier_builder_context(
     graph: Mapping[str, Any],
     *,
@@ -16455,12 +16718,7 @@ def compile_frontier_builder_context(
         mapped_product = str(
             audit.get("mapped_product_smiles") or edge.get("mapped_product_smiles") or ""
         )
-        mapped_precursors = [
-            str(value)
-            for value in (
-                audit.get("mapped_precursor_smiles") or edge.get("mapped_precursor_smiles") or ()
-            )
-        ]
+        mapped_precursors = mapped_reaction_input_smiles(edge)
         if not mapped_product or not mapped_precursors:
             proof_product, proof_precursors = _validated_edge_mapped_boundaries(edge)
             if proof_product and proof_precursors:
@@ -16480,7 +16738,8 @@ def compile_frontier_builder_context(
             or not precursor_ids
             or any(not value for value in precursor_smiles)
             or sorted(edge_precursor_smiles) != sorted(precursor_smiles)
-            or len(mapped_precursors) != len(precursor_ids)
+            or sorted(_canonical_smiles(value) for value in mapped_precursors)
+            != sorted(_canonical_smiles(value) for value in reaction_input_smiles(edge))
             or any(not _canonical_mapped_smiles(value) for value in mapped_precursors)
         ):
             validation_pending = not bool(active_reaction_proofs(edge.get("reaction_proofs") or ()))
@@ -16503,29 +16762,28 @@ def compile_frontier_builder_context(
                     "precursor_smiles": value,
                 }
             aligned_mapped_precursors.append(matches.pop(0))
-        if any(values for values in mapped_by_identity.values()):
-            return None, {
-                "reason": "frontier_builder_mapped_precursor_identity_ambiguous",
-                "edge_id": str(edge.get("edge_id") or ""),
-            }
-        origins = [
-            dict(value) for value in edge.get("origin_records") or () if isinstance(value, Mapping)
-        ]
-        origin = next(
-            (
-                value
-                for value in origins
-                if route_id in {str(item) for item in value.get("canonical_route_family_ids") or ()}
-            ),
-            origins[0] if origins else {},
+        bound_origins = route_family_bound_origin_records(
+            edge,
+            route_family_id=route_id,
         )
+        origin = bound_origins[0] if bound_origins else {}
         connected_steps.append(
             {
                 "step_id": str(origin.get("proposal_id") or edge.get("edge_id") or ""),
+                "continuation_hint": str(origin.get("continuation_hint") or ""),
                 "product_smiles": _canonical_smiles(edge.get("product_smiles")),
                 "mapped_product_smiles": mapped_product,
                 "precursor_smiles": precursor_smiles,
                 "mapped_precursor_smiles": aligned_mapped_precursors,
+                "reaction_input_smiles": reaction_input_smiles(edge),
+                "mapped_reaction_input_smiles": mapped_precursors,
+                "mapped_auxiliary_reagent_smiles": [
+                    value for values in mapped_by_identity.values() for value in values
+                ],
+                "auxiliary_reagent_smiles": [
+                    _canonical_smiles(value)
+                    for values in mapped_by_identity.values() for value in values
+                ],
                 "transformation_hypothesis": str(
                     origin.get("transformation_hypothesis")
                     or edge.get("transformation_hypothesis")
@@ -16558,6 +16816,46 @@ def compile_frontier_builder_context(
             "frontier_molecule_id": leaf_id,
             "route_family_id": route_id,
         }
+    canonical_rejections = list(
+        _frontier_rejected_hypothesis_feedback(
+            graph,
+            route_family_id=route_id,
+            product_smiles=leaf_smiles,
+        )
+    )
+    supplied_rejections: list[dict[str, Any]] = []
+    canonical_by_hypothesis = {
+        str(row.get("hypothesis_id") or ""): row
+        for row in canonical_rejections
+        if str(row.get("hypothesis_id") or "")
+    }
+    for value in prior_rejections:
+        if not isinstance(value, Mapping):
+            continue
+        row = dict(value)
+        row.setdefault("product_smiles", leaf_smiles)
+        matching = canonical_by_hypothesis.get(str(row.get("hypothesis_id") or ""))
+        if matching and not normalize_reaction_operations(
+            row.get("attempted_net_edits") or ()
+        ):
+            row = {
+                **dict(matching),
+                **row,
+                "reason": str(matching.get("reason") or row.get("reason") or ""),
+                "attempted_net_edits": list(
+                    matching.get("attempted_net_edits") or ()
+                ),
+            }
+        supplied_rejections.append(row)
+    merged_rejections = [*canonical_rejections, *supplied_rejections]
+    if supplied_rejections and not any(
+        normalize_reaction_operations(row.get("attempted_net_edits") or ())
+        for row in supplied_rejections[-1:]
+    ) and canonical_rejections:
+        # A legacy attempt signal may contain only the generic admission
+        # wrapper.  Keep the canonical graph rejection last so the compact
+        # Builder prompt receives the actual failed edit program.
+        merged_rejections.append(dict(canonical_rejections[-1]))
     strategy_card = _frontier_strategy_card(
         route,
         route_family_id=route_id,
@@ -16575,19 +16873,29 @@ def compile_frontier_builder_context(
         connected_steps=connected_steps,
         selected_leaf_mapped=selected_leaf_mapped,
     )
+    branch_index = _route_branch_index(
+        route,
+        step_ids=(str(row.get("step_id") or "") for row in connected_steps),
+    )
+    if branch_index is None:
+        return None, {
+            "reason": "frontier_builder_route_branch_lineage_missing",
+            "frontier_molecule_id": leaf_id,
+            "route_family_id": route_id,
+        }
     return (
         FrontierBuilderContext(
             target_smiles=target_smiles,
             route_family_id=route_id,
-            branch_index=_route_branch_index(route),
+            branch_index=branch_index,
             selected_product_smiles=leaf_smiles,
             selected_product_mapped=selected_leaf_mapped,
             connected_steps=tuple(connected_steps),
             strategy_card=strategy_card,
             reserved_atom_maps=tuple(sorted(_route_atom_map_namespace(connected_steps))),
             prior_rejections=tuple(
-                dict(value) for value in prior_rejections if isinstance(value, Mapping)
-            )[-2:],
+                dict(value) for value in merged_rejections if isinstance(value, Mapping)
+            )[-4:],
             attempt_index=max(1, int(attempt_index)),
             pending_checkpoint_feedback=pending_checkpoint_feedback,
             path_repair=path_repair,
@@ -16596,261 +16904,8 @@ def compile_frontier_builder_context(
     )
 
 
-def compile_revision_bound_route_critic_context(
-    graph: Mapping[str, Any],
-    *,
-    route_family_id: str,
-    include_unselected: bool = False,
-) -> tuple[RevisionBoundRouteCriticContext | None, dict[str, Any]]:
-    """Compile the exact target-rooted route revision for final Critic review.
-
-    The digest covers only chemistry visible to the Critic.  Unrelated graph
-    revisions therefore do not trigger another model call, while any new
-    materialized edge, edit program, mapped boundary, condition, or Strategy
-    binding does.
-    """
-
-    route_id = str(route_family_id or "")
-    route = dict(dict(graph.get("route_families") or {}).get(route_id) or {})
-    if not route or (route.get("selected") is False and not include_unselected):
-        return None, {
-            "reason": "final_route_critic_route_unavailable",
-            "route_family_id": route_id,
-        }
-    molecules = dict(graph.get("molecules") or {})
-    edges = dict(graph.get("edges") or {})
-    target_id = str(graph.get("target_molecule_id") or "")
-    target_smiles = _canonical_smiles(dict(molecules.get(target_id) or {}).get("canonical_smiles"))
-    if not target_id or not target_smiles:
-        return None, {
-            "reason": "final_route_critic_target_identity_missing",
-            "route_family_id": route_id,
-        }
-
-    scoped_edges = {
-        str(edge_id): dict(edges.get(str(edge_id)) or {})
-        for edge_id in route_family_scoped_edge_ids(graph, family=route)
-        if isinstance(edges.get(str(edge_id)), Mapping)
-    }
-    by_product: dict[str, list[dict[str, Any]]] = {}
-    for edge in scoped_edges.values():
-        product_id = str(edge.get("product_molecule_id") or "")
-        if product_id:
-            by_product.setdefault(product_id, []).append(edge)
-
-    ordered_edges: list[dict[str, Any]] = []
-    pending = deque([target_id])
-    visited_molecules: set[str] = set()
-    visited_edges: set[str] = set()
-    while pending:
-        molecule_id = pending.popleft()
-        if molecule_id in visited_molecules:
-            continue
-        visited_molecules.add(molecule_id)
-        for edge in sorted(
-            by_product.get(molecule_id, ()),
-            key=lambda row: str(row.get("edge_id") or ""),
-        ):
-            edge_id = str(edge.get("edge_id") or "")
-            if not edge_id or edge_id in visited_edges:
-                continue
-            visited_edges.add(edge_id)
-            ordered_edges.append(edge)
-            pending.extend(
-                str(value) for value in edge.get("precursor_molecule_ids") or () if str(value)
-            )
-    if not ordered_edges:
-        return None, {
-            "reason": "final_route_critic_target_rooted_route_missing",
-            "route_family_id": route_id,
-        }
-
-    steps: list[dict[str, Any]] = []
-    for edge in ordered_edges:
-        edge_id = str(edge.get("edge_id") or "")
-        audit = dict(edge.get("reactionjson_audit") or {})
-        mapped_product = str(
-            audit.get("mapped_product_smiles") or edge.get("mapped_product_smiles") or ""
-        )
-        mapped_precursors = [
-            str(value)
-            for value in (
-                audit.get("mapped_precursor_smiles") or edge.get("mapped_precursor_smiles") or ()
-            )
-        ]
-        if not mapped_product or not mapped_precursors:
-            proof_product, proof_precursors = _route_critic_edge_mapped_boundaries(edge)
-            if proof_product and proof_precursors:
-                mapped_product = proof_product
-                mapped_precursors = proof_precursors
-        precursor_ids = [str(value) for value in edge.get("precursor_molecule_ids") or ()]
-        precursor_smiles = [
-            _canonical_smiles(dict(molecules.get(precursor_id) or {}).get("canonical_smiles"))
-            for precursor_id in precursor_ids
-        ]
-        mapped_by_identity: dict[str, list[str]] = {}
-        for value in mapped_precursors:
-            mapped_by_identity.setdefault(_canonical_smiles(value), []).append(value)
-        aligned_mapped_precursors: list[str] = []
-        for value in precursor_smiles:
-            matches = mapped_by_identity.get(value) or []
-            if matches:
-                aligned_mapped_precursors.append(matches.pop(0))
-        if (
-            not _canonical_mapped_smiles(mapped_product)
-            or _canonical_smiles(mapped_product) != _canonical_smiles(edge.get("product_smiles"))
-            or not precursor_ids
-            or any(not value for value in precursor_smiles)
-            or len(aligned_mapped_precursors) != len(precursor_ids)
-            or any(
-                not _canonical_mapped_reactant_smiles(value) for value in aligned_mapped_precursors
-            )
-            or any(values for values in mapped_by_identity.values())
-        ):
-            return None, {
-                "reason": "final_route_critic_mapped_boundary_incomplete",
-                "route_family_id": route_id,
-                "edge_id": edge_id,
-                "edge_ids": [str(value.get("edge_id") or "") for value in ordered_edges],
-            }
-        origins = [
-            dict(value) for value in edge.get("origin_records") or () if isinstance(value, Mapping)
-        ]
-        origin = next(
-            (
-                value
-                for value in origins
-                if route_id in {str(item) for item in value.get("canonical_route_family_ids") or ()}
-            ),
-            origins[0] if origins else {},
-        )
-        biocatalytic_steps = [
-            dict(value)
-            for value in edge.get("biocatalytic_steps") or ()
-            if isinstance(value, Mapping)
-        ]
-        steps.append(
-            {
-                "step_id": str(origin.get("proposal_id") or edge_id),
-                "product_smiles": _canonical_smiles(edge.get("product_smiles")),
-                "precursor_smiles": precursor_smiles,
-                "mapped_product_smiles": mapped_product,
-                "mapped_precursor_smiles": aligned_mapped_precursors,
-                "reaction_operations": [
-                    dict(value)
-                    for value in edge.get("reaction_operations") or ()
-                    if isinstance(value, Mapping)
-                ],
-                "reaction_family": str(
-                    origin.get("reaction_family")
-                    or origin.get("transformation_hypothesis")
-                    or edge.get("transformation_hypothesis")
-                    or ""
-                ),
-                "transformation_hypothesis": str(
-                    origin.get("transformation_hypothesis")
-                    or edge.get("transformation_hypothesis")
-                    or ""
-                ),
-                "condition_predictions": [
-                    dict(value)
-                    for value in edge.get("condition_predictions") or ()
-                    if isinstance(value, Mapping)
-                ],
-                "execution_domain": str(
-                    origin.get("execution_domain") or edge.get("execution_domain") or "chemical"
-                ),
-                "strategy_anchor": origin.get("strategy_anchor") is True,
-                "strategy_milestone_index": int(origin.get("strategy_milestone_index") or 1),
-                "strategy_id": str(origin.get("strategy_id") or route.get("strategy_id") or ""),
-                "strategy_digest": str(
-                    origin.get("strategy_digest") or route.get("strategy_digest") or ""
-                ),
-                "biocatalytic_step": (biocatalytic_steps[0] if biocatalytic_steps else {}),
-            }
-        )
-
-    # Canonical edges own reaction-local mappings.  A final Route Critic,
-    # however, receives several connected edges at once and therefore needs
-    # one route-level namespace.  Replaying here is the authority boundary:
-    # it carries parent maps into child products and deterministically moves
-    # fresh atoms introduced on sibling branches when their local numbers
-    # collide.  Without this projection a harmless Cl:37 / Br:37 reuse on
-    # separate materialized edges looks like an element-transmutation defect
-    # to the Critic, and a child row can retain an operation map that no
-    # longer matches its parent-produced intermediate.
-    if all(row.get("reaction_operations") for row in steps):
-        try:
-            route_state = RouteJSONCompiler().compile_route_graph_state(
-                mapped_target_smiles=str(steps[0].get("mapped_product_smiles") or ""),
-                steps=steps,
-                minimum_depth=1,
-                rebase_materialized_local_maps=True,
-            )
-        except ReactionJsonReplayError as exc:
-            return None, {
-                "reason": "final_route_critic_route_namespace_not_replayable",
-                "route_family_id": route_id,
-                "edge_ids": [str(value.get("edge_id") or "") for value in ordered_edges],
-                "compiler_error": str(exc),
-            }
-        steps = RouteJSONCompiler.assemble_route(
-            route_state.reactions,
-            metadata=steps,
-        )
-
-    strategy_card = dict(route.get("strategy_card") or {})
-    milestone_cards = tuple(
-        dict(value)
-        for value in route.get("strategy_milestone_cards") or ()
-        if isinstance(value, Mapping)
-    )
-    chemistry_input = {
-        "schema_version": "revision_bound_route_critic_input.v1",
-        "target_smiles": target_smiles,
-        "route_family_id": route_id,
-        "strategy_card": strategy_card,
-        "strategy_milestone_cards": list(milestone_cards),
-        "steps": steps,
-    }
-    route_sha256 = _digest(chemistry_input)
-    return (
-        RevisionBoundRouteCriticContext(
-            target_smiles=target_smiles,
-            route_family_id=route_id,
-            route_sha256=route_sha256,
-            graph_revision=int(graph.get("revision") or 0),
-            branch_index=_route_branch_index(route),
-            edge_ids=tuple(str(edge.get("edge_id") or "") for edge in ordered_edges),
-            steps=tuple(steps),
-            strategy_card=strategy_card,
-            strategy_milestone_cards=milestone_cards,
-        ),
-        {},
-    )
 
 
-def _route_branch_index(route: Mapping[str, Any]) -> int:
-    """Recover the one-based Strategy alias as a zero-based audit index."""
-
-    aliases = [
-        str(value)
-        for value in (
-            route.get("route_family_id"),
-            route.get("route_family_alias_override"),
-            *(route.get("aliases") or ()),
-        )
-        if str(value)
-    ]
-    branch_number = next(
-        (
-            int(match.group(1))
-            for alias in aliases
-            if (match := re.search(r"codex:sequential:family:(\d+)$", alias))
-        ),
-        1,
-    )
-    return max(0, branch_number - 1)
 
 
 def _digest(value: Any) -> str:

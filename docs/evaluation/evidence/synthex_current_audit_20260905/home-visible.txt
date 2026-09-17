@@ -1,0 +1,100 @@
+SynthAtlas
+BETA
+Routes
+Reactions
+Molecules
+Glossary
+About
+Sign in
+SCHWALLER GROUP · EPFL
+SynthAtlas:
+AI-planned total synthesis routes
+for natural products
+
+SynthAtlas is a database of AI-planned synthesis routes for natural products, built to aid synthetic chemists in brainstorming strategic disconnections for complex natural scaffolds. The dataset features:
+
+3,243 retrosynthetic routes for 1,098 natural products extracted from the Natural Products Atlas.
+Up to three routes with distinct strategies for each target.
+Collection of strategic and elegant reactions - for example a cascade Michael addition, an Ireland–Claisen rearrangement, or a Wolff rearrangement.
+Reaction precedents are linked when available in Reaxys.
+These routes are AI-proposed and have not been experimentally validated. Treat each route as an idea of how a compound could be synthesized.
+Browse routes
+Chemical space map
+Suggest a target
+
+Read the preprint: Strategy-first synthesis planning for complex natural products arXiv:2608.07454
+
+EXAMPLE ROUTE
+Cycloexpansamine B
+NPA029946 · Penicillium sp. (SF-5292)
+12 steps longest path 10 stereo: moderate
+8
+OVERALL
+6
+GREEN
+7
+FEAS.
+19
+CONV.
+Dataset summary
+Target compounds	1,098 natural products (Natural Products Atlas)
+Retrosynthetic routes	3,243 — up to three independent strategies per target
+Reaction steps	33,145, each with proposed conditions and reaction class
+Unique molecules	36,434 targets and intermediates
+Route topology	2,348 convergent · 779 linear · 115 mixed · 1 mostly linear
+Mean scores (scale 1–9)	overall 7.1 · feasibility 5.8 · green 5.7
+Browse the dataset
+
+Four views of the same data.
+
+3,243
+Routes
+
+Full retrosynthetic routes with per-step critic notes and scores.
+
+33,145
+Reactions
+
+All reaction steps, with proposed conditions and reaction class.
+
+36,434
+Molecules
+
+All targets and intermediates.
+
+TMAP
+Chemical space
+
+The target compounds arranged by Tanimoto similarity.
+
+What each step records
+
+Every disconnection carries the model's strategic intent, the proposed reagents and conditions, the reaction class, and the critic's assessment — including the main risk it sees. The key step of the example route above:
+
+key step
+oxidative pinacol rearrangement
+mCPBA in DCM at -78 °C to 0 °C, with prior addition of 1 eq TFA to protonate and protect the tertiary amine from N-oxidation.
+oxidative pinacol rearrangement
+WHY IT'S CRITICAL
+This step constructs the defining spiro-oxindole core of the target molecule and sets the crucial spiro stereocenter.
+MAIN RISK FLAGGED
+Competing oxidation of the tertiary amine in the pyrrolidine ring to an N-oxide by the electrophilic oxidant.
+
+Open the full route →
+
+Chemical space
+
+1,098 natural-product targets, arranged so structurally similar compounds sit near each other (minimum spanning tree over Morgan/Tanimoto similarity). Hover a point to see the structure; click to open its best route.
+
+molecular weight
+stereocenters
+ring count
+light
+heavy
+Click a target to open its best route
+SynthAtlas
+Agentic synthesis planning for natural products
+Schwaller Group and synthetic chemistry colleagues at EPFL, Arizona and Pittsburgh
+Suggest a target
+Preprint
+Privacy Policy

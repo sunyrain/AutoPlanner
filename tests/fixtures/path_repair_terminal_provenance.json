@@ -1,0 +1,393 @@
+{
+  "source_run": "absolute-config-S-astra-medium25-20260905-paired",
+  "source_critic_task": "route-critic:4ce8c6dc9fb7a97da266:1",
+  "source_editor_task": "director:3deb08b5b0830f39afb10385:branch:1:editor:4",
+  "original_reject": "Ester reduction retained the methoxy oxygen instead of the carbonyl oxygen.",
+  "target_mapped_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH:4]=[C:5]=[CH:6][CH2:7][C:8](=[O:9])[S:10][c:11]1[cH:12][cH:13][cH:14][cH:15][cH:16]1)[CH2:17][C@H:18]([CH3:19])[OH:20]",
+  "original_steps": [
+    {
+      "step_id": "codex:branch:1:node:1:candidate:1",
+      "product_smiles": "C/C(=C\\C=C=CCC(=O)Sc1ccccc1)C[C@H](C)O",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH:4]=[C:5]=[CH:6][CH2:7][C:8](=[O:9])[S:10][c:11]1[cH:12][cH:13][cH:14][cH:15][cH:16]1)[CH2:17][C@H:18]([CH3:19])[OH:20]",
+      "reaction_operations": [
+        {
+          "count": 0,
+          "map_idx": 20,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "fragment_smiles": "*[Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+          "map_idx": 20,
+          "op": "add_group"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:2:candidate:1",
+      "product_smiles": "C/C(=C\\C=C=CCC(=O)Sc1ccccc1)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH:4]=[C:5]=[CH:6][CH2:7][C:8](=[O:9])[S:10][c:11]1[cH:12][cH:13][cH:14][cH:15][cH:16]1)[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "map_a": 8,
+          "map_b": 10,
+          "op": "break_bond"
+        },
+        {
+          "count": 1,
+          "map_idx": 10,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "fragment_smiles": "*[OH:28]",
+          "map_idx": 8,
+          "op": "add_group"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:3:candidate:1",
+      "product_smiles": "C/C(=C\\C=C=CCC(=O)O)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH:4]=[C:5]=[CH:6][CH2:7][C:8](=[O:9])[OH:28])[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "count": 0,
+          "map_idx": 28,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "fragment_smiles": "*[CH3:29]",
+          "map_idx": 28,
+          "op": "add_group"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:4:candidate:1",
+      "product_smiles": "COC(=O)CC=C=C/C=C(\\C)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH:4]=[C:5]=[CH:6][CH2:7][C:8](=[O:9])[O:28][CH3:29])[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "map_a": 6,
+          "map_b": 7,
+          "op": "break_bond"
+        },
+        {
+          "delta": -1,
+          "map_a": 4,
+          "map_b": 5,
+          "op": "change_bond_order"
+        },
+        {
+          "delta": 1,
+          "map_a": 5,
+          "map_b": 6,
+          "op": "change_bond_order"
+        },
+        {
+          "fragment_smiles": "*[O:30][C:31](=[O:32])[CH3:33]",
+          "map_idx": 4,
+          "op": "add_group"
+        },
+        {
+          "fragment_smiles": "*[Zn:34][Br:35]",
+          "map_idx": 7,
+          "op": "add_group"
+        },
+        {
+          "map_a": 2,
+          "map_b": 3,
+          "op": "set_bond_stereo",
+          "stereo": "E"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:5:candidate:1",
+      "product_smiles": "C#CC(/C=C(\\C)C[C@H](C)O[Si](C)(C)C(C)(C)C)OC(C)=O",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH:4]([C:5]#[CH:6])[O:30][C:31](=[O:32])[CH3:33])[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "map_a": 30,
+          "map_b": 31,
+          "op": "break_bond"
+        },
+        {
+          "map_indices": [
+            31,
+            32,
+            33
+          ],
+          "op": "remove_group"
+        },
+        {
+          "count": 1,
+          "map_idx": 30,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:6:candidate:1",
+      "product_smiles": "COC(=O)C[Zn]Br",
+      "mapped_product_smiles": "[CH2:7]([C:8](=[O:9])[O:28][CH3:29])[Zn:34][Br:35]",
+      "reaction_operations": [
+        {
+          "map_a": 7,
+          "map_b": 34,
+          "op": "break_bond"
+        },
+        {
+          "map_a": 34,
+          "map_b": 35,
+          "op": "break_bond"
+        },
+        {
+          "map_a": 7,
+          "map_b": 35,
+          "op": "add_bond"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:7:candidate:1",
+      "product_smiles": "C#CC(O)/C=C(\\C)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH:4]([C:5]#[CH:6])[OH:30])[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "map_a": 4,
+          "map_b": 5,
+          "op": "break_bond"
+        },
+        {
+          "count": 0,
+          "map_idx": 30,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "delta": 1,
+          "map_a": 4,
+          "map_b": 30,
+          "op": "change_bond_order"
+        },
+        {
+          "fragment_smiles": "*[Mg:36][Br:37]",
+          "map_idx": 5,
+          "op": "add_group"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:8:candidate:1",
+      "product_smiles": "C#C[Mg]Br",
+      "mapped_product_smiles": "[C:5](#[CH:6])[Mg:36][Br:37]",
+      "reaction_operations": [
+        {
+          "map_a": 5,
+          "map_b": 36,
+          "op": "break_bond"
+        },
+        {
+          "map_indices": [
+            36,
+            37
+          ],
+          "op": "remove_group"
+        },
+        {
+          "count": 1,
+          "map_idx": 5,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:9:candidate:1",
+      "product_smiles": "C/C(=C\\C=O)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH:4]=[O:30])[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "delta": -1,
+          "map_a": 4,
+          "map_b": 30,
+          "op": "change_bond_order"
+        },
+        {
+          "count": 2,
+          "map_idx": 4,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "count": 1,
+          "map_idx": 30,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:10:candidate:1",
+      "product_smiles": "C/C(=C\\CO)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH2:4][OH:30])[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "count": 0,
+          "map_idx": 4,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "fragment_smiles": "*=[O:38]",
+          "map_idx": 4,
+          "op": "add_group"
+        },
+        {
+          "count": 0,
+          "map_idx": 30,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "fragment_smiles": "*[CH3:39]",
+          "map_idx": 30,
+          "op": "add_group"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:12:candidate:1",
+      "product_smiles": "COC(=O)/C=C(\\C)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[C:4]([O:30][CH3:39])=[O:38])[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "map_a": 2,
+          "map_b": 3,
+          "op": "break_bond"
+        },
+        {
+          "fragment_smiles": "*=[O:40]",
+          "map_idx": 2,
+          "op": "add_group"
+        },
+        {
+          "count": 2,
+          "map_idx": 3,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "fragment_smiles": "*[P:41](=[O:42])([O:43][CH3:44])[O:45][CH3:46]",
+          "map_idx": 3,
+          "op": "add_group"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:13:candidate:1",
+      "product_smiles": "CC(=O)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1][C:2]([CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27])=[O:40]",
+      "reaction_operations": [
+        {
+          "map_a": 20,
+          "map_b": 21,
+          "op": "break_bond"
+        },
+        {
+          "map_indices": [
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27
+          ],
+          "op": "remove_group"
+        },
+        {
+          "count": 1,
+          "map_idx": 20,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        }
+      ]
+    }
+  ],
+  "replacement_steps": [
+    {
+      "step_id": "codex:branch:1:node:14:candidate:1",
+      "product_smiles": "C/C(=C\\CO)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[CH2:4][OH:30])[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "count": 0,
+          "map_idx": 4,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "count": 0,
+          "map_idx": 30,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "delta": 1,
+          "map_a": 4,
+          "map_b": 30,
+          "op": "change_bond_order"
+        },
+        {
+          "fragment_smiles": "*[O:38][CH3:39]",
+          "map_idx": 4,
+          "op": "add_group"
+        }
+      ]
+    },
+    {
+      "step_id": "codex:branch:1:node:15:candidate:1",
+      "product_smiles": "COC(=O)/C=C(\\C)C[C@H](C)O[Si](C)(C)C(C)(C)C",
+      "mapped_product_smiles": "[CH3:1]/[C:2](=[CH:3]\\[C:4](=[O:30])[O:38][CH3:39])[CH2:17][C@H:18]([CH3:19])[O:20][Si:21]([CH3:22])([CH3:23])[C:24]([CH3:25])([CH3:26])[CH3:27]",
+      "reaction_operations": [
+        {
+          "map_a": 2,
+          "map_b": 3,
+          "op": "break_bond"
+        },
+        {
+          "fragment_smiles": "[*]=[O:40]",
+          "map_idx": 2,
+          "op": "add_group"
+        },
+        {
+          "count": 2,
+          "map_idx": 3,
+          "no_implicit": true,
+          "op": "set_explicit_h"
+        },
+        {
+          "fragment_smiles": "[*][P:41](=[O:42])([O:43][CH3:44])[O:45][CH3:46]",
+          "map_idx": 3,
+          "op": "add_group"
+        }
+      ]
+    }
+  ],
+  "directive": {
+    "rollback_start_step_id": "codex:branch:1:node:10:candidate:1",
+    "rebuild_through_step_id": "codex:branch:1:node:12:candidate:1",
+    "repair_goal": "Rebuild the enoate formation and reduction with consistent oxygen provenance: retain the ester carbonyl oxygen in the allylic alcohol and remove the methoxy fragment, reconnecting the unchanged downstream alcohol and upstream protected ketone.",
+    "active_constraints": [],
+    "additional_coupled_blocker_step_ids": [],
+    "preserved_suffix_compatible": true
+  },
+  "blocking_step_ids": [
+    "codex:branch:1:node:10:candidate:1"
+  ]
+}

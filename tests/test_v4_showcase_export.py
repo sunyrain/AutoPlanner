@@ -6,12 +6,107 @@ import re
 
 import pytest
 
+from scripts.refresh_route_exports import refresh_export
+
 from cascade_planner.web.v4_showcase_export import (
+    build_run_export_bundle,
     build_run_export_html,
     export_run_showcase,
     normalize_branch_indices,
     showcase_filename,
 )
+from cascade_planner.web.v4_showcase_collection import (
+    RunReplaySelection,
+    build_run_replay_collection_html,
+)
+
+
+def test_refresh_preserves_saved_collection_routes_and_replay(tmp_path: Path) -> None:
+    path = tmp_path / "collection.html"
+    path.write_text(build_run_replay_collection_html([
+        RunReplaySelection(run_dir=_saved_run(tmp_path), branch_indices=(1, 2)),
+    ]), encoding="utf-8")
+    before = _collection_payload(path.read_text(encoding="utf-8"))
+    refresh_export(path)
+    after = _collection_payload(path.read_text(encoding="utf-8"))
+    for payload in (before, after):
+        payload.pop("viewer_template")
+        for entry in payload["entries"]:
+            entry["bundle"].pop("molecules")
+    assert after == before
+
+
+def test_vector_viewer_zoom_pan_and_download_in_sandbox(tmp_path: Path) -> None:
+    playwright = pytest.importorskip("playwright.sync_api")
+    chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+    if not chrome.is_file():
+        pytest.skip("Chromium executable required for browser rendering test")
+    path = tmp_path / "collection.html"
+    path.write_text(build_run_replay_collection_html([
+        RunReplaySelection(run_dir=_saved_run(tmp_path), branch_indices=(1,)),
+    ]), encoding="utf-8")
+    with playwright.sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=str(chrome), headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 1600, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(path.as_uri())
+            frame = page.frame_locator("#viewer")
+            frame.locator(".moleculeNode .structure-expand").first.wait_for()
+            root = frame.locator(".moleculeNode.target").first
+            viewport = frame.locator("#graphCanvas")
+            initial, canvas = root.bounding_box(), viewport.bounding_box()
+            assert initial and canvas
+            assert initial["width"] == pytest.approx(260)
+            assert initial["y"] + initial["height"] / 2 == pytest.approx(
+                canvas["y"] + canvas["height"] / 2, abs=2,
+            )
+            frame.locator("#zoomIn").click()
+            enlarged = root.bounding_box()
+            assert enlarged
+            assert enlarged["width"] == pytest.approx(initial["width"] * 1.1, abs=1)
+            center = canvas["x"] + canvas["width"] / 2
+            assert enlarged["x"] == pytest.approx(
+                center + (initial["x"] - center) * 1.1, abs=2,
+            )
+            page.mouse.move(canvas["x"] + 15, canvas["y"] + 15)
+            page.mouse.down()
+            page.mouse.move(canvas["x"] + 45, canvas["y"] + 50)
+            page.mouse.up()
+            moved = root.bounding_box()
+            assert moved
+            assert moved["x"] - enlarged["x"] == pytest.approx(30, abs=1)
+            assert moved["y"] - enlarged["y"] == pytest.approx(35, abs=1)
+            for _ in range(30):
+                frame.locator("#zoomIn").click()
+            assert frame.locator("#zoomReset").inner_text() == "400%"
+            assert root.bounding_box()["width"] == pytest.approx(1040, abs=1)
+            frame.locator("#zoomReset").click()
+            frame.locator("#targetArt .structure-expand").click()
+            assert frame.locator(".structure-dialog").is_visible()
+            assert frame.locator(".structure-large svg").count() == 1
+            with page.expect_download() as download:
+                frame.locator(".structure-dialog a").click()
+            saved = tmp_path / "molecule.svg"
+            download.value.save_as(saved)
+            assert "<svg" in saved.read_text(encoding="utf-8")
+            assert "<image" not in saved.read_text(encoding="utf-8")
+            frame.locator("[data-close]").click()
+            assert not frame.locator(".structure-dialog").is_visible()
+            assert not errors
+        finally:
+            browser.close()
+
+
+def _collection_payload(body: str) -> dict:
+    match = re.search(
+        r'<script id="collectionData" type="application/json">(.*?)</script>',
+        body,
+        flags=re.DOTALL,
+    )
+    assert match is not None
+    return json.loads(match.group(1))
 
 
 def _event(**values):
@@ -302,15 +397,16 @@ def test_showcase_is_a_self_contained_playable_document(tmp_path: Path) -> None:
     assert "来源 / 状态" in body
     assert "条件 / 催化剂" in body
     assert "产物 ·" in body
-    assert "前体 ·" in body
+    assert "反应物 ·" in body
     assert "步骤来源与状态" not in body
     assert ">产物 SMILES<" not in body
     assert ">前体 SMILES" not in body
     assert "pointerdown" in body
     assert "pointermove" in body
     assert "setPointerCapture" in body
-    assert "closest('button,a,input,select,textarea,[data-replay-step],[data-route-lane-toggle]')" in body
-    assert "translate3d" in body
+    assert "closest('button,a,input,select,textarea,summary,[data-replay-step],[data-route-lane-toggle]')" in body
+    assert ".style.zoom=state.zoom" in body
+    assert "translate3d" not in body
     assert "passive:false" in body
     assert "滚轮缩放" in body
     assert "event.ctrlKey" not in body
@@ -357,6 +453,44 @@ def test_showcase_export_writes_one_html_file(tmp_path: Path) -> None:
     assert output.read_text(encoding="utf-8").endswith("</html>\n")
 
 
+def test_all_branch_export_preserves_usage_beyond_activity_window() -> None:
+    from cascade_planner.web.v4_showcase_export import _filter_projection_branches
+
+    source = {
+        "branches": [{"branch_index": index, "steps": []} for index in (1, 2, 3)],
+        "activities": [{"branch_index": 1, "input_tokens": 20, "output_tokens": 4}],
+        "usage": {"model_invocations": 96, "input_tokens": 6000, "output_tokens": 500},
+        "model_output_count": 96,
+    }
+    full = _filter_projection_branches(source, (1, 2, 3))
+    assert full["usage"] == source["usage"]
+    assert full["model_output_count"] == 96
+    assert len(full["activities"]) == 1
+    selected = _filter_projection_branches(source, (1,))
+    assert selected["usage"]["model_invocations"] == 1
+
+
+def test_showcase_export_unwraps_catalog_campaign_status(tmp_path: Path) -> None:
+    run_dir = _saved_run(tmp_path)
+
+    body = build_run_export_html(
+        run_dir=run_dir,
+        job={
+            "status": {
+                "schema_version": "retrosynthesis_campaign_service_status.v1",
+                "status": "unresolved",
+                "frontier": [{"kind": "validation"}],
+            }
+        },
+        export_kind="route",
+    )
+    payload = _export_payload(body)
+
+    assert payload["metadata"]["status"] == "unresolved"
+    assert "retrosynthesis_campaign_service_status.v1" not in body
+    assert "静态逆合成路线" in body
+
+
 def test_static_route_and_complete_graph_are_distinct_exports(tmp_path: Path) -> None:
     run_dir = _saved_run(tmp_path)
 
@@ -386,7 +520,8 @@ def test_static_route_and_complete_graph_are_distinct_exports(tmp_path: Path) ->
     assert "pointermove" in graph
     assert "pointerup" in graph
     assert "setPointerCapture" in graph
-    assert "translate3d" in graph
+    assert ".style.zoom=state.zoom" in graph
+    assert "translate3d" not in graph
     assert "panX" in graph
     assert "panY" in graph
     assert "addEventListener('wheel'" in graph
@@ -514,6 +649,7 @@ def test_two_route_export_omits_unselected_steps_molecules_and_events(
 
 def test_branch_selection_validation_and_filenames() -> None:
     assert normalize_branch_indices("3,1,3") == (1, 3)
+    assert normalize_branch_indices("1,4") == (1, 4)
     assert showcase_filename(
         "run one",
         export_kind="graph",
@@ -527,7 +663,7 @@ def test_branch_selection_validation_and_filenames() -> None:
     with pytest.raises(ValueError, match="showcase_branch_indices_empty"):
         normalize_branch_indices(())
     with pytest.raises(ValueError, match="showcase_branch_index_invalid"):
-        normalize_branch_indices("1,4")
+        normalize_branch_indices("1,0")
 
 
 def test_unrecorded_step_origin_is_not_guessed(tmp_path: Path) -> None:
@@ -552,3 +688,75 @@ def test_unrecorded_step_origin_is_not_guessed(tmp_path: Path) -> None:
     assert step["step_origin"] == "unknown"
     assert step["step_origin_label"] == "来源未记录"
     assert payload["metadata"]["step_origin_counts"]["large_model"] == 0
+
+
+def test_collection_preserves_native_replays_with_overlapping_branch_ids(
+    tmp_path: Path,
+) -> None:
+    first = _saved_three_branch_run(tmp_path / "first")
+    second = _saved_three_branch_run(tmp_path / "second")
+    report_path = second / "target-only-solve-report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["run_id"] = "independent-second-run"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    selections = [
+        RunReplaySelection(first, (1, 3)),
+        RunReplaySelection(second, (1,)),
+    ]
+    body = build_run_replay_collection_html(selections, initial_branch_index=3)
+    collection = _collection_payload(body)
+    assert collection["run_count"] == 2
+    assert collection["route_count"] == 3
+    assert collection["initial_branch_index"] == 3
+    assert 'id="play"' in collection["viewer_template"]
+    for entry, selection in zip(collection["entries"], selections, strict=True):
+        native = build_run_export_bundle(
+            run_dir=selection.run_dir,
+            branch_indices=selection.branch_indices,
+            export_kind="interaction",
+        )
+        assert entry["bundle"]["replay"] == native["replay"]
+        assert entry["bundle"]["projection"] == native["projection"]
+        assert entry["bundle"]["molecules"] == native["molecules"]
+        assert native["replay"]["frame_count"] > 0
+    assert collection["entries"][0]["bundle"]["metadata"]["run_id"] != (
+        collection["entries"][1]["bundle"]["metadata"]["run_id"]
+    )
+
+
+def test_collection_escapes_source_text_without_changing_native_data(
+    tmp_path: Path,
+) -> None:
+    run_dir = _saved_run(tmp_path)
+    text = '</script><script>alert("source text")</script>'
+    body = build_run_replay_collection_html(
+        [RunReplaySelection(run_dir, (1,), text)], title=text
+    )
+    assert text not in body
+    collection = _collection_payload(body)
+    assert collection["title"] == text
+    assert collection["entries"][0]["label"] == text
+
+
+def test_collection_rejects_mixed_targets_and_duplicate_runs(tmp_path: Path) -> None:
+    first = _saved_run(tmp_path / "first")
+    with pytest.raises(ValueError, match="replay_collection_duplicate_run"):
+        build_run_replay_collection_html(
+            [RunReplaySelection(first), RunReplaySelection(first)]
+        )
+    second = _saved_run(tmp_path / "second")
+    report_path = second / "target-only-solve-report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["run_id"] = "other-target-run"
+    original_target = report["target"]["canonical_smiles"]
+    report["target"]["canonical_smiles"] = "CCO"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    io_path = second / ".autoplanner" / "director-workspace" / "model-io.jsonl"
+    io_path.write_text(
+        io_path.read_text(encoding="utf-8").replace(original_target, "CCO"),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="replay_collection_target_mismatch"):
+        build_run_replay_collection_html(
+            [RunReplaySelection(first), RunReplaySelection(second)]
+        )

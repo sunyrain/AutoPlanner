@@ -157,6 +157,10 @@ from cascade_planner.interfaces.target_solver_compat import (
     compile_target_solver_checkpoint,
     validate_target_objective_mode,
 )
+from cascade_planner.interfaces.target_report_projection import (
+    _bounded_detail as _bounded_detail,
+    _compact_campaign_action_stage as _compact_campaign_action_stage,
+)
 from cascade_planner.interfaces.visual_evidence import (
     VisualEvidenceProvider,
     acquire_visual_evidence_candidates,
@@ -174,10 +178,15 @@ from cascade_planner.orchestration.global_campaign_director import (
     remaining_model_budget,
     run_codex_cli_director_child,
 )
+from cascade_planner.application.route_review_context import (
+    compile_revision_bound_route_critic_context,
+)
+from cascade_planner.orchestration.model_call_budget import (
+    stage_call_reservation, budget_exposure,
+)
 from cascade_planner.orchestration.sequential_strategy_director import (
     SequentialStrategyDirectorRunner,
     compile_frontier_builder_context,
-    compile_revision_bound_route_critic_context,
 )
 from cascade_planner.orchestration.unified_campaign_runtime import (
     CampaignActionDeferredHandler,
@@ -217,6 +226,106 @@ class _CombinedCancelSignal:
             else:
                 time.sleep(interval)
         return True
+
+
+def _reconcile_cancelled_frontier_builder_attempts(service: Any) -> dict[str, Any]:
+    """Void legacy frontier-attempt signals written after worker cancellation.
+
+    Older handlers converted a zero-usage cancelled worker record into a
+    completed one-call attempt and published an expansion signal.  The raw
+    child artifact still records ``worker_status=cancelled`` and zero tokens,
+    so resume can deterministically repair that operational projection without
+    deleting graph history or changing any chemical fact.
+    """
+
+    graph = service.graph_store.load()
+    action_signals = dict(graph.get("action_signals") or {})
+    corrections: list[dict[str, Any]] = []
+    corrected_ids: list[str] = []
+    for reservation_event in service.kernel.task_reservation_history():
+        payload = dict(reservation_event.get("payload") or {})
+        metadata = dict(payload.get("metadata") or {})
+        if str(metadata.get("participant_role") or "") != "route_builder":
+            continue
+        task_id = str(payload.get("task_id") or "")
+        frontier_id = str(metadata.get("frontier_molecule_id") or "")
+        route_family_id = str(metadata.get("route_family_id") or "")
+        attempt_index = max(1, int(metadata.get("frontier_builder_attempt_index") or 1))
+        if not task_id or not frontier_id or not route_family_id:
+            continue
+        settlement = dict(
+            dict(service.kernel.task_lifecycle(task_id).get("settlement") or {}).get(
+                "payload"
+            )
+            or {}
+        )
+        output_sha256 = str(settlement.get("output_sha256") or "")
+        if not output_sha256:
+            continue
+        try:
+            artifact = service.kernel.artifacts.read_json(output_sha256)
+        except Exception:
+            continue
+        if not isinstance(artifact, Mapping):
+            continue
+        artifact_row = dict(artifact)
+        usage = dict(artifact_row.get("usage") or {})
+        if (
+            str(artifact_row.get("worker_status") or "").casefold()
+            not in {"cancelled", "canceled"}
+            or int(usage.get("input_tokens") or 0) != 0
+            or int(usage.get("output_tokens") or 0) != 0
+        ):
+            continue
+        signal_identity = hashlib.sha256(
+            (f"{frontier_id}\0{route_family_id}\0{attempt_index}").encode("utf-8")
+        ).hexdigest()[:24]
+        signal_id = f"frontier-builder-attempt:{signal_identity}"
+        existing = action_signals.get(signal_id)
+        if not isinstance(existing, Mapping):
+            continue
+        signal = dict(existing)
+        signal_metadata = dict(signal.get("metadata") or {})
+        if signal_metadata.get("attempt_voided") is True:
+            continue
+        signal.pop("content_sha256", None)
+        signal["metadata"] = {
+            **signal_metadata,
+            "attempt_disposition": "cancelled_without_model_call",
+            "attempt_voided": True,
+            "model_call_consumed": False,
+            "leaf_expansion_deficit_resolved": False,
+            "canonical_edge_materialized": False,
+            "diagnostic": {
+                "reason": "frontier_builder_cancelled_before_model_call",
+                "frontier_molecule_id": frontier_id,
+                "route_family_id": route_family_id,
+            },
+        }
+        corrections.append(signal)
+        corrected_ids.append(signal_id)
+    if not corrections:
+        return {
+            "status": "not_needed",
+            "changed": False,
+            "corrected_attempt_count": 0,
+            "corrected_signal_ids": [],
+        }
+    identity = hashlib.sha256("\0".join(sorted(corrected_ids)).encode("utf-8")).hexdigest()
+    result = service.apply_batch(
+        CanonicalIngestionBatch(action_signals=tuple(corrections)),
+        idempotency_key=f"solve-target:void-cancelled-frontier-attempts:{identity[:24]}",
+    )
+    return {
+        "status": "corrected",
+        "changed": result.get("changed") is True,
+        "corrected_attempt_count": len(corrected_ids),
+        "corrected_signal_ids": sorted(corrected_ids),
+        "semantics": {
+            "chemical_graph_unchanged": True,
+            "zero_usage_cancelled_attempts_do_not_debit_builder_axis": True,
+        },
+    }
 
 
 TARGET_SOLVE_REPORT_SCHEMA = "target_only_retrosynthesis_solve_report.v1"
@@ -341,6 +450,12 @@ class TargetSolveConfig:
     objective_mode: TargetObjectiveMode = "scientific_proof"
     use_coordinator: bool = False
     enable_web_search: bool = True
+    enable_planning_evidence: bool = True
+    planning_stock_query_limit: int = 24
+    planning_compound_query_limit: int = 4
+    planning_literature_search_limit: int = 8
+    planning_literature_read_limit: int = 4
+    planning_queries_per_worker: int = 6
     enable_initial_director_web_search: bool = False
     enable_codex: bool = True
     enable_replan: bool = True
@@ -410,9 +525,17 @@ class TargetSolveConfig:
     schema_version: str = "target_solve_config.v1"
 
     def __post_init__(self) -> None:
+        from cascade_planner.application.planning_evidence import PlanningEvidencePolicy
+
+        PlanningEvidencePolicy(limits={
+            "stock": self.planning_stock_query_limit,
+            "compound": self.planning_compound_query_limit,
+            "search": self.planning_literature_search_limit,
+            "read": self.planning_literature_read_limit,
+        }, calls_per_worker=self.planning_queries_per_worker)
         if self.run_scope not in {"blind", "interactive"}:
             raise ValueError("target solver run scope is invalid")
-        if self.reasoning_effort not in {"low", "medium", "high"}:
+        if self.reasoning_effort not in {"low", "medium", "high", "xhigh"}:
             raise ValueError("target solver reasoning effort is invalid")
         if self.execution_profile not in {
             "fast",
@@ -672,6 +795,7 @@ def _resolve_execution_config(config: TargetSolveConfig) -> TargetSolveConfig:
         action_scheduler_policy="adaptive",
         delivery_boundary="stock_result",
         enable_web_search=False,
+        enable_planning_evidence=(self_correcting_sequential and config.enable_planning_evidence),
         enable_initial_director_web_search=False,
         enable_target_chemenzy_baseline=False,
         enable_chemenzy=(False if matched_sequential_runtime else config.enable_chemenzy),
@@ -1136,8 +1260,33 @@ def solve_target(
                         "aizynthfinder_strategy_runtime_required_before_paid_calls"
                     )
                 strategy_python = str(strategy_python_path)
+            stock_membership = _frozen_stock_membership_checker(stock_catalog_builder)
+            planning_evidence = None
+            if (active.enable_planning_evidence
+                    and _is_self_correcting_sequential_profile(active.execution_profile)):
+                from cascade_planner.application.planning_evidence import (
+                    BoundedPlanningEvidence, PlanningEvidencePolicy,
+                )
+                from cascade_planner.interfaces.planning_evidence import planning_evidence_providers
+
+                planning_evidence = BoundedPlanningEvidence(
+                    journal_path=directory / ".autoplanner" / "director-workspace" / "planning-evidence.jsonl",
+                    stock_lookup=stock_membership,
+                    stock_identity={
+                        "catalog": str(getattr(stock_catalog_builder, "catalog_name", "")),
+                        "sha256": str(getattr(stock_catalog_builder, "index_sha256", "")),
+                    },
+                    providers=planning_evidence_providers(),
+                    policy=PlanningEvidencePolicy(limits={
+                        "stock": active.planning_stock_query_limit,
+                        "compound": active.planning_compound_query_limit,
+                        "search": active.planning_literature_search_limit,
+                        "read": active.planning_literature_read_limit,
+                    }, calls_per_worker=active.planning_queries_per_worker),
+                )
             resolved_director_runner = SequentialStrategyDirectorRunner(
-                stock_membership=_frozen_stock_membership_checker(stock_catalog_builder),
+                stock_membership=stock_membership,
+                planning_evidence=planning_evidence,
                 aizynthfinder_strategy_python_executable=strategy_python,
                 aizynthfinder_strategy_stock_index=str(
                     getattr(stock_catalog_builder, "index_path", "") or ""
@@ -1166,6 +1315,9 @@ def solve_target(
                     cancel_event=worker_cancel_signal,
                 )
 
+    if isinstance(resolved_director_runner, SequentialStrategyDirectorRunner):
+        resolved_director_runner.target_constraints = resolved_campaign_spec.constraints.to_dict()
+
     service = gateway._open(
         identity,
         run_dir=directory,
@@ -1179,10 +1331,32 @@ def solve_target(
             resolved_budget,
             idempotency_key=f"solve-target:model-budget:{budget_sha256[:24]}",
         )
+    cancelled_resume_event = None
     if resume and service.kernel.state.status == "paused":
         service.kernel.resume(
             idempotency_key=f"solve-target:resume:{service.kernel.state.revision}"
         )
+    elif resume and service.kernel.state.status == "cancelled":
+        cancelled_revision = int(service.kernel.state.revision)
+        cancelled_resume_event = service.kernel.reopen_for_new_work(
+            work_fingerprint=_digest(
+                {
+                    "kind": "operator_cancelled_checkpoint_resume",
+                    "run_id": identity,
+                    "terminal_revision": cancelled_revision,
+                    "graph_revision": int(service.kernel.state.graph_revision),
+                }
+            ),
+            reasons=("operator_resumed_cancelled_checkpoint",),
+            idempotency_key=(
+                f"solve-target:resume-cancelled:{cancelled_revision}"
+            ),
+        )
+    cancelled_attempt_reconciliation = (
+        _reconcile_cancelled_frontier_builder_attempts(service)
+        if resume
+        else {}
+    )
     if service.kernel.state.status == "running" and not (
         active.enable_chemenzy and active.enable_target_chemenzy_baseline
     ):
@@ -1225,6 +1399,28 @@ def solve_target(
         )
     stages = list(checkpoint.get("stages") or [])
     outcomes = list(checkpoint.get("director_outcomes") or [])
+    if cancelled_resume_event is not None:
+        stages.append(
+            _stage(
+                "cancelled_checkpoint_resume",
+                "accepted",
+                {
+                    "event": cancelled_resume_event.to_dict(),
+                    "semantics": {
+                        "same_run_kernel_and_trajectory_continue": True,
+                        "accepted_work_and_measured_usage_are_preserved": True,
+                    },
+                },
+            )
+        )
+    if cancelled_attempt_reconciliation.get("corrected_attempt_count"):
+        stages.append(
+            _stage(
+                "cancelled_frontier_attempt_reconciliation",
+                "corrected",
+                cancelled_attempt_reconciliation,
+            )
+        )
     if (
         resume
         and service.kernel.decide_stop().terminal
@@ -1743,23 +1939,41 @@ def solve_target(
         )
         child_digest = hashlib.sha256(action.execution_id.encode("utf-8")).hexdigest()[:24]
         child_task_id = f"frontier-builder:{child_digest}"
+        call_estimate = stage_call_reservation(service.kernel.run_dir, "builder", model=director_config.model)
+        critic_estimate = stage_call_reservation(service.kernel.run_dir, "critic", model=director_config.model)
+        review_count = _pending_route_review_count(
+            service, resolved_director_runner, director_config, mutated_family_id=route_family_id,
+        )
+        review_protection = {"model_invocations": review_count,
+                             **{axis: amount * review_count for axis, amount in critic_estimate.items()}}
         child_resume_in_flight = child_task_id in service.kernel.state.in_flight_tasks
-        if not child_resume_in_flight:
-            service.kernel.reserve_task(
-                task_id=child_task_id,
-                kind="model",
-                idempotency_key=f"{action.idempotency_key}:builder-child:reserve",
-                input_revision=action.input_revision,
-                uses_model=True,
-                prompt_context_bytes=len(prompt.encode("utf-8")),
-                metadata={
-                    "frontier_builder_attempt_index": attempt_index,
-                    "frontier_molecule_id": frontier_id,
-                    "route_family_id": route_family_id,
-                    "participant_role": "route_builder",
-                    "builder_budget_before": builder_budget_before,
-                },
-            )
+        try:
+            if not child_resume_in_flight:
+                service.kernel.reserve_task(
+                    task_id=child_task_id,
+                    kind="model",
+                    idempotency_key=f"{action.idempotency_key}:builder-child:reserve",
+                    input_revision=action.input_revision,
+                    uses_model=True,
+                    prompt_context_bytes=len(prompt.encode("utf-8")),
+                    metadata={
+                        "frontier_builder_attempt_index": attempt_index,
+                        "frontier_molecule_id": frontier_id,
+                        "route_family_id": route_family_id,
+                        "participant_role": "route_builder",
+                        "builder_budget_before": builder_budget_before,
+                        "model_budget_reservation": call_estimate,
+                        "model_budget_protection": review_protection,
+                    },
+                )
+        except RunKernelBudgetError as exc:
+            return {
+                "status": "completed", "changed": False,
+                "attempt_disposition": "model_budget_deferred",
+                "diagnostic": {"reason": str(exc), "call_estimate": call_estimate,
+                               "protected_final_reviews": review_protection},
+                "proposal_count": 0, "candidate_count": 0, "model_invocations": 0,
+            }
         spec = AgentSpec.from_context(
             run_id=service.kernel.spec.run_id,
             agent_id=child_task_id,
@@ -1790,6 +2004,7 @@ def solve_target(
                 ),
                 "durable_worker_journal": True,
                 "no_scientific_authority": True,
+                "model_budget_reservation": call_estimate,
             },
         )
         record: Any | None = None
@@ -1802,7 +2017,7 @@ def solve_target(
                 prompt=prompt,
             )
         except BaseException as exc:
-            usage = normalize_director_usage(record.usage if record is not None else {})
+            usage = _stage_model_usage(record, call_estimate)
             if usage["model_invocations"] == 0:
                 usage["model_invocations"] = 1
             elapsed_s = max(0.0, time.monotonic() - started)
@@ -1856,7 +2071,39 @@ def solve_target(
                 "model_call_consumed": False,
             }
 
-        usage = normalize_director_usage(record.usage)
+        usage = _stage_model_usage(record, call_estimate)
+        cancelled_without_model_call = bool(
+            str(record.status or "").casefold() in {"cancelled", "canceled"}
+            and int(usage.get("input_tokens") or 0) == 0
+            and int(usage.get("output_tokens") or 0) == 0
+        )
+        if cancelled_without_model_call:
+            elapsed_s = max(
+                float(record.elapsed_s or 0.0),
+                max(0.0, time.monotonic() - started),
+            )
+            service.kernel.settle_task(
+                task_id=child_task_id,
+                idempotency_key=f"{action.idempotency_key}:builder-child:settle",
+                status="cancelled",
+                failure_reasons=("frontier_builder_cancelled_before_model_call",),
+                model_usage=usage,
+                elapsed_s=elapsed_s,
+            )
+            return {
+                "status": "cancelled",
+                "changed": False,
+                "attempt_disposition": "cancelled_without_model_call",
+                "diagnostic": {
+                    "reason": "frontier_builder_cancelled_before_model_call",
+                    "frontier_molecule_id": frontier_id,
+                    "route_family_id": route_family_id,
+                },
+                "proposal_count": 0,
+                "candidate_count": 0,
+                "model_invocations": 0,
+                "model_call_consumed": False,
+            }
         if usage["model_invocations"] == 0:
             usage["model_invocations"] = 1
         elapsed_s = max(
@@ -1888,6 +2135,7 @@ def solve_target(
 
         if builder_result.get("status") != "compiled":
             diagnostic = dict(builder_result.get("diagnostic") or {})
+            diagnostic.setdefault("product_smiles", context.selected_product_smiles)
             signal = publish_attempt(
                 disposition="candidate_rejected",
                 diagnostic=diagnostic,
@@ -1940,6 +2188,13 @@ def solve_target(
         if not hypothesis_id or hypothesis.get("admission_accepted") is not True:
             diagnostic = {
                 "reason": "frontier_builder_host_admission_rejected",
+                "product_smiles": str(step.get("product_smiles") or ""),
+                "precursor_smiles": list(step.get("precursor_smiles") or ()),
+                "attempted_net_edits": [
+                    dict(value)
+                    for value in step.get("reaction_operations") or ()
+                    if isinstance(value, Mapping)
+                ],
                 "hypothesis_id": hypothesis_id,
                 "admission_reasons": list(hypothesis.get("admission_reasons") or []),
                 "ingestion_rejected": [
@@ -1989,6 +2244,13 @@ def solve_target(
             if materialized
             else {
                 "reason": "frontier_builder_canonical_materialization_failed",
+                "product_smiles": str(step.get("product_smiles") or ""),
+                "precursor_smiles": list(step.get("precursor_smiles") or ()),
+                "attempted_net_edits": [
+                    dict(value)
+                    for value in step.get("reaction_operations") or ()
+                    if isinstance(value, Mapping)
+                ],
                 "hypothesis_id": hypothesis_id,
                 "hypothesis_status": str(final_hypothesis.get("status") or ""),
                 "stopped_reasons": list(materialization.get("stopped_reasons") or []),
@@ -4790,16 +5052,17 @@ def solve_target(
         (),
     )
     if isinstance(resolved_director_runner, SequentialStrategyDirectorRunner):
-        _run_revision_bound_route_review_loop(
-            service,
-            director_runner=resolved_director_runner,
-            director_config=director_config,
-            route_family_ids=final_route_family_ids,
-            acceptance=resolved_acceptance,
-            config=active,
-            stock_catalog_builder=stock_catalog_builder,
-            inventory_snapshot_builder=inventory_snapshot_builder,
-        )
+        if service.kernel.state.status == "running":
+            _run_revision_bound_route_review_loop(
+                service,
+                director_runner=resolved_director_runner,
+                director_config=director_config,
+                route_family_ids=final_route_family_ids,
+                acceptance=resolved_acceptance,
+                config=active,
+                stock_catalog_builder=stock_catalog_builder,
+                inventory_snapshot_builder=inventory_snapshot_builder,
+            )
         # The review loop may repair and then re-Critic a route.  Its return
         # value is an audit history, not the final display authority.  Always
         # project the settled, digest-bound Critic from the canonical graph so
@@ -5155,6 +5418,10 @@ def solve_target(
         "accepted_expansion_count": service.kernel.state.accepted_expansion_count,
         "stop_decision": stop,
         "current_disposition": current_disposition,
+        "runtime_pause": bool(
+            service.kernel.state.status == "paused"
+            and unified_core_loop.get("termination") == "runtime_unavailable"
+        ),
         "self_evolution": self_evo.report(),
         "portfolio_ref": closeout["portfolio_ref"],
         "workbench_ref": workbench["snapshot_ref"],
@@ -5193,6 +5460,42 @@ def _final_route_critic_family_ids(graph: Mapping[str, Any]) -> list[str]:
         and raw_route.get("selected") is not False
         and bool(raw_route.get("edge_ids"))
     )
+
+
+def _pending_route_review_count(service, director_runner, director_config, *, mutated_family_id="") -> int:
+    """Protect only reviews required by the actual selected routes."""
+    graph = service.graph_store.load()
+    count = 0
+    for family_id in _final_route_critic_family_ids(graph):
+        if family_id == mutated_family_id:
+            count += 1  # A successful edit invalidates this route's review.
+            continue
+        context, _ = compile_revision_bound_route_critic_context(graph, route_family_id=family_id)
+        if context is None:
+            count += 1
+            continue
+        existing = dict(graph["route_families"][family_id].get("chemical_critic") or {})
+        if existing.get("review_state") == "complete" and existing.get("reviewed_route_sha256") == context.route_sha256:
+            continue
+        if director_runner.reusable_final_route_critique(
+            run_id=service.kernel.spec.run_id, run_dir=service.kernel.run_dir,
+            context=context, config=director_config,
+        ) is None:
+            count += 1
+    return count
+
+
+def _stage_model_usage(record, estimate):
+    """Keep measured usage separate from an ambiguous call's reserved cost."""
+    usage = normalize_director_usage(record.usage if record is not None else {})
+    if record is None:
+        holds = {f"unknown_{axis}_held": amount for axis, amount in estimate.items()}
+    else:
+        held_record = replace(record, metadata={**record.metadata, "budget_reservation": estimate})
+        exposure = budget_exposure([held_record])
+        holds = {key: exposure[key] for key in ("unknown_input_tokens_held", "unknown_output_tokens_held")}
+    usage.update({key: value for key, value in holds.items() if value})
+    return usage
 
 
 def _classify_final_route_critic_resume_work(
@@ -5394,6 +5697,9 @@ def _project_final_route_critic_stage_from_graph(
                     else []
                 ),
                 "route_sha256": context.route_sha256 if context is not None else "",
+                "critic_task_id": (
+                    str(critic.get("critic_task_id") or "") if bound else ""
+                ),
                 "branch_index": context.branch_index if context is not None else 0,
                 "branch_id": context.branch_index + 1 if context is not None else 0,
                 "reviewed_edge_ids": [
@@ -5701,6 +6007,20 @@ def _run_revision_bound_route_critics(
             continue
 
         existing = dict(route.get("chemical_critic") or {})
+        if not (existing.get("review_state") == "complete" and existing.get("reviewed_route_sha256") == context.route_sha256):
+            saved = director_runner.reusable_final_route_critique(
+                run_id=service.kernel.spec.run_id, run_dir=service.kernel.run_dir,
+                context=context, config=director_config,
+            )
+            if saved is not None:
+                _persist_revision_bound_route_critic(
+                    service, route_family_id=route_family_id, critique=saved,
+                    route_sha256=context.route_sha256, edge_ids=context.edge_ids,
+                    step_ids=(str(step.get("step_id") or "") for step in context.steps),
+                    graph_revision=context.graph_revision,
+                    attempt_index=int(existing.get("finalization_attempt_index") or 0) + 1,
+                )
+                existing = dict(service.graph_store.load()["route_families"][route_family_id].get("chemical_critic") or {})
         if (
             str(existing.get("reviewed_route_sha256") or "") == context.route_sha256
             and str(existing.get("review_state") or "") == "complete"
@@ -5709,6 +6029,8 @@ def _run_revision_bound_route_critics(
                 {
                     "route_family_id": route_family_id,
                     "status": "reused",
+                    "critic_task_id": str(existing.get("critic_task_id") or ""),
+                    "reuse_reason": str(existing.get("reuse_reason") or "unchanged_canonical_route"),
                     "route_sha256": context.route_sha256,
                     "critic_status": str(existing.get("status") or ""),
                     "overall_assessment": str(
@@ -5770,6 +6092,7 @@ def _run_revision_bound_route_critics(
             continue
 
         task_id = f"route-critic:{context.route_sha256[:20]}:{attempt_index}"
+        call_estimate = stage_call_reservation(service.kernel.run_dir, "critic", model=director_config.model)
         child_resume_in_flight = task_id in service.kernel.state.in_flight_tasks
         try:
             if not child_resume_in_flight:
@@ -5785,6 +6108,7 @@ def _run_revision_bound_route_critics(
                         "route_family_id": route_family_id,
                         "reviewed_route_sha256": context.route_sha256,
                         "finalization_attempt_index": attempt_index,
+                        "model_budget_reservation": call_estimate,
                     },
                 )
         except RunKernelBudgetError as exc:
@@ -5846,6 +6170,7 @@ def _run_revision_bound_route_critics(
                 ),
                 "durable_worker_journal": True,
                 "no_scientific_authority": True,
+                "model_budget_reservation": call_estimate,
             },
         )
         record: Any | None = None
@@ -5857,7 +6182,7 @@ def _run_revision_bound_route_critics(
                 config=director_config,
                 prompt=prompt,
             )
-            usage = normalize_director_usage(record.usage)
+            usage = _stage_model_usage(record, call_estimate)
             if usage["model_invocations"] == 0:
                 usage["model_invocations"] = 1
             provider_failure = worker_provider_failure_reason(record)
@@ -5893,7 +6218,7 @@ def _run_revision_bound_route_critics(
                 elapsed_s=measured_elapsed_s,
             )
         except BaseException as exc:
-            usage = normalize_director_usage(record.usage if record is not None else {})
+            usage = _stage_model_usage(record, call_estimate)
             if usage["model_invocations"] == 0:
                 usage["model_invocations"] = 1
             measured_elapsed_s = max(0.0, time.monotonic() - started)
@@ -7524,7 +7849,7 @@ def _persist_target_report(
         identity,
         payload["stages"],
         outcomes,
-        complete=True,
+        complete=payload.get("runtime_pause") is not True,
         resume_cursor=build_target_resume_cursor(service.graph_store.load()),
     )
     return {
@@ -10213,194 +10538,10 @@ def _chemenzy_vendor_root(configured_root: Path) -> Path:
     return direct / "ChemEnzyRetroPlanner"
 
 
-def _bounded_detail(value: Any, *, depth: int = 0) -> Any:
-    if depth >= 8:
-        return "<depth-limited>"
-    if isinstance(value, Mapping):
-        out: dict[str, Any] = {}
-        for key, child in value.items():
-            name = str(key)
-            if name == "route_lineage" and isinstance(child, list | tuple):
-                # Provider lineage is a compact identity record consumed by
-                # final canonical reconciliation.  Reset the display nesting
-                # depth so outer action envelopes cannot replace proposal IDs
-                # with the generic depth sentinel.
-                out[name] = _bounded_detail(child)
-                continue
-            if name in {"graph", "portfolio", "snapshot"} and isinstance(child, Mapping):
-                out[f"{name}_summary"] = {
-                    "revision": child.get("revision") or child.get("graph_revision"),
-                    "molecule_count": len(child.get("molecules") or {}),
-                    "edge_count": len(child.get("edges") or {}),
-                    "accepted": child.get("accepted"),
-                    "content_sha256": child.get("content_sha256"),
-                }
-                continue
-            out[name] = _bounded_detail(child, depth=depth + 1)
-        return out
-    if isinstance(value, list | tuple):
-        rows = [_bounded_detail(child, depth=depth + 1) for child in value[:64]]
-        if len(value) > 64:
-            rows.append({"omitted_count": len(value) - 64})
-        return rows
-    if isinstance(value, str) and len(value) > 2_000:
-        return value[:2_000] + f"... <{len(value) - 2_000} chars omitted>"
-    return value
 
 
-_COMPACT_ACTION_HANDLER_FIELDS: dict[str, frozenset[str]] = {
-    CampaignActionKind.CHEMENZY_TARGET_EXPAND.value: frozenset(
-        {
-            "status",
-            "mode",
-            "scope",
-            "request",
-            "provider_invocation_count",
-            "proposal_count",
-            "route_lineage",
-            "provider_envelope",
-            "provider_registration",
-            "request_sha256",
-            "raw_proposal_sha256",
-            "raw_result_sha256",
-            "replay_key_sha256",
-            "random_seed",
-            "provider_invocation_binding",
-            "runtime_preflight",
-            "failure_reasons",
-            "reasons",
-        }
-    ),
-    CampaignActionKind.EXPERIMENT_FEEDBACK_INGEST.value: frozenset(
-        {
-            "status",
-            "accepted",
-            "validation_id",
-            "reasons",
-            "resolved_program_validation_signal_ids",
-            "experimental_claims",
-            "experimental_claims_oracle",
-        }
-    ),
-    CampaignActionKind.PROGRAM_VALIDATE.value: frozenset(
-        {"status", "accepted", "validated_count", "reasons"}
-    ),
-    CampaignActionKind.PROGRAM_ADMIT.value: frozenset(
-        {"status", "accepted", "admission", "reasons"}
-    ),
-}
 
 
-def _compact_campaign_action_stage(row: Mapping[str, Any]) -> dict[str, Any]:
-    """Keep checkpoint/reports small while the CAS retains the full receipt."""
-
-    current = dict(row)
-    if not str(current.get("stage") or "").startswith("campaign_action_unified_core_"):
-        return current
-    detail = dict(current.get("detail") or {})
-    action = dict(detail.get("action") or {})
-    outcome = dict(detail.get("outcome") or {})
-    kind = str(action.get("kind") or "")
-    projected_action = {
-        key: action[key]
-        for key in (
-            "action_id",
-            "execution_id",
-            "kind",
-            "producer",
-            "resource_class",
-            "input_revision",
-        )
-        if key in action
-    }
-    action_metadata = dict(action.get("metadata") or {})
-    projected_metadata = {
-        key: action_metadata[key]
-        for key in (
-            "replan_pressure",
-            "program_opportunity_pressure",
-            "program_review_pressure",
-        )
-        if key in action_metadata
-    }
-    if projected_metadata:
-        projected_action["metadata"] = projected_metadata
-    projected_outcome = {
-        key: outcome[key]
-        for key in (
-            "status",
-            "output_revision",
-            "elapsed_s",
-            "material_events",
-            "failure_type",
-            "failure_reasons",
-            "immutable_artifact_refs",
-        )
-        if key in outcome
-    }
-    retained_handler_fields = _COMPACT_ACTION_HANDLER_FIELDS.get(kind, frozenset())
-    handler_result = dict(outcome.get("handler_result") or {})
-    projected_handler = {
-        key: handler_result[key] for key in retained_handler_fields if key in handler_result
-    }
-    if projected_handler:
-        projected_outcome["handler_result"] = projected_handler
-    if kind == CampaignActionKind.CHEMENZY_TARGET_EXPAND.value:
-        nested_lineage = []
-        for value in handler_result.get("results") or ():
-            if not isinstance(value, Mapping) or not value.get("route_lineage"):
-                continue
-            nested_lineage.append(
-                {
-                    key: value[key]
-                    for key in (
-                        "mode",
-                        "scope",
-                        "request_sha256",
-                        "raw_proposal_sha256",
-                        "raw_result_sha256",
-                        "replay_key_sha256",
-                        "random_seed",
-                        "route_lineage",
-                    )
-                    if key in value
-                }
-            )
-        if nested_lineage:
-            projected_outcome.setdefault("handler_result", {})["results"] = nested_lineage
-    projected_detail = {
-        "schema_version": "campaign_action_checkpoint_projection.v1",
-        "status": str(detail.get("status") or outcome.get("status") or ""),
-        "action": projected_action,
-        "outcome": projected_outcome,
-        "semantics": {
-            "full_receipt_is_content_addressed": bool(detail.get("outcome_ref")),
-            "projection_grants_no_scientific_authority": True,
-        },
-    }
-    decision = dict(detail.get("decision") or {})
-    projected_decision = {
-        key: decision[key] for key in ("scientific_closure_pressure",) if key in decision
-    }
-    selected_action = dict(decision.get("selected_action") or {})
-    if selected_action:
-        projected_decision["selected_action"] = {
-            key: selected_action[key]
-            for key in ("kind", "schedule_components")
-            if key in selected_action
-        }
-    if projected_decision:
-        projected_detail["decision"] = projected_decision
-    for key in (
-        "outcome_ref",
-        "cache_hit",
-        "recovered_from_action_history",
-        "outcome_pointer_recovered",
-    ):
-        if key in detail:
-            projected_detail[key] = detail[key]
-    current["detail"] = projected_detail
-    return current
 
 
 def _deduplicate_stages(values: list[dict[str, Any]]) -> list[dict[str, Any]]:

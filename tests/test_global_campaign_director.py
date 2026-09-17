@@ -695,6 +695,22 @@ def test_host_compiled_sequential_plan_is_not_rejected_by_single_call_byte_limit
     assert len(json.dumps(outcome.plan.to_dict()).encode("utf-8")) > 100
 
 
+def test_variable_sequential_portfolio_does_not_inherit_global_skeleton_cap(tmp_path: Path) -> None:
+    context = _context(_kernel(tmp_path))
+    plan = GlobalCampaignPlan.from_dict(_plan(context))
+    assert len(plan.multi_step_skeletons) > 1
+    for mode, variable in (("global_skeleton", False), ("sequential_branches", False)):
+        with pytest.raises(GlobalCampaignPlanValidationError, match="skeleton_count_out_of_bounds"):
+            validate_global_campaign_plan(plan, context, DirectorConfig(
+                planning_mode=mode, max_skeletons=1,
+                enable_strategy_portfolio_critic=variable,
+            ))
+    assert validate_global_campaign_plan(plan, context, DirectorConfig(
+        planning_mode="sequential_branches", max_skeletons=1,
+        enable_strategy_portfolio_critic=True,
+    ))
+
+
 def test_director_rejects_an_operationally_empty_reaction_step(
     tmp_path: Path,
 ) -> None:

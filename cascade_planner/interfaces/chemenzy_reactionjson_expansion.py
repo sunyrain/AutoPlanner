@@ -348,7 +348,12 @@ class ChemEnzyReactionJsonOrSearch:
 
 
 def ranked_candidate_cost(index: int, score: Any = None) -> tuple[float, float]:
-    """Return a deterministic non-negative ChemEnzy prior cost."""
+    """Translate candidate order to a search prior, not a chemical-quality score.
+
+    The current single-move Builder supplies no score: index zero yields prior
+    1 and cost 0. Multi-candidate callers may supply a prior or use rank weights.
+    AiZ consumes the prior; only the ChemEnzy adapter consumes -log(prior).
+    """
 
     try:
         numeric_score = float(score)

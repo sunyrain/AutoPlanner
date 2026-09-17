@@ -1,0 +1,142 @@
+{
+  "mode": "new_critic_only_reassessment",
+  "historical_runs_unchanged": true,
+  "families": [
+    {
+      "case": "bch",
+      "branch": 1,
+      "overall": "uncertain",
+      "step_count": 8,
+      "step_verdicts": {
+        "uncertain": 3,
+        "pass": 5
+      },
+      "usage": {
+        "input_tokens": 118689,
+        "cached_input_tokens": 60544,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1979,
+        "reasoning_output_tokens": 316
+      },
+      "elapsed_s": 110.719,
+      "tool_call_count": 3,
+      "result": "results/discussion/p0-route-reassessment-20260906/bch/branch-1/result.json"
+    },
+    {
+      "case": "bch",
+      "branch": 2,
+      "overall": "uncertain",
+      "step_count": 7,
+      "step_verdicts": {
+        "uncertain": 7
+      },
+      "usage": {
+        "input_tokens": 234681,
+        "cached_input_tokens": 168320,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2175,
+        "reasoning_output_tokens": 402
+      },
+      "elapsed_s": 189.796,
+      "tool_call_count": 5,
+      "result": "results/discussion/p0-route-reassessment-20260906/bch/branch-2/result.json"
+    },
+    {
+      "case": "bch",
+      "branch": 3,
+      "overall": "reject",
+      "step_count": 7,
+      "step_verdicts": {
+        "pass": 5,
+        "uncertain": 1,
+        "reject": 1
+      },
+      "usage": {
+        "input_tokens": 114949,
+        "cached_input_tokens": 59264,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1944,
+        "reasoning_output_tokens": 598
+      },
+      "elapsed_s": 112.266,
+      "tool_call_count": 2,
+      "result": "results/discussion/p0-route-reassessment-20260906/bch/branch-3/result.json"
+    },
+    {
+      "case": "tcf",
+      "branch": 1,
+      "overall": "uncertain",
+      "step_count": 8,
+      "step_verdicts": {
+        "pass": 3,
+        "uncertain": 5
+      },
+      "usage": {
+        "input_tokens": 60550,
+        "cached_input_tokens": 4096,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1703,
+        "reasoning_output_tokens": 163
+      },
+      "elapsed_s": 88.188,
+      "tool_call_count": 2,
+      "result": "results/discussion/p0-route-reassessment-20260906/tcf/branch-1/result.json"
+    },
+    {
+      "case": "tcf",
+      "branch": 2,
+      "overall": "uncertain",
+      "step_count": 6,
+      "step_verdicts": {
+        "uncertain": 3,
+        "pass": 3
+      },
+      "usage": {
+        "input_tokens": 59322,
+        "cached_input_tokens": 4096,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1393,
+        "reasoning_output_tokens": 151
+      },
+      "elapsed_s": 77.015,
+      "tool_call_count": 1,
+      "result": "results/discussion/p0-route-reassessment-20260906/tcf/branch-2/result.json"
+    },
+    {
+      "case": "tcf",
+      "branch": 3,
+      "overall": "uncertain",
+      "step_count": 4,
+      "step_verdicts": {
+        "pass": 2,
+        "uncertain": 2
+      },
+      "usage": {
+        "input_tokens": 58509,
+        "cached_input_tokens": 4096,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1103,
+        "reasoning_output_tokens": 108
+      },
+      "elapsed_s": 67.109,
+      "tool_call_count": 1,
+      "result": "results/discussion/p0-route-reassessment-20260906/tcf/branch-3/result.json"
+    }
+  ],
+  "usage_total": {
+    "input_tokens": 646700,
+    "cached_input_tokens": 300416,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 10297,
+    "reasoning_output_tokens": 1738
+  },
+  "step_verdicts_total": {
+    "uncertain": 21,
+    "pass": 18,
+    "reject": 1
+  },
+  "tool_types": {
+    "web_search": 9,
+    "inspect_mapped_smiles": 5
+  }
+}

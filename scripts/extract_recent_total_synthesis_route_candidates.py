@@ -9,6 +9,7 @@ chemist can review it without treating automated text matching as route truth.
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict, deque
 import hashlib
 from html.parser import HTMLParser
 import io
@@ -72,6 +73,8 @@ def parse_args() -> argparse.Namespace:
         default=Path("benchmarks/recent_total_synthesis/route_evidence_candidates.jsonl"),
     )
     parser.add_argument("--max-passages", type=int, default=10)
+    parser.add_argument("--paper-id", action="append", default=[], help="Restrict this batch to specified papers; repeatable.")
+    parser.add_argument("--merge-output", action="store_true", help="Replace only selected target rows in an existing output.")
     return parser.parse_args()
 
 
@@ -367,6 +370,10 @@ def _artifact_blocks(
         return []
     blocks: list[dict[str, Any]] = []
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        # Publishers sometimes label an OOXML document as application/zip.
+        # Reading its internal XML as an arbitrary archive loses Word locators.
+        if "[Content_Types].xml" in archive.namelist() and "word/document.xml" in archive.namelist():
+            return _docx_blocks(payload, container=container)
         members = [info for info in archive.infolist() if not info.is_dir()]
         for info in members[:MAX_ARCHIVE_ENTRIES]:
             if info.file_size > MAX_ARCHIVE_MEMBER_BYTES:
@@ -471,18 +478,38 @@ def html_passage_candidates(
     )
 
 
-def main() -> int:
-    args = parse_args()
-    if args.max_passages < 1:
+def select_source_balanced_passages(
+    groups: list[tuple[str, list[dict[str, Any]]]], *, limit: int
+) -> list[dict[str, Any]]:
+    """Alternate article/SI, then source artifacts, keeping distinct passages."""
+    queues: dict[str, deque] = {"article": deque(), "si": deque()}
+    for kind, candidates in groups:
+        if candidates:
+            queues["si" if kind == "supporting_information" else "article"].append(deque(candidates))
+    selected = []
+    seen: set[str] = set()
+    while any(queues.values()) and len(selected) < limit:
+        for queue in queues.values():
+            if not queue or len(selected) >= limit:
+                continue
+            candidates = queue.popleft()
+            while candidates:
+                candidate = candidates.popleft()
+                digest = hashlib.sha256(candidate["verbatim_text"].encode("utf-8")).hexdigest()
+                if digest not in seen:
+                    selected.append(candidate)
+                    seen.add(digest)
+                    break
+            if candidates:
+                queue.append(candidates)
+    return selected
+
+
+def extract_candidate_rows(
+    slots: list[dict[str, Any]], receipts: list[dict[str, Any]], *, repo_root: Path, max_passages: int
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    if max_passages < 1:
         raise ValueError("--max-passages must be at least 1")
-    repo_root = Path(__file__).resolve().parents[1]
-    slots = [
-        row
-        for row in read_jsonl((repo_root / args.target_slots).resolve())
-        if row.get("slot_class") in PRIMARY_TARGET_SLOT_CLASSES
-        and row.get("target_name")
-    ]
-    receipts = read_jsonl((repo_root / args.source_receipts).resolve())
     sources_by_paper: dict[str, list[dict[str, Any]]] = {}
     for receipt in receipts:
         supported = [
@@ -497,85 +524,111 @@ def main() -> int:
             )
         )
         if supported:
-            sources_by_paper[str(receipt["paper_id"])] = supported
+            sources_by_paper.setdefault(str(receipt["paper_id"]), []).extend(supported)
 
     rows: list[dict[str, Any]] = []
     artifact_failures = 0
+    artifact_parse_calls = 0
+    slots_by_paper: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for slot in slots:
-        artifacts = sources_by_paper.get(str(slot["paper_id"]), [])
-        if not artifacts:
+        if slot.get("slot_class") not in PRIMARY_TARGET_SLOT_CLASSES or not slot.get("target_name"):
             continue
-        passages: list[dict[str, Any]] = []
+        slots_by_paper[str(slot["paper_id"])].append(slot)
+    for paper_id, paper_slots in slots_by_paper.items():
+        artifacts = sorted(sources_by_paper.get(paper_id, []), key=lambda a: (ARTIFACT_PRIORITY.get(a.get("artifact_kind", ""), 99), a.get("cache_path", "")))
         processed_artifacts: list[dict[str, Any]] = []
         extraction_errors: list[str] = []
-        seen_passages: set[str] = set()
+        parsed_sources: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+        # Keep only one paper's parsed text in memory. Collective syntheses share it.
+        parsed_by_hash: dict[str, dict[str, Any]] = {}
+        text_bindings: dict[str, dict[str, Any]] = {}
         for artifact in artifacts:
             source_path = repo_root / str(artifact["cache_path"])
-            payload = source_path.read_bytes()
+            try:
+                payload = source_path.read_bytes()
+            except OSError as exc:
+                extraction_errors.append(f"{artifact['cache_path']}:{type(exc).__name__}")
+                artifact_failures += 1
+                continue
             source_sha256 = hashlib.sha256(payload).hexdigest()
             if source_sha256 != artifact["sha256"]:
                 raise RuntimeError(f"source hash mismatch: {source_path}")
-            processed_artifacts.append(
-                {
-                    "artifact_kind": str(artifact.get("artifact_kind") or ""),
-                    "source_artifact_path": str(artifact["cache_path"]),
-                    "source_artifact_sha256": source_sha256,
-                    "source_url": str(artifact.get("source_url") or ""),
-                }
-            )
+            binding = {
+                "artifact_kind": str(artifact.get("artifact_kind") or ""),
+                "source_artifact_path": str(artifact["cache_path"]),
+                "source_artifact_sha256": source_sha256,
+                "source_url": str(artifact.get("source_url") or ""),
+            }
+            processed_artifacts.append(binding)
+            if source_sha256 in parsed_by_hash:
+                original = parsed_by_hash[source_sha256]
+                binding["extraction_status"] = "duplicate_content_already_inspected"
+                binding["duplicate_of_path"] = original["source_artifact_path"]
+                binding["declared_role_conflict"] = binding["artifact_kind"] == "supporting_information" and original["artifact_kind"] != "supporting_information"
+                continue
             try:
+                artifact_parse_calls += 1
                 blocks = _artifact_blocks(
                     payload,
                     source_path.suffix,
                     container=str(artifact["cache_path"]),
                 )
-                candidates = _passage_candidates_from_blocks(
-                    blocks,
-                    str(slot["target_name"]),
-                    max_passages=args.max_passages,
-                )
+                parsed_by_hash[source_sha256] = binding
+                binding["extraction_status"] = "text_inspected" if blocks else "no_extractable_text"
+                document_text = " ".join(" ".join(str(b.get("text") or "").split()) for b in blocks)
+                text_digest = hashlib.sha256(document_text.encode("utf-8")).hexdigest()
+                if document_text and text_digest in text_bindings:
+                    original = text_bindings[text_digest]
+                    binding["extraction_status"] = "duplicate_extracted_text"
+                    binding["duplicate_of_path"] = original["source_artifact_path"]
+                    binding["declared_role_conflict"] = binding["artifact_kind"] == "supporting_information" and original["artifact_kind"] != "supporting_information"
+                    continue
+                if document_text:
+                    text_bindings[text_digest] = binding
+                parsed_sources.append((binding, blocks))
             except (ValueError, RuntimeError, ET.ParseError, zipfile.BadZipFile) as exc:
                 extraction_errors.append(f"{artifact['cache_path']}:{type(exc).__name__}:{exc}")
+                binding["extraction_status"] = "extraction_failed"
                 artifact_failures += 1
                 continue
-            for candidate in candidates:
-                digest = hashlib.sha256(
-                    str(candidate.get("verbatim_text") or "").encode("utf-8")
-                ).hexdigest()
-                if digest in seen_passages:
-                    continue
-                seen_passages.add(digest)
-                passages.append(
-                    {
-                        **candidate,
-                        "source_artifact_kind": str(artifact.get("artifact_kind") or ""),
-                        "source_artifact_path": str(artifact["cache_path"]),
-                        "source_artifact_sha256": source_sha256,
-                    }
-                )
-                if len(passages) >= args.max_passages:
-                    break
-            if len(passages) >= args.max_passages:
-                break
 
-        primary = processed_artifacts[0]
-        rows.append(
-            {
+        for slot in paper_slots:
+            groups = []
+            for binding, blocks in parsed_sources:
+                candidates = _passage_candidates_from_blocks(blocks, str(slot["target_name"]), max_passages=max_passages)
+                groups.append((binding["artifact_kind"], [
+                    {**candidate, "source_artifact_kind": binding["artifact_kind"],
+                     "source_artifact_path": binding["source_artifact_path"],
+                     "source_artifact_sha256": binding["source_artifact_sha256"]}
+                    for candidate in candidates
+                ]))
+            passages = select_source_balanced_passages(groups, limit=max_passages)
+            primary = processed_artifacts[0] if processed_artifacts else {}
+            rows.append({
                 "schema_version": "recent_total_synthesis_route_evidence_candidate.v2",
                 "target_slot_id": slot["target_slot_id"],
                 "paper_id": slot["paper_id"],
                 "doi": slot["doi"],
                 "target_name": slot["target_name"],
-                "source_artifact_path": primary["source_artifact_path"],
-                "source_artifact_sha256": primary["source_artifact_sha256"],
-                "source_url": primary["source_url"],
+                "source_artifact_path": primary.get("source_artifact_path", ""),
+                "source_artifact_sha256": primary.get("source_artifact_sha256", ""),
+                "source_url": primary.get("source_url", ""),
                 "source_artifacts": processed_artifacts,
-                "extraction_method": "deterministic_multiformat_target_context_v2",
+                "extraction_method": "deterministic_source_balanced_target_context_v3",
                 "extraction_status": (
                     "article_or_si_route_passages_found_unverified"
                     if passages
+                    else "source_artifacts_missing" if not processed_artifacts
+                    else "source_text_extraction_failed" if not parsed_sources
                     else "no_target_linked_route_passage_found"
                 ),
+                "source_coverage": {
+                    "article_text_inspected": any(b["artifact_kind"] != "supporting_information" and blocks for b, blocks in parsed_sources),
+                    "si_text_inspected": any(b["artifact_kind"] == "supporting_information" and blocks for b, blocks in parsed_sources),
+                    "selected_article_passages": sum(p["source_artifact_kind"] != "supporting_information" for p in passages),
+                    "selected_si_passages": sum(p["source_artifact_kind"] == "supporting_information" for p in passages),
+                    "si_duplicates_article": any(b.get("declared_role_conflict") for b in processed_artifacts),
+                },
                 "route_or_key_step_admitted": False,
                 "admission_authority": False,
                 "supporting_information_required_for_reconstruction": True,
@@ -584,21 +637,39 @@ def main() -> int:
                 "required_next_action": (
                     "review article schemes and SI, bind compound identities, and submit independent route reviews"
                 ),
-            }
-        )
+            })
+    return rows, {
+        "source_package_papers": len(set(slots_by_paper) & set(sources_by_paper)),
+        "target_rows": len(rows),
+        "target_rows_with_source_package": sum(bool(row["source_artifacts"]) for row in rows),
+        "target_rows_with_route_passages": sum(bool(row["evidence_passages"]) for row in rows),
+        "artifact_extraction_failures": artifact_failures,
+        "artifact_parse_calls": artifact_parse_calls,
+        "admitted_route_records": 0,
+    }
 
+
+def main() -> int:
+    args = parse_args()
+    repo_root = Path(__file__).resolve().parents[1]
+    slots = read_jsonl((repo_root / args.target_slots).resolve())
+    if args.paper_id:
+        unknown = set(args.paper_id) - {str(row.get("paper_id")) for row in slots}
+        if unknown:
+            raise ValueError(f"unknown paper ids: {sorted(unknown)}")
+        slots = [row for row in slots if row.get("paper_id") in args.paper_id]
+    rows, stats = extract_candidate_rows(slots, read_jsonl((repo_root / args.source_receipts).resolve()), repo_root=repo_root, max_passages=args.max_passages)
     output = (repo_root / args.output).resolve()
+    if args.merge_output:
+        merged = {str(row["target_slot_id"]): row for row in read_jsonl(output)}
+        merged.update({str(row["target_slot_id"]): row for row in rows})
+        rows = [merged[key] for key in sorted(merged)]
     write_jsonl(output, rows)
     print(
         json.dumps(
             {
-                "source_package_papers": len(sources_by_paper),
-                "target_rows_with_source_package": len(rows),
-                "target_rows_with_route_passages": sum(
-                    bool(row["evidence_passages"]) for row in rows
-                ),
-                "artifact_extraction_failures": artifact_failures,
-                "admitted_route_records": 0,
+                **stats,
+                "output_target_rows": len(rows),
                 "output": str(output),
             },
             ensure_ascii=False,

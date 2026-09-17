@@ -1,0 +1,135 @@
+[
+  {
+    "run": "absolute-config-R-astra-repeat-medium25-20260905-174851--cb44de171576",
+    "task_id": "director:765d8f33544d78d2d5d74add:strategy-critic:1",
+    "output_artifact": {
+      "artifact_id": "director:765d8f33544d78d2d5d74add:strategy-critic:1:StrategyPortfolioReport",
+      "artifact_type": "StrategyPortfolioReport",
+      "case_id": "strategy-case:44bd0c39f924f65fe0b3",
+      "evidence_refs": [],
+      "input_refs": [],
+      "payload": {
+        "case_id": "strategy-case:44bd0c39f924f65fe0b3",
+        "no_route_or_solved_claim": true,
+        "schema_version": "strategy_portfolio_report.v1",
+        "strategy_cards": [
+          {
+            "critic_checkpoint": "Test the reductive displacement itself for formation of the required conjugated alkene–allene connectivity rather than an alkyne or over-reduced backbone.",
+            "critical_assumption": "The conjugated enyne supports selective propargylic-to-allenic reduction without direct displacement, competing alkene reduction, or loss of the specified alkene geometry.",
+            "decisive_risk": "Competing direct displacement or reduction could prevent allene formation or compromise the inherited alkene geometry.",
+            "review_decision": "keep",
+            "strategy_query": "Construct the acyclic dienallene backbone by reductive SN2′ displacement of a propargylic leaving group in a geometrically defined enyne, using substrate-directed distal hydride delivery, an inherited protected chiral alcohol, and late phenyl thioester formation."
+          },
+          {
+            "critic_checkpoint": "Test the carbon–carbon-forming olefination for the required trisubstituted alkene attached to an intact allene, including its geometric selectivity.",
+            "critical_assumption": "The allene-adjacent phosphonate can undergo productive ketone olefination with the required alkene geometry rather than rearrangement or alternative-site reaction.",
+            "decisive_risk": "Naming the olefination manifold does not establish geometric control; the required selectivity remains a feasibility constraint.",
+            "review_decision": "revise",
+            "strategy_query": "Join a simpler allene-bearing phosphonate fragment to an enantiopure protected hydroxy ketone by Horner–Wadsworth–Emmons olefination, constructing the trisubstituted alkene contingent on achieving the required alkene geometry in the olefination while reserving phenyl thioester formation for later."
+          },
+          {
+            "critic_checkpoint": "Test the vinyl–allenyl coupling for the exact alkene–allene junction and retained vinyl geometry rather than a propargyl or regioisomeric coupling product.",
+            "critical_assumption": "The allenylboron partner couples through its designated allene terminus without propargyl transposition, while the vinyl fragment retains its specified geometry.",
+            "decisive_risk": "Allenyl–propargyl transposition or alternative coupling regiochemistry could yield the wrong backbone despite vinyl stereoretention.",
+            "review_decision": "keep",
+            "strategy_query": "Assemble the acyclic backbone by palladium-catalyzed coupling of a geometrically defined vinyl iodide bearing the protected chiral alcohol with a terminally borylated allene fragment, using handle placement and vinyl stereoretention to control connectivity and delaying phenyl thioester installation."
+          }
+        ],
+        "target_smiles": "C/C(=C\\C=C=CCC(=O)Sc1ccccc1)C[C@@H](C)O"
+      },
+      "schema_version": "strategyportfolioreport.draft.v1",
+      "source": "codex_cli",
+      "summary": "paper_matched_strategy_critic",
+      "validation_status": "draft"
+    }
+  },
+  {
+    "run": "absolute-config-S-astra-repeat-medium25-20260905-174851--f92b50b8a221",
+    "task_id": "director:37d327a922f280ccc6c72e69:strategy-critic:1",
+    "output_artifact": {
+      "artifact_id": "director:37d327a922f280ccc6c72e69:strategy-critic:1:StrategyPortfolioReport",
+      "artifact_type": "StrategyPortfolioReport",
+      "case_id": "strategy-case:85b57769f7c6df3a81cd",
+      "evidence_refs": [],
+      "input_refs": [],
+      "payload": {
+        "case_id": "strategy-case:85b57769f7c6df3a81cd",
+        "no_route_or_solved_claim": true,
+        "schema_version": "strategy_portfolio_report.v1",
+        "strategy_cards": [
+          {
+            "critic_checkpoint": "The carbonate–carbon-donor coupling must form the backbone-extending C–C bond with the required allene connectivity and retained alkene geometry.",
+            "critical_assumption": "The functionalized carbon donor substitutes the propargylic carbonate predominantly through allene-forming SN2′ rather than direct substitution, without scrambling the adjacent alkene.",
+            "decisive_risk": "Competing direct substitution or alkene scrambling would defeat the proposed backbone construction.",
+            "review_decision": "keep",
+            "strategy_query": "Construct the acyclic dienallene backbone by regioselective SN2′ coupling of an alkenyl-substituted propargylic carbonate with an ester-bearing organozinc carbon donor, carrying the specified alkene geometry and protected secondary-alcohol stereocenter through to late phenyl thioester formation."
+          },
+          {
+            "critic_checkpoint": "Ketone–phosphonate olefination must create the target alkene linkage and geometry while retaining the neighboring allene.",
+            "critical_assumption": "The allene-bearing phosphonate undergoes productive ketone olefination with the specified trisubstituted-alkene geometry instead of allene isomerization or competing deprotonation.",
+            "decisive_risk": "Productive ketone olefination and the required alkene geometry must compete successfully with allene-related side reactions.",
+            "review_decision": "keep",
+            "strategy_query": "Assemble the backbone through geometry-selective Horner–Wadsworth–Emmons olefination of a protected enantiopure hydroxy ketone with an allenyl-substituted phosphonomethyl fragment bearing a distal ester, preserving the alcohol stereocenter and installing the phenyl thioester afterward."
+          },
+          {
+            "critic_checkpoint": "The enyne–aldehyde allenation must incorporate the aldehyde carbon as the distal allene terminus and generate the required conjugated dienallene connectivity.",
+            "critical_assumption": "Homologative allenation joins the terminal enyne and aldehyde in the required orientation without consuming or geometrically scrambling the conjugated alkene.",
+            "decisive_risk": "The aldehyde supplies the thioester-side chain; the target secondary-alcohol stereocenter must instead reside on the enyne.",
+            "review_decision": "revise",
+            "strategy_query": "Build the dienallene backbone by aldehyde-mediated homologative allenation of a geometry-defined terminal enyne bearing the protected secondary-alcohol stereocenter with a primary-alcohol-protected 3-hydroxypropanal, inheriting the secondary-alcohol stereocenter and subsequently converting the differentiated terminal primary alcohol into the phenyl thioester."
+          }
+        ],
+        "target_smiles": "C/C(=C\\C=C=CCC(=O)Sc1ccccc1)C[C@H](C)O"
+      },
+      "schema_version": "strategyportfolioreport.draft.v1",
+      "source": "codex_cli",
+      "summary": "paper_matched_strategy_critic",
+      "validation_status": "draft"
+    }
+  },
+  {
+    "run": "absolute-config-S-astra-repeat-medium25-20260905-174851--f92b50b8a221",
+    "task_id": "critic:18e9c9d2dba56c23ad33",
+    "output_artifact": {
+      "artifact_id": "critic:18e9c9d2dba56c23ad33:ChemicalStrategyCritique",
+      "artifact_type": "ChemicalStrategyCritique",
+      "case_id": "strategy-case:d1f99a1ff195887c72b5",
+      "evidence_refs": [],
+      "input_refs": [],
+      "payload": {
+        "case_id": "strategy-case:d1f99a1ff195887c72b5",
+        "checkpoint_match": true,
+        "limitations": [],
+        "no_reaction_proof": true,
+        "no_solved_claim": true,
+        "no_source_authority": true,
+        "overall_assessment": "reject",
+        "repair_actions": [],
+        "route_level_risks": [],
+        "schema_version": "chemical_strategy_critique.v1",
+        "step_assessments": [
+          {
+            "blocking": true,
+            "blocking_type": "sequence_dependency",
+            "competing_site_maps": [],
+            "condition_assessment": "",
+            "reasons": [
+              "The mapped edit forms checkpoint bond C4–C5, but combines acetylide carbonyl addition with a separately staged ammonium-chloride workup that converts O30 alkoxide to O30–H.",
+              "Under the required event-granularity rule, the explicitly stated alkoxide protonation must be an adjacent edge, not telescoped into the C–C-forming event."
+            ],
+            "repair_scope": "route_span",
+            "required_change_kind": "reaction_topology",
+            "step_id": "codex:branch:1:node:7:candidate:1",
+            "suggested_revision": "Split the local span into C4–C5 addition yielding the O30 alkoxide, followed by explicit protonation yielding the unchanged mapped alcohol before carbonate formation.",
+            "verdict": "reject"
+          }
+        ],
+        "strategy_adherence": true
+      },
+      "schema_version": "chemical_strategy_critique_artifact.v1",
+      "source": "codex_cli",
+      "summary": "paper_matched_key_event_critic",
+      "validation_status": "draft"
+    }
+  }
+]

@@ -1,0 +1,218 @@
+SynthAtlas
+BETA
+Routes
+Reactions
+Molecules
+Glossary
+About
+Sign in
+← All routes
+Terreulactone C
+NPA000019 · Aspergillus terreus Fb000501 (Fungus) · 8 steps · longest linear path 8 · Good
+↓ Download PDF
+3 routes to Terreulactone C:
+s1 · 8 steps · Good
+s2 · 8 steps · Good
++1 other route
+
+The SynthEx AI agent suggested and critiqued this route.
+
+SYNTHEX'S STRATEGY
+Synthesizing the highly substituted decalin core via a biomimetic Lewis acid-catalyzed polyene cyclization of an acyclic terpene precursor to stereoselectively establish the bicyclic framework.
+⤢
+FULL ROUTE
+8 steps · fragments converge left → right · click a structure or step number to jump to that step
+ROUTE SUMMARY
+The route employs a highly convergent and biomimetic strategy to assemble the complex polycyclic target. The key feature is a Lewis acid-catalyzed polyene cyclization that rapidly constructs the highly substituted decalin core from an acyclic terpene precursor, directly addressing the user constraint. Subsequent steps logically elaborate the core by appending a coumarin moiety, forming the pyran ring via dehydrative etherification, and finally installing the 4-methoxyphenyl group via a Suzuki-Miyaura cross-coupling.
+ROUTE CRITIC
+This route features a highly strategic and elegant biomimetic polyene cyclization to rapidly assemble the complex decalin core. The subsequent steps logically build the remaining rings and append the peripheral groups in a convergent manner. While the key cyclization and some regioselective couplings carry inherent risks, the overall step economy and strategic brilliance make this a very strong synthetic plan.
+Ratings & comments are shared with the team and attributed to your confirmed account.
+Rate this route:
+★
+★
+★
+★
+★
+Post comment
+Private
+sign in to comment
+No comments yet
+Step 1
+★
+★
+★
+★
+★
+⤢
++
+LDA, THF, -78 °C, then add allylic bromide.
+DESCRIPTION
+Enolate alkylation to assemble the acyclic chain.
+CONDITIONS · VAGUE
+LDA, THF, -78 °C, then add allylic bromide.
+LITERATURE PRECEDENT
+>10 documents · close precedent in Reaxys →
+REACTION SMILES
+Step 2
+key step
+★
+★
+★
+★
+★
+⤢
+MeAlCl2 or SnCl4, DCM, -78 °C.
+DESCRIPTION
+Biomimetic Lewis acid-catalyzed polyene cyclization. The Lewis acid activates the acyclic ketone precursor, initiating a stepwise cationic cascade (Prins-type cyclization followed by alkene addition)…
+WHY IT'S CRITICAL
+This is the pivotal step of the entire synthesis, rapidly assembling the complex bicyclic decalin core and setting multiple stereocenters in a single cascade operation.
+MAIN RISK
+Low yield or incorrect relative stereochemistry due to competing elimination pathways or alternative cyclization modes.
+CONDITIONS · VAGUE
+MeAlCl2 or SnCl4, DCM, -78 °C.
+REACTION SMILES
+Step 3
+★
+★
+★
+★
+★
+⤢
+SeO2 (cat.), t-BuOOH, DCM, rt.
+DESCRIPTION
+Allylic oxidation of the decalin core using selenium dioxide (SeO2). SeO2 oxidation is highly regioselective for the (E)-methyl group (C14) of the tetrasubstituted double bond due to the steric…
+CONDITIONS · VAGUE
+SeO2 (cat.), t-BuOOH, DCM, rt.
+LITERATURE PRECEDENT
+>10 documents · close precedent in Reaxys →
+REACTION SMILES
+Step 4
+key step
+★
+★
+★
+★
+★
+⤢
++
+BF3·OEt2 or Sc(OTf)3, DCM, 0 °C to rt (to favor C-alkylation over O-alkylation).
+DESCRIPTION
+Alkylation of the pyrone with an allylic alcohol derived from the decalin core. This can be achieved via Mitsunobu conditions or Lewis acid catalysis.
+WHY IT'S CRITICAL
+It joins the two major fragments (the decalin core and the coumarin moiety) via a challenging C-alkylation of a relatively unreactive position.
+MAIN RISK
+Poor regioselectivity, specifically the competition between O-alkylation and the desired C-alkylation of the 4-hydroxycoumarin.
+CONDITIONS · VAGUE
+BF3·OEt2 or Sc(OTf)3, DCM, 0 °C to rt (to favor C-alkylation over O-alkylation).
+LITERATURE PRECEDENT
+1 document · close precedent in Reaxys →
+REACTION SMILES
+Step 5
+key step
+★
+★
+★
+★
+★
+⤢
+OsO4 (cat.), NMO, acetone/H2O, rt to 40 °C.
+DESCRIPTION
+Osmium tetroxide-mediated cis-dihydroxylation of the tetrasubstituted alkene.
+WHY IT'S CRITICAL
+Installs the two tertiary alcohols required for the subsequent pyran ring formation, setting up the final cyclization.
+MAIN RISK
+Poor facial selectivity and low reactivity due to the extreme steric hindrance of the tetrasubstituted alkene.
+CONDITIONS · VAGUE
+OsO4 (cat.), NMO, acetone/H2O, rt to 40 °C.
+LITERATURE PRECEDENT
+3 documents · related report in Reaxys →
+REACTION SMILES
+Step 6
+★
+★
+★
+★
+★
+⤢
+p-TsOH (cat.), toluene, reflux with Dean-Stark apparatus.
+DESCRIPTION
+The corresponding reaction involves an intramolecular dehydrative etherification to form the pyran ring, utilizing a precursor that already contains the fully formed decalin framework and the…
+CONDITIONS · VAGUE
+p-TsOH (cat.), toluene, reflux with Dean-Stark apparatus.
+LITERATURE PRECEDENT
+>10 documents · close precedent in Reaxys →
+REACTION SMILES
+Step 7
+★
+★
+★
+★
+★
+⤢
+NBS, DMF, rt, 2 h.
+DESCRIPTION
+The corresponding reaction involves an electrophilic aromatic bromination of the unbrominated polycyclic precursor to introduce the bromine atom onto the heterocyclic ring. The strategy focuses on…
+CONDITIONS · ADEQUATE
+NBS, DMF, rt, 2 h.
+LITERATURE PRECEDENT
+>10 documents · related report in Reaxys →
+REACTION SMILES
+Step 8
+★
+★
+★
+★
+★
+⤢
++
+Pd(dppf)Cl2, K2CO3, 1,4-dioxane/H2O (4:1), 90 °C.
+DESCRIPTION
+The target molecule can be synthesized via a Suzuki-Miyaura cross-coupling. This simpler strategy disconnects the 4-methoxyphenyl ring from the polycyclic core, avoiding the complex biomimetic…
+CONDITIONS · ADEQUATE
+Pd(dppf)Cl2, K2CO3, 1,4-dioxane/H2O (4:1), 90 °C.
+LITERATURE PRECEDENT
+>10 documents · related report in Reaxys →
+REACTION SMILES
+ROUTE SCORE I
+8
+OVERALL
+6
+GREEN
+7
+FEAS.
+
+The route is strategically excellent and highly convergent, but relies on some challenging transformations (polyene cyclization, tetrasubstituted alkene dihydroxylation) and uses toxic reagents like OsO4 and SeO2, slightly lowering the feasibility and green scores.
+
+ROUTE INTELLIGENCE
+Total steps
+8
+Longest linear path
+8
+Stereo risk
+high
+Feasibility
+Good
+Redundant steps
+0
+BUILDING BLOCKS I
+⚗
+⚗
+Buyable (ZINC / eMolecules)
+AiZynthFinder route
+TOP RISKS
+#1 The biomimetic polyene cyclization (Step 6) may suffer from low yield or incorrect stereochemistry due to competing elimination pathways.
+Extensive screening of Lewis acids, temperatures, and solvents to optimize the cascade and trap the intermediate carbocation efficiently. → jump to step 2
+#2 Alkylation of 4-hydroxycoumarin (Step 4) may favor O-alkylation over the desired C-alkylation.
+Use specific Lewis acids (e.g., Sc(OTf)3) or water-based conditions known to favor C-alkylation of 4-hydroxycoumarins. → jump to step 4
+#3 Dehydrative etherification (Step 2) may lead to epimerization at the tertiary alcohol, giving a mixture of diastereomers.
+Carefully control reaction time and acidity, or explore alternative milder cyclization conditions to ensure thermodynamic control favors the desired epimer. → jump to step 6
+STEREOCHEMISTRY
+
+The route relies heavily on substrate control in highly congested environments. The polyene cyclization and the dehydrative etherification carry significant risks of forming undesired diastereomers.
+
+SynthAtlas
+Agentic synthesis planning for natural products
+Schwaller Group and synthetic chemistry colleagues at EPFL, Arizona and Pittsburgh
+Suggest a target
+Preprint
+Privacy Policy

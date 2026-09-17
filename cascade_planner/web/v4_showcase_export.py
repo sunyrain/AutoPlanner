@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 from typing import Any, Mapping
 
+from cascade_planner.web.route_display import enhance_route_html
+
 from cascade_planner.web.v4_live_synthesis import (
     _annotate_route_topology,
     canonical_smiles,
@@ -33,7 +35,32 @@ _REPORT_NAMES = (
 )
 
 
-def build_run_export_html(
+def _saved_job_status(job: Mapping[str, Any]) -> str:
+    """Return a scalar lifecycle state from live or catalog job projections.
+
+    Historical catalog rows can wrap the canonical campaign status in the
+    top-level ``status`` field.  Passing that mapping through ``str`` leaks a
+    complete Python dictionary into the export header and also prevents the
+    live projection from recognizing a terminal state.
+    """
+
+    value: Any = job.get("status")
+    seen: set[int] = set()
+    while isinstance(value, Mapping):
+        identity = id(value)
+        if identity in seen:
+            return "historical"
+        seen.add(identity)
+        value = (
+            value.get("experiment_status")
+            or value.get("campaign_status")
+            or value.get("status")
+        )
+    normalized = str(value or "").strip()
+    return normalized or "historical"
+
+
+def build_run_export_bundle(
     *,
     run_dir: Path,
     job: Mapping[str, Any] | None = None,
@@ -41,8 +68,8 @@ def build_run_export_html(
     export_kind: str = "interaction",
     branch_index: int = 1,
     branch_indices: Iterable[int] | str | None = None,
-) -> str:
-    """Compile one saved run into one of the three explicit export products."""
+) -> dict[str, Any]:
+    """Compile the native export data, including the selected saved replay."""
 
     export_kind = str(export_kind or "interaction").strip().casefold()
     if export_kind not in SHOWCASE_TEMPLATES:
@@ -78,7 +105,7 @@ def build_run_export_html(
             "run_dir": str(run_dir),
             "target_name": target_name,
             "target_smiles": target_smiles,
-            "status": str(source_job.get("status") or "historical"),
+            "status": _saved_job_status(source_job),
             "execution_source": str(
                 source_job.get("execution_source") or "saved_run_export"
             ),
@@ -142,6 +169,7 @@ def build_run_export_html(
         "summary": _report_summary(report, projection),
         "projection": {
             "status": projection.get("status"),
+            "stock_hit_smiles": projection.get("stock_hit_smiles") or [],
             "phase": projection.get("phase"),
             "progress": projection.get("progress"),
             "strategies": projection.get("strategies") or [],
@@ -164,6 +192,34 @@ def build_run_export_html(
             "aizynthfinder_short_tails_are_never_inferred_from_step_position": True,
         },
     }
+    return bundle
+
+
+def build_run_export_html(
+    *,
+    run_dir: Path,
+    job: Mapping[str, Any] | None = None,
+    model_io_path: Path | None = None,
+    export_kind: str = "interaction",
+    branch_index: int = 1,
+    branch_indices: Iterable[int] | str | None = None,
+) -> str:
+    """Render one saved run with the website's native export template."""
+
+    bundle = build_run_export_bundle(
+        run_dir=run_dir,
+        job=job,
+        model_io_path=model_io_path,
+        export_kind=export_kind,
+        branch_index=branch_index,
+        branch_indices=branch_indices,
+    )
+    return render_run_export_bundle_html(bundle)
+
+
+def render_run_export_bundle_html(bundle: Mapping[str, Any]) -> str:
+    """Apply the current viewer to saved data without replaying or replanning it."""
+    export_kind = str(bundle["metadata"]["export_kind"])
     template = SHOWCASE_TEMPLATES[export_kind].read_text(encoding="utf-8")
     if template.count(_DATA_MARKER) != 1:
         raise ValueError("showcase_template_data_marker_invalid")
@@ -177,7 +233,7 @@ def build_run_export_html(
     # A JSON string can legally contain ``</script>``.  Escaping the slash keeps
     # arbitrary saved model text from closing the inert data script element.
     payload = payload.replace("</", "<\\/")
-    return template.replace(_DATA_MARKER, payload)
+    return enhance_route_html(template).replace(_DATA_MARKER, payload)
 
 
 def export_run_showcase(
@@ -251,7 +307,7 @@ def normalize_branch_indices(
 
     ``branch_index`` is the legacy single-route argument. Supplying
     ``branch_indices`` takes precedence and permits any non-empty subset of
-    the three Strategy Builder branches.
+    the Strategy Builder branches present in the run.
     """
 
     if branch_indices is None:
@@ -277,7 +333,7 @@ def normalize_branch_indices(
         if not text or not re.fullmatch(r"[0-9]+", text):
             raise ValueError(f"showcase_branch_index_invalid:{raw_value}")
         value = int(text)
-        if value not in {1, 2, 3}:
+        if value < 1:
             raise ValueError(f"showcase_branch_index_invalid:{value}")
         selected.add(value)
     if not selected:
@@ -322,6 +378,13 @@ def _filter_projection_branches(
 
     projection = deepcopy(dict(source))
     selected = frozenset(branch_indices)
+    available = {
+        _mapping_branch_index(value)
+        for value in projection.get("branches") or []
+        if isinstance(value, Mapping) and _mapping_branch_index(value) is not None
+    }
+    if not selected.issubset(available):
+        raise ValueError(f"showcase_branch_index_unavailable:{sorted(selected - available)}")
     projection["branches"] = [
         value
         for value in projection.get("branches") or []
@@ -341,18 +404,21 @@ def _filter_projection_branches(
             or _mapping_branch_index(value) in selected
         )
     ]
-    projection["usage"] = {
-        "input_tokens": sum(
-            int(value.get("input_tokens") or 0)
-            for value in projection["activities"]
-        ),
-        "output_tokens": sum(
-            int(value.get("output_tokens") or 0)
-            for value in projection["activities"]
-        ),
-        "model_invocations": len(projection["activities"]),
-    }
-    projection["model_output_count"] = len(projection["activities"])
+    if not available.issubset(selected):
+        projection["usage"] = {
+            "input_tokens": sum(
+                int(value.get("input_tokens") or 0)
+                for value in projection["activities"]
+            ),
+            "output_tokens": sum(
+                int(value.get("output_tokens") or 0)
+                for value in projection["activities"]
+            ),
+            "model_invocations": len(projection["activities"]),
+        }
+        projection["model_output_count"] = len(projection["activities"])
+    # Activities are a bounded display window, not the full usage ledger.
+    # Keeping every branch must preserve the unfiltered run totals.
 
     replay = deepcopy(dict(projection.get("replay") or {}))
     filtered_frames: list[dict[str, Any]] = []
@@ -461,7 +527,10 @@ def _render_molecule_library(
             values.add(str(step.get("product_smiles") or "").strip())
             values.update(
                 str(value).strip()
-                for value in step.get("precursor_smiles") or []
+                for value in (
+                    step.get("reaction_input_smiles")
+                    or [*(step.get("precursor_smiles") or []), *(step.get("auxiliary_reagent_smiles") or [])]
+                )
                 if str(value).strip()
             )
     rendered: dict[str, str] = {}

@@ -1,0 +1,364 @@
+{
+  "semantics": {
+    "provider_calls": 0,
+    "original_runs_read_only": true,
+    "no_new_chemical_verdicts": true,
+    "production_code_replay": true
+  },
+  "summary": {
+    "cases": 7,
+    "conditions_restored": 7,
+    "route_contexts_before": 18,
+    "route_contexts_after": 21,
+    "failed_critic_attempts": 8,
+    "prior_judgments_preserved": 2
+  },
+  "cases": [
+    {
+      "label": "Homocubane 72",
+      "conditions": [
+        {
+          "task_id": "director:50d0a2ad31a1a08823e5b04b:branch:1:node:18",
+          "original_output_lines": [
+            158
+          ],
+          "condition": "TBDMSCl, imidazole, dry DMF",
+          "builder_replayed": true,
+          "preserved_in_host_critic_and_export": true,
+          "remains_advisory": true
+        },
+        {
+          "task_id": "director:50d0a2ad31a1a08823e5b04b:branch:3:node:16",
+          "original_output_lines": [
+            168
+          ],
+          "condition": "Proposed: TBDPSCl, imidazole, dry CH2Cl2/DMF, room temperature. ([orgsyn.org](https://orgsyn.org/demo.aspx?prep=v94p0109&utm_source=openai))",
+          "builder_replayed": true,
+          "preserved_in_host_critic_and_export": true,
+          "remains_advisory": true
+        }
+      ],
+      "route_contexts": [
+        {
+          "route_family_id": "route-family:195013cb9edd49765ed6a5a4fe29341266cdcce6a97e0d5d28c803695728cae0",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 5
+        },
+        {
+          "route_family_id": "route-family:6c7bc957f9487c6283bdbdfa69380361534efc3b02f856dc3cf1cb5e1156adec",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 14
+        },
+        {
+          "route_family_id": "route-family:dd0a8d00d930c7e2e0abbbc7b4d5a0b855249eaefd8fc7d3dedcad43444202bf",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 20
+        }
+      ],
+      "judgments": [
+        {
+          "task_id": "critic:e11ad3d26abfe7859e93",
+          "worker_status": "rejected_output",
+          "prior_task_id": null,
+          "retained_confidence": "",
+          "review_pending": true,
+          "new_attempt_status": "review_unavailable",
+          "selected_step_ids_for_incident_replay": [
+            "codex:branch:1:node:15:candidate:1"
+          ]
+        },
+        {
+          "task_id": "critic:5b99381548375a3a42b0",
+          "worker_status": "timeout",
+          "prior_task_id": "critic:8480aa88a0f1074eeab4",
+          "retained_confidence": "uncertain",
+          "review_pending": true,
+          "new_attempt_status": "review_unavailable",
+          "selected_step_ids_for_incident_replay": [
+            "codex:branch:2:node:6:candidate:1",
+            "codex:branch:2:node:7:candidate:1"
+          ]
+        },
+        {
+          "task_id": "critic:c87954ac0503cef70d3f",
+          "worker_status": "timeout",
+          "prior_task_id": null,
+          "retained_confidence": "",
+          "review_pending": true,
+          "new_attempt_status": "review_unavailable",
+          "selected_step_ids_for_incident_replay": [
+            "codex:branch:2:node:7:candidate:1"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Empagliflozin",
+      "conditions": [
+        {
+          "task_id": "director:0070bfec4fae855e277c2a61:branch:2:node:16",
+          "original_output_lines": [
+            122
+          ],
+          "condition": "TBDMSCl, imidazole, dry DMF, 0 °C.",
+          "builder_replayed": true,
+          "preserved_in_host_critic_and_export": true,
+          "remains_advisory": true
+        }
+      ],
+      "route_contexts": [
+        {
+          "route_family_id": "route-family:002d4aa73f040010e24fef3a9d9d9b3a8ba3ced99755f59e2ffa16f367534e10",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 6
+        },
+        {
+          "route_family_id": "route-family:20fd490e0b400f4fd2dca7601a7426cd14fde492469277e834a1d90af9656a21",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 17
+        },
+        {
+          "route_family_id": "route-family:279e3029d9b9c60acdc945cd9cda056f6e3baa30ce1fdac03b6776199f84d8bf",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 20
+        }
+      ],
+      "judgments": [
+        {
+          "task_id": "critic:f468f99c49434a58c42f",
+          "worker_status": "rejected_output",
+          "prior_task_id": "critic:0a2264b7a4c74344ac9d",
+          "retained_confidence": "uncertain",
+          "review_pending": true,
+          "new_attempt_status": "review_unavailable",
+          "selected_step_ids_for_incident_replay": [
+            "codex:branch:2:node:2:candidate:1",
+            "codex:branch:2:node:3:candidate:1"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "(R)-5-Phenylazepan-2-one",
+      "conditions": [
+        {
+          "task_id": "director:69d2b854786c4459ea0d845c:branch:2:node:1",
+          "original_output_lines": [
+            8
+          ],
+          "condition": "Preparative chiral HPLC with a screened chiral stationary phase and neutral mobile phase; collect the R fraction.",
+          "builder_replayed": true,
+          "preserved_in_host_critic_and_export": true,
+          "remains_advisory": true
+        }
+      ],
+      "route_contexts": [
+        {
+          "route_family_id": "route-family:a0c87c8a94d23ff4971c79d6256efe796037b80170a3cd2a29f0ce9a3eb0f7dd",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 1
+        },
+        {
+          "route_family_id": "route-family:bf2abb43d2696e1770140bbaf51e7d25ac49646492a312c7db4b697cbe11dbf9",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 6
+        },
+        {
+          "route_family_id": "route-family:e9ee4cdf17f7e99c0a9e4d43cb7521bd0e57b862db28dc07d840f58a5be84ee2",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 4
+        }
+      ],
+      "judgments": [
+        {
+          "task_id": "critic:5eb90b5ca9b086900089",
+          "worker_status": "rejected_output",
+          "prior_task_id": null,
+          "retained_confidence": "",
+          "review_pending": true,
+          "new_attempt_status": "review_unavailable",
+          "selected_step_ids_for_incident_replay": [
+            "codex:branch:1:node:6:candidate:1"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "TCF-azetidine",
+      "conditions": [
+        {
+          "task_id": "director:4dd2907e28b246a9f3f5b8cc:branch:2:node:5",
+          "original_output_lines": [
+            36
+          ],
+          "condition": "Hypothesized screening conditions: UV irradiation with catalytic xanthone photosensitizer.",
+          "builder_replayed": true,
+          "preserved_in_host_critic_and_export": true,
+          "remains_advisory": true
+        }
+      ],
+      "route_contexts": [
+        {
+          "route_family_id": "route-family:0c3d674dad1fea5f711863306f21a354a3b250cc36eae6515afdb851085aaa06",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 6
+        },
+        {
+          "route_family_id": "route-family:44a1cce2882240ad2bcdc5d7b706999a4e4adc1e8b5697637cb757704df9eb5f",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 4
+        },
+        {
+          "route_family_id": "route-family:ebba5e6e976efb092b565b363502bf7fbc995526e3c9661916659da3a7e1f0f5",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 8
+        }
+      ],
+      "judgments": []
+    },
+    {
+      "label": "1,3-BCH boronate 2a",
+      "conditions": [
+        {
+          "task_id": "director:1c05734b03f543346b6bd993:branch:2:node:10",
+          "original_output_lines": [
+            140
+          ],
+          "condition": "Collect the enantiomer having bridgehead configurations 8R,16S; stationary phase and eluent require screening.",
+          "builder_replayed": true,
+          "preserved_in_host_critic_and_export": true,
+          "remains_advisory": true
+        }
+      ],
+      "route_contexts": [
+        {
+          "route_family_id": "route-family:ad0b6d99faff0357d72a506191d6b863c3b6908a6a66a70beb35d4c910293982",
+          "before_compiles": false,
+          "after_compiles": true,
+          "step_count": 8
+        },
+        {
+          "route_family_id": "route-family:d22f744e00133f1426e37ebf5d35e638bd6a582fa9797b1b569ebdbc2391e65a",
+          "before_compiles": false,
+          "after_compiles": true,
+          "step_count": 7
+        },
+        {
+          "route_family_id": "route-family:d2b9fde63abe35c488121dfcd1ab2778094fa20c7420ef769b5db9cb99469f36",
+          "before_compiles": false,
+          "after_compiles": true,
+          "step_count": 7
+        }
+      ],
+      "judgments": []
+    },
+    {
+      "label": "R second Astra run",
+      "conditions": [],
+      "route_contexts": [
+        {
+          "route_family_id": "route-family:14765e0d66dbf650a237e75c37ffe0ad3d1e37eeb517597a1c6901301c2c237f",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 11
+        },
+        {
+          "route_family_id": "route-family:3014c051bda0a69731a7c9c360ebaa2db2091e3de82eacce69ce0fe686f39584",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 11
+        },
+        {
+          "route_family_id": "route-family:8a71beb2c747fd0a1fc835ca67c6abfb22bd6acd4fa96e9b793c87a98a4b9762",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 10
+        }
+      ],
+      "judgments": [
+        {
+          "task_id": "critic:e99b834fece1623fce7d",
+          "worker_status": "timeout",
+          "prior_task_id": null,
+          "retained_confidence": "",
+          "review_pending": true,
+          "new_attempt_status": "review_unavailable",
+          "selected_step_ids_for_incident_replay": [
+            "codex:branch:1:node:4:candidate:1"
+          ]
+        },
+        {
+          "task_id": "critic:c8f4a8a8068f79b6e97d",
+          "worker_status": "rejected_output",
+          "prior_task_id": null,
+          "retained_confidence": "",
+          "review_pending": true,
+          "new_attempt_status": "review_unavailable",
+          "selected_step_ids_for_incident_replay": [
+            "codex:branch:3:node:3:candidate:1"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "S second Astra run",
+      "conditions": [
+        {
+          "task_id": "director:37d327a922f280ccc6c72e69:branch:3:node:7",
+          "original_output_lines": [
+            56
+          ],
+          "condition": "K2CO3 in methanol at ambient temperature; brief reaction time to favor alkynyl-TMS cleavage over secondary-alcohol TBDMS deprotection.",
+          "builder_replayed": true,
+          "preserved_in_host_critic_and_export": true,
+          "remains_advisory": true
+        }
+      ],
+      "route_contexts": [
+        {
+          "route_family_id": "route-family:31e6fa3161e14177aca63c1e028a2e5db5e321853cfa7c38fd29b70e1c7850ef",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 12
+        },
+        {
+          "route_family_id": "route-family:34a8995d111366ab14f3d92f40b18631bac1df38462780d711ee17d1010eba73",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 17
+        },
+        {
+          "route_family_id": "route-family:c590d06c23658a1133378587b4ded1d62e8cbd3fbf75c682c3044fa710fa35e9",
+          "before_compiles": true,
+          "after_compiles": true,
+          "step_count": 12
+        }
+      ],
+      "judgments": [
+        {
+          "task_id": "critic:723e7188eeba21c44b70",
+          "worker_status": "rejected_output",
+          "prior_task_id": null,
+          "retained_confidence": "",
+          "review_pending": true,
+          "new_attempt_status": "review_unavailable",
+          "selected_step_ids_for_incident_replay": [
+            "codex:branch:3:node:6:candidate:1"
+          ]
+        }
+      ]
+    }
+  ]
+}

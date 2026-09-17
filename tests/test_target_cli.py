@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from unittest.mock import Mock
 
 import pytest
 
@@ -10,7 +11,9 @@ from cascade_planner.interfaces.target_cli import (
     _resolve_chemenzy_stock_binding,
     _resolve_objective_compatibility_view,
     add_target_commands,
+    dispatch_target_command,
 )
+from cascade_planner.interfaces.target_solver import _resolve_execution_config
 
 
 def test_compact_target_result_omits_route_and_stage_payloads() -> None:
@@ -83,6 +86,29 @@ def test_target_cli_visual_evidence_is_explicitly_opt_in_and_bounded() -> None:
     assert default.target_name == ""
     assert opted_in.max_visual_invocations == 1
     assert opted_in.max_visual_pages == 2
+
+
+def test_target_cli_forwards_disabled_external_queries_without_disabling_local_tools() -> None:
+    parser = argparse.ArgumentParser()
+    add_target_commands(parser.add_subparsers(dest="command"))
+    base = ["solve-target", "--target-smiles", "CCO", "--execution-profile", "self_correcting_sequential",
+            "--no-auto-patent-evidence", "--no-auto-literature-evidence", "--no-live-benchmark-stock",
+            "--no-chemenzy", "--no-web-search"]
+    default = parser.parse_args(base)
+    assert (default.planning_compound_query_limit, default.planning_literature_search_limit,
+            default.planning_literature_read_limit) == (4, 8, 4)
+    args = parser.parse_args(base + ["--planning-compound-query-limit", "0",
+                                    "--planning-literature-search-limit", "0",
+                                    "--planning-literature-read-limit", "0"])
+    gateway = Mock()
+    gateway.solve_target.return_value = {}
+    dispatch_target_command(gateway, args)
+    config = _resolve_execution_config(gateway.solve_target.call_args.kwargs["config"])
+    assert config.enable_planning_evidence
+    assert not config.enable_web_search
+    assert (config.planning_compound_query_limit, config.planning_literature_search_limit,
+            config.planning_literature_read_limit) == (0, 0, 0)
+    assert config.planning_stock_query_limit == 24
 
 
 def test_target_cli_exposes_explicit_resume_scope() -> None:

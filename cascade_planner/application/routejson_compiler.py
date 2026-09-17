@@ -10,7 +10,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from collections.abc import Iterable, Mapping
+import hashlib
+import json
 from typing import Any
+
+from cascade_planner.application.stereochemistry import canonical_stereo_smiles as _canonical_smiles
 
 from .reactionjson_replay import (
     ReactionJsonReplayError,
@@ -32,6 +36,14 @@ class MaterializedReaction:
     mapped_precursor_smiles: tuple[str, ...]
     reaction_operations: tuple[Mapping[str, Any], ...]
     audit: Mapping[str, Any]
+    # ``precursor_*`` is the target-rooted synthesis frontier.  The complete
+    # replayed reactant side is retained separately so a zero-target-atom
+    # reagent remains part of the reaction record without becoming a route
+    # node that the Builder later tries to synthesize.
+    reaction_input_smiles: tuple[str, ...] = ()
+    mapped_reaction_input_smiles: tuple[str, ...] = ()
+    auxiliary_reagent_smiles: tuple[str, ...] = ()
+    mapped_auxiliary_reagent_smiles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +84,7 @@ class RouteJSONCompiler:
         operations: Iterable[Mapping[str, Any]],
         expected_product_smiles: str = "",
         reserved_atom_maps: Iterable[int] = (),
+        target_atom_maps: Iterable[int] = (),
     ) -> MaterializedReaction:
         mapped_product = str(mapped_product_smiles or "").strip()
         normalized = normalize_reaction_operations(operations)
@@ -121,7 +134,7 @@ class RouteJSONCompiler:
                     "mapped_product_declared_smiles": declared_canonical_product,
                     "canonical_product_smiles": expected_product,
                 }
-        precursors = tuple(
+        reaction_inputs = tuple(
             str(value)
             for value in audit.get("precursor_smiles") or []
             if str(value)
@@ -131,12 +144,67 @@ class RouteJSONCompiler:
             for value in audit.get("mapped_precursor_smiles") or []
             if str(value)
         )
-        mapped_precursors = _align_mapped_precursors(
-            precursors,
+        mapped_reaction_inputs = _align_mapped_precursors(
+            reaction_inputs,
             raw_mapped_precursors,
         )
-        if not precursors or len(precursors) != len(mapped_precursors):
+        if not reaction_inputs or len(reaction_inputs) != len(mapped_reaction_inputs):
             raise ReactionJsonReplayError("routejson_compiler_precursor_output_invalid")
+        route_atom_maps = {
+            int(value)
+            for value in target_atom_maps
+            if int(value) > 0
+        }
+        if not route_atom_maps:
+            # Standalone one-step callers have no campaign root.  In that
+            # scope the current product is the route root, so product-map
+            # contribution is the strongest deterministic boundary available.
+            route_atom_maps = _mapped_atom_maps(product)
+        route_indices = tuple(
+            index
+            for index, mapped in enumerate(mapped_reaction_inputs)
+            if _mapped_atom_maps(mapped).intersection(route_atom_maps)
+        )
+        route_index_set = set(route_indices)
+        auxiliary_indices = tuple(
+            index
+            for index in range(len(reaction_inputs))
+            if index not in route_index_set
+        )
+        if not route_indices:
+            raise ReactionJsonReplayError(
+                "routejson_compiler_no_target_atom_contributing_precursor"
+            )
+        precursors = tuple(reaction_inputs[index] for index in route_indices)
+        mapped_precursors = tuple(
+            mapped_reaction_inputs[index] for index in route_indices
+        )
+        auxiliary_reagents = tuple(
+            reaction_inputs[index] for index in auxiliary_indices
+        )
+        mapped_auxiliary_reagents = tuple(
+            mapped_reaction_inputs[index] for index in auxiliary_indices
+        )
+        audit = {
+            **dict(audit),
+            "reaction_input_smiles": list(reaction_inputs),
+            "mapped_reaction_input_smiles": list(mapped_reaction_inputs),
+            "route_precursor_smiles": list(precursors),
+            "mapped_route_precursor_smiles": list(mapped_precursors),
+            "auxiliary_reagent_smiles": list(auxiliary_reagents),
+            "mapped_auxiliary_reagent_smiles": list(mapped_auxiliary_reagents),
+            "reaction_component_ledger": {
+                "schema_version": "reaction_component_ledger.v1",
+                "authority": "host_target_atom_map_lineage",
+                "target_atom_maps": sorted(route_atom_maps),
+                "route_precursor_indices": list(route_indices),
+                "auxiliary_reagent_indices": list(auxiliary_indices),
+                "route_precursor_count": len(route_indices),
+                "auxiliary_reagent_count": len(auxiliary_indices),
+                "zero_target_atom_components_never_enter_route_frontier": True,
+                "component_role_grants_no_reaction_or_stock_proof": True,
+            },
+        }
         resolved_operations = tuple(
             dict(row)
             for row in audit.get("resolved_operations") or normalized
@@ -144,7 +212,7 @@ class RouteJSONCompiler:
         )
         if replayed_external_atom_deficit_is_bound(
             canonical_product,
-            precursors,
+            reaction_inputs,
             mapped_product_smiles=product,
             reaction_operations=resolved_operations,
         ):
@@ -161,6 +229,7 @@ class RouteJSONCompiler:
                 ),
                 "external_atom_source_grants_reaction_proof": False,
             }
+        audit = _with_content_sha256(audit)
         return MaterializedReaction(
             product_smiles=canonical_product,
             mapped_product_smiles=product,
@@ -168,6 +237,10 @@ class RouteJSONCompiler:
             mapped_precursor_smiles=mapped_precursors,
             reaction_operations=resolved_operations,
             audit=audit,
+            reaction_input_smiles=reaction_inputs,
+            mapped_reaction_input_smiles=mapped_reaction_inputs,
+            auxiliary_reagent_smiles=auxiliary_reagents,
+            mapped_auxiliary_reagent_smiles=mapped_auxiliary_reagents,
         )
 
     def compile_linear_route(
@@ -191,6 +264,7 @@ class RouteJSONCompiler:
         previous_precursors: tuple[str, ...] = ()
         previous_mapped_precursors: tuple[str, ...] = ()
         reserved_atom_maps = _mapped_atom_maps(current_mapped)
+        target_atom_maps = set(reserved_atom_maps)
         for index, row in enumerate(rows):
             declared_product = _canonical_smiles(row.get("product_smiles"))
             declaration_mismatch = False
@@ -228,6 +302,7 @@ class RouteJSONCompiler:
                 operations=row.get("reaction_operations") or (),
                 expected_product_smiles=current_product,
                 reserved_atom_maps=reserved_atom_maps,
+                target_atom_maps=target_atom_maps,
             )
             if declaration_mismatch:
                 materialized = replace(
@@ -246,7 +321,7 @@ class RouteJSONCompiler:
             reserved_atom_maps.update(
                 _mapped_atom_maps(materialized.mapped_product_smiles)
             )
-            for mapped_precursor in materialized.mapped_precursor_smiles:
+            for mapped_precursor in materialized.mapped_reaction_input_smiles:
                 reserved_atom_maps.update(_mapped_atom_maps(mapped_precursor))
             if index + 1 < len(rows):
                 next_product = _canonical_smiles(rows[index + 1].get("product_smiles"))
@@ -313,6 +388,7 @@ class RouteJSONCompiler:
         target = _canonical_smiles(target_mapped)
         if not target:
             raise ReactionJsonReplayError("routejson_compiler_target_invalid")
+        target_atom_maps = _mapped_atom_maps(target_mapped)
 
         compiled: list[MaterializedReaction] = []
         parent_step_indices: list[int | None] = []
@@ -406,6 +482,7 @@ class RouteJSONCompiler:
                 operations=operations,
                 expected_product_smiles=current_product,
                 reserved_atom_maps=reserved_atom_maps,
+                target_atom_maps=target_atom_maps,
             )
             changed_product_maps = {
                 old: new
@@ -451,7 +528,7 @@ class RouteJSONCompiler:
             reserved_atom_maps.update(
                 _mapped_atom_maps(materialized.mapped_product_smiles)
             )
-            for mapped_precursor in materialized.mapped_precursor_smiles:
+            for mapped_precursor in materialized.mapped_reaction_input_smiles:
                 reserved_atom_maps.update(_mapped_atom_maps(mapped_precursor))
             available.extend(
                 _OpenRouteOccurrence(
@@ -499,8 +576,24 @@ class RouteJSONCompiler:
                     "step_id": str(meta.get("step_id") or f"compiled:step:{index + 1}"),
                     "product_smiles": reaction.product_smiles,
                     "precursor_smiles": list(reaction.precursor_smiles),
+                    "reaction_input_smiles": list(
+                        reaction.reaction_input_smiles or reaction.precursor_smiles
+                    ),
+                    "auxiliary_reagent_smiles": list(
+                        reaction.auxiliary_reagent_smiles
+                    ),
                     "mapped_product_smiles": reaction.mapped_product_smiles,
                     "mapped_precursor_smiles": list(reaction.mapped_precursor_smiles),
+                    "mapped_reaction_input_smiles": list(
+                        reaction.mapped_reaction_input_smiles
+                        or reaction.mapped_precursor_smiles
+                    ),
+                    "mapped_auxiliary_reagent_smiles": list(
+                        reaction.mapped_auxiliary_reagent_smiles
+                    ),
+                    "reaction_component_ledger": dict(
+                        dict(reaction.audit).get("reaction_component_ledger") or {}
+                    ),
                     "reaction_operations": [
                         dict(value) for value in reaction.reaction_operations
                     ],
@@ -508,18 +601,6 @@ class RouteJSONCompiler:
                 }
             )
         return route
-
-
-def _canonical_smiles(value: Any) -> str:
-    from rdkit import Chem
-
-    molecule = Chem.MolFromSmiles(str(value or "").strip())
-    if molecule is None:
-        return ""
-    for atom in molecule.GetAtoms():
-        atom.SetAtomMapNum(0)
-    Chem.AssignStereochemistry(molecule, cleanIt=True, force=True)
-    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 
 def _canonical_smiles_preserving_declared_stereo(value: Any) -> str:
@@ -546,6 +627,22 @@ def _mapped_atom_maps(value: Any) -> set[int]:
         for atom in molecule.GetAtoms()
         if int(atom.GetAtomMapNum()) > 0
     }
+
+
+def _with_content_sha256(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Bind the digest after the compiler has added its Host-owned fields."""
+
+    row = {key: item for key, item in value.items() if key != "content_sha256"}
+    row["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            row,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return row
 
 
 def _constitution_smiles(value: Any) -> str:

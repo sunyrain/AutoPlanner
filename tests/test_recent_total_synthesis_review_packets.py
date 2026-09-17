@@ -313,6 +313,44 @@ def test_structured_route_step_order_is_rejected(structured_route_fixture: dict)
         validate_structured_route_fixture(structured_route_fixture, candidate)
 
 
+def test_unrelated_branch_cannot_inflate_route_steps(structured_route_fixture):
+    candidate = json.loads(json.dumps(structured_route_fixture["candidate"]))
+    candidate["compounds"].append({"compound_id": "unused", "label": "unused", "role": "intermediate", "smiles": "CC"})
+    side_step = {**candidate["steps"][0], "step_id": "side", "product_compound_id": "unused", "product_label": "unused"}
+    candidate["steps"].insert(0, side_step)
+    for n, step in enumerate(candidate["steps"], 1):
+        step["order"] = n
+    with pytest.raises(RuntimeError, match="structured_route_unrelated_branch"):
+        validate_structured_route_fixture(structured_route_fixture, candidate)
+
+
+def test_convergent_route_counts_total_operations_separately_from_lls(structured_route_fixture):
+    candidate = json.loads(json.dumps(structured_route_fixture["candidate"]))
+    candidate["compounds"].append({"compound_id": "branch", "label": "B", "role": "intermediate", "smiles": "CC"})
+    branch = {**candidate["steps"][0], "step_id": "branch", "product_compound_id": "branch", "product_label": "B"}
+    candidate["steps"].insert(1, branch)
+    candidate["steps"][-1]["precursor_compound_ids"].append("branch")
+    candidate["steps"][-1]["precursor_labels"].append("B")
+    for n, step in enumerate(candidate["steps"], 1):
+        step["order"] = n
+    candidate["route_summary"] = {"linear_step_count": 2, "total_operation_count": 3}
+    result = validate_structured_route_fixture(structured_route_fixture, candidate)
+    assert result["graph_metrics"]["longest_linear_step_count"] == 2
+    assert result["graph_metrics"]["total_operation_count"] == 3
+    candidate["route_summary"]["linear_step_count"] = 3
+    with pytest.raises(RuntimeError, match="structured_route_step_count_mismatch"):
+        validate_structured_route_fixture(structured_route_fixture, candidate)
+
+
+def test_refresh_preserves_curator_submission_and_updates_suggestions(tmp_path):
+    path = tmp_path / "submission.json"
+    original = '{"reviewer": {"reviewer_id": "chemist-01"}, "reviewer_notes": "keep these notes"}\n'
+    path.write_text(original, encoding="utf-8")
+    packets.write_submission_template(path, {"new_route": "latest extraction"})
+    assert path.read_text(encoding="utf-8") == original
+    assert json.loads(path.with_name("submission-template.json").read_text(encoding="utf-8")) == {"new_route": "latest extraction"}
+
+
 def test_structured_route_unproduced_precursor_is_rejected(
     structured_route_fixture: dict,
 ) -> None:

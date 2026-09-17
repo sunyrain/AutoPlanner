@@ -5,6 +5,7 @@ import re
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from flask import Flask
 from PIL import Image, ImageChops
 
@@ -19,6 +20,11 @@ from cascade_planner.runtime.run_registry_catalog import (
 from cascade_planner.web.v4_api import create_v4_blueprint
 from cascade_planner.web.v4_live_synthesis import (
     _annotate_route_topology,
+    _critic_context_branch_id,
+    _final_route_critic_branch_id,
+    _matching_final_critic_review,
+    _read_director_events,
+    _saved_final_critic_routes,
     _stabilize_replay_alternative_groups,
     project_live_synthesis,
     render_molecule_png,
@@ -33,6 +39,227 @@ def _event(**values):
         "model": "gpt-5.6-sol",
         **values,
     }
+
+
+@pytest.mark.parametrize("source", ["explicit", "mapped", "condition_prediction"])
+def test_final_projection_shows_consumed_auxiliary_without_new_route_leaf(tmp_path: Path, source: str) -> None:
+    from rdkit import Chem
+
+    bromide = "COC(=O)C[C@@H](CBr)O[Si](C)(C)C(C)(C)C"
+    thiol = "Sc1nnnn1-c1ccccc1"
+    product = "COC(=O)C[C@@H](CSc1nnnn1-c1ccccc1)O[Si](C)(C)C(C)(C)C"
+    step_id = "codex:branch:1:node:14:candidate:1"
+    proposal = {"step_id": step_id, "reaction_edit_digest": "sn2", "product_smiles": product,
+                "precursor_smiles": [bromide], "conditions": ["Thiol, K2CO3, acetonitrile"]}
+    if source == "explicit":
+        proposal.update(reaction_input_smiles=[bromide, thiol], auxiliary_reagent_smiles=[thiol])
+    elif source == "mapped":
+        values = []
+        next_map = 1
+        for smiles in (bromide, thiol):
+            mol = Chem.MolFromSmiles(smiles)
+            for atom in mol.GetAtoms():
+                atom.SetAtomMapNum(next_map)
+                next_map += 1
+            values.append(Chem.MolToSmiles(mol))
+        proposal["reactionjson_audit"] = {"mapped_reaction_input_smiles": values}
+    else:
+        proposal["condition_predictions"] = [{"reagents": ["Thiol, K2CO3, acetonitrile"],
+                                                "structural_reagent_smiles": [thiol]}]
+    director = tmp_path / ".autoplanner" / "director-workspace"
+    director.mkdir(parents=True)
+    model_io = director / "model-io.jsonl"
+    model_io.write_text("", encoding="utf-8")
+    report = {
+        "director_outcomes": [{"plan": {"multi_step_skeletons": [{"steps": [proposal]}]}}],
+        "candidate_lifecycle": {"records": [{
+            "edge_id": "edge:sn2", "materialization": {"materialized": True},
+            "product_smiles": product, "precursor_smiles": [bromide],
+            "origin_records": [{"proposal_id": step_id, "origin_kind": "codex_global_director",
+                "reaction_edit_digest": "sn2", "canonical_route_family_ids": ["family:sn2"]}],
+        }]},
+        "stages": [{"stage": "final_route_critic", "status": "unavailable", "detail": {"results": [{
+            "branch_index": 0, "route_family_id": "family:sn2", "reviewed_edge_ids": ["edge:sn2"],
+            "reviewed_step_ids": [step_id], "critic_status": "unavailable", "review_state": "unavailable",
+        }]}}],
+    }
+    (tmp_path / "target-only-solve-report.json").write_text(json.dumps(report), encoding="utf-8")
+    projection = project_live_synthesis(model_io_path=model_io,
+        job={"job_id": "sn2", "status": "unresolved", "target_smiles": product}, include_replay=True)
+    for branch in (projection["branches"][0], projection["replay"]["frames"][-1]["branch_updates"][0]):
+        step = branch["steps"][0]
+        assert step["reaction_input_smiles"] == [bromide, thiol]
+        assert step["auxiliary_reagent_smiles"] == [thiol]
+        assert step["precursor_smiles"] == [bromide]
+        assert len(step["display_precursors"]) == 1
+
+
+def test_inventory_display_uses_saved_accepted_identity_and_only_final_replay(tmp_path):
+    from cascade_planner.runtime.artifact_store import ArtifactStore
+    from cascade_planner.web.v4_live_synthesis import _stock_hit_smiles
+
+    store = ArtifactStore(tmp_path / "artifacts")
+    ref = store.put_json({"molecules": {
+        "hit": {"canonical_smiles": "CCO", "stock_closed": True, "stock_observation_accepted": True},
+        "enantiomer": {"canonical_smiles": "C[C@H](O)F", "stock_closed": True, "stock_observation_accepted": True},
+        "not_closed": {"canonical_smiles": "O", "stock_closed": False, "stock_observation_accepted": True},
+        "unaccepted": {"canonical_smiles": "N", "stock_closed": True, "stock_observation_accepted": False},
+    }})
+    (tmp_path / "target-only-solve-report.json").write_text(
+        json.dumps({"workbench_ref": ref.to_dict()}), encoding="utf-8")
+    director = tmp_path / ".autoplanner" / "director-workspace"
+    director.mkdir(parents=True)
+    path = director / "model-io.jsonl"
+    path.write_text("", encoding="utf-8")
+    job = {"status": "unresolved", "target_smiles": "OCC", "artifact_store_root": str(store.root)}
+    branch = {"steps": [{"product_smiles": "CCC", "precursor_smiles": ["OCC", "C[C@@H](O)F", "O", "N"],
+                         "auxiliary_reagent_smiles": ["CCO", "S"]}]}
+    assert _stock_hit_smiles(path, job=job, branches={1: branch}) == ["CCO", "OCC"]
+    projection = project_live_synthesis(model_io_path=path, job=job, include_replay=True)
+    assert projection["stock_hit_smiles"] == ["OCC"]
+    frames = projection["replay"]["frames"]
+    assert frames[-1]["stock_hit_smiles"] == ["OCC"]
+    assert all(not frame.get("stock_hit_smiles") for frame in frames[:-1])
+
+
+def test_material_review_uses_host_event_preserves_strategy_and_exports_pending_status(tmp_path):
+    task_id = "director:test:branch:1:strategy:2"
+    boundary = {"status": "pending_verification", "material_name": "methanol",
+                "selected_smiles": "CO", "prefix_step_ids": ["step:1"],
+                "rationale": "Check starting material", "required_checks": ["availability"]}
+    steps = [{"step_id": "step:1", "product_smiles": "CCO", "precursor_smiles": ["C", "CO"],
+              "reaction_family": "fixture"}]
+    root = _event(event="model_output", task_id="director:test:branch:1:strategy:1", status="schema_accepted",
+        artifact_type="StrategyCardReport", output_artifact={"artifact_type": "StrategyCardReport", "payload": {
+            "target_smiles": "CCO", "strategy_card": {"strategy_query": "root strategy",
+                "critical_assumption": "root assumption", "critic_checkpoint": "root checkpoint"}}})
+    proposed = _event(event="model_output", task_id=task_id, status="schema_accepted",
+        artifact_type="StrategyCardReport", output_artifact={"artifact_type": "StrategyCardReport", "payload": {
+            "target_smiles": "CO", "strategy_card": {"strategy_query": "", "material_boundary": {"material_name": "methanol"}}}})
+    accepted = _event(event="material_boundary_review_requested", task_id=task_id,
+        material_boundary_review=boundary, retained_route_steps=steps)
+    path = tmp_path / "model-io.jsonl"
+    path.write_text("\n".join(json.dumps(row) for row in [root, proposed]), encoding="utf-8")
+    projection = project_live_synthesis(model_io_path=path, job={"status": "unresolved"})
+    assert projection["branches"][0]["material_boundary_review"] == {}
+    path.write_text("\n".join(json.dumps(row) for row in [root, proposed, accepted]), encoding="utf-8")
+    projection = project_live_synthesis(model_io_path=path, job={"status": "unresolved"}, include_replay=True)
+    assert projection["strategies"][0]["query"] == "root strategy"
+    assert projection["strategies"][0]["strategy_refreshes"] == []
+    branch = projection["branches"][0]
+    assert branch["material_boundary_review"] == boundary
+    assert branch["status"] == "paused"
+    assert branch["steps"][0]["step_id"] == "step:1"
+    assert branch["final_stock_closed"] is False
+    assert any(row["kind"] == "material_boundary" for row in projection["activities"])
+
+
+def test_retry_replay_keeps_failed_and_successful_attempts_and_usage_distinct(tmp_path: Path) -> None:
+    task_id = "director:retry:branch:1:node:1"
+    artifact_type = "RetrosynthesisProposalReport"
+    artifact = {"artifact_type": artifact_type, "payload": {"candidate_reactions": []}}
+    records = [
+        {"task_id": task_id, "status": "provider_error", "usage": {}, "output_artifact": None},
+        {"task_id": task_id, "status": "accepted_draft", "usage": {"input_tokens": 110, "output_tokens": 7}, "output_artifact": artifact},
+    ]
+    rows = []
+    for index, record in enumerate(records):
+        rows.append(_event(event="model_input", task_id=task_id, artifact_type=artifact_type, prompt=f"attempt {index}"))
+        rows.append(_event(
+            event="model_output", **record, artifact_type=artifact_type,
+            worker_record_status=record["status"],
+        ))
+    path = tmp_path / "model-io.jsonl"
+    path.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+    path.with_name("sequential-director-worker-records.jsonl").write_text(
+        "\n".join(json.dumps({"record": record}) for record in records), encoding="utf-8",
+    )
+    merged = _read_director_events(path)
+    assert [row["event"] for row in merged] == ["model_input", "model_output"] * 2
+    outputs = [row for row in merged if row["event"] == "model_output"]
+    assert [row["status"] for row in outputs] == ["provider_error", "accepted_draft"]
+    assert outputs[0]["usage"] == {}
+    projection = project_live_synthesis(model_io_path=path, job={"status": "unresolved"})
+    assert projection["usage"] == {"model_invocations": 2, "input_tokens": 110, "output_tokens": 7}
+    assert len(projection["activities"]) == 2
+
+    # Earlier runs may have only the successful attempt in model-io. The
+    # failed worker record must still be kept and must not consume that output.
+    path.write_text("\n".join(json.dumps(row) for row in rows[2:]), encoding="utf-8")
+    outputs = [row for row in _read_director_events(path) if row["event"] == "model_output"]
+    assert [row["status"] for row in outputs] == ["provider_error", "accepted_draft"]
+    assert sum(row["usage"].get("output_tokens", 0) for row in outputs) == 7
+
+
+def test_final_critic_branch_recovers_from_reviewed_step_lineage() -> None:
+    stale_result = {
+        "branch_id": 1,
+        "branch_index": 0,
+        "reviewed_step_ids": [
+            "codex:branch:2:node:1:candidate:1",
+            "codex:repair:abcdef:attempt:1:branch:2:node:2:candidate:1",
+        ],
+    }
+    assert _final_route_critic_branch_id(stale_result) == 2
+    assert _critic_context_branch_id({
+        "branch_id": 1,
+        "steps": [
+            {"step_id": "codex:branch:2:node:1:candidate:1"},
+        ],
+    }) == 2
+
+    conflicting = {
+        **stale_result,
+        "reviewed_step_ids": [
+            "codex:branch:1:node:1:candidate:1",
+            "codex:branch:2:node:1:candidate:1",
+        ],
+    }
+    assert _final_route_critic_branch_id(conflicting) == 0
+    assert _final_route_critic_branch_id({"branch_id": 3}) == 3
+    assert _matching_final_critic_review(
+        {**stale_result, "critic_task_id": "critic:branch-two"},
+        [
+            {
+                "task_id": "critic:branch-two",
+                "branch_index": 1,
+                "strategy": {"query": "Branch 2 root strategy"},
+            }
+        ],
+    )["strategy"]["query"] == "Branch 2 root strategy"
+
+
+def test_not_materialized_reconciliation_marks_branch_rejected(
+    tmp_path: Path,
+) -> None:
+    model_io_path = tmp_path / ".autoplanner" / "director-workspace" / "model-io.jsonl"
+    model_io_path.parent.mkdir(parents=True)
+    model_io_path.write_text("", encoding="utf-8")
+    (tmp_path / "target-only-solve-report.json").write_text(
+        json.dumps({
+            "route_reconciliation": {
+                "routes": [
+                    {
+                        "route_family_id": "codex:sequential:family:3",
+                        "classification": "not_materialized",
+                        "final_canonical_edge_count": 0,
+                        "final_stock_closed": False,
+                    }
+                ]
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    projection = project_live_synthesis(
+        model_io_path=model_io_path,
+        job={"job_id": "rejected", "run_id": "rejected", "status": "complete"},
+    )
+
+    branch = projection["branches"][2]
+    assert branch["status"] == "rejected"
+    assert branch["route_classification"] == "not_materialized"
+    assert branch["final_route_available"] is False
 
 
 def test_live_projection_replaces_model_candidate_with_host_replayed_path(
@@ -962,6 +1189,9 @@ def test_settled_projection_keeps_five_outcome_axes_independent(
     assert axes["stock_closure"] == {
         "state": "closed",
         "canonical_stock_closed_routes": 1,
+        "boundary": "",
+        "catalog_name": "",
+        "commercial_orderability_claimed": False,
     }
     assert axes["paper_equivalent"]["state"] == "solved"
     assert axes["chemical_critic"]["state"] == "mixed"
@@ -1060,6 +1290,221 @@ def test_final_canonical_critic_stage_overrides_stale_director_review(
         "state": "mixed",
         "counts": {"reject": 1, "viable": 1, "uncertain": 1},
     }
+
+
+def test_reconciliation_route_family_overrides_stale_final_critic_branch(
+    tmp_path: Path,
+) -> None:
+    director = tmp_path / ".autoplanner" / "director-workspace"
+    director.mkdir(parents=True)
+    model_io_path = director / "model-io.jsonl"
+    model_io_path.write_text("", encoding="utf-8")
+    evaluation = "Canonical route A remains uncertain after whole-route review."
+    (tmp_path / "target-only-solve-report.json").write_text(
+        json.dumps(
+            {
+                "stages": [
+                    {
+                        "stage": "final_route_critic",
+                        "detail": {
+                            "results": [
+                                {
+                                    # The persisted label is stale, but the
+                                    # canonical route family belongs to Branch 1.
+                                    "branch_index": 1,
+                                    "route_family_id": "route:canonical-a",
+                                    "critic_status": "uncertain",
+                                    "overall_assessment": "uncertain",
+                                    "route_overall_evaluation": evaluation,
+                                    "route_level_risks": ["selectivity"],
+                                    "reviewed_step_ids": [],
+                                },
+                                {
+                                    "branch_index": 0,
+                                    "route_family_id": "route:canonical-b",
+                                    "critic_status": "unavailable",
+                                    "overall_assessment": "unavailable",
+                                    "route_overall_evaluation": "",
+                                    "reviewed_step_ids": [],
+                                },
+                            ]
+                        },
+                    }
+                ],
+                "route_reconciliation": {
+                    "routes": [
+                        {
+                            "route_family_id": "codex:sequential:family:1",
+                            "canonical_route_family_ids": ["route:canonical-a"],
+                            "classification": "paper_equivalent_solved",
+                            "final_canonical_edge_count": 9,
+                            "final_stock_closed": True,
+                            "final_critic_status": "uncertain",
+                            "final_route_overall_evaluation": evaluation,
+                        },
+                        {
+                            "route_family_id": "codex:sequential:family:2",
+                            "canonical_route_family_ids": ["route:canonical-b"],
+                            "classification": "paper_equivalent_solved",
+                            "final_canonical_edge_count": 10,
+                            "final_stock_closed": True,
+                            "final_critic_status": "unavailable",
+                            "final_route_overall_evaluation": "",
+                        },
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    projection = project_live_synthesis(
+        model_io_path=model_io_path,
+        job={"job_id": "reconciled", "run_id": "reconciled", "status": "complete"},
+    )
+
+    assert projection["branches"][0]["chemical_critic_status"] == "uncertain"
+    assert projection["branches"][0]["route_overall_evaluation"] == evaluation
+    assert projection["branches"][0]["route_level_risks"] == ["selectivity"]
+    assert projection["branches"][1]["chemical_critic_status"] == "unavailable"
+    assert projection["branches"][1]["route_overall_evaluation"] == ""
+    assert projection["branches"][1]["route_level_risks"] == []
+
+
+def test_live_projection_keeps_root_refresh_and_final_critic_strategy_distinct(
+    tmp_path: Path,
+) -> None:
+    director = tmp_path / ".autoplanner" / "director-workspace"
+    director.mkdir(parents=True)
+    model_io_path = director / "model-io.jsonl"
+    root_card = {
+        "strategy_signature": "Root HWE strategy",
+        "strategy_query": "Join the two main fragments by HWE olefination.",
+        "critical_assumption": "The allene survives the olefination base.",
+        "critic_checkpoint": "The fragment-joining HWE step.",
+    }
+    proposed_refresh = {
+        "strategy_signature": "Local alkyne strategy",
+        "strategy_query": "Prepare the upstream alkyne by homologation.",
+        "critic_checkpoint": "The homologation step.",
+    }
+    reviewed_refresh = {
+        **proposed_refresh,
+        "strategy_query": "Prepare the upstream alkyne by a reviewed Wolff homologation.",
+    }
+    evaluation = "The route executes the root HWE strategy but retains a selectivity risk."
+    critic_context = {
+        "phase": "independent_chemical_critic",
+        "campaign_target": "CCO",
+        "branch_id": 1,
+        "root_strategy_card": root_card,
+        "steps": [
+            {
+                "step_id": "step:one",
+                "product_smiles": "CCO",
+                "precursor_smiles": ["CC=O"],
+            }
+        ],
+    }
+    rows = [
+        _event(
+            event="model_output",
+            artifact_type="StrategyPortfolioReport",
+            task_id="director:test:strategy-critic:1",
+            status="accepted_draft",
+            output_artifact={
+                "payload": {
+                    "target_smiles": "CCO",
+                    "strategy_cards": [
+                        root_card,
+                        {"strategy_query": "Root strategy two"},
+                        {"strategy_query": "Root strategy three"},
+                    ],
+                }
+            },
+        ),
+        _event(
+            event="model_output",
+            artifact_type="StrategyCardReport",
+            task_id="director:test:branch:1:strategy:2",
+            status="accepted_draft",
+            output_artifact={"payload": {"strategy_card": proposed_refresh}},
+        ),
+        _event(
+            event="model_output",
+            artifact_type="StrategyCardReport",
+            task_id="director:test:branch:1:strategy-milestone:2:critic",
+            status="accepted_draft",
+            output_artifact={"payload": {"strategy_card": reviewed_refresh}},
+        ),
+        _event(
+            event="model_input",
+            artifact_type="ChemicalStrategyCritique",
+            task_id="route-critic:root:1",
+            prompt=(
+                "instructions\nBlindRouteCriticInput:\n"
+                + json.dumps(critic_context)
+            ),
+        ),
+        _event(
+            event="model_output",
+            artifact_type="ChemicalStrategyCritique",
+            task_id="route-critic:root:1",
+            status="accepted_draft",
+            output_artifact={
+                "payload": {
+                    "overall_assessment": "uncertain",
+                    "route_overall_evaluation": evaluation,
+                    "route_level_risks": ["HWE selectivity"],
+                    "step_assessments": [],
+                }
+            },
+        ),
+    ]
+    model_io_path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "target-only-solve-report.json").write_text(
+        json.dumps(
+            {
+                "stages": [
+                    {
+                        "stage": "final_route_critic",
+                        "detail": {
+                            "results": [
+                                {
+                                    "branch_index": 0,
+                                    "critic_task_id": "route-critic:root:1",
+                                    "critic_status": "uncertain",
+                                    "overall_assessment": "uncertain",
+                                    "route_overall_evaluation": evaluation,
+                                    "reviewed_step_ids": ["step:one"],
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    projection = project_live_synthesis(
+        model_io_path=model_io_path,
+        job={"job_id": "lineage", "run_id": "lineage", "status": "unresolved"},
+    )
+
+    strategy = projection["strategies"][0]
+    assert strategy["query"] == root_card["strategy_query"]
+    assert len(strategy["strategy_refreshes"]) == 1
+    assert strategy["strategy_refreshes"][0]["query"] == reviewed_refresh[
+        "strategy_query"
+    ]
+    assert strategy["strategy_refreshes"][0]["reviewed_by_strategy_critic"] is True
+    branch = projection["branches"][0]
+    assert branch["final_critic_task_id"] == "route-critic:root:1"
+    assert branch["final_critic_strategy"]["query"] == root_card["strategy_query"]
 
 
 def test_settled_projection_uses_complete_final_reviewed_route(
@@ -1249,6 +1694,162 @@ def test_settled_projection_uses_complete_final_reviewed_route(
     assert "codex:branch:1:node:99:candidate:1" not in {
         step["step_id"] for step in steps
     }
+
+
+@pytest.mark.parametrize("mismatch", [None, "edit", "endpoint"])
+def test_unavailable_final_review_keeps_matching_materialized_conditions(
+    tmp_path: Path, mismatch: str | None,
+) -> None:
+    director = tmp_path / ".autoplanner" / "director-workspace"
+    director.mkdir(parents=True)
+    model_io = director / "model-io.jsonl"
+    model_io.write_text("", encoding="utf-8")
+    stage = "Prepare the reagent separately, perform the main transformation, then remove incompatible carryover before the aqueous workup. " * 3
+    step_id, family = "canonical:condition", "route-family:condition"
+    proposal = {
+        "step_id": step_id, "reaction_edit_digest": "current-edit",
+        "product_smiles": "CCO", "precursor_smiles": ["CC"],
+        "condition_predictions": [{"reagents": [stage]}],
+    }
+    if mismatch == "edit":
+        proposal["reaction_edit_digest"] = "superseded-edit"
+    if mismatch == "endpoint":
+        proposal["precursor_smiles"] = ["CO"]
+    report = {
+        "director_outcomes": [{"plan": {"multi_step_skeletons": [{"steps": [proposal]}]}}],
+        "candidate_lifecycle": {"records": [{
+            "edge_id": "edge:condition", "materialization": {"materialized": True},
+            "product_smiles": "CCO", "precursor_smiles": ["CC"],
+            "origin_records": [{"proposal_id": step_id, "origin_kind": "codex_global_director",
+                "reaction_edit_digest": "current-edit", "canonical_route_family_ids": [family]}],
+        }]},
+        "stages": [{"stage": "final_route_critic", "status": "unavailable", "detail": {"results": [{
+            "branch_index": 0, "route_family_id": family,
+            "reviewed_edge_ids": ["edge:condition"], "reviewed_step_ids": [step_id],
+            "critic_status": "unavailable", "review_state": "unavailable",
+        }]}}],
+    }
+    (tmp_path / "target-only-solve-report.json").write_text(json.dumps(report), encoding="utf-8")
+    projection = project_live_synthesis(model_io_path=model_io,
+        job={"job_id": "conditions", "status": "unresolved", "target_smiles": "CCO"},
+        include_replay=True)
+    branch = projection["branches"][0]
+    assert branch["steps"][0]["conditions"] == ([stage] if mismatch is None else [])
+    assert branch["chemical_critic_status"] == "unavailable"
+    assert projection["replay"]["frames"][-1]["branch_updates"][0]["steps"][0]["conditions"] == (
+        [stage] if mismatch is None else []
+    )
+
+
+@pytest.mark.parametrize("chosen", [[], [{"reagents": ["chosen recipe"], "catalyst": "chosen catalyst"}]])
+def test_final_projection_uses_scoped_conditions_over_saved_sibling_input(tmp_path, monkeypatch, chosen):
+    from cascade_planner.web.v4_live_synthesis import _final_reviewed_canonical_steps
+
+    step_id = "codex:branch:1:node:1:candidate:1"
+    family = "route-family:one"
+    stale = {"step_id": step_id, "conditions": ["sibling recipe"], "catalyst": "sibling catalyst"}
+    monkeypatch.setattr(
+        "cascade_planner.web.v4_live_synthesis._saved_final_critic_routes",
+        lambda *args: ({(step_id,): [stale]}, {step_id: stale}),
+    )
+    report = {"candidate_lifecycle": {"records": [{
+        "edge_id": "edge:shared", "materialization": {"materialized": True},
+        "product_smiles": "CCO", "precursor_smiles": ["CC=O"],
+        "origin_records": [
+            {"proposal_id": "sibling", "canonical_route_family_ids": ["route-family:two"],
+             "condition_predictions": [{"reagents": ["sibling recipe"]}]},
+            {"proposal_id": step_id, "canonical_route_family_ids": [family],
+             "condition_predictions": chosen},
+        ],
+    }]}}
+    projected = _final_reviewed_canonical_steps(path=tmp_path / "model-io.jsonl", report=report, results=[{
+        "branch_index": 0, "route_family_id": family,
+        "reviewed_edge_ids": ["edge:shared"], "reviewed_step_ids": [step_id],
+    }])
+    step = projected[1][0]
+    assert step["conditions"] == (["chosen recipe"] if chosen else [])
+    assert step["catalyst"] == ("chosen catalyst" if chosen else "")
+    assert step["condition_predictions"] == chosen
+    assert stale["conditions"] == ["sibling recipe"]  # Saved input remains historical evidence.
+
+
+def test_saved_final_critic_conditions_bind_blind_slots_to_exact_task(
+    tmp_path: Path,
+) -> None:
+    def critic_input(task_id: str, reagent: str) -> dict:
+        return _event(
+            event="model_input",
+            artifact_type="ChemicalStrategyCritique",
+            task_id=task_id,
+            prompt="PaperMatchedRouteCriticInput:\n" + json.dumps(
+                {
+                    "phase": "independent_chemical_critic",
+                    "steps": [
+                        {
+                            "review_slot": "review-002",
+                            "mapped_product_smiles": "[CH3:1][OH:2]",
+                            "mapped_precursor_smiles": ["[CH2:1]=[O:2]"],
+                            "conditions": [reagent],
+                        },
+                        {
+                            "review_slot": "review-001",
+                            "mapped_product_smiles": "[CH2:1]=[O:2]",
+                            "mapped_precursor_smiles": ["[CH4:1]"],
+                            "conditions": ["second step"],
+                        },
+                    ],
+                }
+            ),
+        )
+
+    io_path = tmp_path / "model-io.jsonl"
+    io_path.write_text(
+        "\n".join(json.dumps(row) for row in [
+            critic_input("review:final", "actually reviewed reagent"),
+            critic_input("review:other-route", "unrelated reagent"),
+        ]),
+        encoding="utf-8",
+    )
+    results = [{
+        "critic_task_id": "review:final",
+        "reviewed_step_ids": ["canonical:a", "canonical:b"],
+        "step_assessments": [
+            {"review_slot": "review-001", "step_id": "canonical:b"},
+            {"review_slot": "review-002", "step_id": "canonical:a"},
+        ],
+    }]
+    routes, steps = _saved_final_critic_routes(io_path, results)
+    assert [step["step_id"] for step in routes[("canonical:a", "canonical:b")]] == [
+        "canonical:a", "canonical:b",
+    ]
+    assert steps["canonical:a"]["conditions"] == ["actually reviewed reagent"]
+    assert steps["canonical:b"]["conditions"] == ["second step"]
+
+    # Old reports retain the verbatim review but not its task ID. The saved
+    # output resolves that task only while the match remains unambiguous.
+    results[0].pop("critic_task_id")
+    results[0].update(
+        overall_assessment="uncertain", route_overall_evaluation="Exact saved review"
+    )
+    output = _event(
+        event="model_output", artifact_type="ChemicalStrategyCritique",
+        task_id="review:final", output_artifact={"payload": {
+            "overall_assessment": "uncertain",
+            "route_overall_evaluation": "Exact saved review",
+            "step_assessments": results[0]["step_assessments"],
+        }},
+    )
+    with io_path.open("a", encoding="utf-8") as stream:
+        stream.write("\n" + json.dumps(output))
+    routes, _ = _saved_final_critic_routes(io_path, results)
+    assert routes[("canonical:a", "canonical:b")][0]["conditions"] == [
+        "actually reviewed reagent"
+    ]
+    output["task_id"] = "review:other-route"
+    with io_path.open("a", encoding="utf-8") as stream:
+        stream.write("\n" + json.dumps(output))
+    routes, _ = _saved_final_critic_routes(io_path, results)
+    assert ("canonical:a", "canonical:b") not in routes
 
 
 def test_historical_terminal_decision_overrides_stale_running_status() -> None:
@@ -1884,12 +2485,13 @@ def test_terminal_projection_marks_unreplayed_model_output_as_settled(
     )
 
 
+@pytest.mark.parametrize("branch_count", [1, 4])
 def test_live_projection_supports_independent_strategy_cards_and_cancellation(
-    tmp_path: Path,
+    tmp_path: Path, branch_count: int,
 ) -> None:
     path = tmp_path / "model-io.jsonl"
     rows = []
-    for branch in range(1, 4):
+    for branch in range(1, branch_count + 1):
         rows.append(
             _event(
                 event="model_output",
@@ -1924,10 +2526,9 @@ def test_live_projection_supports_independent_strategy_cards_and_cancellation(
     )
 
     assert [row["signature"] for row in cancelling["strategies"]] == [
-        "Independent strategy 1",
-        "Independent strategy 2",
-        "Independent strategy 3",
+        f"Independent strategy {index}" for index in range(1, branch_count + 1)
     ]
+    assert len(cancelling["branches"]) == branch_count
     assert cancelling["phase"] == "cancelling"
     assert cancelling["progress"] < 100
     assert {row["status"] for row in cancelling["branches"]} == {"cancelling"}
@@ -1950,6 +2551,17 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
     assert page.headers["Cache-Control"] == "no-store"
     assert retired.status_code == 404
     page_html = page.get_data(as_text=True)
+    defaults = json.loads(re.search(
+        r'<script id="runDefaults" type="application/json">(.*?)</script>', page_html
+    ).group(1))
+    assert defaults == {
+        "model": "gpt-6-astra", "reasoning_effort": "medium",
+        "enable_planning_evidence": True, "planning_stock_query_limit": 24,
+        "planning_compound_query_limit": 4, "planning_literature_search_limit": 8,
+        "planning_literature_read_limit": 4, "planning_queries_per_worker": 6,
+    }
+    assert "const payload={...runDefaults," in page_html
+    assert 'id="runModelLabel"' in page_html
     assert "LLM-directed retrosynthesis" in page_html
     assert "进入可审查的路线" in page_html
     assert "EventSource" in page_html
@@ -1970,8 +2582,8 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
     assert "当前没有执行中的 Builder" in page_html
     assert "DOMParser" not in page_html
     assert "getBBox()" not in page_html
-    assert "moleculeRenderVersion='rdkit-png-v6'" in page_html
-    assert "/api/v4/molecule.png?smiles=" in page_html
+    assert "moleculeRenderVersion='rdkit-svg-v7'" in page_html
+    assert "/api/v4/molecule.svg?smiles=" in page_html
     assert "document.createElement('img')" in page_html
     assert "object-fit:contain" in page_html
     assert "object-position:center" in page_html
@@ -2019,17 +2631,19 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
     assert 'id="strategyDetail"' in page_html
     assert 'id="strategyDetailBody"' in page_html
     assert "data-strategy-detail" in page_html
-    assert "查看战略与总评" in page_html
+    assert "查看总体战略" in page_html
     assert "showStrategyDetail" in page_html
     assert "route_overall_evaluation" in page_html
+    assert "局部 Strategy 调整时间线" in page_html
+    assert "Final Critic 实际绑定 Strategy" in page_html
     assert "旧结果未提供路线整体评价" in page_html
     assert 'id="activityToggle"' in page_html
     assert 'aria-controls="activityRail"' in page_html
     assert "activityCollapsed" in page_html
     assert "activityStorageKey='autoplanner.activity-rail'" in page_html
     assert "function toggleActivity" in page_html
-    assert "Critic 依据" in page_html
-    assert "结构与 SMILES" in page_html
+    assert "RoutePresentation.reactionDetailHtml(step," in page_html
+    assert re.search(r'/static/route_quality\.js\?v=[\w-]+', page_html)
     assert "reactionTechnical" in page_html
     assert "信息来源边界" not in page_html
     assert "页面不根据隐式思维过程补写原因" not in page_html
@@ -2063,17 +2677,20 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
     assert "left:0;right:0;bottom:0" in page_html
     assert "overflow-y:auto;overflow-x:hidden" in page_html
     assert "word-break:break-all" in page_html
-    assert "closest('button,a,input,select,textarea,[data-replay-step],[data-route-lane-toggle]')" in page_html
-    assert "来源 / 状态" in page_html
-    assert "产物 ·" in page_html
-    assert "前体 ·" in page_html
+    assert "closest('button,a,input,select,textarea,summary,[data-replay-step],[data-route-lane-toggle]')" in page_html
+    from cascade_planner.web.route_display import STATIC_DIR
+    shared_detail_script = (STATIC_DIR / "route_quality.js").read_text(encoding="utf-8")
+    assert "来源 / 状态" in shared_detail_script
+    assert "产物 ·" in shared_detail_script
+    assert "反应物 ·" in shared_detail_script
     assert "步骤来源与状态" not in page_html
     assert ">产物 SMILES<" not in page_html
     assert ">前体 SMILES" not in page_html
     assert "pointerdown" in page_html
     assert "pointermove" in page_html
     assert "setPointerCapture" in page_html
-    assert "translate3d" in page_html
+    assert ".style.zoom=appState.zoom" in page_html
+    assert "translate3d" not in page_html
     assert "passive:false" in page_html
     assert "event.ctrlKey" not in page_html
     assert "路径 1" in page_html
@@ -2091,8 +2708,8 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
         assert valid is True
         assert svg.lstrip().startswith("<svg")
         assert not svg.lstrip().startswith("<?xml")
-        assert "viewBox='-18 -18 356 236'" in svg
-        assert "data-autoplanner-frame='safe-v3'" in svg
+        assert "viewBox='-6 -6 332 212'" in svg
+        assert "data-autoplanner-frame='clear-v4'" in svg
         label_origins = [
             (float(x), float(y))
             for x, y in re.findall(
@@ -2101,11 +2718,12 @@ def test_live_page_and_molecule_renderer_are_available() -> None:
             )
         ]
         assert label_origins
-        assert all(24.0 <= x <= 296.0 and 24.0 <= y <= 170.0 for x, y in label_origins)
+        assert all(16.0 <= x <= 304.0 and 16.0 <= y <= 184.0 for x, y in label_origins)
         png, png_valid = render_molecule_png(smiles)
         assert png_valid is True
         assert png.startswith(b"\x89PNG\r\n\x1a\n")
         image = Image.open(BytesIO(png)).convert("RGB")
+        assert image.size == (1920, 1200)
         ink_bounds = ImageChops.difference(
             image,
             Image.new("RGB", image.size, "white"),

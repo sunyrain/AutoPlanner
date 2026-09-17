@@ -150,6 +150,12 @@ def test_frozen_benchmark_stock_index_is_hashed_read_only_membership(
     assert len(catalog["members"][0]["membership_proof_sha256"]) == 64
     assert [row["canonical_smiles"] for row in catalog["misses"]] == ["CCN"]
     assert catalog["semantics"]["not_a_reaction_or_route_provider"] is True
+    assert (
+        catalog["semantics"][
+            "catalog_miss_does_not_imply_procurement_unavailable"
+        ]
+        is True
+    )
 
 
 def test_selected_stock_leaves_above_one_batch_are_not_globally_rejected() -> None:

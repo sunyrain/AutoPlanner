@@ -23,13 +23,31 @@ from typing import Any, Callable, Mapping
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
+from cascade_planner.application.route_edge_scope import origin_condition_predictions
+from cascade_planner.application.reaction_inputs import (
+    mapped_reaction_input_smiles,
+    reaction_input_smiles,
+)
+from cascade_planner.application.planning_evidence import PlanningEvidencePolicy
+from cascade_planner.interfaces.target_runtime_dependencies import (
+    SYNTHEX_MATCHED_PROFILE_DEFAULTS,
+)
 from cascade_planner.web.v4_run_catalog import resolve_catalog_job
 from cascade_planner.web.workspace_surface import static_html
+from cascade_planner.runtime.artifact_store import ArtifactRef, ArtifactStore, ArtifactStoreError
+from cascade_planner.runtime.paths import RuntimePaths
 
 
 GatewayFactory = Callable[[], Any]
-_BRANCH_RE = re.compile(r":branch:(\d+):(?:strategy|node|editor):(\d+)")
+_BRANCH_RE = re.compile(
+    r":branch:(\d+):(?:strategy(?:-milestone)?|node|editor):(\d+)"
+)
+_STRATEGY_GENERATION_RE = re.compile(r":branch:(\d+):strategy:(\d+)(?:$|:)")
+_STRATEGY_REVIEW_RE = re.compile(
+    r":branch:(\d+):strategy-milestone:(\d+):critic(?:$|:)"
+)
 _PROPOSAL_RE = re.compile(r"branch:(\d+):node:(\d+):candidate:(\d+)")
+_STEP_BRANCH_RE = re.compile(r"(?:^|:)branch:(\d+)(?::|$)")
 _ROUTE_CONTEXT_MARKERS = (
     "CompactBranchContext:",
     "PaperMatchedRouteBuilderContext:",
@@ -67,6 +85,24 @@ def register_live_synthesis_routes(
     @blueprint.get("/")
     def live_synthesis_homepage() -> Response:
         response = static_html("live_synthesis.html")
+        defaults = {
+            key: SYNTHEX_MATCHED_PROFILE_DEFAULTS[key]
+            for key in ("model", "reasoning_effort")
+        }
+        evidence_policy = PlanningEvidencePolicy()
+        defaults.update(
+            enable_planning_evidence=True,
+            planning_stock_query_limit=evidence_policy.limits["stock"],
+            planning_compound_query_limit=evidence_policy.limits["compound"],
+            planning_literature_search_limit=evidence_policy.limits["search"],
+            planning_literature_read_limit=evidence_policy.limits["read"],
+            planning_queries_per_worker=evidence_policy.calls_per_worker,
+        )
+        response.set_data(response.get_data(as_text=True).replace(
+            '<script id="runDefaults" type="application/json">{}</script>',
+            '<script id="runDefaults" type="application/json">'
+            + json.dumps(defaults).replace("<", "\\u003c") + '</script>',
+        ))
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -245,9 +281,26 @@ def project_live_synthesis(
 ) -> dict[str, Any]:
     """Compile the append-only director model stream into a bounded UI view."""
 
+    events = tuple(_read_director_events(model_io_path))
+    observed_branches: set[int] = set()
+    for event in events:
+        if not isinstance(event, Mapping):
+            continue
+        branch_id, _ = _branch_and_call(str(event.get("task_id") or ""))
+        if branch_id:
+            observed_branches.add(branch_id)
+        payload = dict(dict(event.get("output_artifact") or {}).get("payload") or {})
+        cards = payload.get("strategy_cards")
+        if isinstance(cards, list):
+            observed_branches.update(range(1, len(cards) + 1))
+        if event.get("event") == "model_input":
+            critic_branch = _critic_context_branch_id(
+                _critic_route_context(str(event.get("prompt") or ""))
+            )
+            if critic_branch:
+                observed_branches.add(critic_branch)
     target_smiles = str(job.get("target_smiles") or "")
     strategies: list[dict[str, Any]] = []
-    branches = {index: _empty_branch(index) for index in range(1, 4)}
     activities: list[dict[str, Any]] = []
     usage = {"input_tokens": 0, "output_tokens": 0, "model_invocations": 0}
     valid_line_count = 0
@@ -257,22 +310,8 @@ def project_live_synthesis(
     active_review_branch: int | None = None
     critic_task_branches: dict[str, int] = {}
     critic_task_route_step_ids: dict[str, tuple[str, ...]] = {}
+    critic_review_records: dict[str, dict[str, Any]] = {}
     step_insights: dict[str, dict[str, Any]] = {}
-    remembered_route_steps: dict[int, dict[str, dict[str, Any]]] = {
-        index: {} for index in range(1, 4)
-    }
-    convergent_branch_mode = {index: False for index in range(1, 4)}
-    replay_frames: list[dict[str, Any]] = []
-    replay_step_states: dict[int, dict[str, str]] = {
-        index: {} for index in range(1, 4)
-    }
-    replay_topology_states: dict[int, dict[str, str]] = {
-        index: {} for index in range(1, 4)
-    }
-    editor_replay_pending = {index: False for index in range(1, 4)}
-    editor_proposed_step_ids: dict[int, list[str]] = {
-        index: [] for index in range(1, 4)
-    }
     # Settled runs must recover the same durable Host-replayed steps in the
     # normal live projection and in replay.  Limiting these indexes to
     # ``include_replay`` leaves branches whose final Builder/Editor input no
@@ -288,8 +327,16 @@ def project_live_synthesis(
     saved_host_steps = (
         _saved_host_steps(model_io_path) if recover_saved_host_steps else {}
     )
+    settled_route_reconciliation = (
+        _route_reconciliation_branches(model_io_path)
+        if recover_saved_host_steps
+        else {}
+    )
     settled_canonical_steps = (
-        _settled_canonical_steps(model_io_path)
+        _settled_canonical_steps(
+            model_io_path,
+            reconciliation_branches=settled_route_reconciliation,
+        )
         if recover_saved_host_steps
         else {}
     )
@@ -298,11 +345,57 @@ def project_live_synthesis(
         if recover_saved_host_steps
         else []
     )
+    settled_final_critic_task_branches = {
+        str(result.get("critic_task_id") or ""): branch_id
+        for result in final_critic_results
+        if str(result.get("critic_task_id") or "")
+        and (
+            branch_id := _final_route_critic_branch_id(
+                result,
+                settled_route_reconciliation,
+            )
+        )
+    }
     final_reviewed_branches = {
         branch_id
         for result in final_critic_results
         if result.get("reviewed_edge_ids")
-        and (branch_id := _final_route_critic_branch_id(result))
+        and (
+            branch_id := _final_route_critic_branch_id(
+                result,
+                settled_route_reconciliation,
+            )
+        )
+    }
+    historical_reviews = _saved_director_critic_reviews(_solve_report(model_io_path))
+    critic_slot_bindings = _critic_slot_bindings(
+        [*historical_reviews.values(), *final_critic_results]
+    )
+    observed_branches.update(settled_route_reconciliation)
+    observed_branches.update(settled_canonical_steps)
+    observed_branches.update(
+        branch_id for result in final_critic_results
+        if (branch_id := _final_route_critic_branch_id(result, settled_route_reconciliation))
+    )
+    for step_id in saved_host_steps:
+        if match := _STEP_BRANCH_RE.search(str(step_id)):
+            observed_branches.add(int(match.group(1)))
+    branch_indices = tuple(range(1, max(observed_branches, default=1) + 1))
+    branches = {index: _empty_branch(index) for index in branch_indices}
+    remembered_route_steps: dict[int, dict[str, dict[str, Any]]] = {
+        index: {} for index in branch_indices
+    }
+    convergent_branch_mode = {index: False for index in branch_indices}
+    replay_frames: list[dict[str, Any]] = []
+    replay_step_states: dict[int, dict[str, str]] = {
+        index: {} for index in branch_indices
+    }
+    replay_topology_states: dict[int, dict[str, str]] = {
+        index: {} for index in branch_indices
+    }
+    editor_replay_pending = {index: False for index in branch_indices}
+    editor_proposed_step_ids: dict[int, list[str]] = {
+        index: [] for index in branch_indices
     }
     editor_step_ids = set(_saved_editor_steps(model_io_path))
     editor_repair_step_keys = _editor_repair_step_keys(model_io_path)
@@ -353,7 +446,7 @@ def project_live_synthesis(
         if not include_replay:
             return
         update_indices = branch_indices or (
-            (branch_index,) if branch_index in {1, 2, 3} else ()
+            (branch_index,) if branch_index in branches else ()
         )
         branch_updates: list[dict[str, Any]] = []
         new_step_ids: list[str] = []
@@ -363,6 +456,10 @@ def project_live_synthesis(
         for update_index in update_indices:
             branch_snapshot = deepcopy(branches[update_index])
             _attach_step_insights(branch_snapshot, step_insights)
+            if kind == "final" and branch_snapshot.get("chemical_critic_status") == "unavailable":
+                _attach_historical_critic(
+                    branch_snapshot, historical_reviews.get(update_index, {})
+                )
             _attach_route_provenance(
                 branch_snapshot["steps"],
                 editor_step_ids=editor_step_ids,
@@ -420,7 +517,7 @@ def project_live_synthesis(
             ),
             "",
         )
-        strategy_snapshot = deepcopy(strategies[:3])
+        strategy_snapshot = deepcopy(strategies)
         for strategy_index, strategy in enumerate(strategy_snapshot, start=1):
             branch_state = branches[strategy_index]
             strategy.update(
@@ -454,10 +551,10 @@ def project_live_synthesis(
         kind="initial",
         title="开始读取已保存的合成轨迹",
         detail="路线尚未产生；后续帧均来自持久化的模型与 Host 事件。",
-        branch_indices=(1, 2, 3),
+        branch_indices=tuple(branches),
     )
 
-    for event in _read_director_events(model_io_path):
+    for event in events:
         if event is None:
             parse_error_count += 1
             continue
@@ -626,7 +723,14 @@ def project_live_synthesis(
                         )
             elif artifact_type == "ChemicalStrategyCritique":
                 context = _critic_route_context(str(event.get("prompt") or ""))
-                critic_branch_index = _valid_branch_index(context.get("branch_id"))
+                if context:
+                    context = {**context, "steps": _bind_critic_slots(
+                        context.get("steps") or [], critic_slot_bindings.get(task_id, {})
+                    )}
+                critic_branch_index = (
+                    settled_final_critic_task_branches.get(task_id)
+                    or _critic_context_branch_id(context)
+                )
                 if context and critic_branch_index:
                     if (
                         active_review_branch is not None
@@ -644,6 +748,18 @@ def project_live_synthesis(
                             if isinstance(step, Mapping)
                             and str(step.get("step_id") or "")
                         )
+                        critic_review_records[task_id] = {
+                            "task_id": task_id,
+                            "branch_index": critic_branch_index,
+                            "strategy": _strategy_card_view(
+                                context.get("root_strategy_card")
+                                or context.get("strategy_card"),
+                                critic_branch_index,
+                            ),
+                            "step_count": len(context.get("steps") or []),
+                            "overall_assessment": "",
+                            "route_overall_evaluation": "",
+                        }
                     target_smiles = str(
                         context.get("campaign_target") or target_smiles
                     )
@@ -704,6 +820,24 @@ def project_live_synthesis(
                     )
             continue
 
+        if event_kind == "material_boundary_review_requested" and branch_index:
+            boundary = dict(event.get("material_boundary_review") or {})
+            branch = branches[branch_index]
+            branch["material_boundary_review"] = boundary
+            branch["steps"] = _route_steps(event.get("retained_route_steps"))
+            branch["pending_step"] = None
+            branch["status"] = "paused"
+            activities.append(_activity(
+                event, kind="material_boundary", title="起始原料待核验",
+                detail=str(boundary.get("rationale") or "保留当前路线，核实原料身份与可获得性。"),
+                branch_index=branch_index,
+            ))
+            capture_replay(
+                kind="material_boundary", title="保留路线并核实起始原料",
+                detail="原料尚未完成身份或来源核验；路线仍有未解决的叶节点。",
+                timestamp=str(event.get("timestamp") or ""), branch_index=branch_index,
+            )
+            continue
         if event_kind != "model_output":
             continue
 
@@ -718,7 +852,13 @@ def project_live_synthesis(
 
         if artifact_type == "StrategyPortfolioReport":
             target_smiles = str(payload.get("target_smiles") or target_smiles)
-            strategies = _strategy_cards(payload.get("strategy_cards"))
+            refreshed = _strategy_cards(payload.get("strategy_cards"))
+            for index, strategy in enumerate(refreshed):
+                if index < len(strategies):
+                    strategy["strategy_refreshes"] = deepcopy(
+                        strategies[index].get("strategy_refreshes") or []
+                    )
+            strategies = refreshed
             strategy_review = "strategy-critic" in task_id
             activities.append(
                 _activity(
@@ -727,7 +867,7 @@ def project_live_synthesis(
                     title=(
                         "Strategy Critic 已校正策略组合"
                         if strategy_review
-                        else "三条正交策略已生成"
+                        else f"已生成 {len(strategies)} 条候选策略"
                     ),
                     detail=str(
                         artifact.get("summary")
@@ -741,44 +881,40 @@ def project_live_synthesis(
                 title=(
                     "Strategy Critic 已校正策略组合"
                     if strategy_review
-                    else "Strategy Generator 提出三条路线方向"
+                    else f"Strategy Generator 提出 {len(strategies)} 条路线方向"
                 ),
                 detail=str(
                     artifact.get("summary")
-                    or "三条策略假设进入独立 Builder 分支。"
+                    or "候选策略进入独立 Builder 分支。"
                 ),
                 timestamp=str(event.get("timestamp") or ""),
             )
             continue
 
         if artifact_type == "StrategyCardReport" and branch_index:
+            if dict(payload.get("strategy_card") or {}).get("material_boundary") is not None:
+                # Only the subsequent Host event can bind a sourcing request.
+                # A model request must not overwrite the root Strategy.
+                continue
             target_smiles = str(payload.get("target_smiles") or target_smiles)
             card = dict(payload.get("strategy_card") or {})
             while len(strategies) < branch_index:
                 strategies.append(_empty_strategy(len(strategies) + 1))
-            strategies[branch_index - 1] = {
-                "strategy_id": f"strategy-{branch_index}",
-                "index": branch_index,
-                "signature": _clean_text(
-                    card.get("strategy_signature")
-                    or card.get("key_forward_transformation")
-                    or f"Strategy {branch_index}"
-                ),
-                "query": _clean_text(
-                    card.get("key_forward_transformation")
-                    or card.get("strategy_query")
-                    or payload.get("selection_rationale")
-                ),
-                "critical_assumption": _clean_text(
-                    card.get("critical_assumption")
-                ),
-                "critic_checkpoint": _clean_text(card.get("critic_checkpoint")),
-                "status": "planning",
-                "step_count": 0,
-                "renderable_step_count": 0,
-                "unresolved_step_count": 0,
-                "model_calls": 0,
-            }
+            projected_card = _strategy_card_view(
+                card,
+                branch_index,
+                fallback_query=payload.get("selection_rationale"),
+            )
+            current_strategy = strategies[branch_index - 1]
+            if current_strategy.get("signature"):
+                _upsert_strategy_refresh(
+                    current_strategy,
+                    projected_card,
+                    task_id=task_id,
+                    timestamp=str(event.get("timestamp") or ""),
+                )
+            else:
+                strategies[branch_index - 1] = projected_card
             activities.append(
                 _activity(
                     event,
@@ -940,22 +1076,24 @@ def project_live_synthesis(
                 or payload.get("status")
                 or "unavailable"
             ).casefold()
-            route_default = (
-                "pass"
-                if overall_assessment == "viable"
-                else "unavailable"
-                if overall_assessment == "unavailable"
-                else "reviewed"
+            _apply_critic_step_review(
+                step_insights,
+                {**payload, "overall_assessment": overall_assessment,
+                 "step_assessments": _bind_critic_slots(
+                     payload.get("step_assessments") or [],
+                     critic_slot_bindings.get(task_id, {}),
+                 )},
+                critic_task_route_step_ids.get(task_id, ()),
+                task_id=task_id,
             )
-            for step_id in critic_task_route_step_ids.get(task_id, ()):
-                step_insights[step_id] = {
-                    "critic_verdict": route_default,
-                    "critic_reasons": [],
-                    "critic_suggested_revision": "",
-                    "critic_condition_assessment": "",
-                }
-            _record_critic_step_insights(step_insights, payload)
-            if critic_branch_index in {1, 2, 3}:
+            if task_id in critic_review_records:
+                critic_review_records[task_id].update(
+                    overall_assessment=overall_assessment,
+                    route_overall_evaluation=_clean_text(
+                        payload.get("route_overall_evaluation")
+                    ),
+                )
+            if critic_branch_index in branches:
                 branches[critic_branch_index]["chemical_critic_status"] = str(
                     payload.get("overall_assessment")
                     or payload.get("status")
@@ -1054,7 +1192,10 @@ def project_live_synthesis(
             editor_proposed_step_ids[branch_index] = []
 
     for result in final_critic_results:
-        branch_index = _final_route_critic_branch_id(result)
+        branch_index = _final_route_critic_branch_id(
+            result,
+            settled_route_reconciliation,
+        )
         if branch_index not in branches:
             continue
         overall_assessment = str(
@@ -1071,23 +1212,18 @@ def project_live_synthesis(
             for value in result.get("route_level_risks") or ()
             if _clean_text(value)
         ]
-        route_default = (
-            "pass"
-            if overall_assessment == "viable"
-            else "unavailable"
-            if overall_assessment == "unavailable"
-            else "reviewed"
+        review_record = _matching_final_critic_review(
+            result,
+            critic_review_records.values(),
         )
-        for step_id in result.get("reviewed_step_ids") or ():
-            identity = str(step_id or "")
-            if identity:
-                step_insights[identity] = {
-                    "critic_verdict": route_default,
-                    "critic_reasons": [],
-                    "critic_suggested_revision": "",
-                    "critic_condition_assessment": "",
-                }
-        _record_critic_step_insights(
+        if review_record:
+            branches[branch_index]["final_critic_task_id"] = str(
+                review_record.get("task_id") or ""
+            )
+            branches[branch_index]["final_critic_strategy"] = deepcopy(
+                review_record.get("strategy") or {}
+            )
+        _apply_critic_step_review(
             step_insights,
             {
                 "overall_assessment": overall_assessment,
@@ -1097,20 +1233,91 @@ def project_live_synthesis(
                     if isinstance(value, Mapping)
                 ],
             },
+            result.get("reviewed_step_ids") or (),
+            task_id=str(result.get("critic_task_id") or ""),
         )
     if final_critic_results:
         critic_output_count = max(critic_output_count, len(final_critic_results))
 
+    for branch_index, settled_route in settled_route_reconciliation.items():
+        branch = branches[branch_index]
+        branch["route_classification"] = str(
+            settled_route.get("classification") or ""
+        )
+        branch["final_route_available"] = (
+            int(settled_route.get("final_canonical_edge_count") or 0) > 0
+        )
+        branch["final_stock_closed"] = (
+            settled_route.get("final_stock_closed") is True
+        )
+        # ``route_reconciliation`` is the terminal authority that joins each
+        # Strategy family to its currently selected canonical route.  Event
+        # rows may retain a pre-repair branch label, so route-level Critic
+        # fields must be projected from this settled join instead of whichever
+        # event happened to carry that label last.
+        branch["chemical_critic_status"] = str(
+            settled_route.get("final_critic_status") or ""
+        ).casefold()
+        branch["route_overall_evaluation"] = _clean_text(
+            settled_route.get("final_route_overall_evaluation")
+        )
+        matching_results = [
+            result
+            for result in final_critic_results
+            if _final_route_critic_branch_id(
+                result,
+                settled_route_reconciliation,
+            )
+            == branch_index
+        ]
+        settled_result = (
+            matching_results[0] if len(matching_results) == 1 else {}
+        )
+        branch["route_level_risks"] = [
+            _clean_text(value)
+            for value in settled_result.get("route_level_risks") or ()
+            if _clean_text(value)
+        ]
+        branch["final_critic_task_id"] = ""
+        branch["final_critic_strategy"] = {}
+        if settled_result:
+            review_record = _matching_final_critic_review(
+                settled_result,
+                critic_review_records.values(),
+            )
+            if review_record:
+                branch["final_critic_task_id"] = str(
+                    review_record.get("task_id") or ""
+                )
+                branch["final_critic_strategy"] = deepcopy(
+                    review_record.get("strategy") or {}
+                )
+        if branch["route_classification"] == "not_materialized":
+            branch["pending_step"] = None
+            branch["status"] = "rejected"
+
     for branch in branches.values():
         _attach_step_insights(branch, step_insights)
+        if branch.get("chemical_critic_status") == "unavailable":
+            _attach_historical_critic(
+                branch, historical_reviews.get(int(branch["branch_index"]), {})
+            )
         _attach_route_provenance(
             branch["steps"],
             editor_step_ids=editor_step_ids,
             editor_repair_step_keys=editor_repair_step_keys,
         )
         _annotate_route_topology(branch["steps"])
+        boundary = dict(branch.get("material_boundary_review") or {})
+        if boundary:
+            products = {row.get("product_smiles") for row in branch["steps"]}
+            terminal = {s for row in branch["steps"] for s in row.get("precursor_smiles") or []} - products
+            if (branch.get("final_stock_closed")
+                    or boundary.get("selected_smiles") not in terminal
+                    or boundary.get("prefix_step_ids") != [str(row.get("step_id") or "") for row in branch["steps"]]):
+                branch["material_boundary_review"] = {}
 
-    for index, strategy in enumerate(strategies[:3], start=1):
+    for index, strategy in enumerate(strategies, start=1):
         branch = branches[index]
         strategy.update(
             status=branch["status"],
@@ -1127,7 +1334,7 @@ def project_live_synthesis(
                 job_status == "complete" or branch["steps"]
             ) and branch["status"] not in {"failed", "rejected"}:
                 branch["status"] = "complete"
-        for index, strategy in enumerate(strategies[:3], start=1):
+        for index, strategy in enumerate(strategies, start=1):
             strategy["status"] = branches[index]["status"]
     elif job_status == "interrupted":
         for branch in branches.values():
@@ -1135,7 +1342,7 @@ def project_live_synthesis(
                 branch["pending_step"]["status"] = "replay_record_unavailable"
             if branch["status"] not in {"built", "failed", "rejected"}:
                 branch["status"] = "interrupted"
-        for index, strategy in enumerate(strategies[:3], start=1):
+        for index, strategy in enumerate(strategies, start=1):
             strategy["status"] = branches[index]["status"]
     elif job_status == "paused":
         for branch in branches.values():
@@ -1143,15 +1350,22 @@ def project_live_synthesis(
                 branch["pending_step"]["status"] = "replay_record_unavailable"
             if branch["status"] not in {"built", "complete", "failed", "rejected"}:
                 branch["status"] = "paused"
-        for index, strategy in enumerate(strategies[:3], start=1):
+        for index, strategy in enumerate(strategies, start=1):
             strategy["status"] = branches[index]["status"]
     elif job_status in {"cancelling", "cancelled"}:
         for branch in branches.values():
             branch["pending_step"] = None
             branch["status"] = job_status
-        for strategy in strategies[:3]:
+        for strategy in strategies:
             strategy["status"] = job_status
 
+    for index, branch in branches.items():
+        if (branch.get("material_boundary_review") and not branch.get("final_stock_closed")
+                and job_status not in {"cancelling", "cancelled", "interrupted"}
+                and branch["status"] not in {"failed", "rejected"}):
+            branch["status"] = "paused"
+            if index <= len(strategies):
+                strategies[index - 1]["status"] = "paused"
     capture_replay(
         kind="final",
         title=(
@@ -1160,7 +1374,7 @@ def project_live_synthesis(
             else "重放抵达当前保存状态"
         ),
         detail="该帧只收口展示状态，不会启动模型或重新执行图编辑。",
-        branch_indices=(1, 2, 3),
+        branch_indices=tuple(branches),
     )
     if include_replay:
         _stabilize_replay_alternative_groups(
@@ -1188,11 +1402,17 @@ def project_live_synthesis(
             f"{(branches[index]['pending_step'] or {}).get('step_id', '')}:"
             f"{branches[index]['chemical_critic_status']}:"
             f"{branches[index]['route_overall_evaluation']}:"
-            f"{'|'.join(branches[index]['route_level_risks'])}"
-            for index in range(1, 4)
+            f"{'|'.join(branches[index]['route_level_risks'])}:"
+            f"{dict(branches[index]['final_critic_strategy']).get('query', '')}"
+            for index in branch_indices
         )
     )
     revision = hashlib.sha256(revision_seed.encode("utf-8")).hexdigest()[:16]
+    stock_hit_smiles = _stock_hit_smiles(model_io_path, job=job, branches=branches)
+    if include_replay and replay_frames and replay_frames[-1].get("kind") == "final":
+        # The settled workbench does not timestamp individual stock checks.
+        # Show its inventory result only at the final frame, never earlier.
+        replay_frames[-1]["stock_hit_smiles"] = stock_hit_smiles
     projection = {
         "schema_version": "autoplanner.live_synthesis_projection.v1",
         "revision": revision,
@@ -1200,6 +1420,7 @@ def project_live_synthesis(
         "run_id": str(job.get("run_id") or ""),
         "target_name": str(job.get("target_name") or "blind target"),
         "target_smiles": target_smiles,
+        "stock_hit_smiles": stock_hit_smiles,
         "status": job_status,
         "campaign_status": str(
             job.get("campaign_status") or job.get("status") or ""
@@ -1221,8 +1442,8 @@ def project_live_synthesis(
         "execution_source": str(job.get("execution_source") or "web"),
         "activity_observed_at": str(job.get("activity_observed_at") or ""),
         "activity_stale": job.get("activity_stale") is True,
-        "strategies": strategies[:3],
-        "branches": [branches[index] for index in range(1, 4)],
+        "strategies": strategies,
+        "branches": [branches[index] for index in branch_indices],
         "activities": activities[-80:],
         "usage": usage,
         "model_output_count": len(activities),
@@ -1269,16 +1490,23 @@ def _job_row(
         row = dict(jobs.get(job_id) or {})
         active_rows = [dict(value) for value in jobs.values()]
     if row:
+        row["artifact_store_root"] = str(
+            getattr(factory(), "paths", RuntimePaths.discover()).artifact_store_root
+        )
         return row
     try:
         gateway = factory()
     except Exception:
         return None
-    resolved, _owning_gateway = resolve_catalog_job(
+    resolved, owning_gateway = resolve_catalog_job(
         gateway,
         job_id,
         active_rows=active_rows,
     )
+    if resolved is not None:
+        resolved["artifact_store_root"] = str(
+            getattr(owning_gateway, "paths", RuntimePaths.discover()).artifact_store_root
+        )
     return resolved
 
 
@@ -1337,7 +1565,8 @@ def _showcase_response(
     try:
         body = build_run_export_html(
             run_dir=model_io_path.parents[2],
-            job=job,
+            job={**job, "artifact_store_root": job.get("artifact_store_root")
+                 or str(getattr(factory(), "paths", RuntimePaths.discover()).artifact_store_root)},
             model_io_path=model_io_path,
             export_kind=export_kind,
             branch_indices=selected_branches,
@@ -1345,7 +1574,11 @@ def _showcase_response(
     except ValueError as exc:
         return jsonify(
             {
-                "error": "showcase_unavailable",
+                "error": (
+                    "showcase_selection_invalid"
+                    if str(exc).startswith("showcase_branch_index_unavailable:")
+                    else "showcase_unavailable"
+                ),
                 "reason": str(exc),
                 "run_id": str(job.get("run_id") or ""),
             }
@@ -1367,26 +1600,14 @@ def _showcase_response(
 def _showcase_branch_query() -> tuple[int, ...]:
     """Parse a route subset while retaining the legacy ``branch`` query."""
 
+    from cascade_planner.web.v4_showcase_export import normalize_branch_indices
+
     raw = (
         request.args.get("branches")
         if "branches" in request.args
         else request.args.get("branch", "1")
     )
-    text = str(raw or "").strip()
-    if not text:
-        raise ValueError("showcase_branch_indices_empty")
-    selected: set[int] = set()
-    for item in text.split(","):
-        value_text = item.strip()
-        if not re.fullmatch(r"[0-9]+", value_text):
-            raise ValueError(f"showcase_branch_index_invalid:{value_text}")
-        value = int(value_text)
-        if value not in {1, 2, 3}:
-            raise ValueError(f"showcase_branch_index_invalid:{value}")
-        selected.add(value)
-    if not selected:
-        raise ValueError("showcase_branch_indices_empty")
-    return tuple(sorted(selected))
+    return normalize_branch_indices(raw)
 
 
 def _read_model_io(path: Path | None):
@@ -1439,30 +1660,39 @@ def _read_director_events(path: Path | None):
         raw_by_task.setdefault(task_id, []).append(dict(row))
 
     merged: list[dict[str, Any] | None] = []
-    worker_task_ids: set[str] = set()
     for worker_event in worker_events:
         if worker_event is None:
             merged.append(None)
             continue
         task_id = str(worker_event.get("task_id") or "")
-        worker_task_ids.add(task_id)
         matching = raw_by_task.get(task_id, [])
-        merged.extend(
-            value for value in matching if value.get("event") == "model_input"
-        )
-        saved_output = next(
+        # A resumed logical task can have several physical worker attempts.
+        # Consume each saved output once, matching its actual result and usage;
+        # the latest successful output must not replace an earlier outage.
+        output_index = next(
             (
-                value
-                for value in reversed(matching)
+                index
+                for index, value in enumerate(matching)
                 if value.get("event") == "model_output"
+                and dict(value.get("usage") or {}) == dict(worker_event.get("usage") or {})
+                and dict(value.get("output_artifact") or {}) == dict(worker_event.get("output_artifact") or {})
+                and (
+                    not value.get("worker_record_status")
+                    or value["worker_record_status"] == worker_event.get("status")
+                )
             ),
-            None,
+            -1,
         )
-        merged.append(saved_output or worker_event)
+        if output_index >= 0:
+            merged.extend(matching[: output_index + 1])
+            del matching[: output_index + 1]
+        else:
+            merged.append(worker_event)
 
-    for task_id, rows in raw_by_task.items():
-        if task_id not in worker_task_ids:
-            merged.extend(rows)
+    # Retain pending inputs and a raw output written just before a worker-ledger
+    # interruption, as well as tasks only present in the richer model-io log.
+    for rows in raw_by_task.values():
+        merged.extend(rows)
     merged.extend(unbound_rows)
     return merged
 
@@ -1599,6 +1829,35 @@ def _solve_report(path: Path | None) -> dict[str, Any]:
     return {}
 
 
+def _stock_hit_smiles(
+    path: Path | None, *, job: Mapping[str, Any], branches: Mapping[int, Any]
+) -> list[str]:
+    """Project accepted per-molecule inventory facts from this run's workbench."""
+    reference = _solve_report(path).get("workbench_ref")
+    if not isinstance(reference, Mapping):
+        return []
+    root = job.get("artifact_store_root") or RuntimePaths.discover().artifact_store_root
+    try:
+        workbench = ArtifactStore(root).read_json(ArtifactRef.from_dict(reference))
+    except (OSError, ValueError, ArtifactStoreError):
+        return []
+    hits = {
+        canonical_smiles(row.get("canonical_smiles"))
+        for row in workbench.get("molecules", {}).values()
+        if row.get("stock_closed") is True and row.get("stock_observation_accepted") is True
+    }
+    # Match isomeric identities in Python, then preserve the actual display
+    # strings so every web/export renderer can use the same exact lookup.
+    displayed = {str(job.get("target_smiles") or "")}
+    for branch in branches.values():
+        for step in branch.get("steps", []):
+            displayed.add(str(step.get("product_smiles") or ""))
+            displayed.update(step.get("precursor_smiles") or [])
+            displayed.update(step.get("reaction_input_smiles") or [])
+            displayed.update(step.get("auxiliary_reagent_smiles") or [])
+    return sorted(value for value in displayed if value and canonical_smiles(value) in hits)
+
+
 def _final_route_critic_results_from_report(
     path: Path | None,
 ) -> list[dict[str, Any]]:
@@ -1617,17 +1876,82 @@ def _final_route_critic_results_from_report(
     return []
 
 
-def _final_route_critic_branch_id(result: Mapping[str, Any]) -> int:
-    """Translate the Critic's zero-based branch index to the UI branch id."""
+def _route_reconciliation_branches(
+    path: Path | None,
+) -> dict[int, dict[str, Any]]:
+    """Read the settled Strategy-family disposition for display only."""
 
-    raw_branch_id = result.get("branch_id")
-    if isinstance(raw_branch_id, int) and not isinstance(raw_branch_id, bool):
-        return raw_branch_id if raw_branch_id in {1, 2, 3} else 0
+    report = _solve_report(path)
+    rows: dict[int, dict[str, Any]] = {}
+    reconciliation = dict(report.get("route_reconciliation") or {})
+    for raw in reconciliation.get("routes") or ():
+        if not isinstance(raw, Mapping):
+            continue
+        row = dict(raw)
+        match = re.fullmatch(
+            r"codex:sequential:family:(\d+)",
+            str(row.get("route_family_id") or ""),
+        )
+        branch_id = _valid_branch_index(match.group(1) if match else None)
+        if branch_id:
+            rows[branch_id] = row
+    return rows
+
+
+def _final_route_critic_branch_id(
+    result: Mapping[str, Any],
+    reconciliation_branches: Mapping[int, Mapping[str, Any]] | None = None,
+) -> int:
+    """Resolve a final result to one UI branch without trusting stale labels.
+
+    A terminal reconciliation binds the reviewed canonical route-family id to
+    its Strategy family and is therefore preferred whenever available.
+    Historical canonical/repair runs could lose the original route alias and
+    serialize Branch 2 or 3 as Branch 1.  Their reviewed proposal ids still
+    carry the Host lineage, so one unanimous step lineage overrides that stale
+    label.  Conflicting step lineages remain unbound instead of being shown on
+    the wrong route.
+    """
+
+    result_route_ids = {
+        str(result.get(key) or "")
+        for key in ("route_family_id", "canonical_route_family_id")
+        if str(result.get(key) or "")
+    }
+    if result_route_ids and reconciliation_branches:
+        matched_branches = {
+            int(branch_index)
+            for branch_index, raw_row in reconciliation_branches.items()
+            if isinstance(raw_row, Mapping)
+            and result_route_ids.intersection(
+                {
+                    str(value)
+                    for value in (
+                        raw_row.get("canonical_route_family_ids") or ()
+                    )
+                    if str(value)
+                }
+                | {
+                    str(value)
+                    for value in (
+                        raw_row.get("origin_canonical_route_family_ids") or ()
+                    )
+                    if str(value)
+                }
+            )
+        }
+        if len(matched_branches) == 1:
+            return next(iter(matched_branches))
+
+    explicit_branch_id = _valid_branch_index(result.get("branch_id"))
     raw_branch_index = result.get("branch_index")
     if isinstance(raw_branch_index, int) and not isinstance(raw_branch_index, bool):
         branch_id = raw_branch_index + 1
-        return branch_id if branch_id in {1, 2, 3} else 0
-    return 0
+        explicit_branch_id = explicit_branch_id or _valid_branch_index(branch_id)
+    return _resolved_branch_id(
+        explicit_branch_id,
+        result.get("reviewed_step_ids") or (),
+    )
 
 
 def _status_axes(
@@ -1686,6 +2010,14 @@ def _status_axes(
         stock_state = "closed" if stock_count > 0 else "open"
 
         paper = dict(report.get("paper_equivalent") or {})
+        stock_boundary = str(
+            gates.get("stock_boundary")
+            or report.get("stock_boundary")
+            or ""
+        )
+        stock_catalog_name = str(
+            paper.get("stock_catalog_name") or ""
+        )
         paper_solved = (
             report.get("paper_equivalent_solved") is True
             or paper.get("paper_equivalent_solved") is True
@@ -1743,6 +2075,11 @@ def _status_axes(
             "stock_closure": {
                 "state": stock_state,
                 "canonical_stock_closed_routes": stock_count,
+                "boundary": stock_boundary,
+                "catalog_name": stock_catalog_name,
+                "commercial_orderability_claimed": bool(
+                    stock_count > 0 and stock_boundary == "procurement"
+                ),
             },
             "paper_equivalent": {"state": paper_state},
             "chemical_critic": {
@@ -1754,6 +2091,7 @@ def _status_axes(
             "semantics": {
                 "axes_are_independent": True,
                 "display_projection_grants_no_authority": True,
+                "stock_axis_does_not_imply_procurement": True,
             },
         }
 
@@ -1798,6 +2136,8 @@ def _status_axes(
 
 def _settled_canonical_steps(
     path: Path | None,
+    *,
+    reconciliation_branches: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> dict[int, list[dict[str, Any]]]:
     """Recover the final Host-materialized route omitted from event replay.
 
@@ -1820,12 +2160,11 @@ def _settled_canonical_steps(
             path=path,
             report=report,
             results=final_results,
+            reconciliation_branches=reconciliation_branches,
         )
 
     editor_steps = _saved_editor_steps(path)
-    by_branch: dict[int, dict[str, dict[str, Any]]] = {
-        index: {} for index in range(1, 4)
-    }
+    by_branch: dict[int, dict[str, dict[str, Any]]] = {}
     lifecycle = dict(report.get("candidate_lifecycle") or {})
     for raw_record in lifecycle.get("records") or []:
         if not isinstance(raw_record, Mapping):
@@ -1843,7 +2182,7 @@ def _settled_canonical_steps(
                 continue
             step_id = str(origin.get("proposal_id") or "")
             branch_index, _call_index = _branch_and_call(step_id)
-            if branch_index not in {1, 2, 3} or not step_id:
+            if not branch_index or branch_index < 1 or not step_id:
                 continue
             step = deepcopy(editor_steps.get(step_id) or {})
             step.update(
@@ -1864,7 +2203,8 @@ def _settled_canonical_steps(
             step.setdefault("conditions", [])
             step.setdefault("catalyst", "")
             step.setdefault("transformation_rationale", "")
-            by_branch[branch_index][step_id] = step
+            step.update(_reaction_participant_fields(step))
+            by_branch.setdefault(branch_index, {})[step_id] = step
             break
     return {
         branch_index: list(steps.values())
@@ -1878,6 +2218,7 @@ def _final_reviewed_canonical_steps(
     path: Path,
     report: Mapping[str, Any],
     results: list[dict[str, Any]],
+    reconciliation_branches: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> dict[int, list[dict[str, Any]]]:
     """Join final reviewed step ids to their canonical lifecycle edges.
 
@@ -1895,10 +2236,14 @@ def _final_reviewed_canonical_steps(
         and str(record.get("edge_id") or "")
     }
     saved_routes, saved_steps = _saved_final_critic_routes(path, results)
+    proposal_descriptions = _saved_director_step_descriptions(report)
     by_branch: dict[int, list[dict[str, Any]]] = {}
 
     for result in results:
-        branch_index = _final_route_critic_branch_id(result)
+        branch_index = _final_route_critic_branch_id(
+            result,
+            reconciliation_branches,
+        )
         reviewed_step_ids = tuple(
             str(value)
             for value in result.get("reviewed_step_ids") or []
@@ -1909,7 +2254,7 @@ def _final_reviewed_canonical_steps(
             for value in result.get("reviewed_edge_ids") or []
             if str(value).strip()
         }
-        if branch_index not in {1, 2, 3} or not reviewed_step_ids:
+        if not branch_index or branch_index < 1 or not reviewed_step_ids:
             continue
 
         route_family_id = str(result.get("route_family_id") or "")
@@ -1937,8 +2282,24 @@ def _final_reviewed_canonical_steps(
             if match is None:
                 continue
             record, origin = match
-            saved = route_steps.get(step_id) or saved_steps.get(step_id) or {}
+            saved = route_steps.get(step_id) or saved_steps.get(step_id)
+            if not saved:
+                # An unavailable final Critic has no input to recover.  Its
+                # absence must not erase the materialized proposal's conditions.
+                # Bind both the edit and chemical endpoints; a recycled step id
+                # alone cannot restore a superseded proposal.
+                saved = proposal_descriptions.get(
+                    _step_description_key(step_id, origin, record), {}
+                )
             step = deepcopy(dict(saved))
+            if "condition_predictions" in origin:
+                # Canonical proposal conditions supersede any saved display
+                # text. In particular, an empty choice cannot inherit a
+                # sibling recipe from an older Critic input.
+                scoped = {"condition_predictions": origin_condition_predictions(record, origin)}
+                step.update(scoped)
+                step["conditions"] = _route_condition_texts(scoped)
+                step["catalyst"] = _route_catalyst(scoped)
             step.update(
                 step_id=step_id,
                 product_smiles=str(record.get("product_smiles") or ""),
@@ -1957,6 +2318,7 @@ def _final_reviewed_canonical_steps(
             step.setdefault("conditions", [])
             step.setdefault("catalyst", "")
             step.setdefault("transformation_rationale", "")
+            step.update(_reaction_participant_fields(step))
             _attach_canonical_step_origin(step, origin)
             final_steps.append(step)
 
@@ -1966,6 +2328,33 @@ def _final_reviewed_canonical_steps(
             by_branch[branch_index] = final_steps
 
     return by_branch
+
+
+def _step_description_key(
+    step_id: str, origin: Mapping[str, Any], step: Mapping[str, Any]
+) -> tuple[str, str, str, tuple[str, ...]]:
+    return (
+        step_id,
+        str(origin.get("reaction_edit_digest") or ""),
+        canonical_smiles(str(step.get("product_smiles") or "")),
+        tuple(sorted(canonical_smiles(str(value)) for value in step.get("precursor_smiles") or [])),
+    )
+
+
+def _saved_director_step_descriptions(
+    report: Mapping[str, Any],
+) -> dict[tuple[str, str, str, tuple[str, ...]], dict[str, Any]]:
+    """Recover saved condition hypotheses without promoting a Critic verdict."""
+    descriptions = {}
+    for outcome in report.get("director_outcomes") or []:
+        for skeleton in (outcome.get("plan") or {}).get("multi_step_skeletons") or []:
+            for raw in skeleton.get("steps") or []:
+                if not isinstance(raw, Mapping) or not raw.get("step_id"):
+                    continue
+                step = _route_steps([raw])[0]
+                step["conditions_source"] = "materialized_director_proposal"
+                descriptions[_step_description_key(step["step_id"], raw, step)] = step
+    return descriptions
 
 
 def _saved_final_critic_routes(
@@ -1986,9 +2375,49 @@ def _saved_final_critic_routes(
         for result in results
     }
     expected.discard(())
+    # Blind Critic inputs carry review slots instead of canonical step IDs.
+    # Their saved final result owns the slot-to-step binding for that task;
+    # joining by position or a slot from another review would restore stale
+    # conditions when a route was repaired between two Critic calls.
+    events = _read_model_io(path)
+    critic_outputs = [
+        (str(event.get("task_id") or ""), dict(
+            dict(event.get("output_artifact") or {}).get("payload") or {}
+        ))
+        for event in events
+        if event.get("event") == "model_output"
+        and event.get("artifact_type") == "ChemicalStrategyCritique"
+    ]
+    slot_bindings_by_task: dict[str, dict[str, str]] = {}
+    for result in results:
+        task_id = str(result.get("critic_task_id") or "")
+        if not task_id:
+            # Earlier reports omitted the task ID. Bind only a unique saved
+            # output with the same complete evaluation, verdict and length.
+            evaluation = _clean_text(result.get("route_overall_evaluation"))
+            matching_tasks = {
+                saved_task
+                for saved_task, payload in critic_outputs
+                if evaluation
+                and _clean_text(payload.get("route_overall_evaluation")) == evaluation
+                and payload.get("overall_assessment") == result.get("overall_assessment")
+                and len(payload.get("step_assessments") or [])
+                == len(result.get("reviewed_step_ids") or [])
+            }
+            if len(matching_tasks) == 1:
+                task_id = matching_tasks.pop()
+        if not task_id:
+            continue
+        slot_bindings_by_task[task_id] = {
+            str(assessment["review_slot"]): str(assessment["step_id"])
+            for assessment in result.get("step_assessments") or []
+            if isinstance(assessment, Mapping)
+            and assessment.get("review_slot")
+            and assessment.get("step_id") in (result.get("reviewed_step_ids") or [])
+        }
     routes: dict[tuple[str, ...], list[dict[str, Any]]] = {}
     latest_steps: dict[str, dict[str, Any]] = {}
-    for event in _read_model_io(path):
+    for event in events:
         if (
             not isinstance(event, Mapping)
             or event.get("event") != "model_input"
@@ -1999,7 +2428,17 @@ def _saved_final_critic_routes(
         context = _critic_route_context(str(event.get("prompt") or ""))
         if str(context.get("phase") or "") != "independent_chemical_critic":
             continue
-        steps = _route_steps(context.get("steps"))
+        bindings = slot_bindings_by_task.get(str(event.get("task_id") or ""), {})
+        raw_steps = [
+            {
+                **raw,
+                "step_id": raw.get("step_id")
+                or bindings.get(str(raw.get("review_slot") or "")),
+            }
+            for raw in context.get("steps") or []
+            if isinstance(raw, Mapping)
+        ]
+        steps = _route_steps(raw_steps)
         step_ids = tuple(
             str(step.get("step_id") or "")
             for step in steps
@@ -2122,7 +2561,7 @@ def _editor_repair_step_keys(
             continue
         task_id = str(event.get("task_id") or "")
         branch_index, _call_index = _branch_and_call(task_id)
-        if branch_index not in {1, 2, 3}:
+        if not branch_index or branch_index < 1:
             continue
         artifact = dict(event.get("output_artifact") or {})
         payload = dict(artifact.get("payload") or {})
@@ -2169,6 +2608,9 @@ def _merge_canonical_route_step(
             "canonical_edge_id",
         ):
             merged[key] = deepcopy(canonical_step.get(key))
+        for key in ("reaction_input_smiles", "auxiliary_reagent_smiles"):
+            if key in canonical_step:
+                merged[key] = deepcopy(canonical_step[key])
         steps[index] = merged
         return
     steps.append(deepcopy(dict(canonical_step)))
@@ -2310,6 +2752,93 @@ def _record_builder_step_insights(
             values["checkpoint_relation"] = relation
         if limitations:
             values["builder_limitations"] = limitations
+
+
+def _saved_director_critic_reviews(report: Mapping[str, Any]) -> dict[int, dict[str, Any]]:
+    """Historical assessments retain their original proposal IDs, not final authority."""
+    reviews = {}
+    for outcome in report.get("director_outcomes") or []:
+        for skeleton in (outcome.get("plan") or {}).get("multi_step_skeletons") or []:
+            match = re.fullmatch(r"codex:sequential:family:(\d+)", str(skeleton.get("route_family_id") or ""))
+            critic = skeleton.get("chemical_critic") or {}
+            if not match or critic.get("overall_assessment") not in {"viable", "uncertain", "reject"}:
+                continue
+            step_ids = {str(step.get("step_id") or "") for step in skeleton.get("steps") or []}
+            reviews[int(match.group(1))] = {
+                **deepcopy(critic),
+                "step_assessments": [deepcopy(row) for row in critic.get("step_assessments") or []
+                                     if row.get("step_id") and row["step_id"] in step_ids],
+            }
+    return reviews
+
+
+def _critic_slot_bindings(reviews: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
+    """Slots are local to one saved Critic call; never join by list position."""
+    candidates: dict[str, dict[str, set[str]]] = {}
+    for review in reviews:
+        task_id = str(review.get("critic_task_id") or "")
+        if not task_id:
+            continue
+        for row in review.get("step_assessments") or []:
+            if not isinstance(row, Mapping):
+                continue
+            slot, step_id = str(row.get("review_slot") or ""), str(row.get("step_id") or "")
+            if slot and step_id:
+                candidates.setdefault(task_id, {}).setdefault(slot, set()).add(step_id)
+    return {task: {slot: next(iter(ids)) for slot, ids in slots.items() if len(ids) == 1}
+            for task, slots in candidates.items()}
+
+
+def _bind_critic_slots(rows: Any, bindings: Mapping[str, str]) -> list[dict[str, Any]]:
+    return [{**row, "step_id": row.get("step_id") or bindings.get(str(row.get("review_slot") or ""), "")}
+            for row in rows if isinstance(row, Mapping)]
+
+
+def _apply_critic_step_review(
+    insights: dict[str, dict[str, Any]], payload: Mapping[str, Any], step_ids: Any,
+    *, task_id: str = "",
+) -> None:
+    """A missing final binding must not erase the previous explicit judgment."""
+    unavailable = payload.get("overall_assessment") == "unavailable"
+    for step_id in step_ids:
+        identity = str(step_id or "")
+        if not identity:
+            continue
+        previous = insights.get(identity, {})
+        historical = previous.get("historical_critic")
+        if previous.get("critic_verdict") in {"pass", "uncertain", "reject"}:
+            historical = {key: deepcopy(value) for key, value in previous.items()
+                          if key.startswith("critic_")}
+        insights[identity] = {
+            # An overall viable result is not an explicit pass for every step.
+            "critic_verdict": "unavailable" if unavailable else "reviewed",
+            "critic_reasons": [], "critic_suggested_revision": "",
+            "critic_condition_assessment": "", "critic_task_id": task_id,
+            **({"historical_critic": deepcopy(historical)} if unavailable and historical else {}),
+        }
+    _record_critic_step_insights(insights, payload)
+    for row in payload.get("step_assessments") or []:
+        if isinstance(row, Mapping) and row.get("step_id") in insights:
+            insights[row["step_id"]]["critic_task_id"] = task_id
+
+
+def _attach_historical_critic(branch: dict[str, Any], review: Mapping[str, Any]) -> None:
+    """Expose a prior review separately; never promote it to a current final verdict."""
+    if not review:
+        return
+    task_id = str(review.get("critic_task_id") or "")
+    branch["historical_critic"] = {
+        "critic_task_id": task_id,
+        "overall_assessment": str(review.get("overall_assessment") or ""),
+        "route_overall_evaluation": _clean_text(review.get("route_overall_evaluation")),
+        "route_level_risks": _text_values(review.get("route_level_risks")),
+    }
+    historical: dict[str, dict[str, Any]] = {}
+    _record_critic_step_insights(historical, review)
+    for step in branch.get("steps") or []:
+        saved = historical.get(str(step.get("step_id") or ""))
+        if saved and saved.get("critic_verdict") in {"pass", "uncertain", "reject"}:
+            step["historical_critic"] = {**deepcopy(saved), "critic_task_id": task_id}
 
 
 def _record_critic_step_insights(
@@ -2547,7 +3076,39 @@ def _valid_branch_index(value: Any) -> int | None:
         branch_index = int(value)
     except (TypeError, ValueError):
         return None
-    return branch_index if branch_index in {1, 2, 3} else None
+    return branch_index if branch_index > 0 else None
+
+
+def _step_branch_id(step_ids: Any) -> int | None:
+    """Return one branch id, ``None`` for absent, or ``0`` for conflicting."""
+
+    branch_ids = {
+        int(match.group(1))
+        for value in step_ids or ()
+        if (match := _STEP_BRANCH_RE.search(str(value or "")))
+        and int(match.group(1)) > 0
+    }
+    if not branch_ids:
+        return None
+    return next(iter(branch_ids)) if len(branch_ids) == 1 else 0
+
+
+def _resolved_branch_id(explicit_branch_id: int | None, step_ids: Any) -> int:
+    inferred = _step_branch_id(step_ids)
+    if inferred is not None:
+        return inferred
+    return explicit_branch_id or 0
+
+
+def _critic_context_branch_id(context: Mapping[str, Any]) -> int:
+    return _resolved_branch_id(
+        _valid_branch_index(context.get("branch_id")),
+        (
+            str(step.get("step_id") or "")
+            for step in context.get("steps") or ()
+            if isinstance(step, Mapping)
+        ),
+    )
 
 
 def _branch_and_call(task_id: str) -> tuple[int | None, int | None]:
@@ -2555,35 +3116,151 @@ def _branch_and_call(task_id: str) -> tuple[int | None, int | None]:
     if not match:
         return None, None
     branch = int(match.group(1))
-    return (branch if branch in {1, 2, 3} else None), int(match.group(2))
+    return (branch if branch > 0 else None), int(match.group(2))
+
+
+def _strategy_card_view(
+    value: Any,
+    index: int,
+    *,
+    fallback_query: Any = "",
+) -> dict[str, Any]:
+    raw = dict(value) if isinstance(value, Mapping) else {}
+    return {
+        "strategy_id": f"strategy-{index}",
+        "index": index,
+        "signature": _clean_text(
+            raw.get("strategy_signature")
+            or raw.get("key_forward_transformation")
+            or f"Strategy {index}"
+        ),
+        "query": _clean_text(
+            raw.get("key_forward_transformation")
+            or raw.get("strategy_query")
+            or fallback_query
+        ),
+        "critical_assumption": _clean_text(raw.get("critical_assumption")),
+        "critic_checkpoint": _clean_text(raw.get("critic_checkpoint")),
+        "status": "planning",
+        "step_count": 0,
+        "renderable_step_count": 0,
+        "unresolved_step_count": 0,
+        "model_calls": 0,
+        "strategy_refreshes": [],
+    }
+
+
+def _strategy_refresh_identity(task_id: str) -> tuple[int, bool]:
+    reviewed = _STRATEGY_REVIEW_RE.search(task_id)
+    if reviewed:
+        return int(reviewed.group(2)), True
+    generated = _STRATEGY_GENERATION_RE.search(task_id)
+    if generated:
+        return int(generated.group(2)), False
+    return 0, False
+
+
+def _upsert_strategy_refresh(
+    strategy: dict[str, Any],
+    card: Mapping[str, Any],
+    *,
+    task_id: str,
+    timestamp: str,
+) -> None:
+    """Keep one accepted local Strategy per milestone without replacing the root."""
+
+    milestone_index, reviewed = _strategy_refresh_identity(task_id)
+    entry = {
+        key: deepcopy(card.get(key))
+        for key in (
+            "strategy_id",
+            "index",
+            "signature",
+            "query",
+            "critical_assumption",
+            "critic_checkpoint",
+        )
+    }
+    entry.update(
+        milestone_index=milestone_index,
+        reviewed_by_strategy_critic=reviewed,
+        task_id=task_id,
+        timestamp=timestamp,
+    )
+    refreshes = strategy.setdefault("strategy_refreshes", [])
+    if milestone_index:
+        for offset, prior in enumerate(refreshes):
+            if int(prior.get("milestone_index") or 0) != milestone_index:
+                continue
+            if reviewed or not prior.get("reviewed_by_strategy_critic"):
+                refreshes[offset] = entry
+            return
+    if not any(
+        prior.get("query") == entry["query"]
+        and prior.get("critic_checkpoint") == entry["critic_checkpoint"]
+        for prior in refreshes
+    ):
+        refreshes.append(entry)
+
+
+def _matching_final_critic_review(
+    result: Mapping[str, Any],
+    records: Any,
+) -> dict[str, Any]:
+    """Bind the settled report to the exact persisted Critic input.
+
+    New reports carry ``critic_task_id``. Historical reports are joined by
+    their verbatim whole-route evaluation, then by branch, verdict, and route
+    length only when that leaves one unambiguous record.
+    """
+
+    all_records = [
+        dict(record)
+        for record in records
+        if isinstance(record, Mapping)
+    ]
+    task_id = str(result.get("critic_task_id") or "")
+    if task_id:
+        # The task id binds the persisted model input and output directly and
+        # therefore survives the historical stale branch label that this
+        # projection is repairing.
+        direct = [record for record in all_records if record.get("task_id") == task_id]
+        if len(direct) == 1:
+            return direct[0]
+    branch_index = _final_route_critic_branch_id(result)
+    candidates = [
+        record
+        for record in all_records
+        if int(record.get("branch_index") or 0) == branch_index
+    ]
+    evaluation = _clean_text(result.get("route_overall_evaluation"))
+    if evaluation:
+        exact = [
+            record
+            for record in candidates
+            if _clean_text(record.get("route_overall_evaluation")) == evaluation
+        ]
+        if len(exact) == 1:
+            return exact[0]
+    assessment = str(
+        result.get("overall_assessment") or result.get("critic_status") or ""
+    ).casefold()
+    step_count = len(result.get("reviewed_step_ids") or [])
+    compatible = [
+        record
+        for record in candidates
+        if str(record.get("overall_assessment") or "").casefold() == assessment
+        and int(record.get("step_count") or 0) == step_count
+    ]
+    return compatible[0] if len(compatible) == 1 else {}
 
 
 def _strategy_cards(value: Any) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for index, raw in enumerate(value or [], start=1):
-        if not isinstance(raw, Mapping) or index > 3:
+        if not isinstance(raw, Mapping):
             continue
-        rows.append(
-            {
-                "strategy_id": f"strategy-{index}",
-                "index": index,
-                "signature": _clean_text(
-                    raw.get("strategy_signature")
-                    or raw.get("key_forward_transformation")
-                    or f"Strategy {index}"
-                ),
-                "query": _clean_text(raw.get("strategy_query")),
-                "critical_assumption": _clean_text(
-                    raw.get("critical_assumption")
-                ),
-                "critic_checkpoint": _clean_text(raw.get("critic_checkpoint")),
-                "status": "planning",
-                "step_count": 0,
-                "renderable_step_count": 0,
-                "unresolved_step_count": 0,
-                "model_calls": 0,
-            }
-        )
+        rows.append(_strategy_card_view(raw, index))
     return rows
 
 
@@ -2600,6 +3277,7 @@ def _empty_strategy(index: int) -> dict[str, Any]:
         "renderable_step_count": 0,
         "unresolved_step_count": 0,
         "model_calls": 0,
+        "strategy_refreshes": [],
     }
 
 
@@ -2613,6 +3291,12 @@ def _empty_branch(index: int) -> dict[str, Any]:
         "chemical_critic_status": "",
         "route_overall_evaluation": "",
         "route_level_risks": [],
+        "final_critic_task_id": "",
+        "final_critic_strategy": {},
+        "route_classification": "",
+        "final_route_available": False,
+        "final_stock_closed": False,
+        "material_boundary_review": {},
     }
 
 
@@ -2654,6 +3338,7 @@ def _route_steps(value: Any) -> list[dict[str, Any]]:
                     mapped_key="mapped_product_smiles",
                 ),
                 "precursor_smiles": precursor_smiles,
+                **_reaction_participant_fields(raw),
                 "reaction_family": _clean_text(
                     raw.get("reaction_family")
                     or raw.get("transformation_hypothesis")
@@ -2675,6 +3360,37 @@ def _route_steps(value: Any) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _reaction_participant_fields(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep saved reaction inputs separate from the route expansion subset."""
+    audit = dict(raw.get("reactionjson_audit") or {})
+    complete = raw.get("reaction_input_smiles") or audit.get("reaction_input_smiles") or audit.get("precursor_smiles")
+    values = complete or mapped_reaction_input_smiles(raw) or reaction_input_smiles(raw)
+    inputs = [canonical_smiles(value) or value for value in values if value]
+    auxiliary = _route_structure_values(
+        raw, direct_key="auxiliary_reagent_smiles", mapped_key="mapped_auxiliary_reagent_smiles"
+    ) or _route_structure_values(
+        audit, direct_key="auxiliary_reagent_smiles", mapped_key="mapped_auxiliary_reagent_smiles"
+    )
+    # Some canonical lifecycle records keep these structures only in the scoped
+    # condition prediction. Read that explicit list, never parse condition prose.
+    for prediction in raw.get("condition_predictions") or []:
+        auxiliary.extend(prediction.get("structural_reagent_smiles") or [])
+    for value in auxiliary:
+        value = canonical_smiles(str(value)) or str(value)
+        if value and value not in inputs:
+            inputs.append(value)
+    remaining = [canonical_smiles(value) or value for value in _route_structure_values(
+        raw, direct_key="precursor_smiles", mapped_key="mapped_precursor_smiles"
+    )]
+    auxiliary = []
+    for value in inputs:
+        if value in remaining:
+            remaining.remove(value)
+        else:
+            auxiliary.append(value)
+    return {"reaction_input_smiles": inputs, "auxiliary_reagent_smiles": auxiliary} if inputs else {}
 
 
 def _text_values(value: Any) -> list[str]:
@@ -3085,6 +3801,7 @@ def _paper_matched_route_steps(
                 "product_smiles": product_smiles
                 or saved_product,
                 "precursor_smiles": precursor_smiles,
+                **_reaction_participant_fields({**prior, **remembered, "precursor_smiles": precursor_smiles}),
                 "reaction_family": _clean_text(
                     descriptor.get("reaction_family")
                     or prior.get("reaction_family")
@@ -3212,7 +3929,7 @@ def _phase(
         return "paused"
     if job_status in {"complete", "unresolved", "historical"}:
         return "complete" if job_status == "complete" else job_status
-    if strategy_count < 3:
+    if strategy_count == 0:
         return "strategy_generation"
     if critic_output_count:
         return "critic_review"
@@ -3290,9 +4007,11 @@ def render_molecule_svg(smiles: str) -> tuple[str, bool]:
         # against the SVG edge.  The route cards then expose that as a clipped O,
         # Cl, or stereochemical label.  Reserve a real safe frame for both the
         # bond geometry and the atom-label outlines.
-        options.padding = 0.14
+        options.padding = 0.10
         options.additionalAtomLabelPadding = 0.04
-        options.bondLineWidth = 1.7
+        options.bondLineWidth = 2.2
+        options.minFontSize = 14
+        options.maxFontSize = 28
         options.setHighlightColour((0.35, 0.75, 0.62))
         rdMolDraw2D.PrepareAndDrawMolecule(drawer, molecule)
         drawer.FinishDrawing()
@@ -3304,7 +4023,7 @@ def render_molecule_svg(smiles: str) -> tuple[str, bool]:
         )
         svg = re.sub(
             r"viewBox='0 0 320 200'",
-            "viewBox='-18 -18 356 236' data-autoplanner-frame='safe-v3'",
+            "viewBox='-6 -6 332 212' data-autoplanner-frame='clear-v4'",
             svg,
             count=1,
         )
@@ -3315,7 +4034,7 @@ def render_molecule_svg(smiles: str) -> tuple[str, bool]:
 
 @lru_cache(maxsize=2_048)
 def render_molecule_png(smiles: str) -> tuple[bytes, bool]:
-    """Render a fixed-pixel molecule image that cannot escape its viewport."""
+    """Render a 6x molecule image for high-density bitmap consumers."""
 
     if not smiles:
         return _molecule_placeholder_png("Waiting for SMILES"), False
@@ -3327,12 +4046,14 @@ def render_molecule_png(smiles: str) -> tuple[bytes, bool]:
         molecule = Chem.MolFromSmiles(smiles)
         if molecule is None:
             return _molecule_placeholder_png("SMILES unavailable"), False
-        drawer = rdMolDraw2D.MolDraw2DCairo(640, 400)
+        drawer = rdMolDraw2D.MolDraw2DCairo(1920, 1200)
         options = drawer.drawOptions()
         options.clearBackground = True
-        options.padding = 0.14
+        options.padding = 0.10
         options.additionalAtomLabelPadding = 0.04
-        options.bondLineWidth = 2.2
+        options.bondLineWidth = 13.2
+        options.minFontSize = 84
+        options.maxFontSize = 168
         rdMolDraw2D.PrepareAndDrawMolecule(drawer, molecule)
         drawer.FinishDrawing()
         return bytes(drawer.GetDrawingText()), True

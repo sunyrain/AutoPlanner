@@ -12,6 +12,11 @@ from rdkit.Chem.EnumerateStereoisomers import (
     StereoEnumerationOptions,
 )
 
+if __package__:
+    from .stereochemistry import stereo_molecule, tetrahedral_centers
+else:  # Standalone, isolated chemistry MCP bundle.
+    from stereochemistry import stereo_molecule, tetrahedral_centers
+
 
 def inspect_mapped_smiles(
     mapped_smiles: str,
@@ -25,7 +30,7 @@ def inspect_mapped_smiles(
     molecule = Chem.MolFromSmiles(str(mapped_smiles or ""))
     if molecule is None:
         return {"ok": False, "reason": "invalid_smiles"}
-    Chem.AssignStereochemistry(molecule, cleanIt=True, force=True)
+    stereo = stereo_molecule(molecule)
     requested = {int(value) for value in map_ids if int(value) > 0}
     atom_by_index = {atom.GetIdx(): atom for atom in molecule.GetAtoms()}
     rings = [
@@ -58,11 +63,7 @@ def inspect_mapped_smiles(
             }
         )
     centers: list[dict[str, Any]] = []
-    for atom_index, label in Chem.FindMolChiralCenters(
-        molecule,
-        includeUnassigned=True,
-        includeCIP=True,
-    ):
+    for atom_index, label in tetrahedral_centers(molecule):
         atom = atom_by_index[int(atom_index)]
         map_idx = int(atom.GetAtomMapNum())
         if requested and map_idx not in requested:
@@ -81,7 +82,11 @@ def inspect_mapped_smiles(
         map_b = int(bond.GetEndAtom().GetAtomMapNum())
         if requested and not ({map_a, map_b} & requested):
             continue
-        stereo = str(bond.GetStereo()).replace("STEREO", "")
+        stereo_bond = stereo.GetBondWithIdx(bond.GetIdx())
+        stereo_label = (
+            stereo_bond.GetProp("_CIPCode") if stereo_bond.HasProp("_CIPCode")
+            else str(stereo_bond.GetStereo()).replace("STEREO", "")
+        )
         bonds.append(
             {
                 "map_a": map_a,
@@ -89,16 +94,16 @@ def inspect_mapped_smiles(
                 "order": float(bond.GetBondTypeAsDouble()),
                 "aromatic": bool(bond.GetIsAromatic()),
                 "in_ring": bool(bond.IsInRing()),
-                "stereo": stereo or "NONE",
+                "stereo": stereo_label or "NONE",
             }
         )
-        if stereo in {"", "NONE"}:
+        if stereo_label in {"", "NONE"}:
             continue
         stereo_bonds.append(
             {
                 "map_a": map_a,
                 "map_b": map_b,
-                "stereo": stereo,
+                "stereo": stereo_label,
             }
         )
     result: dict[str, Any] = {

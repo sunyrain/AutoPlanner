@@ -2055,6 +2055,22 @@ def test_v4_async_job_separates_execution_end_from_scientific_acceptance() -> No
     assert value["progress"]["delivery"]["proof_closure_complete"] is False
 
 
+@pytest.mark.parametrize("model,expected", [(None, "gpt-6-astra"), ("gpt-5.6-sol", "gpt-5.6-sol")])
+def test_web_request_uses_current_model_default_and_respects_explicit_choice(monkeypatch, model, expected):
+    class RecordingGateway:
+        def solve_target(self, **kwargs):
+            return {"model": kwargs["config"].model, "effort": kwargs["config"].reasoning_effort}
+
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.target_solve_request.standard_stock_catalog_builder", lambda: None,
+    )
+    result = solve_target_request(RecordingGateway(), {
+        "target_smiles": "CCO", "run_scope": "interactive",
+        "execution_profile": "self_correcting_sequential", "model": model,
+    })
+    assert result == {"model": expected, "effort": "medium"}
+
+
 def test_interactive_paper_request_does_not_infer_stock_from_native_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -1,0 +1,51 @@
+name,smiles,full_inchikey,pubchem_cid,identity_url
+water,O,XLYOFNOQVPJJNP-UHFFFAOYSA-N,962,https://pubchem.ncbi.nlm.nih.gov/compound/962
+hydrogen,[H][H],UFHFLCQGNIYNRP-UHFFFAOYSA-N,783,https://pubchem.ncbi.nlm.nih.gov/compound/783
+oxygen,O=O,MYMOFIZGZYHOMD-UHFFFAOYSA-N,977,https://pubchem.ncbi.nlm.nih.gov/compound/977
+nitrogen,N#N,IJGRMHOSHXDMSA-UHFFFAOYSA-N,947,https://pubchem.ncbi.nlm.nih.gov/compound/947
+carbon dioxide,O=C=O,CURLTUGMZLYLDI-UHFFFAOYSA-N,280,https://pubchem.ncbi.nlm.nih.gov/compound/280
+carbon monoxide,[C-]#[O+],UGFAIRIUMAVXCW-UHFFFAOYSA-N,281,https://pubchem.ncbi.nlm.nih.gov/compound/281
+ammonia,N,QGZKDVFQNNGYKY-UHFFFAOYSA-N,222,https://pubchem.ncbi.nlm.nih.gov/compound/222
+methane,C,VNWKTOKETHGBQD-UHFFFAOYSA-N,297,https://pubchem.ncbi.nlm.nih.gov/compound/297
+ethane,CC,OTMSDBZUPAUEDD-UHFFFAOYSA-N,6324,https://pubchem.ncbi.nlm.nih.gov/compound/6324
+ethylene,C=C,VGGSQFUCUMXWEO-UHFFFAOYSA-N,6325,https://pubchem.ncbi.nlm.nih.gov/compound/6325
+acetylene,C#C,HSFWRNGVRCDJHI-UHFFFAOYSA-N,6326,https://pubchem.ncbi.nlm.nih.gov/compound/6326
+propane,CCC,ATUOYWHBWRKTHZ-UHFFFAOYSA-N,6334,https://pubchem.ncbi.nlm.nih.gov/compound/6334
+propylene,C=CC,QQONPFPTGQHPMA-UHFFFAOYSA-N,8252,https://pubchem.ncbi.nlm.nih.gov/compound/8252
+methanol,CO,OKKJLVBELUTLKV-UHFFFAOYSA-N,887,https://pubchem.ncbi.nlm.nih.gov/compound/887
+ethanol,CCO,LFQSCWFLJHTTHZ-UHFFFAOYSA-N,702,https://pubchem.ncbi.nlm.nih.gov/compound/702
+formaldehyde,C=O,WSFSSNUMVMOOMR-UHFFFAOYSA-N,712,https://pubchem.ncbi.nlm.nih.gov/compound/712
+acetaldehyde,CC=O,IKHGUXGNUITLKF-UHFFFAOYSA-N,177,https://pubchem.ncbi.nlm.nih.gov/compound/177
+formic acid,O=CO,BDAGIHXWWSANSR-UHFFFAOYSA-N,284,https://pubchem.ncbi.nlm.nih.gov/compound/284
+acetonitrile,CC#N,WEVYAHXRMPXWCK-UHFFFAOYSA-N,6342,https://pubchem.ncbi.nlm.nih.gov/compound/6342
+dichloromethane,ClCCl,YMWUJEATGCHHMB-UHFFFAOYSA-N,6344,https://pubchem.ncbi.nlm.nih.gov/compound/6344
+chloroform,ClC(Cl)Cl,HEDRZPFGACZZDS-UHFFFAOYSA-N,6212,https://pubchem.ncbi.nlm.nih.gov/compound/6212
+carbon disulfide,S=C=S,QGJOPFRUJISHPQ-UHFFFAOYSA-N,6348,https://pubchem.ncbi.nlm.nih.gov/compound/6348
+dimethyl ether,COC,LCGLNKUTAGEVQW-UHFFFAOYSA-N,8254,https://pubchem.ncbi.nlm.nih.gov/compound/8254
+hydrogen peroxide,OO,MHAJPDPJQMAIIY-UHFFFAOYSA-N,784,https://pubchem.ncbi.nlm.nih.gov/compound/784
+hydrogen chloride,Cl,VEXZGXHMUGYJMC-UHFFFAOYSA-N,313,https://pubchem.ncbi.nlm.nih.gov/compound/313
+hydrogen bromide,Br,CPELXLSAUQHCOX-UHFFFAOYSA-N,260,https://pubchem.ncbi.nlm.nih.gov/compound/260
+hydrogen iodide,I,XMBWDFGMSWQBCA-UHFFFAOYSA-N,24841,https://pubchem.ncbi.nlm.nih.gov/compound/24841
+chlorine,ClCl,KZBUYRJDOAKODT-UHFFFAOYSA-N,24526,https://pubchem.ncbi.nlm.nih.gov/compound/24526
+bromine,BrBr,GDTBXPJZTBHREO-UHFFFAOYSA-N,24408,https://pubchem.ncbi.nlm.nih.gov/compound/24408
+iodine,II,PNDPGZBMCMUPRI-UHFFFAOYSA-N,807,https://pubchem.ncbi.nlm.nih.gov/compound/807
+sulfur dioxide,O=S=O,RAHZWNYVWXNFOC-UHFFFAOYSA-N,1119,https://pubchem.ncbi.nlm.nih.gov/compound/1119
+sulfuric acid,O=S(=O)(O)O,QAOWNCQODCNURD-UHFFFAOYSA-N,1118,https://pubchem.ncbi.nlm.nih.gov/compound/1118
+nitric acid,O=[N+]([O-])O,GRYLNZFGIOXLOG-UHFFFAOYSA-N,944,https://pubchem.ncbi.nlm.nih.gov/compound/944
+phosphoric acid,O=P(O)(O)O,NBIIXXVUZAFLBC-UHFFFAOYSA-N,1004,https://pubchem.ncbi.nlm.nih.gov/compound/1004
+hydrazine,NN,OAKJQQAXSVQMHS-UHFFFAOYSA-N,9321,https://pubchem.ncbi.nlm.nih.gov/compound/9321
+hydroxylamine,NO,AVXURJPOCDRRFD-UHFFFAOYSA-N,787,https://pubchem.ncbi.nlm.nih.gov/compound/787
+methylamine,CN,BAVYZALUXZFZLV-UHFFFAOYSA-N,6329,https://pubchem.ncbi.nlm.nih.gov/compound/6329
+dimethylamine,CNC,ROSDSFDQCJNGOL-UHFFFAOYSA-N,674,https://pubchem.ncbi.nlm.nih.gov/compound/674
+ethylamine,CCN,QUSNBJAOOMFDIB-UHFFFAOYSA-N,6341,https://pubchem.ncbi.nlm.nih.gov/compound/6341
+chloromethane,CCl,NEHMKBQYUWJMIP-UHFFFAOYSA-N,6327,https://pubchem.ncbi.nlm.nih.gov/compound/6327
+bromomethane,CBr,GZUXJHMPEANEGY-UHFFFAOYSA-N,6323,https://pubchem.ncbi.nlm.nih.gov/compound/6323
+iodomethane,CI,INQOMBQAUSQDDS-UHFFFAOYSA-N,6328,https://pubchem.ncbi.nlm.nih.gov/compound/6328
+sodium hydroxide,[Na+].[OH-],HEMHJVSKTPXQMS-UHFFFAOYSA-M,14798,https://pubchem.ncbi.nlm.nih.gov/compound/14798
+potassium hydroxide,[K+].[OH-],KWYUFKZDYYNOTN-UHFFFAOYSA-M,14797,https://pubchem.ncbi.nlm.nih.gov/compound/14797
+sodium chloride,[Cl-].[Na+],FAPWRFPIFSIZLT-UHFFFAOYSA-M,5234,https://pubchem.ncbi.nlm.nih.gov/compound/5234
+ammonium chloride,[Cl-].[NH4+],NLXLAEXVIDQMFP-UHFFFAOYSA-N,25517,https://pubchem.ncbi.nlm.nih.gov/compound/25517
+sodium borohydride,[BH4-].[Na+],YOQDYZUWIQVZSF-UHFFFAOYSA-N,4311764,https://pubchem.ncbi.nlm.nih.gov/compound/4311764
+sodium carbonate,O=C([O-])[O-].[Na+].[Na+],CDBYLPFSWZWCQE-UHFFFAOYSA-L,10340,https://pubchem.ncbi.nlm.nih.gov/compound/10340
+sodium bicarbonate,O=C([O-])O.[Na+],UIIMBOGNXHQVGW-UHFFFAOYSA-M,516892,https://pubchem.ncbi.nlm.nih.gov/compound/516892
+potassium carbonate,O=C([O-])[O-].[K+].[K+],BWHMMNNQKKPAPP-UHFFFAOYSA-L,11430,https://pubchem.ncbi.nlm.nih.gov/compound/11430

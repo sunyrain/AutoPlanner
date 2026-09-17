@@ -21,6 +21,11 @@ from cascade_planner.application.condition_predictions import (
 from cascade_planner.application.proof_policy import (
     stock_boundary_matches,
 )
+from cascade_planner.application.reaction_inputs import (
+    forward_reaction_smiles,
+    mapped_reaction_input_smiles,
+    reaction_input_smiles,
+)
 from cascade_planner.application.reaction_proof_versions import (
     CURRENT_REACTION_VALIDATOR_VERSION,
     active_reaction_proofs,
@@ -54,6 +59,7 @@ from cascade_planner.orchestration.retrosynthesis_service import (
 from cascade_planner.source_locators import (
     traceable_source_refs_in_text,
 )
+from cascade_planner.harness.reaction_step_verifier import _audit_mapped_reaction
 
 
 StockCatalogBuilder = Callable[..., Mapping[str, Any]]
@@ -265,6 +271,42 @@ PREPARED_MATERIALIZED_EDGE_VALIDATION_SCHEMA = (
 )
 
 
+def _host_mapping_for_validation(edge: Mapping[str, Any]) -> str:
+    """Retain endpoint-consistent Host identities; chemistry is audited below."""
+    audit = dict(edge.get("reactionjson_audit") or {})
+    product = str(edge.get("mapped_product_smiles") or audit.get("mapped_product_smiles") or "")
+    reactants = mapped_reaction_input_smiles(edge)
+    if not product or not reactants:
+        return ""
+    mapped = ".".join(reactants) + ">>" + product
+    atoms, _ = _audit_mapped_reaction(
+        mapped, expected_product=str(edge.get("product_smiles") or ""),
+        expected_reactants=tuple(reaction_input_smiles(edge)),
+    )
+    # Missing donor atoms remain a validation failure, not a reason to remap
+    # the substrate. Only stale/incomplete identities need the mapper fallback.
+    if not all(atoms.get(key) is True for key in (
+        "mapped_product_matches", "mapped_reactants_match", "atom_maps_complete",
+        "atom_maps_unique", "mapped_elements_preserved",
+    )):
+        return ""
+    # The verifier's major-product equation represents departing atoms as
+    # unmapped. Keep every product identity from Host; remove labels only on
+    # atoms absent from that product, without changing their structure. This
+    # avoids counting internal protecting-group bonds as reaction-centre edits.
+    from rdkit import Chem
+
+    product_maps = {atom.GetAtomMapNum() for atom in Chem.MolFromSmiles(product).GetAtoms()}
+    inputs = []
+    for value in reactants:
+        mol = Chem.MolFromSmiles(value)
+        for atom in mol.GetAtoms():
+            if atom.GetAtomMapNum() not in product_maps:
+                atom.SetAtomMapNum(0)
+        inputs.append(Chem.MolToSmiles(mol, canonical=False, isomericSmiles=True))
+    return ".".join(inputs) + ">>" + product
+
+
 def prepare_materialized_edge_validation(
     service: RetrosynthesisCampaignService,
     *,
@@ -301,16 +343,20 @@ def prepare_materialized_edge_validation(
         key=lambda edge: str(edge.get("edge_id") or ""),
     )
     reactions = {
-        str(edge["edge_id"]): (
-            ".".join(str(value) for value in edge.get("precursor_smiles") or [])
-            + ">>"
-            + str(edge.get("product_smiles") or "")
-        )
+        str(edge["edge_id"]): forward_reaction_smiles(edge)
         for edge in pending
     }
+    selected = pending[:max(0, max_reactions)]
+    host_mappings = {
+        reactions[str(edge["edge_id"])]: mapped
+        for edge in selected
+        if (mapped := _host_mapping_for_validation(edge))
+    }
+    unmapped = [reactions[str(edge["edge_id"])] for edge in selected
+                if reactions[str(edge["edge_id"])] not in host_mappings]
     try:
         mapping = map_reactions_locally(
-            reactions.values(),
+            unmapped,
             mapper=atom_mapper,
             config=ReactionMappingConfig(max_reactions=max_reactions),
         )
@@ -318,14 +364,14 @@ def prepare_materialized_edge_validation(
         mapping = {
             "schema_version": "local_reaction_mapping_report.v1",
             "backend": "rxnmapper",
-            "requested_count": len(reactions),
+            "requested_count": len(unmapped),
             "mapped_count": 0,
-            "failure_count": len(reactions),
+            "failure_count": len(unmapped),
             "truncated": False,
             "mapped_reactions": {},
             "failures": [
                 {"reaction_smiles": value, "reason": str(exc)}
-                for value in reactions.values()
+                for value in unmapped
             ],
             "elapsed_s": 0.0,
             "semantics": {
@@ -334,7 +380,17 @@ def prepare_materialized_edge_validation(
                 "mapping_is_not_reaction_proof": True,
             },
         }
-    mapped = dict(mapping.get("mapped_reactions") or {})
+    mapped = {**dict(mapping.get("mapped_reactions") or {}), **host_mappings}
+    mapping = {
+        **mapping,
+        "backend": ("host_replay+" + str(mapping.get("backend") or "mapper")
+                    if host_mappings and unmapped else "host_replay" if host_mappings
+                    else mapping.get("backend")),
+        "requested_count": len(reactions),
+        "mapped_count": len(mapped),
+        "truncated": len(selected) < len(pending) or bool(mapping.get("truncated")),
+        "mapped_reactions": mapped,
+    }
     commands: list[WorkerCommand] = []
     edge_by_id = {str(edge["edge_id"]): edge for edge in pending}
     for edge_id, reaction in reactions.items():
@@ -377,6 +433,8 @@ def prepare_materialized_edge_validation(
                         "edge_digest": edge["edge_digest"],
                         "product_smiles": edge["product_smiles"],
                         "precursor_smiles": edge["precursor_smiles"],
+                        "reaction_input_smiles": reaction_input_smiles(edge),
+                        "auxiliary_reagent_smiles": list(edge.get("auxiliary_reagent_smiles") or []),
                         "reaction_operations": [
                             dict(value)
                             for value in edge.get("reaction_operations") or []
@@ -540,13 +598,24 @@ def commit_materialized_edge_validation(
     }
     rejection_diagnostics: list[dict[str, Any]] = []
     rejection_reason_counts: Counter[str] = Counter()
+    unpublished_reasons: dict[str, set[str]] = {}
+    publication_rejections = {
+        str(row.get("proposal_id") or ""): row.get("reasons") or []
+        for row in applied.get("rejected") or [] if isinstance(row, Mapping)
+    }
+    for result in worker_results:
+        payload = dict(result.get("payload") or {})
+        edge_id = str(payload.get("candidate_id") or "")
+        if edge_id in edge_by_id:
+            unpublished_reasons.setdefault(edge_id, set()).update(
+                str(reason) for reason in [
+                    *(result.get("failure_reasons") or []),
+                    *publication_rejections.get(str(result.get("command_id") or ""), []),
+                ] if str(reason).strip()
+            )
     for edge_id in rejected_ids:
         edge = dict(updated["edges"].get(edge_id) or edge_by_id.get(edge_id) or {})
-        reaction = reactions.get(edge_id) or (
-            ".".join(str(value) for value in edge.get("precursor_smiles") or [])
-            + ">>"
-            + str(edge.get("product_smiles") or "")
-        )
+        reaction = reactions.get(edge_id) or forward_reaction_smiles(edge)
         proofs = active_reaction_proofs(edge.get("reaction_proofs") or [])
         reasons = {
             str(reason)
@@ -555,6 +624,8 @@ def commit_materialized_edge_validation(
             for reason in proof.get("reasons") or []
             if str(reason).strip()
         }
+        if not proofs:
+            reasons.update(unpublished_reasons.get(edge_id, ()))
         if reaction not in mapped:
             reasons.add(mapping_failures.get(reaction) or "reaction_mapping_missing")
         if not reasons:
@@ -643,19 +714,28 @@ def repair_rejected_precursor_typos(
         edge = dict(dict(graph.get("edges") or {}).get(str(edge_id)) or {})
         if not edge:
             continue
-        reaction = (
-            ".".join(str(value) for value in edge.get("precursor_smiles") or [])
-            + ">>"
-            + str(edge.get("product_smiles") or "")
-        )
+        reaction = forward_reaction_smiles(edge)
         repair = propose_precursor_repair(
             mapped_reaction_smiles=str(mapped.get(reaction) or ""),
             product_smiles=str(edge.get("product_smiles") or ""),
-            precursor_smiles=edge.get("precursor_smiles") or [],
+            # Repair only route precursors; the mapper still sees every participant.
+            precursor_smiles=edge.get("precursor_smiles") or (),
         )
         repairs.append({"edge_id": edge_id, **repair})
         if repair.get("accepted") is not True:
             continue
+        # Preserve the full-input multiset without promoting auxiliaries to leaves.
+        auxiliary_inputs = list(reaction_input_smiles(edge))
+        for precursor in edge.get("precursor_smiles") or ():
+            index = next(
+                (
+                    i for i, value in enumerate(auxiliary_inputs)
+                    if canonical_smiles(value) == canonical_smiles(precursor)
+                ),
+                None,
+            )
+            if index is not None:
+                auxiliary_inputs.pop(index)
         origins = [
             dict(value)
             for value in edge.get("origin_records") or []
@@ -677,6 +757,10 @@ def repair_rejected_precursor_typos(
                 {
                     "product_smiles": repair["product_smiles"],
                     "precursor_smiles": repair["repaired_precursor_smiles"],
+                    "reaction_input_smiles": [
+                        *repair["repaired_precursor_smiles"], *auxiliary_inputs,
+                    ],
+                    "auxiliary_reagent_smiles": auxiliary_inputs,
                     "origin_kind": "host_product_grounded_repair",
                     "origin_ref": str(edge_id),
                     "proposal_id": (

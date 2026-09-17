@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from cascade_planner.agent.codex_worker import DEFAULT_CODEX_REASONING_EFFORT
+
 
 TARGET_PROFILE_DEFAULTS = {
     "fast": {
@@ -100,8 +102,8 @@ SYNTHEX_MATCHED_PROFILE_DEFAULTS = {
     # prior.  AutoPlanner's enzyme-biased proposal is measured separately.
     "strategy_portfolio_mode": "paper_independent",
     "target_chemenzy_baseline": False,
-    "model": "gpt-5.6-sol",
-    "reasoning_effort": "medium",
+    "model": "gpt-6-astra",
+    "reasoning_effort": DEFAULT_CODEX_REASONING_EFFORT,
     "strategy_branches": 3,
     # Strategy cards are still selected serially so each later card can be
     # checked against the already accepted portfolio.  Once frozen, the three

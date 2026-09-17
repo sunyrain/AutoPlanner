@@ -217,7 +217,34 @@ def test_assembled_route_persists_host_assigned_add_group_maps_across_steps() ->
 
     assert replayed[0].reaction_operations == first.reaction_operations
     assert replayed[1].mapped_product_smiles == "[CH3:1][OH:32]"
-    assert replayed[1].precursor_smiles == ("C", "O")
+    assert replayed[1].precursor_smiles == ("C",)
+    assert replayed[1].reaction_input_smiles == ("C", "O")
+    assert replayed[1].auxiliary_reagent_smiles == ("O",)
+
+
+def test_collision_feedback_survives_builder_projection_and_recovers_without_relabeling():
+    from cascade_planner.application.reactionjson_replay import reactionjson_failure_focus
+    from cascade_planner.orchestration.sequential_strategy_director import _compact_builder_rejection
+
+    compiler = RouteJSONCompiler()
+    operations = [{"op": "remove_group", "map_indices": [2]},
+                  {"op": "add_group", "map_idx": 1, "fragment_smiles": "[*][OH:31]"}]
+    with pytest.raises(ReactionJsonReplayError, match="reactionjson_fragment_map_collision") as caught:
+        compiler.compile_step(mapped_product_smiles="[CH3:1][Br:2]", operations=operations,
+                              reserved_atom_maps=(31,))
+    failure = reactionjson_failure_focus(caught.value)
+    projected = _compact_builder_rejection({"reason": "candidate_does_not_extend_target_rooted_route",
+                                            "routejson_replay_validation": {"compiler_error": str(caught.value), **failure}})
+    diagnostic = projected["replay_diagnostic"]
+    assert diagnostic["colliding_atom_map"] == 31
+    assert diagnostic["fresh_atom_map_start"] == 32
+    assert "Leave new atoms unmapped" in diagnostic["required_repair"]
+    operations[1] = {**operations[1], "fragment_smiles": "[*]O"}
+    resolved = compiler.compile_step(mapped_product_smiles="[CH3:1][Br:2]", operations=operations,
+                                     reserved_atom_maps=(31,))
+    assert resolved.mapped_product_smiles == "[CH3:1][Br:2]"
+    assert resolved.mapped_precursor_smiles == ("[CH3:1][OH:32]",)
+    assert resolved.reaction_operations[1]["fragment_smiles"] == "*[OH:32]"
 
 
 def test_route_graph_replay_inherits_repair_reserved_atom_map_namespace() -> None:
@@ -248,7 +275,80 @@ def test_route_graph_replay_inherits_repair_reserved_atom_map_namespace() -> Non
 
     assert replayed[0].reaction_operations[-1]["fragment_smiles"] == "*[OH:32]"
     assert replayed[1].mapped_product_smiles == "[CH3:1][OH:32]"
-    assert replayed[1].precursor_smiles == ("C", "O")
+    assert replayed[1].precursor_smiles == ("C",)
+    assert replayed[1].reaction_input_smiles == ("C", "O")
+    assert replayed[1].auxiliary_reagent_smiles == ("O",)
+
+
+def test_target_atom_lineage_keeps_reagent_out_of_route_frontier() -> None:
+    materialized = RouteJSONCompiler().compile_step(
+        mapped_product_smiles="[CH3:1][Cu:36]",
+        operations=[
+            {"op": "break_bond", "map_a": 1, "map_b": 36},
+            {
+                "op": "add_group",
+                "map_idx": 1,
+                "fragment_smiles": "*[Li:40]",
+            },
+            {
+                "op": "add_group",
+                "map_idx": 36,
+                "fragment_smiles": "*[I:41]",
+            },
+        ],
+        expected_product_smiles="C[Cu]",
+        target_atom_maps={1},
+    )
+
+    assert materialized.precursor_smiles == ("[Li]C",)
+    assert materialized.reaction_input_smiles == ("[Cu]I", "[Li]C")
+    assert materialized.auxiliary_reagent_smiles == ("[Cu]I",)
+    assert materialized.mapped_precursor_smiles == ("[CH3:1][Li:40]",)
+    assert materialized.mapped_auxiliary_reagent_smiles == ("[Cu:36][I:41]",)
+    assert materialized.audit["reaction_component_ledger"] == {
+        "schema_version": "reaction_component_ledger.v1",
+        "authority": "host_target_atom_map_lineage",
+        "target_atom_maps": [1],
+        "route_precursor_indices": [1],
+        "auxiliary_reagent_indices": [0],
+        "route_precursor_count": 1,
+        "auxiliary_reagent_count": 1,
+        "zero_target_atom_components_never_enter_route_frontier": True,
+        "component_role_grants_no_reaction_or_stock_proof": True,
+    }
+
+
+def test_target_atom_lineage_retains_every_target_contributing_partner() -> None:
+    materialized = RouteJSONCompiler().compile_step(
+        mapped_product_smiles="[CH3:1][CH2:2][CH2:3][OH:4]",
+        operations=[{"op": "break_bond", "map_a": 2, "map_b": 3}],
+        expected_product_smiles="CCCO",
+        target_atom_maps={1, 2, 3, 4},
+    )
+
+    assert materialized.precursor_smiles == ("CC", "CO")
+    assert materialized.reaction_input_smiles == materialized.precursor_smiles
+    assert materialized.auxiliary_reagent_smiles == ()
+
+
+def test_target_contributing_acetaldehyde_is_never_reclassified_as_reagent() -> None:
+    materialized = RouteJSONCompiler().compile_step(
+        mapped_product_smiles="[CH3:1][C@@H:2]([OH:3])[CH2:4][CH3:5]",
+        operations=[
+            {"op": "break_bond", "map_a": 2, "map_b": 4},
+            {
+                "op": "change_bond_order",
+                "map_a": 2,
+                "map_b": 3,
+                "delta": 1,
+            },
+        ],
+        expected_product_smiles="CCC(C)O",
+        target_atom_maps={1, 2, 3, 4, 5},
+    )
+
+    assert set(materialized.precursor_smiles) == {"CC", "CC=O"}
+    assert materialized.auxiliary_reagent_smiles == ()
 
 
 def test_compile_route_graph_preserves_sibling_frontiers_and_map_namespaces() -> None:

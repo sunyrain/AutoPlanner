@@ -25,6 +25,7 @@ from cascade_planner.application.run_kernel import (
     RunLimits,
     RunRevision,
     RunSpec,
+    project_observed_model_totals,
 )
 from cascade_planner.application.unified_campaign_spec import (
     CampaignResourceBudget,
@@ -95,6 +96,87 @@ def test_new_run_spec_embeds_unified_campaign_contract() -> None:
     assert "target_name" not in row["campaign_spec"]
     assert "acceptance" not in row["campaign_spec"]
     assert RunSpec.from_dict(row).to_dict() == row
+
+
+def test_model_token_reservations_protect_review_and_survive_reopen(tmp_path):
+    kernel = _kernel(tmp_path, model_invocations=8, output_tokens=100)
+    kernel.start()
+    request = dict(task_id="builder", kind="model", idempotency_key="builder",
+                   input_revision=0, uses_model=True,
+                   metadata={"model_budget_reservation": {"output_tokens": 40},
+                             "model_budget_protection": {"output_tokens": 60, "model_invocations": 1}})
+    kernel.reserve_task(**request)
+    kernel.reserve_task(**request)  # Idempotent, not another reservation.
+    reopened = RunKernel(tmp_path / "runtime", tmp_path / "run", spec=kernel.spec)
+    with pytest.raises(RunKernelBudgetError, match="output_token_reservation"):
+        reopened.reserve_task(**{**request, "task_id": "second", "idempotency_key": "second"})
+    kernel.settle_task(task_id="builder", idempotency_key="builder:done", status="completed",
+                       model_usage={"model_invocations": 1, "output_tokens": 35})
+    with pytest.raises(RunKernelBudgetError, match="output_token_reservation"):
+        kernel.reserve_task(**{**request, "task_id": "extra", "idempotency_key": "extra"})
+    kernel.reserve_task(task_id="final-critic", kind="model", idempotency_key="final-critic",
+                        input_revision=0, uses_model=True,
+                        metadata={"model_budget_reservation": {"output_tokens": 60}})
+    # Settlement reports reality even when a provider exceeds the estimate.
+    kernel.settle_task(task_id="final-critic", idempotency_key="critic:done", status="completed",
+                       model_usage={"model_invocations": 1, "output_tokens": 70})
+    assert kernel.state.model_totals["output_tokens"] == 105
+
+
+def test_unknown_model_usage_remains_a_hold_after_kernel_replay(tmp_path):
+    kernel = _kernel(tmp_path, model_invocations=8, output_tokens=100)
+    kernel.start()
+    kernel.reserve_task(task_id="timeout", kind="model", idempotency_key="timeout",
+                        input_revision=0, uses_model=True,
+                        metadata={"model_budget_reservation": {"output_tokens": 70}})
+    kernel.settle_task(task_id="timeout", idempotency_key="timeout:done", status="failed",
+                       model_usage={"model_invocations": 1, "unknown_output_tokens_held": 70})
+    reopened = RunKernel(tmp_path / "runtime", tmp_path / "run", spec=kernel.spec)
+    assert reopened.state.model_totals["output_tokens"] == 0
+    assert reopened.state.model_totals["unknown_output_tokens_held"] == 70
+    with pytest.raises(RunKernelBudgetError, match="output_token_reservation"):
+        reopened.reserve_task(task_id="next", kind="model", idempotency_key="next",
+                               input_revision=0, uses_model=True,
+                               metadata={"model_budget_reservation": {"output_tokens": 31}})
+
+
+def test_action_usage_aggregates_known_cost_and_optional_timeout_holds(tmp_path):
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    for task_id, usage in (
+        ("known", {"model_invocations": 1, "input_tokens": 90, "output_tokens": 12}),
+        ("timeout", {"unknown_input_tokens_held": 150, "unknown_output_tokens_held": 30}),
+    ):
+        kernel.reserve_task(task_id=task_id, kind="model", idempotency_key=task_id,
+            input_revision=0, uses_model=True,
+            metadata={"campaign_action_execution_id": "action-with-timeout"})
+        kernel.settle_task(task_id=task_id, idempotency_key=task_id + ":done",
+            status="completed" if task_id == "known" else "failed", model_usage=usage)
+    reopened = RunKernel(tmp_path / "runtime", tmp_path / "run", spec=kernel.spec)
+    for current in (kernel, reopened):
+        usage = current.action_resource_usage("action-with-timeout")["model_usage"]
+        assert usage["input_tokens"] == 90
+        assert usage["output_tokens"] == 12
+        assert usage["unknown_input_tokens_held"] == 150
+        assert usage["unknown_output_tokens_held"] == 30
+
+
+def test_concurrent_model_token_reservations_are_checked_at_append(tmp_path):
+    kernel = _kernel(tmp_path, model_invocations=8, output_tokens=100)
+    kernel.start()
+
+    def reserve(index):
+        try:
+            kernel.reserve_task(task_id=f"call-{index}", kind="model", idempotency_key=f"call-{index}",
+                                input_revision=0, uses_model=True,
+                                metadata={"model_budget_reservation": {"output_tokens": 60}})
+            return True
+        except RunKernelBudgetError:
+            return False
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(reserve, range(2))) == [False, True]
+    assert len(kernel.state.in_flight_tasks) == 1
 
 
 def test_program_and_experiment_task_budgets_are_independent_and_replayable(
@@ -248,6 +330,32 @@ def test_explicit_model_budget_extension_is_durable_and_preserves_usage(
     assert reopened.task_lifecycle("model-2")["status"] == "in_flight"
 
 
+def test_settlement_preserves_token_details_across_event_replay(tmp_path: Path) -> None:
+    from cascade_planner.orchestration.global_campaign_director import normalize_director_usage
+
+    kernel = _kernel(tmp_path, model_invocations=2)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="usage-detail", kind="model", idempotency_key="reserve-usage-detail",
+        input_revision=0, uses_model=True,
+    )
+    usage = {
+        "model_invocations": 1, "input_tokens": 100, "cached_input_tokens": 80,
+        "output_tokens": 30, "reasoning_output_tokens": 20,
+    }
+    kernel.settle_task(
+        task_id="usage-detail", idempotency_key="settle-usage-detail",
+        status="completed", model_usage=normalize_director_usage(usage),
+    )
+    # Reloading replays immutable events; detail counts are subsets, not
+    # additional input/output budget consumption.
+    reopened = RunKernel(tmp_path / "runtime", tmp_path / "run")
+    projected = project_observed_model_totals(reopened.state)
+    for key, expected in usage.items():
+        assert reopened.state.model_totals[key] == expected
+        assert projected[key] == expected
+
+
 def test_model_budget_extension_cannot_reduce_existing_limits(
     tmp_path: Path,
 ) -> None:
@@ -398,6 +506,32 @@ def test_terminal_run_reopens_only_for_explicitly_bound_new_work(
             work_fingerprint="other-work",
             idempotency_key="cannot-reopen-running-run",
         )
+
+
+def test_cancelled_run_reopens_only_through_explicit_checkpoint_resume(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    kernel.cancel(
+        idempotency_key="operator-cancel-before-resume",
+        reasons=("user_requested",),
+    )
+    before = kernel.state
+
+    event = kernel.reopen_for_new_work(
+        work_fingerprint="cancelled-checkpoint-revision-3",
+        reasons=("operator_resumed_cancelled_checkpoint",),
+        idempotency_key="resume-cancelled-checkpoint-revision-3",
+    )
+
+    assert event.event_type == "run_reopened"
+    assert event.payload["from_status"] == "cancelled"
+    assert kernel.state.status == "running"
+    assert kernel.state.attempt_count == before.attempt_count
+    assert kernel.state.accepted_expansion_ids == before.accepted_expansion_ids
+    replayed = RunKernel(tmp_path / "runtime", tmp_path / "run")
+    assert replayed.state.status == "running"
 
 
 def test_accepted_expansions_are_unique_and_attempts_are_independent(

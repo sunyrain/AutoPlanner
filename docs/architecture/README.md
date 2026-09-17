@@ -1,6 +1,6 @@
 # 架构文档导航
 
-更新：2026-08-31
+更新：2026-09-17
 
 本目录按“当前事实、目标设计、迁移记录、历史边界”分工。判断某项能力是否已经完成时，
 必须先读当前状态页，不能从类名、fixture、展示截图或设计文档反推实现状态。
@@ -23,6 +23,16 @@
 8. [V4_MODULE_AND_COMPATIBILITY_MAP.md](V4_MODULE_AND_COMPATIBILITY_MAP.md)：当前模块和兼容边界。
 
 ## 实施与历史记录
+
+- [BASE_PROMPTS_CURRENT.md](BASE_PROMPTS_CURRENT.md)：2026-09-16 当前逆合成主线基础提示词全册，
+  包含真实拼接顺序、英文原文、条件追加段和角色输入输出说明。
+  [输出协议与工具定义](BASE_PROMPTS_SCHEMAS.md)、[兼容分支](BASE_PROMPTS_COMPATIBILITY.md) 单列附录。
+- [PROCESS_BRIEF_DESIGN.md](PROCESS_BRIEF_DESIGN.md)：工艺需求接入的讨论草案，尚未实施；
+  当前先核对基础提示词，再讨论可插拔约束模块的接口和插入位置。
+- [BOUNDED_PLANNING_EVIDENCE.md](BOUNDED_PLANNING_EVIDENCE.md)：当前有限规划查询的额度、
+  工具边界与无检索对照；不改变已有运行的证据。
+- [网站与导出说明](../../cascade_planner/web/README.md)：唯一 Web 入口、实时与重放投影、
+  中英切换及 Critic 当前终审／历史判断的展示边界。
 
 - [面向合成学者的策略先行概念图](../assets/current-architecture/strategy-first-generative-retrosynthesis-zh.png)：
   对外说明同一生成式逆合成范式的延伸；它是展示投影，不是实现状态权威。

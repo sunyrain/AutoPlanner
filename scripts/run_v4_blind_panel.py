@@ -1009,7 +1009,9 @@ def _resolve_panel_fixed_cutoff_wall_time_s(
         value = float(requested)
         if value <= 0:
             raise ValueError("--fixed-cutoff-wall-time-s must be positive")
-        if abs(value - expected) > 1e-9:
+        # Enhanced runs share the sequential executor, not the frozen paper
+        # experiment's time allowance. Honor their explicit operational cutoff.
+        if execution_profile != "self_correcting_sequential" and abs(value - expected) > 1e-9:
             raise ValueError(
                 "paper_synthex requires the frozen operational target cutoff"
             )

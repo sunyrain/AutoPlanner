@@ -17,7 +17,7 @@ def test_compact_chemistry_inspection_reports_only_requested_mapped_center() -> 
     assert result["ok"] is True
     assert len(result["centers"]) == 1
     assert result["centers"][0]["map_idx"] == 2
-    assert result["centers"][0]["cip"] in {"R", "S"}
+    assert result["centers"][0]["cip"] == "S"
     assert result["unassigned_center_maps"] == []
     assert [atom["map_idx"] for atom in result["atoms"]] == [2]
     assert {
@@ -68,13 +68,17 @@ def test_compact_chemistry_inspection_rejects_invalid_smiles() -> None:
     }
 
 
-def test_chemistry_inspection_mcp_exposes_only_bounded_structure_tool() -> None:
+def test_chemistry_inspection_mcp_exposes_only_bounded_structure_tool(tmp_path) -> None:
     server = (
         Path(__file__).resolve().parents[1]
         / "cascade_planner"
         / "application"
         / "chemistry_inspection_mcp.py"
     )
+    # Exercise the same top-level imports used in the isolated worker bundle.
+    for name in ("chemistry_inspection_mcp.py", "chemistry_inspection.py", "stereochemistry.py"):
+        (tmp_path / name).write_bytes((server.parent / name).read_bytes())
+    server = tmp_path / server.name
     requests = [
         {
             "jsonrpc": "2.0",
@@ -117,3 +121,4 @@ def test_chemistry_inspection_mcp_exposes_only_bounded_structure_tool() -> None:
     }
     assert responses[2]["result"]["structuredContent"]["ok"] is True
     assert responses[2]["result"]["structuredContent"]["centers"][0]["map_idx"] == 2
+    assert responses[2]["result"]["structuredContent"]["centers"][0]["cip"] == "S"

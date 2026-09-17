@@ -26,14 +26,14 @@ from cascade_planner.application.retrosynthesis_workers import (
 
 
 PUBCHEM_VENDOR_ADAPTER_VERSION = "autoplanner.pubchem_vendor_catalog.v1"
-STANDARD_STOCK_CATALOG_NAME = "ZINC+eMolecules"
+STANDARD_STOCK_CATALOG_NAME = "ZINC + basic chemicals"
 STANDARD_STOCK_INDEX_RELATIVE_PATH = Path(
-    "data_external/synthatlas/zinc_synthelite_20260223_full_inchikey.sqlite3"
+    "data_external/synthatlas/zinc_basic_reagents_20260917_full_inchikey.sqlite3"
 )
 STANDARD_STOCK_INDEX_SHA256 = (
-    "4d2f601ddd5af10b1c179ec583062d3ba3136553e285944d125e7b5ce19b5a65"
+    "2b88171fe43726d7d47539a794a7ef8e008a28d1a2a85ed81f6c30d529ebf272"
 )
-STANDARD_STOCK_MEMBER_COUNT = 39_478_827
+STANDARD_STOCK_MEMBER_COUNT = 17_422_896
 _PUG_PROPERTY_URL = (
     "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/property/"
     "CanonicalSMILES,IsomericSMILES/JSON"
@@ -193,6 +193,7 @@ class FrozenBenchmarkStockIndex:
                 "read_only_shared_index": True,
                 "not_a_reaction_or_route_provider": True,
                 "not_procurement_authority": True,
+                "catalog_miss_does_not_imply_procurement_unavailable": True,
                 "connectivity_diagnostic_is_non_authoritative": True,
                 "only_exact_identity_match_grants_membership": True,
             },

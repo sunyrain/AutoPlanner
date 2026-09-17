@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cascade_planner.agent.codex_worker import DEFAULT_CODEX_REASONING_EFFORT
 from cascade_planner.harness.source_capabilities import meaningful_compound_labels
 
 try:
@@ -50,7 +51,7 @@ def run_visual_literature_chain_agent(
     codex_executable: str | None = None,
     allow_repair: bool = True,
     ambient_auth: bool | None = None,
-    reasoning_effort: str = "low",
+    reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
 ) -> dict[str, Any]:
     expected_labels = meaningful_compound_labels(expected_labels or [])
     out = Path(output_dir).resolve()
@@ -506,7 +507,7 @@ def _run_visual_json_prompt(
     stderr_log_filename: str,
     last_message_filename: str,
     ambient_auth: bool = False,
-    reasoning_effort: str = "low",
+    reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
 ) -> dict[str, Any]:
     if _visual_direct_api_enabled() and not ambient_auth:
         direct_attempt = _run_direct_visual_prompt(
@@ -702,7 +703,7 @@ def _run_codex_visual_prompt(
     stderr_log_filename: str,
     last_message_filename: str,
     ambient_auth: bool = False,
-    reasoning_effort: str = "low",
+    reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
 ) -> dict[str, Any]:
     output_dir = output_dir.resolve()
     prompt_path = output_dir / prompt_filename
@@ -747,7 +748,7 @@ def _run_codex_visual_prompt(
         "--model",
         str(model),
     ]
-    if reasoning_effort in {"low", "medium", "high"}:
+    if reasoning_effort in {"low", "medium", "high", "xhigh"}:
         command.extend(
             ["-c", f"model_reasoning_effort={_toml_string(reasoning_effort)}"]
         )

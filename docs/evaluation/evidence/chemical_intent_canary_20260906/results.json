@@ -1,0 +1,158 @@
+{
+  "scope": "integration diagnostics, not a matched efficacy experiment",
+  "rdkit_version": "2023.09.6",
+  "new_detection_assessment": "uncertain",
+  "fixed_critic_repair_status": "repair_unresolved",
+  "transaction_status": "retained_uncommitted_prefix",
+  "transaction_reason": "path_repair_cut_frontier_not_reached",
+  "search_stop_reason": "route_builder_input_token_allocation_exhausted",
+  "original_reaction_identities_retained": true,
+  "stereo_boundary_checks": [
+    {
+      "candidate_id": "intent-repair:branch:3:node:2:candidate:1",
+      "same_connectivity_without_maps": true,
+      "same_stereochemistry_without_maps": false,
+      "expected_identity": "COC(=O)CC[C@@]1(c2ccccc2)C[C@H](O)C1",
+      "actual_identity": "COC(=O)CC[C@@]1(c2ccccc2)C[C@@H](O)C1"
+    },
+    {
+      "candidate_id": "intent-repair:branch:3:node:4:candidate:1",
+      "same_connectivity_without_maps": true,
+      "same_stereochemistry_without_maps": false,
+      "expected_identity": "COC(=O)CC[C@@]1(c2ccccc2)C[C@H](O)C1",
+      "actual_identity": "COC(=O)CC[C@@]1(c2ccccc2)C[C@@H](O)C1"
+    }
+  ],
+  "worker_calls": 7,
+  "calls": [
+    {
+      "canary": "bch3",
+      "task_id": "intent-final-critic",
+      "task_type": "paper_matched_route_critic",
+      "usage": {
+        "cache_write_input_tokens": 0,
+        "cached_input_tokens": 111488,
+        "input_tokens": 173684,
+        "output_tokens": 2827,
+        "reasoning_output_tokens": 1081
+      },
+      "tools": {
+        "inspect_mapped_smiles": 2,
+        "web_search": 1
+      },
+      "responses": 3,
+      "source": "results\\discussion\\chemical-intent-canary-20260906\\bch3\\critic-worker\\model-io.jsonl"
+    },
+    {
+      "canary": "bch3-fixed-critic-budget64k",
+      "task_id": "intent-repair:branch:3:editor:1",
+      "task_type": "path_repair_editor",
+      "usage": {
+        "cache_write_input_tokens": 0,
+        "cached_input_tokens": 4096,
+        "input_tokens": 56325,
+        "output_tokens": 483,
+        "reasoning_output_tokens": 336
+      },
+      "tools": {},
+      "responses": 1,
+      "source": "results\\discussion\\chemical-intent-canary-20260906\\bch3-fixed-critic-budget64k\\repair-worker\\model-io.jsonl"
+    },
+    {
+      "canary": "bch3-fixed-critic-budget64k",
+      "task_id": "intent-repair:branch:3:node:1",
+      "task_type": "paper_matched_route_step",
+      "usage": {
+        "cache_write_input_tokens": 0,
+        "cached_input_tokens": 59392,
+        "input_tokens": 111561,
+        "output_tokens": 633,
+        "reasoning_output_tokens": 330
+      },
+      "tools": {
+        "inspect_mapped_smiles": 1
+      },
+      "responses": 2,
+      "source": "results\\discussion\\chemical-intent-canary-20260906\\bch3-fixed-critic-budget64k\\repair-worker\\model-io.jsonl"
+    },
+    {
+      "canary": "bch3-fixed-critic-budget64k",
+      "task_id": "intent-repair:branch:3:node:2",
+      "task_type": "paper_matched_route_step",
+      "usage": {
+        "cache_write_input_tokens": 0,
+        "cached_input_tokens": 55424,
+        "input_tokens": 111921,
+        "output_tokens": 591,
+        "reasoning_output_tokens": 348
+      },
+      "tools": {
+        "inspect_mapped_smiles": 1
+      },
+      "responses": 2,
+      "source": "results\\discussion\\chemical-intent-canary-20260906\\bch3-fixed-critic-budget64k\\repair-worker\\model-io.jsonl"
+    },
+    {
+      "canary": "bch3-fixed-critic-budget64k",
+      "task_id": "intent-repair:branch:3:node:3",
+      "task_type": "paper_matched_route_step",
+      "usage": {
+        "cache_write_input_tokens": 0,
+        "cached_input_tokens": 0,
+        "input_tokens": 60588,
+        "output_tokens": 895,
+        "reasoning_output_tokens": 723
+      },
+      "tools": {
+        "web_search": 1
+      },
+      "responses": 1,
+      "source": "results\\discussion\\chemical-intent-canary-20260906\\bch3-fixed-critic-budget64k\\repair-worker\\model-io.jsonl"
+    },
+    {
+      "canary": "bch3-fixed-critic-budget64k",
+      "task_id": "intent-repair:branch:3:node:4",
+      "task_type": "paper_matched_route_step",
+      "usage": {
+        "cache_write_input_tokens": 0,
+        "cached_input_tokens": 4096,
+        "input_tokens": 55759,
+        "output_tokens": 423,
+        "reasoning_output_tokens": 301
+      },
+      "tools": {},
+      "responses": 1,
+      "source": "results\\discussion\\chemical-intent-canary-20260906\\bch3-fixed-critic-budget64k\\repair-worker\\model-io.jsonl"
+    },
+    {
+      "canary": "bch3-fixed-critic-budget64k",
+      "task_id": "intent-repair:branch:3:node:5",
+      "task_type": "paper_matched_route_step",
+      "usage": {
+        "cache_write_input_tokens": 0,
+        "cached_input_tokens": 4096,
+        "input_tokens": 60696,
+        "output_tokens": 760,
+        "reasoning_output_tokens": 612
+      },
+      "tools": {
+        "web_search": 1
+      },
+      "responses": 1,
+      "source": "results\\discussion\\chemical-intent-canary-20260906\\bch3-fixed-critic-budget64k\\repair-worker\\model-io.jsonl"
+    }
+  ],
+  "usage_totals": {
+    "cache_write_input_tokens": 0,
+    "cached_input_tokens": 238592,
+    "input_tokens": 630534,
+    "output_tokens": 6612,
+    "reasoning_output_tokens": 3731
+  },
+  "limitations": [
+    "No successful rebuilt route or live re-Critic in this canary.",
+    "Map-free RDKit comparison checks identity, not reaction feasibility.",
+    "Historical fixed critique and new detection were not merged.",
+    "One earlier launch used an output budget below the Editor/Critic reserve; it made zero model calls."
+  ]
+}

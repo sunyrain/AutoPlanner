@@ -1,5 +1,7 @@
 # V4 操作手册
 
+增强顺序流程的库存/文献查询配置及日志说明见 [有限规划查询](architecture/BOUNDED_PLANNING_EVIDENCE.md)。默认整轮上限为库存 24、名称解析 4、文献检索 8、正文读取 4；网页不自动图转 SMILES。关闭对照用 `enable_planning_evidence=false`。
+
 ## 1. 本地配置
 
 默认运行根目录为 `results/.autoplanner`。可使用以下环境变量或等价的 CLI 全局参数：
@@ -519,10 +521,15 @@ python -m cascade_planner serve --server flask --host 127.0.0.1 --port 8878
 需要网页实时监控的 smoke 必须通过同一服务的 `POST /api/v4/jobs` 启动，随后使用返回的 `job_id` 连接
 `/api/v4/live/<job_id>/events`。不要增加扫描任意结果目录的隐式导入器来制造第二个任务状态权威。
 Web、CLI、panel 与直接库调用的 `benchmark_search` 默认统一绑定
-`data_external/synthatlas/zinc_synthelite_20260223_full_inchikey.sqlite3`，并在任何付费模型调用前校验其固定
-SHA-256、完整状态、39,478,827 个唯一成员和 `full_inchikey` 身份。只有运行独立 benchmark 时才同时显式提供
+`data_external/synthatlas/zinc_basic_reagents_20260917_full_inchikey.sqlite3`，并在任何付费模型调用前校验其固定
+SHA-256、完整状态、17,422,896 个唯一成员和 `full_inchikey` 身份。运行其他库存边界时可同时显式提供
 `benchmark_stock_index`、`benchmark_stock_index_sha256` 和 `benchmark_stock_name` 覆盖该默认值；显式覆盖会形成
 不同的 stock oracle，不能计作 SynthEx 库存可比结果。`procurement` 仍只读取明确提交的 inventory snapshot。
+
+默认目录为 `ZINC + basic chemicals`：原 ZINC 加上显式的 50 种基础物料清单（新增 49 个身份），
+再并入 44 种常用试剂清单（另新增 16 个身份）。前两版库存及已有任务的绑定保持不变。
+清单与构建方法见 [data/stock/README.md](../data/stock/README.md)。不包含 eMolecules，
+不按原子数放行；目录命中仍不代表实时可采购或反应已验证。
 
 Canonical Web 不发送 `objective_mode`。旧 API 客户端仍可暂时传入该字段，但
 `POST /api/v4/solve-target` 和 `POST /api/v4/jobs` 会返回 `Deprecation: true`、HTTP
@@ -531,6 +538,38 @@ Canonical Web 不发送 `objective_mode`。旧 API 客户端仍可暂时传入�
 
 旧 Agent/Statin/RouteForest combined Web 已从当前源码退役；不要为历史案卷重新建立第二个 Web 服务。
 历史运行仍通过 `/v4` 和 canonical Workbench 只读审查。
+
+### Worker token 排查
+
+Codex worker 默认记录 `metadata.usage_diagnostics`，并在 `model-io.jsonl` 的输入／输出事件中记录
+提示词尺寸和用量诊断。原始任务记录仍由 `sequential-director-worker-records.jsonl` 保存。
+每个 worker 的请求级诊断写入同一审计目录的 `codex_worker_usage/<唯一编号>.jsonl`；记录以
+`task_id` 关联，包含可观测的请求尝试、响应用量、CLI 版本和模型信息。
+
+采集使用 CLI 本地 stderr 的 `codex_otel` 日志，不启动网络收集服务。子进程只增加定向日志过滤器
+`codex_otel=info`，关闭用户提示词遥测；新增诊断文件只保留允许的标量字段，不复制请求正文、
+工具输出内容或凭据。普通 stderr 保存前会移除该遥测通道。设置
+`AUTOPLANNER_CODEX_WORKER_USAGE_TRACE=0` 可关闭请求级采集。
+
+诊断分别记录项目提示词、实际 stdin、worker 包装和输出 schema 的字符数／UTF-8 字节数；
+追加上下文各字段的尺寸是分别序列化的测量值，不能相加代替完整输入。**字符数不是 token 数**，
+也不能据此反推出服务端系统提示词或工具定义所占 token。
+
+用量包含输入、缓存输入、输出、推理输出、首个响应输入及后续响应输入，并核对响应输入合计与
+CLI 任务用量是否一致。缓存属于输入，推理属于输出，不能重复相加。一次 worker 可以发起多个
+provider 请求，失败重试也应单独查看；传输完成通知和携带用量的完成通知不重复计数。
+诊断不参与 RunKernel 预算结算。超时、缺失遥测或旧日志没有的字段保持未知，不补造零成本。
+
+比较保存的运行或单个 `*-record.json`：
+
+```bash
+python scripts/report_worker_usage.py RUN_DIR_A RUN_DIR_B --output-prefix results/discussion/worker-usage
+```
+
+输出同名 CSV、JSON 和 Markdown：按模型／角色汇总，CSV 保留每次调用的任务 ID、耗时、
+推理强度、传输、提示词尺寸、用量、工具次数、请求记录位置及模型元数据回退提示。
+历史记录只导出已有数据，不使用当前配置回填当时未记录的字段。先比较同角色无工具任务的首个输入，
+再比较工具后的追加输入、缓存和请求尝试；存在用量不一致或观测缺口时，不能作精确费用归因。
 
 ## 7. 本地发布门
 

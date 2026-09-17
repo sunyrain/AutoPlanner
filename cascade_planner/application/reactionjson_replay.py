@@ -12,7 +12,10 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from cascade_planner.application.stereochemistry import canonical_stereo_smiles as _canonical_smiles
+
 from rdkit import Chem, RDLogger
+from .stereochemistry import STEREOCHEMISTRY_VERSION, atom_cip_label
 
 from .reactionjson_primitives import AUTOPLANNER_EXTENSIONS, PRIMITIVES
 from .reactionjson_primitives import ReactionJsonReplayError
@@ -57,12 +60,29 @@ def replay_reactionjson(
         if row["op"] == "set_explicit_h"
     }
     deferred_stereo: list[tuple[int, dict[str, Any]]] = []
+    cleared_bonds: set[frozenset[int]] = set()
     for operation_index, row in enumerate(rows):
-        if row["op"] in {"set_bond_stereo", "set_tetrahedral_stereo"}:
+        if row["op"] == "set_bond_stereo":
+            pair = frozenset((int(row["map_a"]), int(row["map_b"])))
+            if row["stereo"] == "NONE":
+                cleared_bonds.add(pair)
+                deferred_stereo = [
+                    (index, prior) for index, prior in deferred_stereo
+                    if prior["op"] != "set_bond_stereo" or frozenset(
+                        (int(prior["map_a"]), int(prior["map_b"]))
+                    ) != pair
+                ]
+            else:
+                cleared_bonds.discard(pair)
+        if row["op"] in {"set_bond_stereo", "set_tetrahedral_stereo"} and not (
+            row["op"] == "set_bond_stereo" and row["stereo"] == "NONE"
+        ):
             # Bond stereo is serialization on the final edited graph, not a
             # separate skeletal edit.  Defer it until ordinary valences have
             # been recomputed so the Host can select the correct CIP reference
             # neighbours instead of asking the model to serialize RDKit state.
+            # Clearing an existing bond's stereo is ordered: the next edit
+            # may consume that bond. Do not defer a clear onto a deleted bond.
             deferred_stereo.append((operation_index, row))
             continue
         try:
@@ -82,6 +102,12 @@ def replay_reactionjson(
                 failed_operation=_public_operation(row),
             ) from exc
     try:
+        # Aromatic atom flags describe the final bond graph. A complete ring
+        # disconnection can consume every aromatic bond at an atom without
+        # changing its stale product-state flag. Do not kekulize or invent
+        # bond orders: unconverted aromatic bonds must still fail sanitization.
+        for atom in editable.GetAtoms():
+            atom.SetIsAromatic(any(bond.GetIsAromatic() for bond in atom.GetBonds()))
         completed_maps = complete_edited_atom_valences(
             editable,
             map_indices=valence_completion_maps - explicit_h_maps,
@@ -122,6 +148,15 @@ def replay_reactionjson(
         replayed = editable.GetMol()
         Chem.SanitizeMol(replayed)
         Chem.AssignStereochemistry(replayed, cleanIt=True, force=True)
+        for bond in replayed.GetBonds():
+            pair = frozenset((bond.GetBeginAtom().GetAtomMapNum(), bond.GetEndAtom().GetAtomMapNum()))
+            if pair in cleared_bonds and bond.GetStereo() not in {
+                Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY,
+            }:
+                # A central polyene bond can acquire directions required by
+                # both retained neighbours. Plain SMILES cannot always carry
+                # that partial assignment; never silently invent its E/Z.
+                raise ReactionJsonReplayError("reactionjson_bond_stereo_clear_not_representable")
         for operation_index, row in deferred_stereo:
             if row["op"] != "set_tetrahedral_stereo":
                 continue
@@ -129,7 +164,7 @@ def replay_reactionjson(
                 _map_index_for_audit(replayed, int(row["map_idx"]))
             )
             requested = str(row["configuration"]).upper()
-            if not atom.HasProp("_CIPCode") or atom.GetProp("_CIPCode") != requested:
+            if atom_cip_label(replayed, atom.GetIdx()) != requested:
                 raise ReactionJsonReplayError(
                     "reactionjson_tetrahedral_stereo_not_assignable",
                     operation_index=operation_index,
@@ -166,6 +201,7 @@ def replay_reactionjson(
     public_profile_compatible = not extensions_used
     audit = {
         "schema_version": REACTIONJSON_REPLAY_AUDIT_SCHEMA,
+        "stereochemistry_version": STEREOCHEMISTRY_VERSION,
         "profile": (
             REACTIONJSON_PROFILE
             if public_profile_compatible
@@ -445,6 +481,14 @@ def _resolve_add_group_atom_maps(
             # Keep the existing operation-local typed failure and index.
             continue
         fragments[index] = fragment
+    fresh_atom_map_start = max(
+        reserved | {
+            atom.GetAtomMapNum() for fragment in fragments.values()
+            for atom in fragment.GetAtoms() if atom.GetAtomicNum() != 0
+        }, default=0,
+    ) + 1
+    for index, fragment in fragments.items():
+        row = normalized[index]
         for atom in fragment.GetAtoms():
             if atom.GetAtomicNum() == 0:
                 continue
@@ -456,6 +500,17 @@ def _resolve_add_group_atom_maps(
                     "reactionjson_fragment_map_collision",
                     operation_index=index,
                     failed_operation=row,
+                    failure_context={
+                        "colliding_atom_map": map_idx,
+                        "fresh_atom_map_start": fresh_atom_map_start,
+                        "required_repair": (
+                            "Fresh fragment atoms cannot reuse any route-reserved identity, even if absent "
+                            "from the selected leaf. Leave new atoms unmapped when later operations do not "
+                            "reference them; the Host assigns and persists fresh maps. Otherwise assign "
+                            f"distinct fresh maps starting at {fresh_atom_map_start} and update all references "
+                            "to those newly introduced atoms only; preserve existing atom identities."
+                        ),
+                    },
                 )
             explicit_new_maps.add(map_idx)
 
@@ -566,20 +621,6 @@ def _fragments(molecule: Chem.Mol, *, keep_maps: bool) -> list[str]:
             mapped_smiles if keep_maps else _canonical_smiles(mapped_smiles)
         )
     return sorted(values)
-
-
-def _canonical_smiles(value: Any) -> str:
-    molecule = Chem.MolFromSmiles(str(value or "").strip())
-    if molecule is None:
-        return ""
-    for atom in molecule.GetAtoms():
-        atom.SetAtomMapNum(0)
-    # Atom maps can make constitutionally identical substituents appear
-    # distinct while a mapped edit is being replayed.  Once maps are removed,
-    # recompute stereo so a tetrahedral tag that is no longer physical does
-    # not leak into the canonical precursor identity.
-    Chem.AssignStereochemistry(molecule, cleanIt=True, force=True)
-    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
 
 
 def _digest(value: Any) -> str:

@@ -49,6 +49,7 @@ from cascade_planner.application.strategy_contract import (
     strategy_card_has_content,
 )
 from cascade_planner.harness.reaction_step_verifier import verify_reaction_step
+from cascade_planner.application.reaction_inputs import reaction_input_smiles
 from cascade_planner.application.reaction_proof_versions import (
     CURRENT_REACTION_VALIDATOR_VERSION,
 )
@@ -264,6 +265,10 @@ def materialization_commands_for_global_plan(
                     "route_family_id": route_family_id,
                     "skeleton_id": skeleton_id,
                     "step_id": str(step.get("step_id") or ""),
+                    **({"condition_predictions": [
+                        dict(value) for value in step.get("condition_predictions") or ()
+                        if isinstance(value, Mapping)
+                    ]} if "condition_predictions" in step else {}),
                     "transformation_hypothesis": str(
                         step.get("transformation_hypothesis") or ""
                     ),
@@ -393,8 +398,15 @@ def materialization_commands_for_proposals(
             continue
         row = dict(raw)
         product = str(row.get("product_smiles") or "").strip()
-        precursors = _string_list(
+        route_precursors = _string_list(
             row.get("precursor_smiles") or row.get("reactant_smiles")
+        )
+        reactionjson_audit = dict(row.get("reactionjson_audit") or {})
+        reaction_inputs = _string_list(
+            row.get("reaction_input_smiles")
+            or reactionjson_audit.get("reaction_input_smiles")
+            or reactionjson_audit.get("precursor_smiles")
+            or route_precursors
         )
         operations = normalize_reaction_operations(
             row.get("reaction_operations") or ()
@@ -433,24 +445,34 @@ def materialization_commands_for_proposals(
         identity = _digest(
             {
                 "product_smiles": product,
-                "precursor_smiles_multiset": sorted(precursors),
+                "precursor_smiles_multiset": sorted(reaction_inputs),
                 "reaction_edit_digest": reaction_edit_digest(operations),
             }
         )
-        candidate_audit = audit_retrosynthetic_candidate(product, precursors)
+        candidate_audit = audit_retrosynthetic_candidate(product, reaction_inputs)
         if str(candidate_audit.get("edge_digest") or "") in existing_set:
             continue
         payload = grouped.setdefault(
             identity,
             {
                 "product_smiles": product,
-                "precursor_smiles": precursors,
+                "precursor_smiles": route_precursors,
+                "reaction_input_smiles": reaction_inputs,
+                "auxiliary_reagent_smiles": _string_list(
+                    row.get("auxiliary_reagent_smiles")
+                    or reactionjson_audit.get("auxiliary_reagent_smiles")
+                ),
+                "reaction_component_ledger": dict(
+                    row.get("reaction_component_ledger")
+                    or reactionjson_audit.get("reaction_component_ledger")
+                    or {}
+                ),
                 "reagent_smiles": _string_list(row.get("reagent_smiles")),
                 "condition_predictions": [],
                 "biocatalytic_steps": [],
                 "route_innovations": [],
                 "reaction_operations": [dict(value) for value in operations],
-                "reactionjson_audit": dict(row.get("reactionjson_audit") or {}),
+                "reactionjson_audit": reactionjson_audit,
                 "strategy_cards": [],
                 "route_innovation_reject_reasons": [],
                 "existing_edge_digests": existing,
@@ -479,6 +501,10 @@ def materialization_commands_for_proposals(
                 "proposal_id": str(
                     row.get("proposal_id") or row.get("step_id") or ""
                 ),
+                **({"condition_predictions": [
+                    dict(value) for value in row.get("condition_predictions") or ()
+                    if isinstance(value, Mapping)
+                ]} if "condition_predictions" in row else {}),
                 "route_family_id": str(row.get("route_family_id") or ""),
                 "canonical_route_family_ids": sorted(
                     {
@@ -649,8 +675,15 @@ def materialize_candidate_worker(
     del artifacts
     payload = dict(command.payload)
     product = payload.get("product_smiles")
-    precursors = _string_list(
+    route_precursors = _string_list(
         payload.get("precursor_smiles") or payload.get("reactant_smiles")
+    )
+    reactionjson_audit = dict(payload.get("reactionjson_audit") or {})
+    reaction_inputs = _string_list(
+        payload.get("reaction_input_smiles")
+        or reactionjson_audit.get("reaction_input_smiles")
+        or reactionjson_audit.get("precursor_smiles")
+        or route_precursors
     )
     mapped_reaction_smiles = next(
         (
@@ -673,16 +706,16 @@ def materialize_candidate_worker(
     )
     audit = audit_retrosynthetic_candidate(
         product,
-        precursors,
+        reaction_inputs,
         forbidden_return_smiles=_string_list(
             payload.get("ancestor_smiles") or payload.get("forbidden_return_smiles")
         ),
         mapped_reaction_smiles=mapped_reaction_smiles,
-        mapped_product_smiles=dict(payload.get("reactionjson_audit") or {}).get(
+        mapped_product_smiles=reactionjson_audit.get(
             "mapped_product_smiles"
         ),
         reaction_operations=payload.get("reaction_operations") or (),
-        reactionjson_audit=dict(payload.get("reactionjson_audit") or {}),
+        reactionjson_audit=reactionjson_audit,
     )
     reasons = list(audit.get("reasons") or [])
     reasons.extend(payload.get("route_innovation_reject_reasons") or [])
@@ -720,7 +753,7 @@ def materialize_candidate_worker(
                 raw_record.get("execution_domain") or "enzymatic"
             ),
             product_smiles=product,
-            precursor_smiles=precursors,
+            precursor_smiles=reaction_inputs,
             enzyme_label=str(catalyst.get("enzyme_label") or ""),
             step_id=str(raw_record.get("step_id") or ""),
         )
@@ -729,7 +762,7 @@ def materialize_candidate_worker(
     biocatalytic_steps = _merge_digest_rows((), biocatalytic_steps)
     critic = critique_strategy_candidate(
         product_smiles=product,
-        precursor_smiles=precursors,
+        precursor_smiles=reaction_inputs,
         strategy_card=strategy_cards[0] if strategy_cards else {},
         reaction_operations=payload.get("reaction_operations") or (),
         reactionjson_audit=dict(payload.get("reactionjson_audit") or {}),
@@ -797,7 +830,16 @@ def materialize_candidate_worker(
         "edge_digest": edge_digest,
         "edge_identity": dict(audit.get("edge_identity") or {}),
         "product_smiles": str(audit.get("product_smiles") or ""),
-        "precursor_smiles": list(audit.get("precursor_smiles_multiset") or []),
+        "precursor_smiles": route_precursors,
+        "reaction_input_smiles": list(
+            audit.get("precursor_smiles_multiset") or []
+        ),
+        "auxiliary_reagent_smiles": _string_list(
+            payload.get("auxiliary_reagent_smiles")
+        ),
+        "reaction_component_ledger": dict(
+            payload.get("reaction_component_ledger") or {}
+        ),
         "reagent_smiles": sorted(canonical_reagents),
         "condition_predictions": _merge_annotation_rows(
             (), payload.get("condition_predictions")
@@ -963,7 +1005,7 @@ def validate_reaction_worker(
     step = {
         "step_id": str(candidate.get("candidate_id") or "candidate"),
         "product_smiles": str(candidate["product_smiles"]),
-        "reactant_smiles": list(candidate["precursor_smiles"]),
+        "reactant_smiles": reaction_input_smiles(candidate),
         "mapped_reaction_smiles": str(
             payload.get("mapped_reaction_smiles")
             or payload.get("atom_mapped_reaction_smiles")
@@ -1939,6 +1981,7 @@ def audit_benchmark_leaf_stock_worker(
                 "benchmark_membership_only": True,
                 "immutable_content_addressed_catalog": immutable_catalog,
                 "commercial_orderability_claimed": False,
+                "catalog_miss_does_not_imply_procurement_unavailable": True,
                 "every_selected_leaf_has_a_record": True,
             },
         }
